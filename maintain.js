@@ -19,7 +19,7 @@ setRelays(['https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://
         if(e.startsWith("https://pastebin.com/archive"))return;
         const id = e.slice(("https://pastebin.com/").length);
         if(!id)return;
-    //    if(fs.existsSync(`./data/${id}.html`))return;
+        if(fs.existsSync(`./data/${id}.html`))return;
         var { data } = await fetch({ url: `https://pastebin.com/raw/${id}` });
         if(typeof data != 'string') data = JSON.stringify(data);
         fs.writeFileSync(`./data/${id}.txt`, `${data}`)
