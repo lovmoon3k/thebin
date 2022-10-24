@@ -1,0 +1,638 @@
+#!/usr/bin/env python3
+#
+"""
+	
+	PyQTdf.py
+	
+	
+	Formatted Disk Free in Python may be used in a GUI
+	PYQT Version
+	Created: Oct 06 2022
+	By: MrUNIXMan
+	Version 0.3
+	
+	
+	About this program
+	------------------------
+	
+	This program was re-written to use PSUtil from Python to make it
+	compatible with other operating systems.
+	
+	The older version I would say was Linux specific or any UNIX version
+	that has similar files as /etc/mtab and /proc/filesystems.
+	
+	FreeBSD,NetBSD, OpenBSD and Darwin does not use these 2 files and therefore
+	this program will fail to run.
+	
+	Windows fails on the os.statvfs although it wasn't really intended 
+	for windows. This version does work with Windows after testing the old
+	and this version while installing World of Warcraft.
+	
+	
+	Bytes2human converter should be good to use as it is similar to what
+	was used on my previous version. To generate human readable output.
+	
+	This program still converts from bytes to:
+	512 blocks
+	1024 blocks
+	Megabyte blocks
+	Gigabyte blocks
+	
+	Requirement for this program
+	-------------------------------
+	
+	python3
+	pyqt5    (installed via OS repo or python3 pip)
+	psutil   (installed via python3 pip)
+	
+	These both can be installed via python3 pip, if pyqt5 errors during
+	pip install, you should be able to install it off a repo for the 
+	operating system.
+	
+	------------------------------------------------------------------
+	
+	Licence
+	-------
+	
+	Redistribution and use in source and binary forms, with or without modification, are permitted 
+	provided that the following conditions are met:
+
+	1. Redistributions of source code must retain the above copyright notice, this list of conditions and the 
+	following disclaimer.
+
+	2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the 
+	following disclaimer in the documentation and/or other materials provided with the distribution.
+
+	3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or 
+	promote products derived from this software without specific prior written permission.
+
+	THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR 
+	IMPLIED WARRANTIES,INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND 
+	FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
+	CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES 
+	(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, 
+	OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, 
+	STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF 
+	THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+	
+"""
+
+"""
+
+Imports used by the program
+
+
+
+"""
+import os, sys, psutil
+
+from psutil._common  import bytes2human
+
+from PyQt5.QtWidgets import (
+	QApplication,
+	QPushButton,
+	QLineEdit,
+	QTextEdit,
+	QMainWindow,
+	QDialog,
+	QStyle,
+	QWidget,
+	QLabel,
+	QStatusBar,
+	QAction,
+	QMessageBox,
+	QComboBox,
+	QDialogButtonBox,
+	QVBoxLayout,
+)
+
+
+from PyQt5 import QtCore, QtGui
+
+from PyQt5.QtGui import ( 
+	QPixmap, 
+	QFont, 
+	QIcon,
+)
+
+
+"""
+ Default Disk UNIT Values
+		
+  b = Bytes
+  5 = 512 Blocks    (POSIX Standard)
+  k = 1024 Blocks
+  m = Megabytes
+  g = Gigabytes
+  h = Human Readable  		
+		
+	
+ These are required for blocksize calculations
+"""
+
+
+disk_unit = 'b';		#  Default Unit
+
+"""
+delay timer is in milliseconds (seconds * 10-3,  -3 is small power number)
+
+1000 ms = 1 seconds
+5000 ms = 5 seconds
+
+The listing will refresh on each timeout
+
+
+"""
+
+delay = 5000;				# Delay timer (Miliseconds = 1000 ms = 1 second)
+
+
+# This is for the index change to set the above disk_unit variable
+#			 
+#			[0    1    2    3   4   5]
+diskunits = ("b","5", "k", "m","g","h")
+
+# Window Size
+
+
+
+
+class Window(QMainWindow):
+	def __init__(self):
+		super().__init__()
+		global delay
+		# Title set
+		self.setWindowTitle("Formatted Disk Free")
+		self.setWindowIcon(QIcon('disk.png'));
+		
+		# Geometry 		       x   y (Window size)
+		if(os.name == 'nt'):
+			self.setFixedSize(885,760);		# Windows
+		elif(os.name == 'posix'):
+			self.setFixedSize(1450,760);		# UNIX
+		
+		# Calling method
+		self.GUIComponents()
+		
+		# Timer to refresh by rerunning the function
+		self.update_timer = QtCore.QTimer()	
+		self.update_timer.timeout.connect(self.GetDisks)
+		self.update_timer.start(delay)	# Miliseconds (1000 = 1 Seconds)
+	
+	
+	
+	
+	
+	def GUIComponents(self):
+		
+		"""
+		Initialise the Labels, Buttons, TextBox and Combo Box
+		
+		This is designed to be reusable code between UNIX and Windows which a list of sizes and
+		positions are required as the GUI size are different between UNIX and Windows		
+	
+		"""
+		
+		self.lbldev = QLabel(self)			# Filesystem node / Disk Drive in Windows
+		self.lblTotal = QLabel(self)		# Total
+		self.lblUsed = QLabel(self)			# Used
+		self.lblFree = QLabel(self)			# Free
+		self.lblPercent = QLabel(self)		# % Use
+		self.lblfstype = QLabel(self)		# Filesystem type
+		self.lblMntDir = QLabel(self)		# Mounted on
+		
+		
+		self.lblInfo = QLabel(self)			# Information
+		self.lblBlk = QLabel(self)			# Blocksize Information
+		
+		# Initalise the Textboxes
+		
+		self.DevBox = QTextEdit(self)		# Device Box
+		self.TotalBox = QTextEdit(self)		# Total
+		self.UsedBox = QTextEdit(self)		# Used
+		self.FreeBox = QTextEdit(self)		# Free
+		self.PercentBox = QTextEdit(self)	# % Use 
+		self.FStypeBox = QTextEdit(self)	# Filesystem Type
+		self.MntDirBox = QTextEdit(self)	# Mounted on or Mapped Letter (Windows)
+		
+		# Init the Buttons
+		
+		self.BtnAbout = QPushButton("About", self)			# About Buttons
+		self.BtnQuit = QPushButton("Quit", self)			# Quit
+		
+		# Combo Box
+		
+		self.UNITcombo = QComboBox(self)		# List numbers of Units
+		
+		
+		"""
+		This section sets the geometry for Windows and UNIX as well as
+		labels.
+		
+		Windows and UNIX differs aim to use reuse code
+		
+		Window on UNIX is larger to take long names used on Filesystem and
+		mounted on sections
+		
+		Windows is smaller due to use of drive letters.
+		
+		
+		
+		
+		Geometry Settings on widgets using the 
+		.setGeometry(Position X, Position Y, width, height)	
+		
+		"""
+		
+		
+		if(os.name == 'nt'):
+			
+			
+			# Labels Text and sizes for Windows
+			
+			
+			
+			
+			self.lbldev.setText("Device")			# Windows - it shows C:\
+			self.lbldev.setGeometry(10,5,350,70)
+			
+			self.lblTotal.setGeometry(90,5,350,70)	# Total Box label
+			self.lblUsed.setGeometry(247,5,350,70)	# Used Box label
+			self.lblFree.setGeometry(403,5,350,70)	# Free Box label
+			self.lblPercent.setGeometry(557,5,350,70) # %Use Label
+			self.lblfstype.setGeometry(637,5,350,70)   # Filesystem type 
+			
+			self.lblMntDir.setText("Drive")				# Mounted on
+			self.lblMntDir.setGeometry(737,5,350,70)
+			
+			
+			self.lblInfo.setGeometry(5,570,355,70)		# Info Labels
+			self.lblBlk.setGeometry(5,600,350,70)		# Blocksize Label
+			
+			
+			
+			# Textbox sizes and text
+			
+			self.DevBox.setGeometry(5,60,80,530)		# Device
+			self.DevBox.setPlaceholderText("Disk");		# Windows Saying
+			
+			self.TotalBox.setGeometry(85,60,155,530)	# Total
+			self.UsedBox.setGeometry(240,60,155,530)	# Used
+			self.FreeBox.setGeometry(395,60,155,530)	# Free
+			self.PercentBox.setGeometry(550,60,80,530)  # %Used
+			self.FStypeBox.setGeometry(630,60,100,530)	# Filesystem type
+			
+			self.MntDirBox.setGeometry(730,60,150,530)
+			self.MntDirBox.setPlaceholderText("Disk drive");
+			
+			
+			# Combo box size and positions
+			
+			self.UNITcombo.setGeometry(5,650,300,30) # 	Combo Box
+			
+			# Button size and positions
+			
+			self.BtnAbout.setGeometry(310,650,180,30)	# Button About
+			self.BtnQuit.setGeometry(510,650,180,30)	# Button Quit
+			
+			
+			
+			
+			
+			
+		elif(os.name == 'posix'):
+			
+			#{
+			#Labels
+			
+			#Label config 
+			
+			self.lbldev.setText("Filesystem Node")		# Text for UNIX	
+			self.lbldev.setGeometry(10,5,350,70)		# Geom to adapt to long names
+			
+			
+			self.lblTotal.setGeometry(427,5,350,70)		# Total
+			self.lblUsed.setGeometry(582,5,350,70)		# Used
+			self.lblFree.setGeometry(737,5,350,70)		# Free
+			self.lblPercent.setGeometry(892,5,350,70)	# %Use
+			self.lblfstype.setGeometry(972,5,350,70)	# FSType
+			
+			
+			self.lblMntDir.setText("Mounted on")		# Text for UNIX
+			self.lblMntDir.setGeometry(1074,5,350,70)	# Mounted on
+			self.lblInfo.setGeometry(5,570,355,70)		# Info Labels
+			self.lblBlk.setGeometry(452,600,350,70)		# Blocksize
+			
+			# Text Boxes size and Text
+			
+			self.DevBox.setGeometry(5,60,420,530)
+			self.DevBox.setPlaceholderText("Filesystem");
+			
+			self.TotalBox.setGeometry(425,60,155,530)	# Total
+			self.UsedBox.setGeometry(580,60,155,530)	# Used 
+			self.FreeBox.setGeometry(735,60,155,530)	# Free
+			self.PercentBox.setGeometry(890,60,80,530)  # %Use
+			self.FStypeBox.setGeometry(970,60,100,530)	# FStype
+			
+			self.MntDirBox.setGeometry(1070,60,375,530)			# Mounted on
+			self.MntDirBox.setPlaceholderText("Mounted on");	# Text
+			
+			# Buttons
+		
+			self.BtnAbout.setGeometry(780,650,180,30)
+			self.BtnQuit.setGeometry(980,650,180,30)
+			
+			# Combo Box
+	
+			self.UNITcombo.setGeometry(450,650,300,30) # 
+			
+			#}
+			
+		# Setting up GUI
+		
+		# Labels
+		self.lblTotal.setText("Total")
+		self.lblUsed.setText("Used")
+		self.lblFree.setText("Free")
+		self.lblPercent.setText("% Used")
+		self.lblfstype.setText("FS Type")
+		
+		self.lblInfo.setText("Nothing to display")		# Info	
+		self.lblBlk.setText("View Blocksize Units")		# Blocksize
+			
+		
+		#Text Box
+		
+		self.DevBox.setReadOnly(True)	# Filesystem/Device Text already set
+		
+		self.TotalBox.setPlaceholderText("Total");
+		self.TotalBox.setReadOnly(True)
+		
+		self.UsedBox.setPlaceholderText("Used");
+		self.UsedBox.setReadOnly(True)
+		
+		self.FreeBox.setPlaceholderText("Free");
+		self.FreeBox.setReadOnly(True)
+		
+		self.PercentBox.setPlaceholderText("% Used");
+		self.PercentBox.setReadOnly(True)
+		
+		self.FStypeBox.setPlaceholderText("Fstype");
+		self.FStypeBox.setReadOnly(True)
+			
+		self.MntDirBox.setReadOnly(True)		# Mount dir or drive already set
+		
+		
+		# Buttons		
+		
+		self.BtnAbout.clicked.connect(self.AboutDialog)		# About
+		self.BtnQuit.clicked.connect(self.Quit)				# Quit
+		
+		
+		# Combo Box Entry - works for both Operating system type
+		
+		# Index                 [ 0   1    2    3    4    5   6    7    8   9    10   11   12    13 ]
+		self.UNITcombo.addItems(["Bytes (default)","512 Blocksize", "1024 Blocksize", "Megabytes", "Gigabytes", "Human Readable"])
+		self.UNITcombo.currentIndexChanged.connect(self.unit_index_changed)
+		
+		
+		self.GetDisks()		# This calls function GetDisks()
+			
+
+# This needs to be inside a class
+
+	
+	def GetDisks(self):
+		# Reset the text boxes
+		
+		self.DevBox.setText("")
+		self.TotalBox.setText("")
+		self.UsedBox.setText("")
+		self.FreeBox.setText("")
+		self.PercentBox.setText("")
+		self.MntDirBox.setText("")
+		self.FStypeBox.setText("")
+		
+		# Iterate through the disks on the system, excluding unwanted stuff
+		
+		for part in psutil.disk_partitions(all=False):
+			if(os.name == 'nt'):
+				if('cdrom' in part.fstype or part.opts == ''):		# Checks for empty cdrom
+					continue										# Skips if nothing		
+			elif(os.name == 'posix'):
+				if('squashfs' in part.fstype):						# Skips Ubuntus Squash fs crap for snap
+					continue
+					
+			
+			# This works like statvfs or os.statvfs
+			usage = psutil.disk_usage(part.mountpoint)
+			
+			"""
+			Disk Units
+			
+			Bytes (default)  - Default reports in Bytes even by PSUTIL
+			512 Blocksize	 - Convert to 512 byte Blocksize POSIX default on UNIX
+			1024 Blocksize  -  Convert to 1k Blocksize also used on UNIX
+			Megabytes  - Convert to show in Megabytes
+			Gigabytes  - Same as megabytes but gigabytes
+			Human Readable -  Uses bytes2human
+			
+			
+			Variable settings to a tuple and index 
+			
+			b = Bytes		  (PSUtil default output)
+			5 = 512 Blocks    (POSIX Standard)
+			k = 1024 Blocks
+			m = Megabytes
+			g = Gigabytes
+			h = Human Readable (uses bytes2human)
+	
+			"""
+			
+			
+			"""
+			Areas that don't need calculation or not dealing with numbers 
+			"""
+			self.DevBox.append(part.device)
+			self.PercentBox.append(str(usage.percent))
+			self.FStypeBox.append(part.fstype)
+			self.MntDirBox.append(part.mountpoint)
+			
+			
+			
+			"""
+			Areas dealing with calculation or numbers
+			
+			f"{variable:,}" puts , on every 3 numbers
+			shows as 1,024,865
+			
+			"""			
+			
+			# Bytes (df -B1 on GNU DF) 
+			if disk_unit == 'b':		# Bytes
+				self.TotalBox.append(f"{usage.total:,}")			# display in bytes
+				self.UsedBox.append(f"{usage.used:,}")
+				self.FreeBox.append(f"{usage.free:,}")
+				self.lblInfo.setText("Disk Space are displayed in Bytes")
+			
+			#512 Block size (df -P or df -B512 (GNU DF) )
+			elif disk_unit == '5':
+				total_tmp = usage.total / 512
+				used_tmp = usage.used / 512
+				free_tmp = usage.free / 512
+				self.lblInfo.setText("Disk Space are displayed in 512 Block size")
+				
+				total = int(total_tmp)
+				used = int(used_tmp)
+				free = int(free_tmp)
+				
+				self.TotalBox.append(f"{total:,}")			# display in bytes
+				self.UsedBox.append(f"{used:,}")
+				self.FreeBox.append(f"{free:,}")
+					
+			# 1k blocksize (df -k)
+			elif disk_unit == 'k':
+				
+				total_tmp = usage.total / 1024
+				used_tmp = usage.used / 1024
+				free_tmp = usage.free / 1024
+				
+				total = int(total_tmp)
+				used = int(used_tmp)
+				free = int(free_tmp)
+				
+				self.TotalBox.append(f"{total:,}")			# display in bytes
+				self.UsedBox.append(f"{used:,}")
+				self.FreeBox.append(f"{free:,}")
+				self.lblInfo.setText("Disk Space are displayed in 1024 Block size")
+				
+			# Megabytes (df -m)
+			elif disk_unit == 'm':
+				total_tmp = usage.total / 1024 / 1024
+				used_tmp = usage.used / 1024 / 1024
+				free_tmp = usage.free / 1024 / 1024
+				
+				total = int(total_tmp)
+				used = int(used_tmp)
+				free = int(free_tmp)
+				
+				self.TotalBox.append(f"{total:,}")			# display in bytes
+				self.UsedBox.append(f"{used:,}")
+				self.FreeBox.append(f"{free:,}")
+				self.lblInfo.setText("Disk Space are displayed in Megabyte Block size")
+			
+			# Gigabytes (df -g)
+			elif disk_unit == 'g':
+				
+				total_tmp = usage.total / 1024 / 1024 / 1024
+				used_tmp = usage.used / 1024 / 1024 / 1024
+				free_tmp = usage.free / 1024 / 1024 / 1024
+				
+				total = int(total_tmp)
+				used = int(used_tmp)
+				free = int(free_tmp)
+				
+				self.TotalBox.append(f"{total:,}")			# display in bytes
+				self.UsedBox.append(f"{used:,}")
+				self.FreeBox.append(f"{free:,}")
+				self.lblInfo.setText("Disk Space are displayed in Gigabyte Block size")
+				
+				
+				
+				
+			# Human readable (df -h)
+			elif disk_unit == 'h':
+				
+				self.TotalBox.append(bytes2human(usage.total))			# display in bytes
+				self.UsedBox.append(bytes2human(usage.used))
+				self.FreeBox.append(bytes2human(usage.free))
+				self.lblInfo.setText("Disk Space are displayed in Human Readable Format")
+					
+				
+	# Combo Box index
+	def unit_index_changed(self, i):
+		global disk_unit
+		disk_unit=diskunits[i];		# Obtained from the tuple list with index
+		self.GetDisks()
+		
+	
+	# About Box button function
+	def AboutDialog(self, s):
+				
+		dlg = AboutDialogWindow()
+		if dlg.exec():
+			pass
+		else:
+			pass
+	
+	
+	
+	# Quit Button function
+	
+	def Quit(self):
+		self.close();
+
+
+# Subclass - for an About Box
+
+class AboutDialogWindow(QDialog):
+	def __init__(self):
+		super().__init__()
+		
+		
+		self.setWindowTitle("About Formatted PyQT DF");
+		self.setFixedSize(400,400);
+		Qbtn = QDialogButtonBox.Ok 
+		self.buttonBox = QDialogButtonBox(Qbtn)
+		self.buttonBox.accepted.connect(self.accept);
+		
+		
+		# Picture 
+		self.lbl_pixmap = QLabel();
+		self.lbl_pixmap.setGeometry(5,100,250,200)
+		pixmap = QPixmap('disk2-small.png');
+		
+		
+		self.lbl_pixmap.setPixmap(pixmap);
+		
+		
+		self.layout = QVBoxLayout()
+		self.layout.addWidget(self.lbl_pixmap)
+	
+	
+		Copyright = QLabel("Copyright 2022 (C) Vince");
+		self.layout.addWidget(Copyright);
+		PROG_INFO = QLabel("Disk Free for multiple Platforms using PSUtil with formatted output");
+		PROG_INFO.setWordWrap(True);
+		
+		self.layout.addWidget(PROG_INFO);
+		Lic_Info = QLabel("Program uses a BSD Licence - see source code for details");
+		Lic_Info.setWordWrap(True);
+		self.layout.addWidget(Lic_Info);
+	
+	
+	
+	
+	
+		self.layout.addWidget(self.buttonBox);
+		self.setLayout(self.layout)  # Doesn't show if not on
+		
+
+
+
+# create the pyQT5 App
+
+App = QApplication(sys.argv)
+App.setApplicationName("Formatted Disk Free");
+
+# create the instant of window
+window = Window()
+window.show()
+
+#start the app	
+
+sys.exit(App.exec())	
+	
+	
+	
