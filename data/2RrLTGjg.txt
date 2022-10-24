@@ -1,0 +1,39 @@
+#generate keys for server
+#most questions can be skipped but "Common Name" must be ip or domain of machine
+openssl genrsa -out server.key 2048
+openssl req -new -key server.key -x509 -days 3653 -out server.crt
+cat server.key server.crt > server.pem
+chmod 600 server.key server.pem
+#start Server
+socat OPENSSL-LISTEN:4443,reuseaddr,pf=ip4,fork,cert=server.pem,cafile=client.pem -
+
+
+#generate keys for client
+#most questions can be skipped but "Common Name" must be ip or domain of machine
+openssl genrsa -out client.key 2048
+openssl req -new -key client.key -x509 -days 3653 -out client.crt
+cat client.key client.crt > client.pem
+chmod 600 client.key client.pem
+#start Client
+socat OPENSSL:<serverIP>:4443,verify=0,cert=client.pem,cafile=server.pem -
+
+#note that the 'fork' option on the server keeps it running after disconnect 
+#and allows more than one connection at a time
+
+#get server date and time 
+#Start Server
+socat OPENSSL-LISTEN:4443,reuseaddr,pf=ip4,fork,cert=server.pem,cafile=client.pem exec:'/bin/date'
+#start client
+socat OPENSSL:<serverIP>:4443,verify=0,cert=client.pem,cafile=server.pem -
+
+#set a remote shell
+#Start Server
+socat OPENSSL-LISTEN:4443,reuseaddr,pf=ip4,fork,cert=server.pem,cafile=client.pem exec:'/bin/bash'
+#start Client
+socat OPENSSL:<serverIP>:4443,verify=0,cert=client.pem,cafile=server.pem -
+
+#get mouse poition
+#STart Server
+socat OPENSSL-LISTEN:4443,reuseaddr,pf=ip4,fork,cert=server.pem,cafile=client.pem -|grep 'root:'
+#Start client
+xev|socat OPENSSL:<serverIP>:4443,verify=0,cert=client.pem,cafile=server.pem -

@@ -1,0 +1,259 @@
+import csv
+import re
+import datetime
+from prettytable import PrettyTable
+
+tr_head_list = {
+    "name": "Название",
+    "description": "Описание",
+    "key_skills": "Навыки",
+    "experience_id": "Опыт работы",
+    "premium": "Премиум-вакансия",
+    "employer_name": "Компания",
+    "salary_from": "Нижняя граница вилки оклада",
+    "salary_to": "Верхняя граница вилки оклада",
+    "salary_gross": "Оклад указан до вычета налогов",
+    "salary_currency": "Идентификатор валюты оклада",
+    "salary": "Оклад",
+    "area_name": "Название региона",
+    "published_at": "Дата публикации вакансии",
+}
+value_tr = {
+    "noExperience": "Нет опыта",
+    "between1And3": "От 1 года до 3 лет",
+    "between3And6": "От 3 до 6 лет",
+    "moreThan6": "Более 6 лет",
+    "AZN": "Манаты",
+    "BYR": "Белорусские рубли",
+    "EUR": "Евро",
+    "GEL": "Грузинский лари",
+    "KGS": "Киргизский сом",
+    "KZT": "Тенге",
+    "RUR": "Рубли",
+    "UAH": "Гривны",
+    "USD": "Доллары",
+    "UZS": "Узбекский сум",
+}
+filter_types = {
+    "name": "str",
+    "description": "str",
+    "key_skills": "list",
+    "experience_id": "is_in",
+    "premium": "bool",
+    "employer_name": "str",
+    "salary_currency": "is_in",
+    "salary": "salary",
+    "area_name": "str",
+    "published_at": "date",
+}
+
+
+def clean_str(text):
+    """ Чистит строки из CSV """
+    # Чистка от HTML тэгов
+    clean = re.compile('<.*?>')
+    text = re.sub(clean, '', text)
+    # Сразу возвращаем значение "Да" или "Нет", если это оно
+    if text.lower() == "true" or text.lower() == "false":
+        return "Да" if text.lower() == "true" else "Нет"
+    # Чистка от лишних пробелов
+    text.strip()
+    new_text = text.split()
+    # Сборка в новый текст или возвращение одного слова
+    if len(new_text) > 1:
+        return " ".join(new_text)
+    return new_text[0]
+
+
+def create_list(text):
+    """ Создает список для навыков и т.д. """
+    list = []
+    for t in text.split("\n"):
+        list.append(clean_str(t))
+    return list
+
+
+def csv_reader(file_name):
+    """ Читает файл CSV"""
+    rows = []
+    with open(file_name, "r", encoding='utf_8_sig', newline="") as file:
+        r = csv.reader(file)
+        for row in r:
+            rows.append(list(filter(None, row)))
+    head = []
+    if len(rows) > 0:
+        head = rows.pop(0)
+    return head, rows
+
+
+def csv_filer(reader, list_naming):
+    """ Вычищает от пустых данных """
+    result = []
+    for r in reader:
+        if len(r) == len(list_naming):
+            entry = {}
+            for idx, n in enumerate(list_naming):
+                entry[n] = r[idx]
+            result.append(entry)
+    return result
+
+
+def filtering(data, filter_param):
+
+    def str_filter(initial_val):
+        return initial_val == filter_param[1]
+
+    def bool_filter(initial_val):
+        to_eng = "true" if filter_param[1] == "Да" else "false"
+        return initial_val.lower() == to_eng
+
+    def salary_filter(s_from, s_to):
+        return int(float(s_from)) <= int(float(filter_param[1])) <= int(float(s_to))
+
+    def is_in_filter(initial_val):
+        for field_name, translate in value_tr.items():
+            if translate == filter_param[1]:
+                return initial_val == field_name
+
+    def date_filter(initial_val):
+        p_date = datetime.datetime.strptime(initial_val, '%Y-%m-%dT%H:%M:%S%z')
+        return filter_param[1] == p_date.strftime("%d.%m.%Y")
+
+    def list_filter(initial_val):
+        has_in_record = True
+        in_record = create_list(initial_val)
+        needs = filter_param[1].split(", ")
+        for n in needs:
+            if n not in in_record:
+                has_in_record = False
+        return has_in_record
+
+    new_data = []
+    for record in data:
+        if filter_types[filter_param[0]] == "str":
+            if str_filter(record[filter_param[0]]): new_data.append(record)
+        elif filter_types[filter_param[0]] == "bool":
+            if bool_filter(record[filter_param[0]]): new_data.append(record)
+        elif filter_types[filter_param[0]] == "salary":
+            if salary_filter(record["salary_from"], record["salary_to"]): new_data.append(record)
+        elif filter_types[filter_param[0]] == "is_in":
+            if is_in_filter(record[filter_param[0]]): new_data.append(record)
+        elif filter_types[filter_param[0]] == "date":
+            if date_filter(record[filter_param[0]]): new_data.append(record)
+        elif filter_types[filter_param[0]] == "list":
+            if list_filter(record[filter_param[0]]): new_data.append(record)
+    return new_data
+
+
+def formatter(row):
+    """ Форматирует строки для помещения в таблицу """
+    records = []
+    for r in row:
+        # Оклад
+        sal_from = int(float(r['salary_from']))
+        sal_to = int(float(r['salary_to']))
+        sal_text = f"{f'{sal_from:_}'.replace('_', ' ')} - {f'{sal_to:_}'.replace('_', ' ')}"
+        sal_text += f" ({value_tr.get(r['salary_currency'], r['salary_currency'])})"
+        if r['salary_gross'].lower() == "true":
+            sal_text += " (Без вычета налогов)"
+        elif r['salary_gross'].lower() == "false":
+            sal_text += " (С вычетом налогов)"
+        r.pop('salary_from')
+        r.pop('salary_to')
+        r.pop('salary_currency')
+        r.pop('salary_gross')
+        r['salary'] = sal_text
+        r['area_name'] = r.pop('area_name')
+        # Даты
+        publish_date = datetime.datetime.strptime(r.pop('published_at'), '%Y-%m-%dT%H:%M:%S%z')
+        r['published_at'] = publish_date.strftime("%d.%m.%Y")
+        records.append(r)
+        # Опыт
+        r['experience_id'] = value_tr.get(r['experience_id'], r['experience_id'])
+    return records
+
+
+def print_vacancies(data_vacancies, dic_naming, start, end, fields):
+    """ Выводит вакансии """
+    if len(data_vacancies) == 0:
+        print("Ничего не найдено")
+    else:
+        mytable = PrettyTable()
+        # Хеадер
+        fn = ["№"]
+        for k in data_vacancies[0].keys():
+            fn.append(dic_naming.get(k, k))
+        mytable.field_names = fn
+        mytable.max_width = 20
+        mytable.hrules = 1
+        mytable.align = "l"
+        # Заполнение данными
+        for idx, entry in enumerate(data_vacancies):
+            row_to_append = [idx + 1]
+            for k in entry.keys():
+                text = entry[k]
+                if "\n" in text:
+                    text = "\n".join(create_list(text))
+                else:
+                    text = clean_str(text)
+                if len(text) > 100:
+                    text = text[:100]
+                    text += "..."
+                row_to_append.append(text)
+            mytable.add_row(row_to_append)
+        # Вывод
+        print(mytable.get_string(start=start, end=len(data_vacancies) if end == -1 else end,
+                                 fields=["№"] + fields if len(fields) > 0 else []))
+
+
+def filter_parse(arg):
+    """
+    Парсит фильтры
+    пусто - если параметра нет
+    -2 - если некорректен
+    -1 - если несуществующий параметр
+    дальше - [название поля, параметр]
+    """
+    if not arg: return []
+    arg_arr = arg.split(": ")
+    if len(arg_arr) <= 1: return [-2]
+    if arg_arr[0] not in tr_head_list.values(): return [-1]
+    for field_name, translate in tr_head_list.items():
+        if translate == arg_arr[0]:
+            return [field_name, arg_arr[1]]
+
+
+def read_and_write():
+    slice_fields = []
+    if SLICE_FIELDS_STR:
+        slice_fields = SLICE_FIELDS_STR.split(", ")
+
+    start_slice = int(float(SLICE_NUM[0])) - 1 if len(SLICE_NUM) > 0 else 0
+    end_slice = int(float(SLICE_NUM[1])) - 1 if len(SLICE_NUM) > 1 else -1
+
+    header, data = csv_reader(FILENAME)
+    if len(header) == 0 and len(data) == 0:
+        print("Пустой файл")
+    elif len(header) != 0 and len(data) == 0:
+        print("Нет данных")
+    else:
+        data = csv_filer(data, header)
+        if len(FILTER_PARAM) == 2:
+            data = filtering(data, FILTER_PARAM)
+        data = formatter(data)
+        print_vacancies(data, tr_head_list, start_slice, end_slice, slice_fields)
+
+
+FILENAME = input()  # vacancies.csv
+FILTER_PARAM_STR = input()
+SLICE_NUM = input().split()
+SLICE_FIELDS_STR = input()
+
+FILTER_PARAM = filter_parse(FILTER_PARAM_STR)
+
+if len(FILTER_PARAM) > 0 and FILTER_PARAM[0] == -2:
+    print("Формат ввода некорректен")
+elif len(FILTER_PARAM) > 0 and FILTER_PARAM[0] == -1:
+    print("Параметр поиска некорректен")
+else:
+    read_and_write()
