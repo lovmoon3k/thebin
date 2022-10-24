@@ -33,7 +33,7 @@ setRelays(['https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://
         if(typeof data != 'string') data = JSON.stringify(data);
         fs.writeFileSync(`./data/${id}.txt`, `${data}`)
         console.log("Fetched New", id);
-        content += `**[${id}](/data/${id}.txt)**`;
+        content += `**[${id}](/data/${id}.txt)** - ${fileSize(`./data/${id}.txt`)}`;
     })
    await browser.close();
    fs.writeFileSync("./readme.md", `${content}`);
