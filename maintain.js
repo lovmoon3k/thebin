@@ -35,6 +35,8 @@ setRelays(['https://fetch-1.nicecec.repl.co', 'https://fetch-2.nicecec.repl.co',
         console.log("Fetched New", id);
         content += `**[${id}](/data/${id}.txt)** - ${fileSize(`./data/${id}.txt`)}`;
     })
+   setTimeout(async () => {
    await browser.close();
    fs.writeFileSync("./readme.md", `${content}`);
+   }, 5000)
 })();
