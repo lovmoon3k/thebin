@@ -1,0 +1,174 @@
+#include <stdlib.h>
+#include <Wire.h>
+
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+
+#include "SparkFunCCS811.h"
+
+#define GOT_HERE()  do {Serial.print('['); Serial.print(__LINE__); Serial.println(']'); Serial.flush();} while(0)
+#define pSDA 2
+#define pSCL 14
+#define DATA_MAX_IDX 50
+#define MLX60914_I2C_ADDR 0x5a
+#define CSS811_I2C_ADDR 0x5b
+#define ROW 5
+#define COL 2
+
+// Global objects for sensors, WiFi and MQTT
+CCS811 myCCS811(CSS811_I2C_ADDR);
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// Variables to save values from sensors
+int dtVOC[DATA_MAX_IDX] = {0};
+int dCO2[DATA_MAX_IDX] = {0};
+int i = 0;
+
+// Varaibles for MQTT messages
+char mqtt_msg[ROW][COL] = {0};
+
+// Access credentials for WiFi connection
+const char* ssid = "Cecolab_WiFi";
+const char* password = "users@cecolab";
+const char* mqtt_server = "192.168.1.157";
+
+
+// Connection to WiFi network
+void setup_wifi() {
+
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+// MQTT function
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (uint8_t i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+
+  // Switch on the LED if an 1 was received as first character
+  if ((char)payload[0] == '1') {
+    digitalWrite(LED_BUILTIN, LOW);   // Turn the LED on (Note that LOW is the voltage level
+    // but actually the LED is on; this is because
+    // it is active low on the ESP-01)
+  } else {
+    digitalWrite(LED_BUILTIN, HIGH);  // Turn the LED off by making the voltage HIGH
+  }
+}
+
+// MQTT function
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Create a random client ID
+    String clientId = "ESP8266Client-";
+    clientId += String(random(0xffff), HEX);
+    // Attempt to connect
+    if (client.connect(clientId.c_str())) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      client.publish("CCS811/test", "Hello from pubsubclient");
+      // ... and resubscribe
+      client.subscribe("CCS811/test");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+void setup(){
+  randomSeed(micros());
+  Serial.begin(115200);
+  Wire.begin(pSDA, pSCL);
+  setup_wifi();
+  client.setServer(mqtt_server, 58999);
+  client.setCallback(callback);
+
+  pinMode(LED_BUILTIN, OUTPUT);     // Initialize the LED_BUILTIN pin as an output
+
+  //This begins the CCS811 sensor and prints error status of .beginWithStatus()
+  CCS811Core::CCS811_Status_e returnCode = myCCS811.beginWithStatus();
+  Serial.print("CCS811 begin exited with: ");
+  //Pass the error code to a function to print the results
+  Serial.println(myCCS811.statusString(returnCode));
+
+  //This sets the mode to 10 second reads, and prints returned error status.
+  returnCode = myCCS811.setDriveMode(2);
+  Serial.print("Mode request exited with: ");
+  Serial.println(myCCS811.statusString(returnCode));
+}
+
+void loop(){
+
+  client.setKeepAlive(90);
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  if( myCCS811.dataAvailable() ){
+    myCCS811.readAlgorithmResults(); //Calling this function updates the global tVOC and CO2 variables
+    dCO2[i] = myCCS811.getCO2();
+    dtVOC[i] = myCCS811.getTVOC();
+    Serial.print("Iteration: ");
+    Serial.println(i);
+    Serial.print("CO2[");
+    Serial.print(dCO2[i]);
+    Serial.print("] -- tVOC[");
+    Serial.print(dtVOC[i]);
+    Serial.println("]");
+
+    if( !(i % 5) && i){
+      // Construct the message to send over , here
+      for(int j = 0; j < ROW; j++){
+        for(int k = 0; k < COL; k++){
+          Serial.print("j: ");
+          Serial.print(j);
+          Serial.print(" - dCO2: ");
+          Serial.print(dCO2[j]);
+          Serial.print(" - dtVOC: ");
+          Serial.println(dtVOC[j]);
+          mqtt_msg[j][0] = 5; //dCO2[j];
+          mqtt_msg[j][1] = 10; //dtVOC[j];
+          Serial.print("CO2 [");
+          Serial.print(mqtt_msg[j][0]);
+          Serial.print("] -- tVOC [");
+          Serial.print(mqtt_msg[j][1]);
+          Serial.println("]");
+        }
+      }
+      // Reset the variables and start over
+      memset(dCO2, 0, sizeof(dCO2));
+      memset(dtVOC, 0, sizeof(dtVOC));
+      i = 0;
+    }
+    i++;
+  }
+  delay(2000);
+}
