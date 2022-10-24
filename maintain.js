@@ -1,6 +1,13 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const { fetch, setRelays } = require('fetch-relay');
+var content = ``;
+
+function fileSize(filename) {
+    var stats = fs.statSync(filename);
+    var fileSizeInBytes = stats.size;
+    return fileSizeInBytes;
+}
 
 setRelays(['https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://relay-3.vercel.app', 'https://relay-4.vercel.app', 'https://relay-5.vercel.app']);
 (async () => {
@@ -24,8 +31,10 @@ setRelays(['https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://
         var { data } = await fetch({ url: `https://pastebin.com/raw/${id}` });
         if(data?.error)return;
         if(typeof data != 'string') data = JSON.stringify(data);
-        console.log("Fetched New", id);
         fs.writeFileSync(`./data/${id}.txt`, `${data}`)
+        console.log("Fetched New", id);
+        content += `**[${id}](/data/${id}.txt)** - ${fileSize(`./data/${id}.txt`)}`;
     })
+   fs.writeFileSync("./readme.md", `${content}`);
    await browser.close();
 })();
