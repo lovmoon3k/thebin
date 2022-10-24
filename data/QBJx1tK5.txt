@@ -1,0 +1,170 @@
+// Get data source
+var tbBalanceList = bottomForm.AllKeys.Where(n => n.StartsWith("balance")).ToList();
+var TCMSIE = db.TCMS_IEPKList.Where(d => d.Trno == PUFNo && d.Kind == PUFKind).ToList();
+var chkLog = db.TCMS_IEPKList_Log.Where(d => d.Trno == PUFNo && d.Kind == PUFKind).ToList();
+
+foreach (string idx in tbBalanceList)
+{
+	// Check if textbox is wrong format
+	if (!TbBalanceDecompose(idx, out string itnbr, out string size, out decimal partPrepareQty))
+	{
+		transc.Rollback();
+		return new TransactionResponse { is_invalid = true, is_success = false, message = "Error: Wrong format for textbox element name " + idx + "!" };
+	}
+
+	// Check if BalanceQty has value
+	var strItnbrSizeQty = bottomForm[idx];
+	decimal partPrepareBalance;
+
+	if (strItnbrSizeQty == "")
+		partPrepareBalance = 0;
+	else
+		partPrepareBalance = Convert.ToDecimal(strItnbrSizeQty);
+
+	if (partPrepareBalance != 0)
+		isHadPreparationBalance = "Y";
+
+	partPrepareQty += partPrepareBalance;
+
+	// Check if table TPartPrepareQtys has prepared data
+	var TPPQ = db.TPartPrepareQtys.Where(d => d.kind == PUFKind && d.trno == PUFNo && d.itnbr == itnbr && d.size == size).FirstOrDefault();
+	if (TPPQ == null)
+	{
+		TPPQ = new TPartPrepareQtys()
+		{
+			kind = PUFKind,
+			trno = PUFNo,
+			itnbr = itnbr,
+			size = size,
+			PartPrepareBalance = partPrepareBalance,
+			PartPrepareQty = partPrepareQty,
+			InsertAt = DTNow
+		};
+
+		db.TPartPrepareQtys.Add(TPPQ);
+		db.SaveChanges();
+	}
+	else
+	{
+		transc.Rollback();
+		return new TransactionResponse { is_invalid = true, is_success = false, message = "Error: " + PUFBarcode + " already prepared!" };
+
+	}
+
+	// Save confirm to MPS_Material_Detail
+
+	// Case partPrepareQty > 0 
+	if (partPrepareQty > 0)
+	{
+		decimal remainingQty = partPrepareQty;
+
+		var eachTCMSIE = TCMSIE.Where(d => d.Size == size && d.Item_NBR == itnbr).OrderBy(d => d.Cycle_No.Split('#')[1]);
+		var eachTCMSIEperseq = TCMSIE.Where(d => d.Size == size && d.Item_NBR == itnbr).GroupBy(i => i.Cycle_No)
+								.Select(g => new TCMS_IEPKList 
+								{ 
+									MO_No = g.Select(x => x.MO_No).First(),
+									MO_Seq = g.Select(x => x.MO_Seq).First(),
+									Cycle_No = g.Key,
+									Item_NBR = g.Select(x => x.Item_NBR).First(),
+									Size = g.Select(x => x.Size).First(),
+									P_Qty = g.Sum(x => x.P_Qty),
+								}).OrderBy(d => d.Cycle_No.Split('#')[1]).ToList();
+
+		foreach (var tcmsItem in eachTCMSIEperseq)
+		{
+			if (remainingQty <= 0)
+				break;
+
+			decimal planQty = tcmsItem.P_Qty.Value;
+			decimal outputQty = remainingQty > planQty ? planQty : remainingQty;
+
+			var matDetailModel = new MPS_Material_Detail
+			{
+				MO_No = tcmsItem.MO_No,
+				MO_Batch = tcmsItem.MO_Seq,
+				MO_Sequence = tcmsItem.Cycle_No.Split('#')[1],
+				Material_ID = tcmsItem.Item_NBR,
+				MO_Size = tcmsItem.Size,
+				Trno = PUFNo,
+				Kind = PUFKind,
+				Cycle_No = tcmsItem.Cycle_No,
+				Transaction_Qty = outputQty,
+				InsertAt = DTNow
+			};
+
+			db.MPS_Material_Detail.Add(matDetailModel);
+			db.SaveChanges();
+
+			remainingQty -= outputQty;
+		}
+
+		// Create MO_Sequence 99 item
+		if (remainingQty > 0)
+		{
+			var TCMSIESrc = TCMSIE
+				.Where(d => d.Size == size && d.Item_NBR == itnbr)
+				.Select(d => new { d.MO_No, d.MO_Seq, d.Item_NBR, d.Size })
+				.FirstOrDefault();
+
+			var curSeq99Item = db.MPS_Material_Detail
+				.Where(d =>
+					d.MO_No == TCMSIESrc.MO_No && d.MO_Batch == TCMSIESrc.MO_Seq && d.MO_Sequence == "99" &&
+					d.Material_ID == TCMSIESrc.Item_NBR && d.MO_Size == TCMSIESrc.Size)
+				.FirstOrDefault();
+
+			// Case MO_Sequence 99 doesn't have in table
+			if (curSeq99Item == null)
+			{
+				var matDetailModel = new MPS_Material_Detail
+				{
+					MO_No = TCMSIESrc.MO_No,
+					MO_Batch = TCMSIESrc.MO_Seq,
+					MO_Sequence = "99",
+					Material_ID = TCMSIESrc.Item_NBR,
+					MO_Size = TCMSIESrc.Size,
+					Trno = PUFNo,
+					Kind = PUFKind,
+					Transaction_Qty = remainingQty,
+					InsertAt = DTNow
+				};
+
+				db.MPS_Material_Detail.Add(matDetailModel);
+				db.SaveChanges();
+
+				remainingQty = 0;
+			}
+			else
+			{
+				curSeq99Item.Transaction_Qty += remainingQty;
+				curSeq99Item.UpdateAt = DTNow;
+
+				db.Entry(curSeq99Item).State = EntityState.Modified;
+				db.SaveChanges();
+
+				remainingQty = 0;
+			}
+		}
+	}
+}
+
+var TPPD = new TPartPrepareDates()
+{
+	kind = PUFKind,
+	trno = PUFNo,
+	PartPrepareDate = DTNow,
+	InsertAt = DTNow,
+	isHadPrepareBalance = isHadPreparationBalance,
+};
+
+db.TPartPrepareDates.Add(TPPD);
+db.SaveChanges();
+
+TPFS.prepare_at = DTNow;
+TPFS.prepare_by = user;
+TPFS.prepare_actualAt = DTNow;
+//2021-10-5 新增欄位更新 Add By Alan
+TPFS.Close_Flag = "N";
+TPFS.Biz_Flag = "N";
+TPFS.Biz_Finish = null;
+TPFS.Update_By = user;
+                    TPFS.Update_Time = DTNow;

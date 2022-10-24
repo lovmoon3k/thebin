@@ -1,0 +1,51 @@
+    def bind_args(self, func: tp.Any, *args: tp.Any, **kwargs: tp.Any) -> dict[str, tp.Any]:
+        code = func
+        default_values, kw_only_defaults = self.popn(2) or  ((), {})
+
+        has_varargs = bool(code.co_flags & 4)
+        has_varkwargs = bool(code.co_flags & 8)
+
+        posonly_slice = slice(None, code.co_posonlyargcount)
+        pos_or_kw_slice = slice(code.co_posonlyargcount, code.co_argcount)
+        kw_only_slice = slice(code.co_argcount, code.co_kwonlyargcount + code.co_argcount)
+        defaults_slice = slice(code.co_argcount - len(default_values), code.co_argcount)
+
+        default_names = code.co_varnames[defaults_slice]
+        defaults = dict(zip(default_names, default_values))
+
+        parsed_posonlyargs = dict(zip(code.co_varnames[posonly_slice], args[posonly_slice]))
+        parsed_posargs = dict(zip(code.co_varnames[pos_or_kw_slice], args[pos_or_kw_slice]))
+        varargs = args[code.co_argcount:]
+
+        posonly_names = frozenset(code.co_varnames[posonly_slice])
+        pos_or_kw_names = frozenset(code.co_varnames[pos_or_kw_slice])
+        kwonly_names = frozenset(code.co_varnames[kw_only_slice])
+
+        parsed_kwargs = {}
+        parsed_kwonlyargs = {}
+        varkwargs = {}
+
+        for k, v in kwargs.items():
+            if k in pos_or_kw_names:
+                parsed_kwargs[k] = v
+            elif k in kwonly_names:
+                parsed_kwonlyargs[k] = v
+            else:
+                varkwargs[k] = v
+
+        bound_args = {}
+        bound_args.update(defaults)
+        bound_args.update(kw_only_defaults)
+        bound_args.update(parsed_posonlyargs)
+        bound_args.update(parsed_posargs)
+        bound_args.update(parsed_kwargs)
+        bound_args.update(parsed_kwonlyargs)
+
+        if has_varargs:
+            varargs_name = code.co_varnames[code.co_argcount + code.co_kwonlyargcount]
+            bound_args[varargs_name] = varargs
+
+        if has_varkwargs:
+            varkwargs_names = code.co_varnames[code.co_argcount + code.co_kwonlyargcount + has_varargs]
+            bound_args[varkwargs_names] = varkwargs
+        return bound_args
