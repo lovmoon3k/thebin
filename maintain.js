@@ -20,8 +20,9 @@ setRelays(['https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://
         const id = e.slice(("https://pastebin.com/").length);
         if(!id)return;
     //    if(fs.existsSync(`./data/${id}.html`))return;
-        const { data } = await fetch({ url: `https://pastebin.com/raw/${id}` });
-        fs.writeFileSync(`./data/${id}.txt`, `${JSON.stringify(data)}`)
+        var { data } = await fetch({ url: `https://pastebin.com/raw/${id}` });
+        if(typeof data != 'string') data = JSON.stringify(data);
+        fs.writeFileSync(`./data/${id}.txt`, `${data}`)
     })
    await browser.close();
 })();
