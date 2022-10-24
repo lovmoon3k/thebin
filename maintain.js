@@ -1,39 +1,29 @@
 const puppeteer = require('puppeteer');
-const { readFileSync, writeFileSync } = require("fs")
+const fs = require('fs');
+const cheerio = require('cheerio');
+const { fetch, setRelays } = require('fetch-relay');
 
-async function browser(url) {
+setRelays(['https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://relay-3.vercel.app', 'https://relay-4.vercel.app', 'https://relay-5.vercel.app']);
+(async () => {
     const browser = await puppeteer.launch();
-   
     const page = await browser.newPage();
-    await page.goto(`https://www.google.com/search?q=joeleeofficial`, {waitUntil: ['networkidle0']});
-    await page.evaluate(`([...document.querySelectorAll("a")].find(a => a.href === 'https://github.com/joeleeofficial'))?.click()`)
-   
-    const page2 = await browser.newPage();
-    await page2.goto(`https://www.google.com/search?q=leecheeyong`, {waitUntil: ['networkidle0']});
-    await page2.evaluate(`([...document.querySelectorAll("a")].find(a => a.href === 'https://github.com/leecheeyong'))?.click()`)
-      
-    const page3 = await browser.newPage();
-    await page3.goto(`https://www.youtube.com/watch?v=U9BtF_oMHQg`, {waitUntil: ['networkidle0']});
-    await page3.evaluate(`document.querySelector(".ytp-large-play-button").click()`)
-    
-    const page4 = await browser.newPage();
-    await page4.goto(`https://www.youtube.com/shorts/U9BtF_oMHQg`, {waitUntil: 'networkidle0'});
-    await page4.evaluate(`document.querySelector(".ytp-large-play-button").click()`)
-    
-    const page5 = await browser.newPage();
-    await page5.goto(`https://www.google.com/search?q=joelee+chee+yong+lee`, {waitUntil: ['networkidle0']});
-    await page5.evaluate(`([...document.querySelectorAll("a")].find(a => a.href === 'https://www.joelee.works' || a.href === 'https://www.joelee.works/'))?.click()`)
+    const userAgent = 'Mozilla/5.0 (X11; Linux x86_64)' +
+  'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.39 Safari/537.36';
+    await page.setUserAgent(userAgent);
 
-    setTimeout(async () => {
-    await page5.screenshot({path: './joelee.png', fullPage: true});
-    await page4.screenshot({path: './yt-short.png', fullPage: true});
-    await page3.screenshot({path: './youtube.png', fullPage: true});
-    await page2.screenshot({path: './screenshot1.png', fullPage: true});
-    await page.screenshot({path: './screenshot.png', fullPage: true});
-
-    writeFileSync("./output.txt", await page.content());
-    await browser.close();
-    }, 10000)
-}
-
-browser();
+    await page.goto('https://pastebin.com/archive');
+    await page.waitForSelector("a");
+    const data = await page.evaluate(async () => {
+      return [...document.querySelectorAll("a")].map(e => e.href)
+    }).catch(err => console.log(err));
+    data.forEach(async (e) => {
+        if(!e.startsWith("https://pastebin.com/"))return;
+        if(e.startsWith("https://pastebin.com/archive"))return;
+        const id = e.slice(("https://pastebin.com/").length);
+        if(!id)return;
+        if(fs.existSync(`./data/${id}.html`))return;
+        const { data } = await fetch({ url: `https://pastebin.com/raw/${id}` });
+        fs.writeFileSync(`./data/${id}.html`, `${data}`)
+    })
+   await browser.close();
+})();
