@@ -36,6 +36,8 @@ setRelays(['https://proxy-3-one.vercel.app/', 'https://fetches-red.vercel.app', 
         content += `[**${id}**](/data/${id}.txt) (${new Date().toString()})- ${fileSize(`./data/${id}.txt`)} bytes\n\n`;
     })
    setTimeout(async () => {
+   const total = fs.readdirSync('./data').filter(file => file.endsWith('.txt'));
+   content += `**Total Datas**: ${total.length}`;
    await browser.close();
    fs.writeFileSync("./readme.md", `${content}`);
    }, 5000)
