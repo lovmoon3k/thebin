@@ -8,7 +8,7 @@ function fileSize(filename) {
     return fileSizeInBytes;
 }
 
-setRelays(['https://fetch-1.nicecec.repl.co', 'https://fetch-2.nicecec.repl.co', 'https://proxy-3-one.vercel.app/', 'https://fetches-red.vercel.app', 'https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://relay-3.vercel.app', 'https://relay-4.vercel.app', 'https://relay-5.vercel.app']);
+setRelays(['https://proxy-3-one.vercel.app/', 'https://fetches-red.vercel.app', 'https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://relay-3.vercel.app', 'https://relay-4.vercel.app', 'https://relay-5.vercel.app']);
 (async () => {
     var content = ``;
     const browser = await puppeteer.launch();
