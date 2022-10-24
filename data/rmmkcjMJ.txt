@@ -1,0 +1,194 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+
+#include "RTSControls/RTSPlayerController.h"
+#include "RTSControls/RTSCameraPawn.h"
+#include "RTSControls/RTSMovementComponent.h"
+#include "Components/InputComponent.h"
+#include "GameFramework/PlayerController.h"
+#include "HUD/RTS_HUD.h"
+
+/* Constructor */
+ARTSPlayerController::ARTSPlayerController()
+{
+    PrimaryActorTick.bCanEverTick = true;
+    PrimaryActorTick.bStartWithTickEnabled = true;
+    bShowMouseCursor = true;    
+}
+
+void ARTSPlayerController::BeginPlay()
+{
+    Super::BeginPlay();
+
+    //Cast Pawn to our CameraPawn
+    RTSCameraPawn  = Cast<ARTSCameraPawn>(GetPawn());
+    check(RTSCameraPawn);
+
+    //Cast the HUD to our HUD
+    RTS_HUD = Cast<ARTS_HUD>(GetHUD());
+    
+
+    //Lock the mouse to the screen bounds
+    FInputModeGameAndUI MouseLock;
+    MouseLock.SetLockMouseToViewportBehavior(EMouseLockMode::LockAlways);
+    MouseLock.SetHideCursorDuringCapture(false);
+
+    //Setup the input mode
+    SetInputMode(MouseLock);
+}
+
+
+/* Input Bindings  */
+void ARTSPlayerController::SetupInputComponent()
+{
+
+    Super::SetupInputComponent();
+    check(InputComponent);
+
+     //Panning input
+    InputComponent->BindAction("RotatePanCameraRight", IE_Pressed, this, &ARTSPlayerController::CallPanCameraRight);
+    InputComponent->BindAction("RotatePanCameraLeft", IE_Pressed, this, &ARTSPlayerController::CallPanCameraLeft);
+    InputComponent->BindAction("ResetPanCamera", IE_Pressed, this, &ARTSPlayerController::CallPanCameraReset);
+    InputComponent->BindAction("MouseLookToggle", IE_Pressed, this, &ARTSPlayerController::CallMouseXToggle);
+    InputComponent->BindAction("MouseLookToogle", IE_Released, this, &ARTSPlayerController::CallMouseXToggle);
+    InputComponent->BindAxis("MouseAxisLR", this, &ARTSPlayerController::CallMouseAxisLR);
+
+    //Zooming Input
+    InputComponent->BindAction("ZoomIn", IE_Pressed, this, &ARTSPlayerController::CallZoomIn);
+    InputComponent->BindAction("ZoomOut", IE_Pressed, this, &ARTSPlayerController::CallZoomOut);
+   
+    //Movement Forward - Back - Left - Right with keys
+    InputComponent->BindAxis("MoveForwardKeys", this, &ARTSPlayerController::CallCameraMoveForward);
+    InputComponent->BindAxis("MoveRightKeys", this, &ARTSPlayerController::CallCameraMoveRight);
+    InputComponent->BindAction("SpeedBoost", IE_Pressed, this, &ARTSPlayerController::CallSpeedBoost);
+    InputComponent->BindAction("SpeedBoost", IE_Released, this, &ARTSPlayerController::CallSpeedNormal);
+
+    //Edge Scrolling Sides/Corners/Tops and Bottoms
+    InputComponent->BindAxis("EdgeScrollX", this, &ARTSPlayerController::CallEdgeScrollX);
+    InputComponent->BindAxis("EdgeScrollY", this, &ARTSPlayerController::CallEdgeScrollY);
+
+    //Maquee and RTS HUD Controls
+    InputComponent->BindAction("MarqueeSelect", IE_Pressed, this, &ARTSPlayerController::OnMarqueeClicked);
+    InputComponent->BindAction("MarqueeSelect", IE_Released, this, &ARTSPlayerController::OnMarqueeReleased);
+    InputComponent->BindAction("MouseRightClick", IE_Pressed, this, &ARTSPlayerController::RightClickMenu);
+    InputComponent->BindAction("MouseRightClick", IE_Released, this, &ARTSPlayerController::RightClickRelease);
+}
+
+
+/* Methods to be called externally on our CameraMovementComponent for the above bindings  */
+
+/* Camera rotation by keys (45 degrees at a time) and reset button */
+void ARTSPlayerController::CallPanCameraRight()
+{
+    RTSCameraPawn->RTSMovementComponent->PanCamera(45.0f);    
+}
+
+void ARTSPlayerController::CallPanCameraLeft()
+{
+    RTSCameraPawn->RTSMovementComponent->PanCamera(-45.0f);
+}
+
+void ARTSPlayerController::CallPanCameraReset()
+{
+    RTSCameraPawn->RTSMovementComponent->ResetCameraPan();
+}
+
+
+/* Zoom In and Out (Mouse Scroll Wheel)  */
+void ARTSPlayerController::CallZoomIn()
+{
+    RTSCameraPawn->RTSMovementComponent->ZoomIn();
+}
+
+void ARTSPlayerController::CallZoomOut()
+{
+    RTSCameraPawn->RTSMovementComponent->ZoomOut();
+}
+
+/* Mouse Axis Left and Rigt  */
+void ARTSPlayerController::CallMouseAxisLR(float AxisValue)
+{
+    RTSCameraPawn->RTSMovementComponent->PanCamera(AxisValue * PanSpeed);
+}
+
+/* Mouse Free Look Toggle  */
+void ARTSPlayerController::CallMouseXToggle()
+{
+    bool bIsMouseViewLocked = RTSCameraPawn->RTSMovementComponent->GetMouseLookX();
+    //set the camera to free view on the x axis or not
+    if (!bIsMouseViewLocked)
+    {
+       RTSCameraPawn->RTSMovementComponent->SetMouseLookX(true);
+    }
+    else if (bIsMouseViewLocked)
+    {
+        RTSCameraPawn->RTSMovementComponent->SetMouseLookX(false);
+    }
+}
+
+
+/* Camera Forward/Back  */
+void ARTSPlayerController::CallCameraMoveForward(float AxisValue)
+{
+    RTSCameraPawn->RTSMovementComponent->BasicCameraMovement(0.0f, AxisValue);
+}
+
+/* Camera Left-Right  */
+void ARTSPlayerController::CallCameraMoveRight(float AxisValue)
+{
+    RTSCameraPawn->RTSMovementComponent->BasicCameraMovement(AxisValue, 0.0f); 
+}
+
+/* Speed Boost  */
+void ARTSPlayerController::CallSpeedBoost()
+{
+    UE_LOG(LogTemp, Warning, TEXT("SpeedBoost_PlayerController"));
+    RTSCameraPawn->RTSMovementComponent->SetSpeedBoost(BoostSpeedMultiplier);
+}
+
+/* Return speed to normal  */
+void ARTSPlayerController::CallSpeedNormal()
+{
+    RTSCameraPawn->RTSMovementComponent->SetSpeedBoost(SpeedDefault);
+}
+
+/* Edge Scrolling X */
+void ARTSPlayerController::CallEdgeScrollX(float AxisValue)
+{
+    RTSCameraPawn->RTSMovementComponent->EdgeScrolling();
+}
+
+/* Edge Scrolling Y  */
+void ARTSPlayerController::CallEdgeScrollY(float AxisValue)
+{
+    RTSCameraPawn->RTSMovementComponent->EdgeScrolling();
+}
+
+/*  Marquee Select (Hightlight) */
+void ARTSPlayerController::OnMarqueeClicked()
+{
+    //Get the initial point of where we started to click (mouse position) and update the HUD variable
+    RTS_HUD->InitialPoint = RTS_HUD->GetMousePosition2D();
+    RTS_HUD->bStartMarqueeSelect = true;
+    UE_LOG(LogTemp,  Warning, TEXT("InitialPoint: %s"),  *RTS_HUD->GetMousePosition2D().ToString());
+
+
+}
+
+/*  Marquee Release (Highlight) */
+void ARTSPlayerController::OnMarqueeReleased()
+{
+    RTS_HUD->bStartMarqueeSelect = false;
+}
+
+/*  Right Click Menu */
+void ARTSPlayerController::RightClickMenu()
+{
+    UE_LOG(LogTemp, Warning, TEXT("RIghtClick_PlayerController"));
+}
+
+/*  Right Click Release */
+void ARTSPlayerController::RightClickRelease()
+{
+    UE_LOG(LogTemp, Warning, TEXT("RightClickReleased_PlayerController"));
+}
