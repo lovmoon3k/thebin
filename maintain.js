@@ -22,7 +22,6 @@ setRelays(['https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://
         if(!id)return;
         if(fs.existsSync(`./data/${id}.html`))return;
         var { data } = await fetch({ url: `https://pastebin.com/raw/${id}` });
-        console.log(data)
         if(data?.error)return;
         if(typeof data != 'string') data = JSON.stringify(data);
         console.log("Fetched New", id);
