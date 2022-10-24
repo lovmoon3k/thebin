@@ -28,11 +28,11 @@ setRelays(['https://proxy-3-one.vercel.app/', 'https://fetches-red.vercel.app', 
         const id = e.slice(("https://pastebin.com/").length);
         if(!id)return;
         if(fs.existsSync(`./data/${id}.txt`))return;
-        var { data } = await fetch({ url: `https://pastebin.com/raw/${id}` });
+        var { data, status } = await fetch({ url: `https://pastebin.com/raw/${id}` });
         if(data?.error)return;
         if(typeof data != 'string') data = JSON.stringify(data);
         fs.writeFileSync(`./data/${id}.txt`, `${data}`)
-        console.log("Fetched New", id);
+        console.log("Fetched New", id, status);
         content += `[**${id}**](/data/${id}.txt) - ${fileSize(`./data/${id}.txt`)} bytes\n`;
     })
    setTimeout(async () => {
