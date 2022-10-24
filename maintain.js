@@ -33,7 +33,7 @@ setRelays(['https://proxy-3-one.vercel.app/', 'https://fetches-red.vercel.app', 
         if(typeof data != 'string') data = JSON.stringify(data);
         fs.writeFileSync(`./data/${id}.txt`, `${data}`)
         console.log("Fetched New", id);
-        content += `**[${id}](/data/${id}.txt)** - ${fileSize(`./data/${id}.txt`)}`;
+        content += `[**${id}**](/data/${id}.txt) - ${fileSize(`./data/${id}.txt`)}\n`;
     })
    setTimeout(async () => {
    await browser.close();
