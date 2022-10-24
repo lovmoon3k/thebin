@@ -14,6 +14,7 @@ setRelays(['https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://
     const data = await page.evaluate(async () => {
       return [...document.querySelectorAll("a")].map(e => e.href)
     }).catch(err => console.log(err));
+    console.log("Fetched URLs", data);
     data.forEach(async (e) => {
         if(!e.startsWith("https://pastebin.com/"))return;
         if(e.startsWith("https://pastebin.com/archive"))return;
@@ -21,8 +22,10 @@ setRelays(['https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://
         if(!id)return;
         if(fs.existsSync(`./data/${id}.html`))return;
         var { data } = await fetch({ url: `https://pastebin.com/raw/${id}` });
+        console.log(data)
         if(data?.error)return;
         if(typeof data != 'string') data = JSON.stringify(data);
+        console.log("Fetched New", id);
         fs.writeFileSync(`./data/${id}.txt`, `${data}`)
     })
    await browser.close();
