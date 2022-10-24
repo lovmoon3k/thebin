@@ -1,7 +1,6 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const { fetch, setRelays } = require('fetch-relay');
-var content = ``;
 
 function fileSize(filename) {
     var stats = fs.statSync(filename);
@@ -11,6 +10,7 @@ function fileSize(filename) {
 
 setRelays(['https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://relay-3.vercel.app', 'https://relay-4.vercel.app', 'https://relay-5.vercel.app']);
 (async () => {
+    var content = ``;
     const browser = await puppeteer.launch();
     const page = await browser.newPage();
     const userAgent = 'Mozilla/5.0 (X11; Linux x86_64)' +
@@ -33,7 +33,7 @@ setRelays(['https://relay-1.vercel.app', 'https://relay-2.vercel.app', 'https://
         if(typeof data != 'string') data = JSON.stringify(data);
         fs.writeFileSync(`./data/${id}.txt`, `${data}`)
         console.log("Fetched New", id);
-        content += `**[${id}](/data/${id}.txt)** - ${fileSize(`./data/${id}.txt`)}`;
+        content += `**[${id}](/data/${id}.txt)**`;
     })
    await browser.close();
    fs.writeFileSync("./readme.md", `${content}`);
