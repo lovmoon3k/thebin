@@ -1,1 +1,111 @@
-"// Learn more about F# at http://docs.microsoft.com/dotnet/fsharp\r\n\r\nopen System\r\n\r\ntype LD = byte list\r\n\r\nlet str2LD (s:string) : LD  =\r\n    let zn = List.ofArray <| s.ToCharArray()\r\n    List.map (fun x -> byte (x) - 0x30uy) zn\r\n\r\nlet LD2str (L: LD) : string =\r\n    let zn = List.map (fun x -> char (x + 0x30uy)) L\r\n    new System.String (List.toArray zn)\r\n\r\nlet rec LDAddExe (L1: LD, L2: LD) =\r\n    match L1, L2 with\r\n    | _, [] ->  L1\r\n    | [], _ -> L2\r\n    | L1H::L1T, L2H::L2T -> (L1H + L2H)::LDAddExe(L1T, L2T)\r\n\r\nlet rec LDNorm (L: LD, carry: byte) =\r\n    match L with\r\n    | [] -> if carry = 0uy then [] else (carry % 10uy)::LDNorm ([], (carry / 10uy))\r\n    | lh::lt -> ((carry + lh) % 10uy)::LDNorm (lt, ((carry + lh) / 10uy))\r\n\r\nlet LDadd (L1: LD, L2: LD) =\r\n    let L1Rev = List.rev L1\r\n    let L2Rev = List.rev L2\r\n    let result1 = LDAddExe (L1Rev, L2Rev)\r\n    let result2 = LDNorm (result1, 0uy)\r\n    List.rev result2\r\n\r\nlet rec LDEqual (L1: LD, L2: LD) =\r\n    match L1, L2 with\r\n    | [], [] -> true\r\n    | _, [] -> false\r\n    | [], _ -> false\r\n    | L1H::L1T, L2H::L2T -> if L1H = L2H then LDEqual (L1T, L2T) else false\r\n\r\nlet LDLess (L1: LD, L2Smaller: LD) =\r\n    let rec LDLessHelper (L1: LD, L2Smaller: LD, result: bool) =\r\n        match L1, L2Smaller with\r\n        | [], [] -> result\r\n        | _, [] -> true\r\n        | [], _ -> false\r\n        | L1H::L1T, L2H::L2T -> LDLessHelper (L1T, L2T, L1H > L2H)\r\n    let L1Rev = List.rev L1\r\n    let L2Rev = List.rev L2Smaller\r\n    LDLessHelper (L1Rev, L2Rev, false)\r\n\r\nlet LDLessOrEqual (L1: LD, L2Smaller: LD) =\r\n    LDEqual(L1, L2Smaller) || LDLess (L1, L2Smaller)\r\n\r\nlet enq (queue: LD, element: byte) =\r\n    queue @ [element]\r\n\r\nlet deq (queue: LD) =\r\n    match queue with\r\n    | [] -> failwith \"No elements in queue\"\r\n    | h::t -> t\r\n\r\nlet rec mnozSkalar (L: LD) (w: byte) =\r\n    match L with\r\n    | [] -> []\r\n    | h::t -> (w * h)::mnozSkalar t w\r\n\r\nlet rec mnozExe (a: LD) (b:LD) (w: LD) (carry: LD) =\r\n    match a with\r\n    | [] -> w\r\n    | h::t ->\r\n        let p = mnozSkalar b h\r\n        let dp = carry @ (LDNorm (p, 0uy))\r\n        let we = LDAddExe (w, dp)\r\n        let wp = LDNorm (we, 0uy)\r\n        mnozExe t b wp (0uy::carry)\r\n\r\nlet mnoz (a: LD) (b: LD) =\r\n    let ar = List.rev a\r\n    let br = List.rev b\r\n    let cr = mnozExe ar br [] []\r\n    List.rev cr\r\n\r\ntype PrioQ = (int * int) list\r\n\r\nlet enqPrio (queue: PrioQ, element: int) =\r\n    queue @ [element]\r\n\r\nlet rec deqPrio (queue: PrioQ, found: int, prio: int) =\r\n    match queue with\r\n    | [] -> found\r\n    | (h1, h2)::t -> if h2 > prio then deqPrio (t, h1, h2)\r\n                     else deqPrio(t, found, prio)\r\n\r\n[<EntryPoint>]\r\nlet main argv =\r\n    printfn \"%A\" <| str2LD \"123\"\r\n    printfn \"%A\" <| LD2str [3uy; 2uy; 1uy]\r\n    printfn \"%A\" <| LDadd ([7uy; 2uy; 1uy], [3uy; 5uy; 3uy; 9uy])\r\n    printfn \"%A\" <| LDEqual ([2uy; 3uy; 4uy], [2uy; 3uy; 4uy])\r\n    printfn \"%A\" <| LDEqual ([2uy; 3uy; 4uy], [2uy; 3uy; 5uy])\r\n    printfn \"%A\" <| LDLess ([2uy; 3uy; 4uy], [2uy; 3uy; 4uy])\r\n    printfn \"%A\" <| LDLess ([3uy; 1uy; 1uy], [2uy; 3uy; 4uy])\r\n    printfn \"%A\" <| LDLess ([1uy; 1uy; 1uy; 1uy], [2uy; 3uy; 4uy])\r\n    printfn \"%A\" <| LDLessOrEqual ([2uy; 3uy; 4uy], [2uy; 3uy; 4uy])\r\n    printfn \"%A\" <| LDLessOrEqual ([3uy; 1uy; 1uy], [2uy; 3uy; 4uy])\r\n    printfn \"%A\" <| LDLessOrEqual ([1uy; 1uy; 1uy; 1uy], [2uy; 3uy; 4uy])\r\n    printfn \"%A\" <| LDLessOrEqual ([2uy; 1uy; 1uy], [2uy; 3uy; 4uy])\r\n    printfn \"%A\" <| deq (enq (enq (enq ([], 1uy), 2uy), 3uy))\r\n    printfn \"%A\" <| mnoz [3uy; 2uy] [4uy; 5uy]\r\n    printfn \"%A\" <| \r\n    0 // return an integer exit code\r\n"
+// Learn more about F# at http://docs.microsoft.com/dotnet/fsharp
+
+open System
+
+type LD = byte list
+
+let str2LD (s:string) : LD  =
+    let zn = List.ofArray <| s.ToCharArray()
+    List.map (fun x -> byte (x) - 0x30uy) zn
+
+let LD2str (L: LD) : string =
+    let zn = List.map (fun x -> char (x + 0x30uy)) L
+    new System.String (List.toArray zn)
+
+let rec LDAddExe (L1: LD, L2: LD) =
+    match L1, L2 with
+    | _, [] ->  L1
+    | [], _ -> L2
+    | L1H::L1T, L2H::L2T -> (L1H + L2H)::LDAddExe(L1T, L2T)
+
+let rec LDNorm (L: LD, carry: byte) =
+    match L with
+    | [] -> if carry = 0uy then [] else (carry % 10uy)::LDNorm ([], (carry / 10uy))
+    | lh::lt -> ((carry + lh) % 10uy)::LDNorm (lt, ((carry + lh) / 10uy))
+
+let LDadd (L1: LD, L2: LD) =
+    let L1Rev = List.rev L1
+    let L2Rev = List.rev L2
+    let result1 = LDAddExe (L1Rev, L2Rev)
+    let result2 = LDNorm (result1, 0uy)
+    List.rev result2
+
+let rec LDEqual (L1: LD, L2: LD) =
+    match L1, L2 with
+    | [], [] -> true
+    | _, [] -> false
+    | [], _ -> false
+    | L1H::L1T, L2H::L2T -> if L1H = L2H then LDEqual (L1T, L2T) else false
+
+let LDLess (L1: LD, L2Smaller: LD) =
+    let rec LDLessHelper (L1: LD, L2Smaller: LD, result: bool) =
+        match L1, L2Smaller with
+        | [], [] -> result
+        | _, [] -> true
+        | [], _ -> false
+        | L1H::L1T, L2H::L2T -> LDLessHelper (L1T, L2T, L1H > L2H)
+    let L1Rev = List.rev L1
+    let L2Rev = List.rev L2Smaller
+    LDLessHelper (L1Rev, L2Rev, false)
+
+let LDLessOrEqual (L1: LD, L2Smaller: LD) =
+    LDEqual(L1, L2Smaller) || LDLess (L1, L2Smaller)
+
+let enq (queue: LD, element: byte) =
+    queue @ [element]
+
+let deq (queue: LD) =
+    match queue with
+    | [] -> failwith "No elements in queue"
+    | h::t -> t
+
+let rec mnozSkalar (L: LD) (w: byte) =
+    match L with
+    | [] -> []
+    | h::t -> (w * h)::mnozSkalar t w
+
+let rec mnozExe (a: LD) (b:LD) (w: LD) (carry: LD) =
+    match a with
+    | [] -> w
+    | h::t ->
+        let p = mnozSkalar b h
+        let dp = carry @ (LDNorm (p, 0uy))
+        let we = LDAddExe (w, dp)
+        let wp = LDNorm (we, 0uy)
+        mnozExe t b wp (0uy::carry)
+
+let mnoz (a: LD) (b: LD) =
+    let ar = List.rev a
+    let br = List.rev b
+    let cr = mnozExe ar br [] []
+    List.rev cr
+
+type PrioQ = (int * int) list
+
+let enqPrio (queue: PrioQ, element: int) =
+    queue @ [element]
+
+let rec deqPrio (queue: PrioQ, found: int, prio: int) =
+    match queue with
+    | [] -> found
+    | (h1, h2)::t -> if h2 > prio then deqPrio (t, h1, h2)
+                     else deqPrio(t, found, prio)
+
+[<EntryPoint>]
+let main argv =
+    printfn "%A" <| str2LD "123"
+    printfn "%A" <| LD2str [3uy; 2uy; 1uy]
+    printfn "%A" <| LDadd ([7uy; 2uy; 1uy], [3uy; 5uy; 3uy; 9uy])
+    printfn "%A" <| LDEqual ([2uy; 3uy; 4uy], [2uy; 3uy; 4uy])
+    printfn "%A" <| LDEqual ([2uy; 3uy; 4uy], [2uy; 3uy; 5uy])
+    printfn "%A" <| LDLess ([2uy; 3uy; 4uy], [2uy; 3uy; 4uy])
+    printfn "%A" <| LDLess ([3uy; 1uy; 1uy], [2uy; 3uy; 4uy])
+    printfn "%A" <| LDLess ([1uy; 1uy; 1uy; 1uy], [2uy; 3uy; 4uy])
+    printfn "%A" <| LDLessOrEqual ([2uy; 3uy; 4uy], [2uy; 3uy; 4uy])
+    printfn "%A" <| LDLessOrEqual ([3uy; 1uy; 1uy], [2uy; 3uy; 4uy])
+    printfn "%A" <| LDLessOrEqual ([1uy; 1uy; 1uy; 1uy], [2uy; 3uy; 4uy])
+    printfn "%A" <| LDLessOrEqual ([2uy; 1uy; 1uy], [2uy; 3uy; 4uy])
+    printfn "%A" <| deq (enq (enq (enq ([], 1uy), 2uy), 3uy))
+    printfn "%A" <| mnoz [3uy; 2uy] [4uy; 5uy]
+    printfn "%A" <| 
+    0 // return an integer exit code

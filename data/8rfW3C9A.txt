@@ -1,1 +1,165 @@
-"#include <Windows.h>\r\n#include <string>\r\n#include <iostream>\r\n#include <cstdio>\r\n#include <tlhelp32.h>\r\n#include <process.h>\r\n#include <processthreadsapi.h>\r\n#include <cstdio>\r\nusing namespace std;\r\n\r\nLPDWORD pid ;\r\n\r\nstruct Enum_windows_data\r\n{\r\n\tDWORD process_id;\r\n\tconst char* window_title;\r\n\tHWND hwnd;\r\n};\r\n\r\nBOOL CALLBACK enum_windows_proc(HWND hwnd, LPARAM lparam)\r\n{\r\n\tauto data = reinterpret_cast<Enum_windows_data*>(lparam);\r\n\r\n\tDWORD process_id = 0;\r\n\r\n\tGetWindowThreadProcessId(hwnd, &process_id);\r\n\r\n\tif (process_id == data->process_id)\r\n\t{\r\n\t\tif (!data->window_title)\r\n\t\t{\r\n\t\t\tdata->hwnd = hwnd;\r\n\r\n\t\t\treturn FALSE;\r\n\t\t}\r\n\r\n\t\tchar window_title[64 + 1];\r\n\r\n\t\tif (!GetWindowTextA(hwnd, window_title, sizeof(window_title)))\r\n\t\t\treturn TRUE; // No title or error\r\n\r\n\t\tif (_stricmp(window_title, data->window_title) == 0)\r\n\t\t{\r\n\t\t\tdata->hwnd = hwnd;\r\n\r\n\t\t\treturn FALSE;\r\n\t\t}\r\n\t}\r\n\r\n\treturn TRUE;\r\n}\r\n\r\nFORCEINLINE DWORD get_thread_id_by_hwnd(HWND hwnd)\r\n{\r\n\treturn GetWindowThreadProcessId(hwnd, pid);\r\n}\r\n\r\n\r\n\r\nHWND find_window(DWORD pid, const std::string& window_title)\r\n{\r\n\tEnum_windows_data data;\r\n\tdata.process_id = pid;\r\n\tdata.window_title\r\n\t\t= window_title.empty()\r\n\t\t? nullptr\r\n\t\t: window_title.c_str();\r\n\tdata.hwnd = nullptr;\r\n\r\n\t// MSDN: If EnumWindowsProc returns zero, the return value is also zero.\r\n\tif (!EnumWindows(enum_windows_proc, reinterpret_cast<LPARAM>(&data)) && !data.hwnd)\r\n\t{\r\n\t\treturn nullptr;\r\n\t}\r\n\r\n\tif (!data.hwnd)\r\n\t{\r\n\t\treturn nullptr;\r\n\t}\r\n\treturn data.hwnd;\r\n}\r\n\r\n\r\nstruct GetCurrentProcessWindowParameters\r\n{\r\n\tHWND hWnd;\r\n\tLPCSTR ClassName;\r\n\tLPCSTR Title;\r\n};\r\n\r\n\r\n\r\nHWND FindWindowX(LPCSTR className, LPCSTR title)\r\n{\r\n\tGetCurrentProcessWindowParameters parameters;\r\n\tparameters.hWnd = nullptr;\r\n\tparameters.ClassName = className;\r\n\tparameters.Title = title;\r\n\r\n\tEnumWindows(enum_windows_proc, reinterpret_cast<LPARAM>(&parameters));\r\n\r\n\treturn parameters.hWnd;\r\n}\r\n \r\n\r\nint main(int argc, wchar_t* argv[])\r\n{\r\n\r\n \r\n \r\n\t//Load library in which we’ll be hooking our functions.\r\n\tHMODULE dll = LoadLibraryW(L\"xinput1_3.dll\");\r\n\tif (dll == NULL)\r\n\t{\r\n\t\tcout << \"[ FAILED ] Could not find target window.\" << endl;\r\n\t\tsystem(\"pause\");\r\n\t\treturn EXIT_FAILURE;\r\n\t}\r\n\r\n\t\r\n\tHWND target = FindWindowX(\"LaunchUnrealUWindowsClient\", \"Alliance of Valiant Arms\");\r\n\tif (target == NULL)\r\n\t{\r\n\t\tcout << \"target = 0.\" << endl;\r\n\t\tsystem(\"pause\");\r\n\t\treturn EXIT_FAILURE;\r\n\t}\r\n\tcout << \"window Found \" << target << std::hex << std::endl;\r\n\tDWORD tid = GetWindowThreadProcessId(target,pid);\r\n\tif (tid == NULL)\r\n\t{\r\n\t\tcout << \"tid = 0.\" << endl;\r\n\t\tsystem(\"pause\");\r\n\t\treturn EXIT_FAILURE;\r\n\t}\r\n\tcout << \"pid = \" << pid << endl;\r\n\tcout << \"tid = \" << tid << endl;\r\n  \r\n\t//Get the address of the function inside the DLL.\t\r\n\tHOOKPROC addr = (HOOKPROC)GetProcAddress(dll, \"NextHook\");\r\n\tif (addr == NULL)\r\n\t{\r\n\t\tcout << \"dll = 0\" << endl;\r\n\t\tsystem(\"pause\");\r\n\t\treturn EXIT_FAILURE;\r\n\t}\r\n\r\n\t//Hook the function.\r\n\tHHOOK handle = SetWindowsHookEx(WH_GETMESSAGE, addr, dll, tid);\r\n\tif (handle == NULL)\r\n\t{\r\n\t\tcout << \"MDFK Success injected\" << endl;\r\n\t\tsystem(\"pause\");\r\n\t\treturn EXIT_FAILURE;\r\n\t}\r\n\tcout << \"injection successfull Handle = \" << handle << std::hex << endl;\r\n \r\n\t//\t Unhook the function.\t\r\n\tsystem(\"pause\");\r\n\treturn EXIT_FAILURE;\r\n\r\n\tUnhookWindowsHookEx(handle);\r\n\r\n\treturn 0;\r\n}"
+#include <Windows.h>
+#include <string>
+#include <iostream>
+#include <cstdio>
+#include <tlhelp32.h>
+#include <process.h>
+#include <processthreadsapi.h>
+#include <cstdio>
+using namespace std;
+
+LPDWORD pid ;
+
+struct Enum_windows_data
+{
+	DWORD process_id;
+	const char* window_title;
+	HWND hwnd;
+};
+
+BOOL CALLBACK enum_windows_proc(HWND hwnd, LPARAM lparam)
+{
+	auto data = reinterpret_cast<Enum_windows_data*>(lparam);
+
+	DWORD process_id = 0;
+
+	GetWindowThreadProcessId(hwnd, &process_id);
+
+	if (process_id == data->process_id)
+	{
+		if (!data->window_title)
+		{
+			data->hwnd = hwnd;
+
+			return FALSE;
+		}
+
+		char window_title[64 + 1];
+
+		if (!GetWindowTextA(hwnd, window_title, sizeof(window_title)))
+			return TRUE; // No title or error
+
+		if (_stricmp(window_title, data->window_title) == 0)
+		{
+			data->hwnd = hwnd;
+
+			return FALSE;
+		}
+	}
+
+	return TRUE;
+}
+
+FORCEINLINE DWORD get_thread_id_by_hwnd(HWND hwnd)
+{
+	return GetWindowThreadProcessId(hwnd, pid);
+}
+
+
+
+HWND find_window(DWORD pid, const std::string& window_title)
+{
+	Enum_windows_data data;
+	data.process_id = pid;
+	data.window_title
+		= window_title.empty()
+		? nullptr
+		: window_title.c_str();
+	data.hwnd = nullptr;
+
+	// MSDN: If EnumWindowsProc returns zero, the return value is also zero.
+	if (!EnumWindows(enum_windows_proc, reinterpret_cast<LPARAM>(&data)) && !data.hwnd)
+	{
+		return nullptr;
+	}
+
+	if (!data.hwnd)
+	{
+		return nullptr;
+	}
+	return data.hwnd;
+}
+
+
+struct GetCurrentProcessWindowParameters
+{
+	HWND hWnd;
+	LPCSTR ClassName;
+	LPCSTR Title;
+};
+
+
+
+HWND FindWindowX(LPCSTR className, LPCSTR title)
+{
+	GetCurrentProcessWindowParameters parameters;
+	parameters.hWnd = nullptr;
+	parameters.ClassName = className;
+	parameters.Title = title;
+
+	EnumWindows(enum_windows_proc, reinterpret_cast<LPARAM>(&parameters));
+
+	return parameters.hWnd;
+}
+ 
+
+int main(int argc, wchar_t* argv[])
+{
+
+ 
+ 
+	//Load library in which we’ll be hooking our functions.
+	HMODULE dll = LoadLibraryW(L"xinput1_3.dll");
+	if (dll == NULL)
+	{
+		cout << "[ FAILED ] Could not find target window." << endl;
+		system("pause");
+		return EXIT_FAILURE;
+	}
+
+	
+	HWND target = FindWindowX("LaunchUnrealUWindowsClient", "Alliance of Valiant Arms");
+	if (target == NULL)
+	{
+		cout << "target = 0." << endl;
+		system("pause");
+		return EXIT_FAILURE;
+	}
+	cout << "window Found " << target << std::hex << std::endl;
+	DWORD tid = GetWindowThreadProcessId(target,pid);
+	if (tid == NULL)
+	{
+		cout << "tid = 0." << endl;
+		system("pause");
+		return EXIT_FAILURE;
+	}
+	cout << "pid = " << pid << endl;
+	cout << "tid = " << tid << endl;
+  
+	//Get the address of the function inside the DLL.	
+	HOOKPROC addr = (HOOKPROC)GetProcAddress(dll, "NextHook");
+	if (addr == NULL)
+	{
+		cout << "dll = 0" << endl;
+		system("pause");
+		return EXIT_FAILURE;
+	}
+
+	//Hook the function.
+	HHOOK handle = SetWindowsHookEx(WH_GETMESSAGE, addr, dll, tid);
+	if (handle == NULL)
+	{
+		cout << "MDFK Success injected" << endl;
+		system("pause");
+		return EXIT_FAILURE;
+	}
+	cout << "injection successfull Handle = " << handle << std::hex << endl;
+ 
+	//	 Unhook the function.	
+	system("pause");
+	return EXIT_FAILURE;
+
+	UnhookWindowsHookEx(handle);
+
+	return 0;
+}

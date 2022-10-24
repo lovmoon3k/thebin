@@ -1,1 +1,185 @@
-"WITH \r\n \r\n/*List of all successful subscription payments - Alltime*/\r\n    SuccessSubsPayment AS(\r\n         SELECT \r\n            userID,\r\n            paymentDateTime,\r\n            paymentPeriod,\r\n            productID\r\n \r\n         FROM `uptimerobot-001.ur.payments`\r\n         WHERE \r\n          paymentType = 2 \r\n          AND paymentStatus = 1\r\n     ),\r\n \r\n/*Last successful subscription payments by user*/\r\n     LastSuccessSubsPayment AS(\r\n         SELECT \r\n            p1.userID,\r\n            p1.paymentDateTime as lastPaymentDateTime,\r\n            p1.paymentPeriod as lastPaymentPeriod,\r\n            p1.productID as lastPaymentProductID\r\n \r\n        FROM SuccessSubsPayment p1\r\n        LEFT JOIN SuccessSubsPayment p2\r\n        ON (p1.userID = p2.userID AND p1.paymentDateTime < p2.paymentDateTime)\r\n        WHERE \r\n            p2.userID IS NULL\r\n \r\n     ),\r\n \r\n/*added userType - Current / Churned Customer*/\r\n    LastSubsPaymentUsersType AS (\r\n            SELECT \r\n                userID,\r\n                lastPaymentDateTime,\r\n                lastPaymentPeriod,\r\n                (CASE \r\n                    WHEN (DATE_ADD(DATETIME(lastPaymentDateTime), INTERVAL lastPaymentPeriod MONTH) >= CURRENT_DATE()) THEN 'CurrentCustomer'\r\n                    ELSE 'ChurnedCustomer'\r\n                END) AS customerType,\r\n                lastPaymentProductID\r\n            FROM LastSuccessSubsPayment\r\n    ),\r\n \r\n/*added productName & ProductValue*/\r\n    LastSubsPaymentUsersTypeProduct AS (\r\n            SELECT\r\n                lsput.userID,\r\n                lsput.lastPaymentDateTime,\r\n                lsput.lastPaymentPeriod,\r\n                lsput.customerType,\r\n                lsput.lastPaymentProductID,\r\n                pr.productName,\r\n                pr.productValue\r\n \r\n            FROM \r\n                LastSubsPaymentUsersType as lsput\r\n            LEFT JOIN `uptimerobot-001.ur.products` as pr\r\n                ON pr.productID = lsput.lastPaymentProductID\r\n    ),\r\n \r\n/*Deduplication of multiple last successful payments from the same user - some edge cases*/\r\n LastSuccessSubsPaymentUserTypeProduct AS (\r\n    SELECT \r\n        userID,\r\n        MAX(lastPaymentDateTime) as lastPaymentDateTime,\r\n        MAX(lastPaymentPeriod) as lastPaymentPeriod,\r\n        MAX(customerType) as customerType,\r\n        MAX(lastPaymentProductID) as lastPaymentProductID,\r\n        MAX(productName) as lastPaymentProductName,\r\n        MAX(productValue) as lastPaymentProductValue\r\n \r\n    FROM LastSubsPaymentUsersTypeProduct \r\n \r\n    GROUP BY userID\r\n    ORDER BY userID DESC\r\n    ),\r\n    \r\n/*List of All Active Not Default E-mail Alert Contacts*/\r\n    NotDefaultEmailAlertContacts AS (\r\n \r\n        SELECT\r\n            userID,\r\n            alertContactType,\r\n            alertContactValue,\r\n            alertContactStatus\r\n        FROM `uptimerobot-001.ur.alertcontacts`\r\n        WHERE \r\n          alertContactType = 2 \r\n          AND alertContactStatus = 2\r\n        ),\r\n \r\n/*Number of Active Unique E-mail Alert Contacts per user*/\r\n    CountOfUniqueEmailAlertContactsPerUser AS(\r\n        SELECT \r\n            userID, \r\n            count(DISTINCT alertContactValue) uniqueEmailAlertContacts\r\n        FROM NotDefaultEmailAlertContacts\r\n        GROUP BY userID\r\n        ORDER BY uniqueEmailAlertContacts DESC\r\n \r\n    ),\r\n \r\n/*List of all users with the count of active unique not default Email Alert Contacts by user type - FREE / Current / Churned Customer & productName & productValue*/\r\nEmailAlertContacts AS(\r\n    SELECT\r\n        CountOfUniqueEmailAlertContactsPerUser.userID,\r\n        uniqueEmailAlertContacts,\r\n        (CASE\r\n            WHEN customerType IS NULL THEN 'FREE'\r\n            ELSE customerType\r\n        END) as customerType,\r\n        (CASE\r\n            WHEN lastPaymentProductName IS NULL THEN 'FREE'\r\n            ELSE lastPaymentProductName\r\n        END) as lastPaymentProductName,\r\n        (CASE\r\n            WHEN lastPaymentProductValue IS NULL THEN 0\r\n            ELSE lastPaymentProductValue\r\n        END) as lastPaymentProductValue\r\n        \r\n \r\n    FROM CountOfUniqueEmailAlertContactsPerUser \r\n    LEFT JOIN LastSuccessSubsPaymentUserTypeProduct \r\n        on CountOfUniqueEmailAlertContactsPerUser.userID = LastSuccessSubsPaymentUserTypeProduct.userID\r\n    )\r\n/*Number of Users with active Not Default Email AlertContact by customer type and lastPaymentProduct*/\r\n/*\r\nSELECT \r\n    customerType, \r\n    lastPaymentProductName, \r\n    count(userID) as userCount\r\nFROM EmailAlertContacts\r\nGROUP BY \r\n    customerType, \r\n    lastPaymentProductName,\r\n    lastPaymentProductValue\r\nORDER BY \r\n    customerType,\r\n    lastPaymentProductValue*/\r\n\r\n    SELECT \r\n        NotDefaultEmailAlertContacts.userID,\r\n        (CASE\r\n            WHEN \r\n                userEmail IS NULL THEN '_onlyDefaultEmailAlertContact'\r\n                ELSE userEmail\r\n            END) userEmailDefault,\r\n        alertContactType,\r\n        alertContactValue,\r\n        alertContactStatus,\r\n        uniqueEmailAlertContacts,\r\n        (CASE\r\n            WHEN customerType IS NULL THEN 'FREE'\r\n            ELSE customerType\r\n        END) as customerType,\r\n        (CASE\r\n            WHEN lastPaymentProductName IS NULL THEN 'FREE'\r\n            ELSE lastPaymentProductName\r\n        END) as lastPaymentProductName,\r\n        (CASE\r\n            WHEN lastPaymentProductValue IS NULL THEN 0\r\n            ELSE lastPaymentProductValue\r\n        END) as lastPaymentProductValue\r\n        \r\n  \r\n    FROM \r\n        NotDefaultEmailAlertContacts\r\n\r\n    LEFT JOIN\r\n        CountOfUniqueEmailAlertContactsPerUser \r\n    ON NotDefaultEmailAlertContacts.userID = CountOfUniqueEmailAlertContactsPerUser.userID\r\n    LEFT JOIN \r\n        `uptimerobot-001.ur.users` u\r\n    ON NotDefaultEmailAlertContacts.userID = u.userID\r\n    LEFT JOIN LastSuccessSubsPaymentUserTypeProduct\r\n    ON NotDefaultEmailAlertContacts.userID = LastSuccessSubsPaymentUserTypeProduct.userID\r\n\r\n    ORDER BY\r\n        userID DESC,\r\n        uniqueEmailAlertContacts DESC\r\n\r\n    \r\n"
+WITH 
+ 
+/*List of all successful subscription payments - Alltime*/
+    SuccessSubsPayment AS(
+         SELECT 
+            userID,
+            paymentDateTime,
+            paymentPeriod,
+            productID
+ 
+         FROM `uptimerobot-001.ur.payments`
+         WHERE 
+          paymentType = 2 
+          AND paymentStatus = 1
+     ),
+ 
+/*Last successful subscription payments by user*/
+     LastSuccessSubsPayment AS(
+         SELECT 
+            p1.userID,
+            p1.paymentDateTime as lastPaymentDateTime,
+            p1.paymentPeriod as lastPaymentPeriod,
+            p1.productID as lastPaymentProductID
+ 
+        FROM SuccessSubsPayment p1
+        LEFT JOIN SuccessSubsPayment p2
+        ON (p1.userID = p2.userID AND p1.paymentDateTime < p2.paymentDateTime)
+        WHERE 
+            p2.userID IS NULL
+ 
+     ),
+ 
+/*added userType - Current / Churned Customer*/
+    LastSubsPaymentUsersType AS (
+            SELECT 
+                userID,
+                lastPaymentDateTime,
+                lastPaymentPeriod,
+                (CASE 
+                    WHEN (DATE_ADD(DATETIME(lastPaymentDateTime), INTERVAL lastPaymentPeriod MONTH) >= CURRENT_DATE()) THEN 'CurrentCustomer'
+                    ELSE 'ChurnedCustomer'
+                END) AS customerType,
+                lastPaymentProductID
+            FROM LastSuccessSubsPayment
+    ),
+ 
+/*added productName & ProductValue*/
+    LastSubsPaymentUsersTypeProduct AS (
+            SELECT
+                lsput.userID,
+                lsput.lastPaymentDateTime,
+                lsput.lastPaymentPeriod,
+                lsput.customerType,
+                lsput.lastPaymentProductID,
+                pr.productName,
+                pr.productValue
+ 
+            FROM 
+                LastSubsPaymentUsersType as lsput
+            LEFT JOIN `uptimerobot-001.ur.products` as pr
+                ON pr.productID = lsput.lastPaymentProductID
+    ),
+ 
+/*Deduplication of multiple last successful payments from the same user - some edge cases*/
+ LastSuccessSubsPaymentUserTypeProduct AS (
+    SELECT 
+        userID,
+        MAX(lastPaymentDateTime) as lastPaymentDateTime,
+        MAX(lastPaymentPeriod) as lastPaymentPeriod,
+        MAX(customerType) as customerType,
+        MAX(lastPaymentProductID) as lastPaymentProductID,
+        MAX(productName) as lastPaymentProductName,
+        MAX(productValue) as lastPaymentProductValue
+ 
+    FROM LastSubsPaymentUsersTypeProduct 
+ 
+    GROUP BY userID
+    ORDER BY userID DESC
+    ),
+    
+/*List of All Active Not Default E-mail Alert Contacts*/
+    NotDefaultEmailAlertContacts AS (
+ 
+        SELECT
+            userID,
+            alertContactType,
+            alertContactValue,
+            alertContactStatus
+        FROM `uptimerobot-001.ur.alertcontacts`
+        WHERE 
+          alertContactType = 2 
+          AND alertContactStatus = 2
+        ),
+ 
+/*Number of Active Unique E-mail Alert Contacts per user*/
+    CountOfUniqueEmailAlertContactsPerUser AS(
+        SELECT 
+            userID, 
+            count(DISTINCT alertContactValue) uniqueEmailAlertContacts
+        FROM NotDefaultEmailAlertContacts
+        GROUP BY userID
+        ORDER BY uniqueEmailAlertContacts DESC
+ 
+    ),
+ 
+/*List of all users with the count of active unique not default Email Alert Contacts by user type - FREE / Current / Churned Customer & productName & productValue*/
+EmailAlertContacts AS(
+    SELECT
+        CountOfUniqueEmailAlertContactsPerUser.userID,
+        uniqueEmailAlertContacts,
+        (CASE
+            WHEN customerType IS NULL THEN 'FREE'
+            ELSE customerType
+        END) as customerType,
+        (CASE
+            WHEN lastPaymentProductName IS NULL THEN 'FREE'
+            ELSE lastPaymentProductName
+        END) as lastPaymentProductName,
+        (CASE
+            WHEN lastPaymentProductValue IS NULL THEN 0
+            ELSE lastPaymentProductValue
+        END) as lastPaymentProductValue
+        
+ 
+    FROM CountOfUniqueEmailAlertContactsPerUser 
+    LEFT JOIN LastSuccessSubsPaymentUserTypeProduct 
+        on CountOfUniqueEmailAlertContactsPerUser.userID = LastSuccessSubsPaymentUserTypeProduct.userID
+    )
+/*Number of Users with active Not Default Email AlertContact by customer type and lastPaymentProduct*/
+/*
+SELECT 
+    customerType, 
+    lastPaymentProductName, 
+    count(userID) as userCount
+FROM EmailAlertContacts
+GROUP BY 
+    customerType, 
+    lastPaymentProductName,
+    lastPaymentProductValue
+ORDER BY 
+    customerType,
+    lastPaymentProductValue*/
+
+    SELECT 
+        NotDefaultEmailAlertContacts.userID,
+        (CASE
+            WHEN 
+                userEmail IS NULL THEN '_onlyDefaultEmailAlertContact'
+                ELSE userEmail
+            END) userEmailDefault,
+        alertContactType,
+        alertContactValue,
+        alertContactStatus,
+        uniqueEmailAlertContacts,
+        (CASE
+            WHEN customerType IS NULL THEN 'FREE'
+            ELSE customerType
+        END) as customerType,
+        (CASE
+            WHEN lastPaymentProductName IS NULL THEN 'FREE'
+            ELSE lastPaymentProductName
+        END) as lastPaymentProductName,
+        (CASE
+            WHEN lastPaymentProductValue IS NULL THEN 0
+            ELSE lastPaymentProductValue
+        END) as lastPaymentProductValue
+        
+  
+    FROM 
+        NotDefaultEmailAlertContacts
+
+    LEFT JOIN
+        CountOfUniqueEmailAlertContactsPerUser 
+    ON NotDefaultEmailAlertContacts.userID = CountOfUniqueEmailAlertContactsPerUser.userID
+    LEFT JOIN 
+        `uptimerobot-001.ur.users` u
+    ON NotDefaultEmailAlertContacts.userID = u.userID
+    LEFT JOIN LastSuccessSubsPaymentUserTypeProduct
+    ON NotDefaultEmailAlertContacts.userID = LastSuccessSubsPaymentUserTypeProduct.userID
+
+    ORDER BY
+        userID DESC,
+        uniqueEmailAlertContacts DESC
+
+    
