@@ -1,0 +1,189 @@
+    PROGRAM ECOULEMENTLAMINAIRE
+    IMPLICIT NONE
+    REAL(8) VISCD,D,L,DP,VMOY,VMAX,QV,DPDZ,PI,S,DA,PVC,DC,D1,D2,D3,D4,D5,CSTE_K
+    REAL(8) LC,RC,SA,SB,PA,PB,VA,VB,RCAP,QCAP,REY,RSYS,ROF,R1,R2,R3,R4,R5,REQ
+    INTEGER ICAS,NCAP
+    OPEN(UNIT=6,FILE='LAMINAIRE.OUT',FORM='formatted', ACTION="WRITE")
+!    WRITE(*,*)'DONNER LA VISCOSITE DYNAMIQUE DU FLUIDE EN (N s/m2)'
+!    READ(*,*)VISCD
+    VISCD = 0.026 !5.D-3
+    WRITE(*,*)'DONNER LE TYPE DE CAS A ETUDIER :'
+    WRITE(*,*)'TAPEZ 1 : CAS D''UN CAPILLAIRE'
+    WRITE(*,*)'TAPEZ 2 : RESEAU CAPILLAIRE ENTRE UNE ARTERE ET UNE VEINE'
+    WRITE(*,*)'TAPEZ 3 : CIRCULATION SANGUINE GLOBALE DANS LE CORPS'
+    READ(*,*)ICAS
+!    ICAS = 1
+    PI = 4.D0*DATAN(1.D0)
+    SELECT CASE(ICAS)
+    CASE(1)
+        WRITE(*,*)'DONNER LE RAYON CAPILLAIRE RC EN MICRON'
+        READ(*,*)RC
+        RC = 5
+        RC = RC*1D-6
+        RC = 2.5D-3
+        WRITE(*,*)'DONNER LA LONGUEUR DU CAPILLAIRE EN CENTIMETRES'
+        READ(*,*)LC
+        LC = 1
+        LC = LC*1D-2
+        LC = 3
+        WRITE(*,*)'DONNER LA DIFFERENCE DE PRESSION ENTRE LES EXTREMITES EN PASCAL'
+        READ(*,*)DP
+        DP = 15960-1330
+        DP = 3D5
+    CASE(2)
+        WRITE(*,*)'DONNER LA SECTION DE L''ARTERE (cm2)'
+        READ(*,*)SA
+        SA = 0.20D0
+        SA = SA*1D-4
+        WRITE(*,*)'DONNER LA SECTION DE LA VEINE (cm2)'
+        READ(*,*)SB
+        SB = 0.20D0
+        SB = SB*1D-4
+        WRITE(*,*)'DONNER LE RAYON D''UN CAPILLAIRE EN MICRON'
+        READ(*,*)RC
+        RC = 5.D0
+        RC = RC*1D-6
+        WRITE(*,*)'DONNER LA LONGUEUR D''UN CAPILLAIRE EN CENTIMETRES'
+        READ(*,*)LC
+        LC = 1.D0
+        LC = LC*1D-2
+        WRITE(*,*)'DONNER LA PRESSION AU SEIN DE L''ARTERE (PA) EN PASCAL'
+        READ(*,*)PA
+        PA = 15960.D0
+        WRITE(*,*)'DONNER LA PRESSION AU SEIN DE LA VEINE (PB) EN PASCAL'
+        READ(*,*)PB
+        PB = 1330.D0
+        WRITE(*,*)'DONNER LA VITESSE DEBITANTE DANS L''ARTERE A EN CM/S'
+        READ(*,*)VA
+        VA = 25.D0
+        VA = VA*1D-2
+    CASE(3)
+        ! LES DONNEES POUR UNE PERSONNE SAINE ET AU REPOS PHYSIQUE
+        WRITE(*,*)'DONNER LE DEBIT CARDIAQUE DC EN LITRES/MINUTE'
+        READ(*,*)DC
+        DC = DC*1D-3/60.
+        WRITE(*,*)'DONNER LA PRESSION AU SEIN DE LA VEINE CAVE EN PASCAL'
+        READ(*,*)PVC
+        PVC = 399D0
+        WRITE(*,*)'DONNER LA PRESSION AU SEIN DE L''AORTE EN PASCAL'
+        READ(*,*)PA
+        PA = 12635D0
+        WRITE(*,*)'DONNER LE DIAMETRE DE L''AORTE EN CENTIMETRE'
+        READ(*,*)DA
+        DA = 2
+        DA = DA*1D-2
+        VISCD = 5D-3
+        ROF = 1060.D0
+        DP = PA - PVC
+    END SELECT
+    !             Calcul selon le cas choisi -----------------------
+    SELECT CASE(ICAS)
+    CASE(1)
+        !    CALCUL DU GRADIENT DE PRESSION
+        D = 2*RC ; L = LC
+        DPDZ = DP/L
+        CALL LAMINAIR(DPDZ,D,L,VISCD,QCAP,VMOY,VMAX,RCAP)
+    CASE(2)
+        QV = SA*VA
+        D = 2*RC
+        L = LC
+        DP = PA-PB
+        DPDZ = DP/L
+        CALL LAMINAIR(DPDZ,D,L,VISCD,QCAP,VMOY,VMAX,RCAP)
+        NCAP = QV/QCAP
+    CASE(3)
+        D1 = 0.1*DC  ! Débit dans le muscle cardiaque
+        R1 = DP/D1
+        D2 = 0.15*DC ! Débit dans le cerveau
+        R2 = DP/D2
+        D3 = 0.20*DC ! Débit dans le foie
+        R3 = DP/D3
+        D4 = 0.25*DC ! Dèbit dans les reins
+        R4 = DP/D4
+        D5 = 0.30*DC ! Débit dans les Jambes
+        R5 = DP/D5
+        ! Calcul de la vitesse Va du sang dans l'aorte
+        VA = DC/(0.25*PI*DA**2)
+        REY = ROF*VA*DA/VISCD
+        ! Calcul de résistance hydraulique RSYS
+        RSYS = DP/DC
+        REQ = (1./R1)+(1/R2)+(1/R3)+(1/R4)+(1/R5)
+        REQ = 1./REQ
+        CSTE_K = DP/DC**2
+    END SELECT
+    
+        
+
+    CONTAINS
+    SUBROUTINE LAMINAIR(DPDZ,D,L,VISCD,QV,VMOY,VMAX,RCAP)
+    IMPLICIT NONE
+    REAL(8),INTENT(IN) :: DPDZ,D,L,VISCD
+    REAL(8),INTENT(OUT) :: QV,VMOY,VMAX,RCAP
+    REAL(8) PI,S
+    REAL(8), DIMENSION(:),ALLOCATABLE :: V,R,TAU
+    INTEGER N,I
+    N = 11
+    ALLOCATE(V(N),R(N),TAU(N))
+    PI = 4.D0*DATAN(1.D0)
+    ! CALCUL DU DEBIT VOLUMIQUE
+    QV = PI*DPDZ*D**4/(128.D0*VISCD)
+    ! Vitesse moyenne du fluide
+    S = 0.25*PI*D**2
+    VMOY = QV/S
+    ! Vitesse maximale
+    VMAX = 0.0625*DPDZ*D**2/VISCD
+    ! Resistance capillaire
+    RCAP = 128*VISCD*L/PI/D**4
+    DO I = 1,N
+    R(I) = -D/2+(I-1)*D/(N-1)
+    ENDDO
+    V(:) = 0.25*DPDZ*((D/2)**2-(R(:))**2)/VISCD
+    TAU(:) = DABS(R(:))*DPDZ
+    WRITE(6,1000)
+    WRITE(6,1001)D,L,DPDZ,VISCD
+    WRITE(6,1002)S,VMOY,VMAX,QV
+    WRITE(6,1003)
+    DO I = 1,N
+    WRITE(6,1004)R(I),V(I),TAU(I)
+    ENDDO
+1002 FORMAT(/1X,'OUTPUT :'/1X,'SECTION DU CANNAL',1X,' = ',E10.3, ' (m2)'/1X,'VITESSE MOYENNE',3X,' = ',E10.3, ' (m/s)'/1X,'VITESSE MAXIMALE',2X,' = ',E10.3, ' (m/s)'/1X,'DEBIT VOLUMIQUE',3X,' = ',E10.3, ' (m3/s)')
+1003 FORMAT(/1X,'REPARTITION DE LA VITESSE ET DE LA CONTRAINTE DANS LE TUBE'/1X,5X,1Hr,14X,1HV,13X,3HTAU/1X,4X,3H(m),11X,5H(m/s),10X,6H(N/m2)/)
+1004 FORMAT(1X,3(E10.3,5X))   
+1000 FORMAT(1X,72(1H-)/1X,10(1H*),'SORTIES DE LA ROUTINE LAMINAIRE',10(1H*)/1X,72(1H-))
+     
+1001 FORMAT(1X,'LES DONNEES DE LA CONDUITE ET DU FLUIDE'/1X,'DIAMETRE',11X,' = ',E10.3,3X,3H(m)/1X,'LONGUEUR',11X,' = ',E10.3,3X,3H(m)/1X,'GRAD. PRESSION',5X,' = ',E10.3,3X,6H(Pa/m)/1X,'VISCOSITE DYNAMIQUE = ',E10.3,3X,7H(Ns/m2))
+    END SUBROUTINE LAMINAIR
+    END PROGRAM ECOULEMENTLAMINAIRE
+
+
+! fichier  LAMINAIRE.OUT
+! ------------------------------------------------------------------------
+! **********SORTIES DE LA ROUTINE LAMINAIRE**********
+! ------------------------------------------------------------------------
+! LES DONNEES DE LA CONDUITE ET DU FLUIDE
+! DIAMETRE            =  0.500E-02   (m)
+! LONGUEUR            =  0.300E+01   (m)
+! GRAD. PRESSION      =  0.100E+06   (Pa/m)
+! VISCOSITE DYNAMIQUE =  0.260E-01   (Ns/m2)
+!
+! OUTPUT :
+! SECTION DU CANNAL  =  0.196E-04 (m2)
+! VITESSE MOYENNE    =  0.300E+01 (m/s)
+! VITESSE MAXIMALE   =  0.601E+01 (m/s)
+! DEBIT VOLUMIQUE    =  0.590E-04 (m3/s)
+!
+! REPARTITION DE LA VITESSE ET DE LA CONTRAINTE DANS LE TUBE
+!      r              V             TAU
+!     (m)           (m/s)          (N/m2)
+!
+! -0.250E-02      0.000E+00      0.250E+03
+! -0.200E-02      0.216E+01      0.200E+03
+! -0.150E-02      0.385E+01      0.150E+03
+! -0.100E-02      0.505E+01      0.100E+03
+! -0.500E-03      0.577E+01      0.500E+02
+!  0.000E+00      0.601E+01      0.000E+00
+!  0.500E-03      0.577E+01      0.500E+02
+!  0.100E-02      0.505E+01      0.100E+03
+!  0.150E-02      0.385E+01      0.150E+03
+!  0.200E-02      0.216E+01      0.200E+03
+!  0.250E-02      0.000E+00      0.250E+03

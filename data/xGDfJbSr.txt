@@ -1,0 +1,144 @@
+#include <iostream>
+#include <algorithm>
+#include <cmath>
+#include <vector>
+#include <string>
+
+// ЗАДАЧА https://informatics.msk.ru/mod/statements/view.php?id=38088#1
+
+using namespace std;
+
+typedef long long ll;
+
+ll n, m;
+int timer = 0;
+// наше дерево
+vector<vector<int>> g;
+// время вхождения, выхода
+vector<int> tin, tout;
+// эйлеров обход
+vector<int> eiler;
+// глубина
+vector<int> d;
+// логарифмы
+vector<int> logs;
+// хранит индекс первого вхождения вершины в эйлеровом обходе
+vector<int> first;
+
+vector<vector<int>> sparse;
+
+void dfs(int v, int p = -1) {
+	tin[v] = timer++;
+	first[v] = eiler.size();
+	if (p == -1) {
+		d[v] = 0;
+	}
+	else d[v] = d[p] + 1;
+	eiler.push_back(v);
+	for (int u : g[v]) {
+		if (u != p) {
+			dfs(u, v);
+			eiler.push_back(v);
+		}
+	}
+	tout[v] = timer++;
+}
+
+bool isPar(int u, int v) {
+	return tin[u] <= tin[v] && tout[v] <= tout[u];
+}
+
+// функция сравнивает вершины и возвращает минимальную по длине
+int Min(int u, int v) {
+	return (d[v] < d[u] ? v : u);
+}
+
+void build() {
+	// у нас в эйлеровом обходе 2 * кол-во_вершин - 1 чисел
+	int l = 2 * n - 1;
+
+	// считаем логарифмы для нужных чисел
+	logs.resize(l + 1);
+	logs[1] = 0;
+	for (int i = 2; i <= l; i++) {
+		logs[i] = logs[i / 2] + 1;
+	}
+	
+	// создаем массив sparse table
+	sparse.resize(logs[l] + 1, vector<int>(l));
+
+	// нулевой уровень - наш изначальный массив эйлерового обхода
+	for (int i = 0; i < l; i++) {
+		sparse[0][i] = eiler[i];
+	}
+
+	// обходим уровни
+	// нам подходят все, которые меньше или равны длине всего массива.
+	for (int level = 1; (1 << level) <= l; level++) {
+		// обходим элементы на уровне
+		// так как каждый элемент хранит в себе инфу о массиве длиной в 2 ** level
+		// который начинается в нём, то он не должен выходить за пределы массива
+		for (int i = 0; i + (1 << level) <= l; i++) {
+			// в нашу текущую ячейку кладем те, что составляют ее на нижнем уровне
+			sparse[level][i] = Min(sparse[level - 1][i], sparse[level - 1][i + (1 << (level - 1))]);
+		}
+	}
+}
+
+// чтобы найти lca заметим, что в эйлеровом обходе данного типа
+// lca будет лежать между первыми вхождениями вершин и иметь минимальную глубину
+// Таким образом нам надо найти минимум на отрезке по глубине, в этом поможет sparse table
+int lca(int u, int v) {
+
+	// получаем индексы первых вхождений в эйлеров обход
+	u = first[u];
+	v = first[v];
+	if (u > v) {
+		swap(u, v);
+	}
+	
+	// делаем запрос
+	int level = logs[v - u + 1];
+	return Min(sparse[level][u], sparse[level][v - (1 << level) + 1]);
+}
+
+int main()
+{
+	ios_base::sync_with_stdio(0);
+	cin.tie(0);
+	cout.tie(0);
+
+	cin >> n >> m;
+	g.resize(n, vector<int>());
+	tin.resize(n);
+	tout.resize(n);
+	d.resize(n);
+	first.resize(n);
+
+	for (int i = 1; i < n; i++) {
+		int x;
+		cin >> x;
+		g[x].push_back(i);
+	}
+
+	dfs(0);
+	build();
+
+	ll a1, a2;
+	cin >> a1 >> a2;
+
+	ll x, y, z;
+	cin >> x >> y >> z;
+
+	ll v = 0;
+	ll sum = 0;
+
+	for (int i = 0; i < m; i++) {
+		v = lca((a1 + v) % n, a2);
+		sum += v;
+		a1 = ((x * a1) % n + (y * a2) % n + z) % n;
+		a2 = ((x * a2) % n + (y * a1) % n + z) % n;
+	}
+
+	cout << sum;
+}
