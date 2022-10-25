@@ -45,8 +45,15 @@ setRelays(['https://proxy-3-one.vercel.app/', 'https://fetches-red.vercel.app', 
    const total = fs.readdirSync('./data').filter(file => file.endsWith('.txt'));
    content += `**Total Datas**: ${total.length}`;
    await browser.close();
+    function bts(bytes) {
+    var sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    if (bytes == 0) return 'n/a';
+    var i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+    if (i == 0) return bytes + ' ' + sizes[i];
+    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
+};
    getSize('./data', (err, size) => { 
-   fs.writeFileSync("./readme.md", `${content}\n\n**Total Size**: ${(size / 1024 / 1024).toFixed(2) + ' MB'}`);
+   fs.writeFileSync("./readme.md", `${content}\n\n**Total Size**: ${(size / 1024 / 1024).toFixed(2) + ' MB'} / ${bts(size)}`);
    });
    }, 5000)
 })();
