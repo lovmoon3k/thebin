@@ -1,6 +1,14 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const { fetch, setRelays } = require('fetch-relay');
+const dayjs = require('dayjs');
+const utc = require("dayjs/plugin/utc");
+const timezone = require("dayjs/plugin/timezone");
+const advanced = requires("dayjs/plugin/advancedFormat");
+
+dayjs.extend(timezone);
+dayjs.extend(utc);
+dayjs.extend(advanced);
 
 function fileSize(filename) {
     var stats = fs.statSync(filename);
@@ -32,7 +40,7 @@ setRelays(['https://proxy-3-one.vercel.app/', 'https://fetches-red.vercel.app', 
         if(typeof data != 'string') data = JSON.stringify(data);
         fs.writeFileSync(`./data/${id}.txt`, `${data}`)
         console.log("Fetched New", id, status);
-        content += `[**${id}**](/data/${id}.txt) (${new Date().toDateString()})- ${fileSize(`./data/${id}.txt`)} bytes\n\n`;
+        content += `[**${id}**](/data/${id}.txt) (${dayjs().tz("Asia/Taipei").format("DD/MM/YY - HH:mm")})- ${fileSize(`./data/${id}.txt`)} bytes\n\n`;
     })
    setTimeout(async () => {
    const total = fs.readdirSync('./data').filter(file => file.endsWith('.txt'));
