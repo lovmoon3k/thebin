@@ -1,0 +1,246 @@
+#define _CRT_SECURE_NO_WARNINGS
+#define _USE_MATH_DEFINES
+#include "stdio.h"
+#include "stdlib.h"
+#include "time.h"
+#include <cmath>
+#include <math.h>
+#include <algorithm>
+#include <map>
+#include <vector>
+#include <utility>
+#include <set>
+#include <string>
+#include <cstring>
+#include <iostream>
+#include <fstream>
+#include <unordered_map>
+#include <unordered_set>
+#include <queue>
+#include <bitset>
+#include <cassert>
+#include <functional>
+//#include <intrin.h>
+#include <stack>
+using namespace std;
+//typedef long long ll;
+#define ll long long
+#define ld long double
+
+const long long mod = 1000000007;
+
+#define MIN(x,y) ((x)<(y)?(x):(y))
+#define MAX(x,y) ((x)>(y)?(x):(y))
+#define PI 3.14159265358979323846
+#define ABS(a) ((a)<0?-(a):(a))
+template <typename T> inline T gcd(T a, T b) {
+	while (b) { a %= b; swap(a, b); }
+	return a;
+}
+
+bitset<30000> pas[2];
+int type[30000], comp[30000], fr_comp[3][30000];
+vector<int> neighb[30000];
+vector<int> neigh[2][30000];
+
+bitset<30000> ign[2];
+unordered_map<int, int> t_edges[2][30000];
+vector<pair<int, int>> edges[2][30000];
+pair<int, int> pr[2][30000];
+
+int main() {
+
+#ifndef DEBUG
+	//freopen("drones.txt", "r", stdin);
+	//freopen("output.txt", "w", stdout);
+#endif
+	int n, m;
+	scanf("%i %i", &n, &m);
+	for (int i = 0; i < n; i++)
+	{
+		scanf("%i", type + i);
+		type[i]--;
+		pas[0][i] = 0;
+	}
+	int a, b;
+	for (int i = 0; i < m; i++)
+	{
+		scanf("%i %i", &a, &b);
+		a--; b--;
+		neighb[a].push_back(b);
+		neighb[b].push_back(a);
+	}
+	queue<int> nxt;
+	vector<int> comp_nums[3];
+	for (int i = 0; i < n; i++)
+	{
+		if (pas[0][i])
+			continue;
+		nxt.push(i);
+		comp_nums[type[i]].push_back(i);
+		pas[0][i] = 1;
+		comp[i] = i;
+		while (nxt.size())
+		{
+			int j = nxt.front();
+			nxt.pop();
+			for (auto& b : neighb[j])
+			{
+				if (pas[0][b] || type[i] != type[b])
+					continue;
+				nxt.push(b);
+				pas[0][b] = 1;
+				comp[b] = i;
+			}
+		}
+	}
+	for (int c = 0; c < 3; c++)
+	{
+		pas[0].reset();
+		for (int i = 0; i < n; i++)
+		{
+			if (pas[0][i] || type[i] == c)
+				continue;
+			nxt.push(i);
+			pas[0][i] = 1;
+			while (nxt.size())
+			{
+				int j = nxt.front();
+				fr_comp[c][j] = i;
+				nxt.pop();
+				for (auto& b : neighb[j])
+				{
+					if (pas[0][b] || type[b] == c)
+						continue;
+					nxt.push(b);
+					pas[0][b] = 1;
+				}
+			}
+		}
+	}
+	for (int c = 0; c < 3; c++)
+	{
+		vector<int>ans;
+		int c1 = 0 + (c <= 0), c2 = 1 + (c <= 1);
+		unordered_map<int, int> fr_comp_nums[2];
+		unordered_map<int, int> assoc[2];
+		for (auto& i : comp_nums[c])
+		{
+			fr_comp_nums[0][fr_comp[c1][i]]++;
+			fr_comp_nums[1][fr_comp[c2][i]]++;
+			assoc[0][fr_comp[c1][i]] = i;
+			assoc[1][fr_comp[c2][i]] = i;
+		}
+		for (int t = 0; t < 2; t++)
+		{
+			for (auto& i : fr_comp_nums[t])
+			{
+				pr[t][i.first] = { -1,0 };
+				t_edges[t][i.first].clear();
+				edges[t][i.first].clear();
+				pr[t][i.first] = { -1,0 };
+			}
+			ign[t].reset();
+		}
+		for (auto& i : comp_nums[c])
+		{
+			if (fr_comp_nums[0][fr_comp[c1][i]] <= 1 || fr_comp_nums[1][fr_comp[c2][i]] <= 1)
+			{
+				ans.push_back(i);
+				ign[0][fr_comp[c1][i]] = true;
+				ign[1][fr_comp[c2][i]] = true;
+			}
+			else
+			{
+				t_edges[0][fr_comp[c1][i]][fr_comp[c2][i]] = i;
+				t_edges[1][fr_comp[c2][i]][fr_comp[c1][i]] = i;
+			}
+		}
+		for (int t = 0; t < 2; t++)
+			for (auto& i : fr_comp_nums[t])
+				for (auto& p : t_edges[t][i.first])
+					edges[t][i.first].push_back(p);
+
+		for (auto& t : fr_comp_nums[0])
+		{
+			int i = t.first;
+			if (ign[0][i] || pr[0][i].first >= 0)
+				continue;
+			vector<pair<int, int>> st;
+			vector<int> o_st;
+			pas[0].reset();
+			pas[1].reset();
+			pas[0][i] = true;
+			st.push_back({ i, 0 });
+			o_st.push_back(-1);
+			int pos = 0;
+			bool found = false;
+			while (pos >= 0)
+			{
+				if (st[pos].second >= edges[0][st[pos].first].size())
+				{
+					st[pos].first = -1;
+					o_st[pos] = -1;
+					pos--;
+					continue;
+				}
+				for (; st[pos].second < edges[0][st[pos].first].size(); st[pos].second++)
+				{
+					int v;
+					v = edges[0][st[pos].first][st[pos].second].first;
+					if (pas[1][v])
+						continue;
+					pas[1][v] = true;
+					o_st[pos] = v;
+					if (pr[1][v].first < 0)
+					{
+						st[pos].second++;
+						found = true;
+						break;
+					}
+					if (pas[0][pr[1][v].first])
+						continue;
+					st[pos].second++;
+					pos++;
+					if (pos == st.size())
+					{
+						st.push_back({ -1,0 });
+						o_st.push_back(-1);
+					}
+					pas[0][pr[1][v].first] = true;
+					st[pos].first = pr[1][v].first;
+					st[pos].second = -1;
+					continue;
+				}
+				if (found)
+					break;
+				pos--;
+			}
+			if (pos >= 0);
+			{
+				for (int t = 0; t <= pos; t++)
+				{
+					int u = st[pos].first;
+					int v = o_st[pos];
+					int se = edges[0][u][st[pos].second - 1].second;
+					assert(edges[0][u][st[pos].second - 1].first == o_st[pos]);
+					pr[0][u] = { v,se };
+					pr[1][v] = { u,se };
+				}
+			}
+		}
+		for (auto& i : fr_comp_nums[0])
+			if (pr[0][i.first].first >= 0)
+				ans.push_back(pr[0][i.first].second);
+			else if (!ign[0][i.first])
+				ans.push_back(assoc[0][i.first]);
+		for (auto& i : fr_comp_nums[1])
+			if (pr[1][i.first].first < 0 && !ign[1][i.first])
+				ans.push_back(assoc[1][i.first]);
+		printf("%i", ans.size());
+		for (auto& a : ans)
+			printf(" %i", a + 1);
+		printf("\n");
+	}
+	return 0;
+}
