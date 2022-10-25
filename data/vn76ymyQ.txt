@@ -1,0 +1,95 @@
+function Q = benchmark_straight_lines(q_cp, q_user, N, aggregators, K)
+    
+
+    % Find all the permutations of 1 : K
+    % p will contain all the possible routes of UAV
+    % 1st route will be CP-p(1) and last route will be p(end)-CP
+    routes = perms(1 : K);                                  % p.e: 6 x 3
+    route_lengths = zeros(size(routes, 1), 1);              % p.e: 6 x 1   
+    for i = 1 : length(route_lengths)
+        route = routes(i, :);
+        route_length = 0;
+        for k = 1 : K
+            if k == 1
+                route_length = route_length + my_distance(q_cp, aggregators(:, route(1)));
+            elseif k == K
+                route_length = route_length + my_distance(aggregators(:, route(K)), aggregators(:, route(K-1)));
+                route_length = route_length + my_distance(aggregators(:, route(K)), q_cp);
+            else
+                route_length = route_length + my_distance(aggregators(:, route(k)), aggregators(:, route(k-1)));
+            end      
+        end
+        route_lengths(i) = route_length;
+    end
+    route_lengths;
+    
+    
+    % Now, we can find the min route and the turn the UAV will flight
+    % towards the aggregators
+    display('*********************************************************')
+    display('Benchmark 2 - Straight Lines');
+    display(' ');
+    [min_route_length, index] = min(route_lengths);
+    min_route = routes(index, :);                       % 1 x 3
+    disp("Min route length = " + num2str(min_route_length));
+    disp("UAV's flight: ");
+    str = "CP ---> ";
+    for k = 1 : K
+        str = str + num2str(min_route(k)) + " ---> ";
+    end
+    str = str + " CP";
+    disp(str);
+    display(' ');
+    
+    
+    % Example of min_route = [CP, 1, 3, 2, CP]
+    % Time to cross [CP, 1] = [CP, 1] / overall
+    epimerous = zeros(1, K+1);
+    for k = 1 : K
+        if k == 1
+            ep = my_distance(q_cp, aggregators(:, min_route(1)));
+            disp("dist(CP," + num2str(min_route(1)) + ") = " + num2str(ep))
+        else
+            ep = my_distance(aggregators(:, min_route(k)), aggregators(:, min_route(k-1)));
+            disp("dist(" + num2str(min_route(k-1)) + ", " + num2str(min_route(k)) + ") = " + num2str(ep))
+        end
+        epimerous(k) = ep;
+    end
+    epimerous(K+1) = my_distance(aggregators(:, min_route(K)), q_cp);
+    ep = epimerous(K+1);
+    disp("dist(" + num2str(min_route(K)) + ",CP) = " + num2str(ep))
+    disp("Overall distance = " + num2str(sum(epimerous)))
+    display(' ');
+    
+    
+    % Find the number of timeslots that UAV will flight from 'A' to 'B'
+    timeslots = round(N * epimerous / min_route_length);
+    % Maybe the sum is not N ---> I change the 1st element
+    timeslots(1) = N - sum(timeslots(2:end));
+    
+    
+    % UAV will hover for 1 timeslot exactly above each aggregator
+    x = [];
+    y = [];
+    Q = zeros(2, N);
+    for k = 1 : K
+        if k == 1
+            x = [x linspace(q_cp(1), aggregators(1, min_route(1)), timeslots(1))];
+            y = [y linspace(q_cp(2), aggregators(2, min_route(1)), timeslots(1))];
+        else
+            x = [x linspace(aggregators(1, min_route(k-1)), aggregators(1, min_route(k)), timeslots(k))];
+            y = [y linspace(aggregators(2, min_route(k-1)), aggregators(2, min_route(k)), timeslots(k))];
+        end
+    end
+    x = [x linspace(aggregators(1, min_route(K)), q_cp(1), timeslots(K+1))];
+    y = [y linspace(aggregators(2, min_route(K)), q_cp(2), timeslots(K+1))];
+    for n = 1 : N
+        Q(1, :) = x;
+        Q(2, :) = y;
+    end
+    timeslots
+    Q;
+    display('*********************************************************')
+    display(' ');
+
+end 
