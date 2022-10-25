@@ -1,0 +1,164 @@
+function Theta_optimized = optimize_phase_shift(N, M, Q, q_user, H, h, qb, lambda, d, rho_1m, P_user, P_noise)
+
+    x0 = q_user(1);
+    y0 = q_user(2);
+    xb = qb(1);
+    yb = qb(2);
+    n_list = 1 : N;
+    m_list = 1 : M;
+    
+    d_ku = zeros(1, N);
+    d_ub = zeros(1, N);
+    phi_ku = zeros(1, N);
+    phi_ub = zeros(1, N);
+    h_ku = zeros(M, N);
+    h_ub = zeros(M, N);
+    exponent = 2;
+
+    for n = 1 : N
+        xu = Q(1, n);
+        yu = Q(2, n);
+        d_ku(n) = ((xu - x0)^2 + (yu - y0)^2 + H^2) .^ (1/2);
+        d_ub(n) = ((xu - xb)^2 + (yu - yb)^2 + (H-h)^2) .^ (1/2);
+        phi_ku(n) = (xu - x0) / d_ku(n);
+        phi_ub(n) = (xb - xu) / d_ub(n);
+    end
+    d_ku;
+    d_ub;
+    figure();
+    plot(n_list, d_ku);
+    title("Distance User - UAV/RIS (d_{ku}[n])");
+    xlabel("Timeslot [n]");
+    ylabel("d_{ku}[n]");
+    figure();
+    plot(n_list, d_ub);
+    title("Distance UAV/RIS - BS  (d_{ub}[n])");
+    xlabel("Timeslot [n]");
+    ylabel("d_{ub}[n]");
+
+    phi_ku;
+    phi_ub;
+    figure();
+    plot(n_list, phi_ku);
+    title("Angle of Arrival: User - UAV/RIS (\phi_{ku}[n])");
+    xlabel("Timeslot [n]");
+    ylabel("\phi_{ku}[n]");
+    figure();
+    plot(n_list, phi_ub);
+    title("Angle of Departure: UAV/RIS - BS  (\phi_{ub}[n])");
+    xlabel("Timeslot [n]");
+    ylabel("\phi_{ub}[n]");
+    
+
+    % Channel gains between links
+    for n = 1 : N
+        for m = 1 : M
+            phase1 = - i * 2*pi / lambda * d * (m-1) * phi_ku(n);
+            phase2 = - i * 2*pi / lambda * d * (m-1) * phi_ub(n);
+            h_ku(m, n) = (rho_1m * d_ku(n) ^ (-exponent)) .^ (1/2) * exp(phase1);
+            h_ub(m, n) = (rho_1m * d_ub(n) ^ (-exponent)) .^ (1/2) * exp(phase2);
+        end
+    end
+
+    random_m = randi([1 M]);
+    figure();
+    plot(n_list, abs(h_ku(random_m, :)), "red");
+    title("Channels  of element m = " + num2str(random_m));
+    xlabel("Timeslot [n]");
+    ylabel("h_{ku}[" + num2str(random_m) + ", n]");
+    hold on
+    plot(n_list, abs(h_ub(random_m, :)), "blue");
+    xlabel("Timeslot [n]");
+    ylabel("h_{ub}[" + num2str(random_m) + ", n]");
+    legend("h_{ku}[" +num2str(random_m)+",n]", "h_{ub}[" +num2str(random_m)+",n]");
+    close all
+
+    % Define total gain and SNR γk[n] -  Define Benchmarks
+    total_gain_optimized = zeros(1, N);
+    total_gain_random = zeros(1, N);       % ALL SHIFTS ARE RANDOM
+    total_gain_same = zeros(1, N);         % IF ALL THE SHIFTS ARE SAME
+    % Instantaneous SNR
+    gamma_optimized = zeros(1, N);
+    gamma_random = zeros(1, N);            % ALL RANDOM SHIFTS
+    gamma_same = zeros(1, N);              % SAME SHIFT
+    
+    % Create the matrices that will store the values (in rad)
+    optimal_phase_shifts = zeros(M, N);
+    random_phase_shifts = zeros(M, N);
+    same_phase_shifts = zeros(M, N);
+    RAN = rand() * 2*pi;
+    
+    for m = 1 : M
+        for n = 1 : N
+            optimal_phase_shifts(m, n) = 2*pi / lambda * d * (m-1) * (phi_ku(n) - phi_ub(n));
+            random_phase_shifts(m, n) = rand() * 2*pi;
+            same_phase_shifts(m, n) = RAN;
+        end
+    end
+
+
+    for n = 1 : N
+        
+        H1 = h_ku(:, n);                              % M x 1 (n-th column)
+        H2 = h_ub(:, n);                              % M x 1 (n-th column)
+        
+        phases1 = optimal_phase_shifts(:, n);         % M x 1
+        phases2 = random_phase_shifts(:, n);          % M x 1
+        phases3 = same_phase_shifts(:, n);            % M x 1
+        
+        Theta_optimized = diag(exp(j * phases1));         % M x M
+        Theta_random = diag(exp(j * phases2));            % M x M
+        Theta_same = diag(exp(j * phases3));              % M x M
+        
+        total_gain_optimized(n) = H2' * Theta_optimized * H1;
+        total_gain_random(n) = H2' * Theta_random * H1;
+        total_gain_same(n) = H2' * Theta_same * H1;
+        gamma_optimized(n) = (P_user / P_noise) * abs(total_gain_optimized(n)) ^ 2;
+        gamma_random(n) = (P_user / P_noise) * abs(total_gain_random(n)) ^ 2;
+        gamma_same(n) = (P_user / P_noise) * abs(total_gain_same(n)) ^ 2;
+        
+    end
+
+
+    figure();
+    plot(n_list, gamma_optimized, "red");
+    title("Total gain of double path [nat]");
+    hold on
+    plot(n_list, gamma_random, "blue");
+    xlabel("Timeslot [n]");
+    ylabel("SNR \gamma[n] [nat]");
+    hold on
+    plot(n_list, gamma_same, "green");
+    xlabel("Timeslot [n]");
+    ylabel("SNR \gamma[n] [dB]");
+    legend("Optimization", "Random Shifts", "The Same Shift");
+
+    figure();
+    plot(n_list, 10 * log10(gamma_optimized), "red");
+    title("Total gain of double path [dB]");
+    hold on
+    plot(n_list, 10 * log10(gamma_random), "blue");
+    xlabel("Timeslot [n]");
+    ylabel("SNR \gamma[n] [dB]");
+    hold on
+    plot(n_list, 10 * log10(gamma_same), "green");
+    xlabel("Timeslot [n]");
+    ylabel("SNR \gamma[n] [dB]");
+    hold on
+    legend("Optimization", "Random Shifts", "The Same Shift");
+
+    SNR_aver_opt = mean(gamma_optimized);
+    SNR_aver_no_opt = mean(gamma_random);
+    SNR_aver_ZERO = mean(gamma_same);
+    disp("M = " + num2str(M) + " elements and N = " + num2str(N) + " timeslots")
+    SNR_av_optimized = natural_to_dB(SNR_aver_opt)
+    SNR_av_random = natural_to_dB(SNR_aver_no_opt)
+    SNR_av_same = natural_to_dB(SNR_aver_ZERO)
+    plot(n_list, SNR_av_optimized * ones(N), "red");
+    plot(n_list, SNR_av_random * ones(N), "blue");
+    plot(n_list, SNR_av_same * ones(N), "green");
+    legend("Average SNR Optimization", "Average SNR Random", "Average SNR Same");
+
+
+end
+
