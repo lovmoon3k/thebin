@@ -1,0 +1,93 @@
+# -*- coding: utf-8 -*-
+import clr
+clr.AddReference("RevitServices")
+from RevitServices.Persistence import DocumentManager
+clr.AddReference("RevitNodes")
+import Revit
+clr.ImportExtensions(Revit.Elements)
+clr.ImportExtensions(Revit.GeometryConversion)
+
+clr.AddReference("RevitAPI")
+from Autodesk.Revit import DB
+from Autodesk.Revit.DB import FilteredElementCollector as FEC
+
+import sys
+sys.path += [
+    r"c:\Program Files (x86)\IronPython 2.7\Lib",
+    IN[0].DirectoryName  # noqa
+]
+from iterfunctions import flatten, to_list
+from parameters import get_parameter_value_v1
+
+doc = DocumentManager.Instance.CurrentDBDocument
+uiapp = DocumentManager.Instance.CurrentUIApplication
+# app = uiapp.Application
+uidoc = uiapp.ActiveUIDocument
+
+direct_shapes = FEC(doc) \
+                 .OfClass(DB.DirectShape)  # Dynamo для OUT понимает только типизированный список DirectShape
+uidoc.Selection.SetElementIds(to_list([ds.Id for ds in direct_shapes], DB.ElementId))  # выделение объектов DirectShape
+
+rooms = [room for room in FEC(doc).OfCategory(DB.BuiltInCategory.OST_Rooms)]  # помещения
+
+g_options = DB.Options()
+geometry_elements = flatten(
+    [element.Geometry[g_options] for element in direct_shapes])  # Autodesk.Revit.DB.Instance - 149
+
+points = flatten(
+    [item.GetInstanceGeometry() for item in geometry_elements])  # Autodesk.Revit.DB.Point - 149
+xyz = [item.Coord for item in points]  # XYZ - 149
+
+element_types = [doc.GetElement(item.GetTypeId())
+                 for item in direct_shapes]
+type_comments = [get_parameter_value_v1(item.LookupParameter('Комментарии к типоразмеру'))
+                 for item in element_types]  # значение "Комментарии к типоразмеру"
+
+rooms_dict = {}
+sum_1 = 0
+room_1 = 0
+for room in rooms:
+    key_room = room.Number  # ключ на основе номера помещения
+    rooms_dict[key_room] = {}
+    rooms_dict[key_room]['bim'] = 0
+    rooms_dict[key_room]['cad'] = 0
+    rooms_dict[key_room]['some'] = 0
+    for coord, type in zip(xyz, type_comments):
+        if room.IsPointInRoom(coord):
+            if type == 'Bimling':
+                rooms_dict[key_room]['bim'] += 1
+            elif type == 'Cadmutant':
+                rooms_dict[key_room]['cad'] += 1
+            else:
+                rooms_dict[key_room]['some'] += 1
+    if rooms_dict[key_room]['bim'] > rooms_dict[key_room]['cad']:
+        sum_1 += room.Id.IntegerValue
+        room_1 += 1
+
+sum_2 = 0
+room_2 = 0
+for room in rooms:
+    key_room = room.Number
+    if key_room != '102':
+        rooms_dict['102']['bim'] += rooms_dict[key_room]['bim']
+        rooms_dict[key_room]['bim'] = 0
+        if rooms_dict[key_room]['some'] + rooms_dict[key_room]['bim'] > rooms_dict[key_room]['cad']:
+        # if rooms_dict[key_room]['some'] > rooms_dict[key_room]['cad']:
+            sum_2 += room.Id.IntegerValue
+            room_2 += 1
+    else:
+        sum_2 += room.Id.IntegerValue
+
+OUT = 'Всего существ = ' + str(len(type_comments)), \
+    'Первый ответ = ' + str(sum_1), \
+    'Количество помещений_1 = ' + str(room_1), \
+    'Второй ответ = ' + str(sum_2), \
+    'Количество помещений_2 = ' + str(room_2 + 1), \
+    'Проверка количества существ в словаре = ' + str(sum([item for items in rooms_dict.values() for item in items.values()]))
+
+# Всего существ = 149
+# Первый ответ = 6892271
+# Количество помещений_1 = 33
+# Второй ответ = 4889134
+# Количество помещений_2 = 25
+# Проверка количества существ в словаре = 149

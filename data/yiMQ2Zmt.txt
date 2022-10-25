@@ -1,0 +1,323 @@
+local chat = peripheral.find("manipulator")
+chat.capture("^\\")
+local function aLoad(file)
+    local f,err = fs.open(file,"r")
+	if not f then error("Could not open "..file..": "..tostring(err)) end
+    local txt = f.readAll()
+    f.close()
+    return textutils.unserialize(txt) or nil
+end
+local function fread(file)
+    local f = fs.open(file,"r")
+    local txt = f.readAll()
+    f.close()
+    return txt
+end
+local function fwrite(a,file)
+	local f = fs.open(file,"w")
+    f.write(a)
+    f.close()
+    return true
+end
+local function aSave(a,file)
+    local f = fs.open(file,"w")
+    f.write(textutils.serialize(a))
+    f.close()
+    return true
+end
+if not fs.exists("players") then
+    fs.makeDir("players")
+end
+
+if not fs.exists("warps") then
+    aSave({},"warps")
+end
+
+_G.warps = aLoad("warps")
+
+local pl = fs.list("players")
+_G.players = {}
+for t=1,#pl do
+    local p = pl[t]
+    players[p] = {}
+    if fs.exists("players/"..p.."/homes") then
+        players[p].homes = aLoad("players/"..p.."/homes")
+    end
+	if fs.exists("players/"..p.."/nickname") then
+        players[p].nickname = fread("players/"..p.."/nickname")
+    end
+    if fs.exists("players/"..p.."/colors") then
+        players[p].colors = aLoad("players/"..p.."/colors")
+    end
+    if fs.exists("players/"..p.."/prefix") then
+        players[p].prefix = fread("players/"..p.."/prefix")
+    end
+end
+local color = {}
+local function cAdd(...)
+    local cls = {...}
+    for t=1,#cls do
+        color[cls[t]] = true
+    end
+end
+local cls = {"black","dark_blue","dark_green","dark_aqua","dark_red","dark_purple","gold","gray","dark_gray","blue","green","aqua","red","light_purple","yellow","white"}
+cAdd(unpack(cls))
+
+local function getPos(player)
+    local _,p = commands.tp(player,"~","~","~")
+    local s = string.gsub(p[1],"Teleported "..player.." to ","")
+    local nums = {}
+    for num in s:gmatch("[%d%.%-]+") do
+        table.insert(nums,tonumber(num))
+    end
+    if nums and #nums == 3 then
+        return unpack(nums)
+    else
+        return nil
+    end
+end
+
+function isOn(player)
+    return ({commands.testfor(player)})[1]
+end
+
+local tprequests = {}
+local admin = {["leveljaap"]=true,["Compec"]=true,}
+local function sendAdminMessage(msg, color)
+    for k,v in pairs(admin) do
+        if isOn(k) then
+            commands.tellraw(k,'["",{"text":"'..msg..'","color":"'..(color or "green")..'"}]')
+        end
+    end
+end
+sendAdminMessage("System successfully rebooted!","green")
+local nicks = true
+if nicks == true then
+	chat.capture("")
+end
+local function runPlugin()
+    while true do
+        e = {os.pullEvent()}
+        if e[1] == "chat_capture" then
+            if fs.exists("players/"..e[4]) == false then
+                fs.makeDir("players/"..e[4])
+            end
+            if not players[e[4]] then
+                players[e[4]] = {lPos={getPos(e[4])},cPos={getPos(e[4])}}
+            end
+            if not players[e[4]].colors then
+                players[e[4]].colors = {}
+                print("ASSIGNED COLORS TO "..e[4].."!")
+            else
+                --print(e[4].." HAS COLORS ALREADY!")
+            end
+        end
+        if nicks and e[1] == "chat_capture" and e[3] == "" then
+            if string.find(e[2],"^\\") then
+                e[3] = "^\\"
+            else
+                local n = e[4]
+                if players[e[4]] and players[e[4]].nickname then
+                    n = players[e[4]].nickname
+                end
+                local msg = e[2]:gsub("\\","\\\\")
+                msg = msg:gsub('"','\\"')
+                local prefix = ""
+                if players[e[4]].prefix then
+                	prefix = '{"text":"[","color":"'..(players[e[4]].colors.brackets or 'gray')..'"},{"text":"'..(players[e[4]].prefix)..'","color":"'..(players[e[4]].colors.prefix or 'white')..'"},{"text":"] ","color":"'..(players[e[4]].colors.brackets or 'gray')..'"},'
+                end
+                commands.tellraw("@a",'["",{"text":""},'..prefix..'{"text":"'..n..'","color":"'..(players[e[4]].colors.name or 'gold')..'","clickEvent":{"action":"suggest_command","value":"/msg '..e[4]..' "},"hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"Suggest command:\n","color":"green"},{"text":"/msg '..e[4]..'","color":"gold"}]}}},{"text":" » ","color":"gray"},{"text":"'..msg..'","color":"none"}]')
+            end
+        end
+        if e[1] == "timer" then
+            for k,v in pairs(tprequests) do
+                if v.timer == e[2] then
+                    commands.tellraw(v.from,'["",{"text":"The teleport request expired.","color":"red"}]')
+                    tprequests[k] = nil
+                end
+            end
+        elseif e[1] == "chat_capture" and e[3] == "^\\" then
+            print("<"..e[4].."> "..e[2])
+            local cmd = {}
+            for arg in e[2]:gmatch("%S+") do table.insert(cmd, arg) end
+            if e[4] ~= "sneakyzakki" then
+                if cmd[1] == "\\home" then
+                    if players[e[4]].homes and cmd[2] == "list" then
+                        local tbl = {""}
+                        commands.tellraw(e[4],'["",{"text":"----------------------- Homes ------------------------","color":"green"}]')
+                        for k,h in pairs(players[e[4]].homes) do
+                            commands.tellraw(e[4],'["",{"text":"'..k..'","color":"green","underlined":true,"clickEvent":{"action":"run_command","value":"\\\\home '..k..'"},"hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"Click here to warp to '..k..'."}]}}},{"text":": [location: '..math.floor(h[1])..', '..math.floor(h[2])..', '..math.floor(h[3])..']","color":"none","underlined":false}]')
+                        end
+                        commands.tellraw(e[4],'["",{"text":"-----------------------------------------------------","color":"green"}]')
+                    elseif players[e[4]].homes and ((cmd[2] and players[e[4]].homes[cmd[2]]) or (not cmd[2] and players[e[4]].homes["home"])) then
+                        players[e[4]].lPos = {getPos(e[4])}
+                        commands.teleport(e[4],unpack(players[e[4]].homes[cmd[2] or "home"]))
+                        local ok,err = commands.tellraw(e[4],'["",{"text":"Warped to home ","color":"green"},{"text":"'..(cmd[2] or 'home')..'","color":"gold","hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"'..table.concat(players[e[4]].homes[cmd[2] or "home"],", ")..'","color":"aqua"}]}}},{"text":" successfully.","color":"green"}]')
+                        print(err[1])
+                    end
+                elseif cmd[1] == "\\sethome" and cmd[2] ~= "list" then
+                    if not players[e[4]].homes then
+                        players[e[4]].homes = {}
+                    end
+                    local h = cmd[2] or "home"
+                    local pos = {getPos(e[4])}
+                    if not players[e[4]].homes[h] or cmd[3] == "-o" then
+                        players[e[4]].homes[h] = pos
+                        local ok,err = commands.tellraw(e[4],'["",{"text":"Set a home with the name ","color":"green"},{"text":"'..h..'","color":"gold","hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"'..table.concat(pos,", ")..'","color":"aqua"}]}}},{"text":".","color":"green"}]')
+                        print(err[1])
+                        aSave(players[e[4]].homes,"players/"..e[4].."/homes")
+                    else
+                        commands.tellraw(e[4],'["",{"text":"You already have a home with the name ","color":"red"},{"text":"'..h..'","color":"gold"},{"text":".\nIf you are sure you want to overwrite this home, run ","color":"red"},{"text":"\\\\sethome '..h..' -o","color":"gold","clickEvent":{"action":"run_command","value":"\\\\sethome '..h..' -o"},"hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"Run command","color":"dark_purple"}]}}},{"text":".","color":"red"}]')
+                    end
+                elseif cmd[1] == "\\delhome" then
+                    local h = cmd[2] or "home"
+                    if players[e[4]].homes and players[e[4]].homes[h] then
+                        players[e[4]].homes[h] = nil
+                        aSave(players[e[4]].homes,"players/"..e[4].."/homes")
+                        commands.tellraw(e[4],'["",{"text":"You deleted the home ","color":"green"},{"text":"'..h..'","color":"gold","hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"15.5,30,19.5","color":"aqua"}]}}},{"text":".","color":"green"}]')
+                    end
+                elseif cmd[1] == "\\back" then
+                    if players[e[4]] and players[e[4]].lPos then
+                        local x,y,z = unpack(players[e[4]].lPos)
+                        players[e[4]].lPos = {getPos(e[4])}
+                        commands.tp(e[4],x,y,z)
+                        commands.tellraw(e[4],'["",{"text":"Returned you to your previous location.","color":"green"}]')
+                    end
+                end
+            end
+            if cmd[1] == "\\warp" then
+                if warps and cmd[2] == "list" then
+                    commands.tellraw(e[4],'["",{"text":"----------------------- Warps ------------------------","color":"green"}]')
+                    for k,h in pairs(warps) do
+                        commands.tellraw(e[4],'["",{"text":"'..k..'","color":"green","underlined":true,"clickEvent":{"action":"run_command","value":"\\\\home '..k..'"},"hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"Click here to warp to '..k..'."}]}}},{"text":": [location: '..math.floor(h[1])..', '..math.floor(h[2])..', '..math.floor(h[3])..']","color":"none","underlined":false}]')
+                    end
+                    commands.tellraw(e[4],'["",{"text":"-----------------------------------------------------","color":"green"}]')
+                elseif warps and cmd[2] and warps[cmd[2]] then
+                    players[e[4]].lPos = {getPos(e[4])}
+                    commands.teleport(e[4],unpack(warps[cmd[2]]))
+                    local ok,err = commands.tellraw(e[4],'["",{"text":"Warped to ","color":"green"},{"text":"'..(cmd[2])..'","color":"gold","hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"'..table.concat(warps[cmd[2]],", ")..'","color":"aqua"}]}}},{"text":" successfully.","color":"green"}]')
+                    print(err[1])
+                elseif warps and cmd[2] then
+                    commands.tellraw(e[4],'["",{"text":"No such warp.","color":"red"}]')
+                end
+            elseif cmd[1] == "\\color" then
+                if cmd[2] and color[cmd[2]] then
+                    players[e[4]].colors.name = cmd[2]
+                    aSave(players[e[4]].colors,"players/"..e[4].."/colors")
+                    commands.tellraw(e[4],'["",{"text":"Your nickname color has been changed to ","color":"green"},{"text":"'..cmd[2]..'","color":"'..cmd[2]..'","bold":true},{"text":"!","color":"green","bold":false}]')
+                elseif cmd[2] and cmd[2] == "list" then
+                    local tbl = {"",{text="Available colors:\n",color="green"}}
+                    local count = 0
+                    for k,v in pairs(color) do
+                        if count ~= 0 then
+                            table.insert(tbl,{text=", ",color="green"})
+                        end
+                        count = count+1
+                        table.insert(tbl,{text=k,color=k,underlined=true,clickEvent={action="run_command",value="\\color "..k},hoverEvent={action="show_text",value={text="",extra={{text="Set color to "..k,color="gold"}}}}})
+                    end
+                    local stat,rt = commands.tellraw(e[4],textutils.serializeJSON(tbl))
+                    if not stat then printError(rt[1]) print(textutils.serializeJSON(tbl)) end
+                elseif cmd[2] and not color[cmd[2]] then
+                    commands.tellraw(e[4],'["",{"text":"No such color!","color":"red"}]')
+                end
+            elseif cmd[1] == "\\rtp" then
+                local radius = 1000
+                if cmd[2] and tonumber(cmd[2]) then
+                    radius = tonumber(cmd[2])
+                end
+                commands.tellraw(e[4],'["",{"text":"Teleporting you to a random location in a ","color":"green"},{"text":"'..radius..' block","color":"gold"},{"text":" radius...","color":"green"}]')
+                local x,y,z = getPos(e[4])
+                players[e[4]].lPos = {x,y,z}
+                local nX,nZ = math.random(x-radius,x+radius),math.random(z-radius,z+radius)
+                commands.effect(e[4],"minecraft:resistance",10,255,true)
+                commands.tp(e[4],nX,256,nZ)
+            elseif cmd[1] == "\\tpa" then
+                if cmd[2] then
+                    if isOn(cmd[2]) then
+                        commands.tellraw(e[4],'["",{"text":"A teleport request was sent to ","color":"green"},{"text":"'..cmd[2]..'","color":"yellow"},{"text":".","color":"green"}]')
+                        tprequests[cmd[2]] = {from=e[4],timer=os.startTimer(20)}
+                        commands.tellraw(cmd[2],'["",{"text":"'..e[4]..' has requested that they teleport to you.\n","color":"yellow"},{"text":"Accept","underlined":true,"clickEvent":{"action":"run_command","value":"\\\\tpaccept"},"hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"Click to accept (","color":"green"},{"text":"\\\\tpaccept","color":"yellow"},{"text":")","color":"green"}]}},"color":"none"},{"text":" - ","underlined":false,"color":"none"},{"text":"Deny","underlined":true,"clickEvent":{"action":"run_command","value":"\\\\tpdeny"},"hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"Click to deny (","color":"red"},{"text":"\\\\tpdeny","color":"yellow"},{"text":")","color":"red"}]}},"color":"none"}]')
+                    else
+                        commands.tellraw(e[4],'["",{"text":"Could not find user with the name \\"'..cmd[2]..'\\".","color":"red"}]')
+                    end
+                end
+            elseif cmd[1] == "\\tpaccept" then
+                if tprequests[e[4]] then
+                    local from = tprequests[e[4]].from
+                    players[from].lPos = {getPos(from)}
+                    commands.tp(tprequests[e[4]].from,e[4])
+                    commands.tellraw(e[4],'["",{"text":"'..tprequests[e[4]].from..'","color":"yellow"},{"text":" teleported to your location.","color":"green"}]')
+                    commands.tellraw(tprequests[e[4]].from,'["",{"text":"You have teleported to ","color":"green"},{"text":"'..e[4]..'","color":"yellow"},{"text":"\'s location.","color":"green"}]')
+                    tprequests[e[4]] = nil
+                    commands.tellraw(e[4],'["",{"text":"You have accepted the teleport request.","color":"green"}]')
+                else
+                    commands.tellraw(e[4],'["",{"text":"There are no teleport requests for you to accept.","color":"red"}]')
+                end
+            elseif cmd[1] == "\\tpdeny" then
+                if tprequests[e[4]] then
+                    tprequests[e[4]] = nil
+                    commands.tellraw(e[4],'["",{"text":"You have denied the teleport request.","color":"red"}]')
+                end
+            elseif cmd[1] == "\\nickname" and cmd[2] then
+                players[e[4]].nickname = cmd[2]
+                fwrite(cmd[2],"players/"..e[4].."/nickname")
+                commands.tellraw(e[4],'["",{"text":"Set your nickname to ","color":"green"},{"text":"\\"'..cmd[2]..'\\"","color":"gold"},{"text":"!","color":"green"}]')
+            end
+            if admin[e[4]] then
+                if cmd[1] == "\\prefix" and cmd[2] then
+                    if cmd[3] then
+                        if not players[cmd[2]] then
+                            commands.tellraw(e[4],'["",{"text","No player ","color":"red"},{"text":"\\"'..cmd[2]..'\\"","color":"gold"}]')
+                        else
+                            players[e[4]].prefix = cmd[3]
+                            commands.tellraw(e[4],'["",{"text","Prefix set!","color":"gold"}]')
+                        end
+                    end
+                elseif cmd[1] == "\\reboot" then
+                    sendAdminMessage("Rebooting...","gold")
+                    os.sleep(0.1)
+                    os.reboot()
+                elseif cmd[1] == "\\stop" then
+                    sendAdminMessage("Stopping plugin.","gold")
+                    chat.clearCaptures()
+                    os.sleep(0.1)
+                    return
+                elseif cmd[1] == "\\gmc" then
+                    commands.gamemode("creative",e[4])
+                elseif cmd[1] == "\\gms" then
+                    commands.gamemode("survival",e[4])
+                elseif cmd[1] == "\\run" then
+                    table.remove(cmd,1)
+                    commands.tellraw(e[4],'["",{"text":"Executing ","color":"green"},{"text":"'..table.concat(cmd," ")..'","color":"gold"},{"text":".","color":"green"}]')
+                    local stat,rt = commands.exec("execute "..e[4].." ~ ~ ~ "..table.concat(cmd," "))
+                    if stat then
+                        commands.tellraw(e[4],'["",{"text":"Success.","color":"green"}]')
+                        if #rt > 0 then
+                            commands.tellraw(e[4],'["",{"text":"'..table.concat(rt,'\n')..'","color":"dark_green","italic":true}]')
+                        end
+                    else
+                        commands.tellraw(e[4],'["",{"text":"Failure:\n","color":"dark_red","bold":true},{"text":"'..table.concat(rt,'\n')..'","color":"red","italic":true,"bold":false}]')
+                    end
+                elseif cmd[1] == "\\setwarp" then
+                    local h = cmd[2]
+                    local pos = {getPos(e[4])}
+                    if not warps[h] or cmd[3] == "-o" then
+                        warps[h] = pos
+                        local ok,err = commands.tellraw(e[4],'["",{"text":"Set a warp with the name ","color":"green"},{"text":"'..h..'","color":"gold","hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"'..table.concat(pos,", ")..'","color":"aqua"}]}}},{"text":".","color":"green"}]')
+                        print(err[1])
+                        aSave(warps,"warps")
+                    else
+                        commands.tellraw(e[4],'["",{"text":"There\'s already a warp with the name ","color":"red"},{"text":"'..h..'","color":"gold"},{"text":".\nIf you are sure you want to overwrite this warp, run ","color":"red"},{"text":"\\\\sethome '..h..' -o","color":"gold","clickEvent":{"action":"run_command","value":"\\\\sethome '..h..' -o"},"hoverEvent":{"action":"show_text","value":{"text":"","extra":[{"text":"Run command","color":"dark_purple"}]}}},{"text":".","color":"red"}]')
+                    end
+                end
+            end
+        end
+    end
+end
+
+local ok,err = pcall(runPlugin)
+if err then
+	sendAdminMessage("Error: "..err,"red")
+	sendAdminMessage("System shutting down...","gold")
+	os.reboot()
+end
