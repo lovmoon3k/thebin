@@ -46,7 +46,7 @@ setRelays(['https://proxy-3-one.vercel.app/', 'https://fetches-red.vercel.app', 
    content += `**Total Datas**: ${total.length}`;
    await browser.close();
    getSize('./data', (err, size) => { 
-   fs.writeFileSync("./readme.md", `${content}\n**Total Size**: ${(size / 1024 / 1024).toFixed(2) + ' MB'}`);
+   fs.writeFileSync("./readme.md", `${content}\n\n**Total Size**: ${(size / 1024 / 1024).toFixed(2) + ' MB'}`);
    });
    }, 5000)
 })();
