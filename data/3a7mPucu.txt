@@ -1,0 +1,733 @@
+1.- Creas una Nueva Clase 
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using COServer.Game;
+using COServer.Network.GamePackets;
+using COServer.Client;
+using COServer.Network;
+using Core.Enums;
+
+namespace COServer
+{
+    public class Pets : Writer
+    {
+        public byte[] buffer;
+        public Pets()
+        {
+            buffer = new byte[68 + 8];
+            WriteUInt16(68, 0, buffer);
+            WriteUInt16(2035, 2, buffer);
+        }
+        public uint PetUid
+        {
+            get { return BitConverter.ToUInt32(buffer, 4); }
+            set { Writer.WriteUInt32(value, 4, buffer); }
+        }
+        public uint MonsterId
+        {
+            get { return BitConverter.ToUInt32(buffer, 8); }
+            set { Writer.WriteUInt32(value, 8, buffer); }
+        }
+        public uint PetCallType
+        {
+            get { return BitConverter.ToUInt32(buffer, 12); }//i see it 0 in a packet and 1 in another one
+            set { Writer.WriteUInt32(value, 12, buffer); }
+        }
+        public ushort LookFace
+        {
+            get { return BitConverter.ToUInt16(buffer, 16); }
+            set { Writer.WriteUInt16(value, 16, buffer); }
+        }
+        public byte PetType
+        {
+            get { return buffer[20]; }//ATTACKER 1 DEFENDER 3 
+            set { Writer.WriteByte(value, 20, buffer); }
+        }
+        public byte AttackRange
+        {
+            get { return buffer[24]; }
+            set { Writer.WriteByte(value, 24, buffer); }
+        }
+        public ushort X
+        {
+            get { return BitConverter.ToUInt16(buffer, 26); }
+            set { Writer.WriteUInt16(value, 26, buffer); }
+        }
+        public ushort Y
+        {
+            get { return BitConverter.ToUInt16(buffer, 28); }
+            set { Writer.WriteUInt16(value, 28, buffer); }
+        }
+        public string Name
+        {
+            set { Writer.WriteString(value, 30, buffer); }
+        }
+        public byte[] ToArray()
+        {
+            return buffer;
+        }
+        public void Send(Client.GameState client)
+        {
+            client.Send(buffer);
+
+        }
+
+    }
+    public class PetsControler
+    {
+        //all that is what i think . may be it's wrong 
+        public enum PetsTypes
+        {
+            None = 0, attacker = 1, defender = 3, Looter = 2
+
+        }
+        static List<ushort> NoneSkills = new List<ushort>() { 12020, 12030, 12040, 12470 };//Skills which refer to type 0
+        static List<ushort> AttackerSkills = new List<ushort>() { 4000, 4010, 4020, 4050, 4060, 4070, 12610, 12050, 12480 };// skills which refer to type 1
+        public static void datajump(GameState PetOwner, MsgAction packet)
+        {
+            PetOwner.Companion.Action = Enums.ConquerAction.Jump;
+            PetOwner.Companion.Facing = Kernel.GetAngle(packet.wParam1, packet.wParam2, packet.X, packet.Y);
+            PetOwner.Companion.X = packet.X;
+            PetOwner.Companion.Y = packet.Y;
+            PetOwner.SendScreen(packet, true);
+            PetOwner.Screen.Reload(packet);
+            PetOwner.Companion.Action = Enums.ConquerAction.None;
+        }
+        public static void JumpForLongDistances(GameState PetOwner, MsgAction packet)
+        {
+            ushort new_X = BitConverter.ToUInt16(packet.ToArray(), 12);
+            ushort new_Y = BitConverter.ToUInt16(packet.ToArray(), 14);
+            if (PetOwner.Map != null)
+            {
+                if (PetOwner.Map.Floor[new_X, new_Y, Game.MapObjectType.Item, null] && PetOwner.Map.Floor[new_X, new_Y, Game.MapObjectType.Monster, null] && PetOwner.Map.Floor[new_X, new_Y, Game.MapObjectType.StaticEntity, null])
+                {
+                    if (Kernel.GetDistance(new_X, new_Y, packet.wParam1, packet.wParam2) <= 20) //´Probando
+                    {
+                        PetOwner.Companion.Action = Enums.ConquerAction.Jump;
+                        PetOwner.Companion.Facing = Kernel.GetAngle(packet.wParam1, packet.wParam2, packet.X, packet.Y);
+                        PetOwner.Companion.X = packet.X;
+                        PetOwner.Companion.Y = packet.Y;
+                        PetOwner.Companion.MonsterInfo.SendScreen(packet);
+                        PetOwner.Screen.Reload(packet);
+                        PetOwner.Companion.Action = Enums.ConquerAction.None;
+                    }
+                }
+                else
+                {
+                    ushort x = PetOwner.Player.X, Y = PetOwner.Player.Y;
+                    Map.UpdateCoordonatesForAngle(ref x, ref Y, PetOwner.Player.Facing);
+
+                    MsgAction data = new MsgAction(true);
+                    data.UID = PetOwner.Companion.UID;
+                    data.ID = Core.Packet.PacketMsgAction.Mode.RemoveEntity;
+                    PetOwner.Companion.MonsterInfo.SendScreen(data);
+                    PetOwner.Companion.X = x;
+                    PetOwner.Companion.Y = Y;
+                    PetOwner.Companion.MonsterInfo.SendScreenSpawn(PetOwner.Companion);
+                    PetOwner.Screen.Reload(null);
+                    PetOwner.Send(new MsgTalk("Tele ", System.Drawing.Color.Red, MsgTalk.World));
+                }
+            }
+
+        }
+        public static void ChangeActions(GameState client, MsgAction data)
+        {
+            client.Companion.Action = (ushort)data.dwParam;
+            data.UID = client.Companion.UID;
+            data.dwParam = (uint)client.Companion.Action;
+            client.SendScreen(data, false);
+
+        }
+        public static void MovementPacket(GameState client, GroundMovement permove)
+        {
+            if (!client.Companion.Move(permove.Direction, permove.GroundMovementType == GroundMovement.Slide)) return;
+            client.SendScreen(permove, true);
+            client.Screen.Reload(permove);
+        }
+        public static void MakeApet(Player attacker, DB.SpellInformation spell, ushort X, ushort Y)
+        {
+            MsgMagicEffect spellUse = new MsgMagicEffect(true);
+            spellUse.Attacker = attacker.UID;
+            spellUse.SpellID = spell.ID;
+            spellUse.SpellLevel = spell.Level;
+            spellUse.X = X;
+            spellUse.Y = Y;
+            attacker.Owner.SendScreen(spellUse, true);
+            if (attacker.Owner.Companion != null)
+            {
+                if (attacker.Owner.Companion.MonsterInfo != null)
+                {
+                    attacker.Owner.Map.RemoveEntity(attacker.Owner.Companion);
+                    MsgAction data = new MsgAction(true);
+                    data.UID = attacker.Owner.Companion.UID;
+                    data.ID = Core.Packet.PacketMsgAction.Mode.RemoveEntity;
+                    attacker.Owner.Companion.MonsterInfo.SendScreen(data);
+                    attacker.Owner.Companion.MonsterInfo.SendScreen(data);
+                    attacker.Owner.Companion = null;
+
+                    return;
+                }
+            }
+            Game.Attacking.Handle.PrepareSpell(spell, attacker.Owner);
+            attacker.Owner.Companion = new Player(PlayerFlag.Monster, true);
+            attacker.Owner.Companion.MonsterInfo = new DB.MonsterInformation();
+
+            DB.MonsterInformation mt = DB.MonsterInformation.MonsterInformations[spell.Power];
+            bool clananme = true;
+            if (spell.ID == 12470)
+            {
+                if (spell.Level == 1) clananme = false;
+            }
+            if (AttackerSkills.Contains(spell.ID))
+            {
+                clananme = false;
+            }
+            if (clananme)
+            {
+                attacker.Owner.Companion.ClanName = attacker.Name;
+            }
+
+            attacker.Owner.Companion.Name = mt.Name;
+            attacker.Owner.Companion.UID = attacker.Owner.Map.Pets.Next;
+            while (attacker.Owner.Map.Entities.ContainsKey(attacker.Owner.Companion.UID))
+            {
+                attacker.Owner.Companion.UID = attacker.Owner.Map.Pets.Next;
+            }
+            attacker.Owner.Companion.MapID = attacker.Owner.Map.ID;
+            attacker.Owner.Companion.SendUpdates = true;
+            attacker.Owner.Companion.X = attacker.X;
+            attacker.Owner.Companion.Y = attacker.Y;
+            attacker.Owner.Companion.Owner = attacker.Owner;
+            attacker.Owner.Companion.MapObjType = MapObjectType.Monster;
+            attacker.Owner.Companion.MonsterInfo = mt.Copy();
+            attacker.Owner.Companion.MonsterInfo.Owner = attacker.Owner.Companion;
+
+            Pets pac = new Pets()
+            {
+                PetUid = attacker.Owner.Companion.UID,
+                MonsterId = mt.ID,
+                LookFace = mt.Mesh,
+                PetCallType = (uint)mt.Type,
+                AttackRange = (byte)(mt.AttackRange == 0 ? 1 : mt.AttackRange),
+                X = attacker.Owner.Companion.X,
+                Y = attacker.Owner.Companion.Y,
+                PetType = (byte)gettype(spell),
+                Name = mt.Name
+            };
+            pac.Send(attacker.Owner);
+            attacker.Owner.Companion.MinAttack = mt.MinAttack;
+            attacker.Owner.Companion.MaxAttack = mt.MaxAttack;
+            attacker.Owner.Companion.MaxAttack = attacker.Owner.Companion.MagicAttack = mt.MaxAttack;
+            attacker.Owner.Companion.Hitpoints = attacker.Owner.Companion.MaxHitpoints = mt.Hitpoints;
+            attacker.Owner.Companion.Body = mt.Mesh;
+            attacker.Owner.Companion.Level = mt.Level;
+            //Some important Values is Spawn Packet 
+            Writer.WriteByte((byte)mt.Type, 254, attacker.Owner.Companion.SpawnPacket);
+            Writer.WriteUshort((ushort)(mt.AttackRange + 1), 255, attacker.Owner.Companion.SpawnPacket);
+            Writer.WriteUInt32(attacker.UID, 257, attacker.Owner.Companion.SpawnPacket);
+
+            attacker.Owner.Map.AddEntity(attacker.Owner.Companion);
+            attacker.Owner.SendScreenSpawn(attacker.Owner.Companion, true);
+            //Effect which differs from one to another
+            byte[] Buffer = new byte[50];
+            Writer.WriteUInt16(42, 0, Buffer);
+            Writer.WriteUInt16(10010, 2, Buffer);
+            Writer.WriteUInt32((uint)Time32.timeGetTime().GetHashCode(), 4, Buffer);
+            Writer.WriteUInt32(attacker.Owner.Companion.UID, 8, Buffer);
+            Writer.WriteUInt16(134, 24, Buffer);
+            Writer.WriteByte((byte)attacker.Owner.Companion.Facing, 26, Buffer);
+            Writer.WriteUInt16(attacker.Owner.Companion.X, 28, Buffer);
+            Writer.WriteUInt16(attacker.Owner.Companion.Y, 30, Buffer);
+            attacker.Owner.Companion.MonsterInfo.SendScreen(Buffer);
+            attacker.Owner.Screen.Reload(null);
+        }
+        public static PetsTypes gettype(DB.SpellInformation spell)
+        {
+            if (NoneSkills.Contains(spell.ID))
+            {
+                if (spell.ID == 12470 && spell.Level == 1)
+                {
+                    return PetsTypes.defender;
+                }
+                else
+                {
+                    return PetsTypes.None;
+                }
+
+            }
+            else if (AttackerSkills.Contains(spell.ID)) { return PetsTypes.attacker; }
+
+            else return PetsTypes.None;
+        }
+    }
+}
+
+============================================================
+2.- Player.cs/Entity.cs
+
+Buscamos : Teleport(ushort MapID, ushort X, ushort Y)
+
+Agregamos :
+ if (Owner.Companion != null)
+                {
+                    Owner.Map.RemoveEntity(Owner.Companion);
+                    var data = new MsgAction(true);
+                    data.UID = Owner.Companion.UID;
+                    data.ID = PacketMsgAction.Mode.RemoveEntity;//al final te dejo los codigos comparativos para que sepas cual es cual
+                    Owner.Companion.MonsterInfo.SendScreen(data);
+                    Owner.Companion = null;
+                }
+
+Buscamos : void Die  (son 2 Dies asi que lo agregas en los 2)
+
+Agregamos :
+if (Owner.Companion != null)
+            {
+                Owner.Map.RemoveEntity(Owner.Companion);
+                var data = new MsgAction(true);
+                data.UID = Owner.Companion.UID;
+                data.ID = PacketMsgAction.Mode.RemoveEntity;
+                Owner.Companion.MonsterInfo.SendScreen(data);
+                Owner.Companion = null;
+            }
+en el de Die(Player killer)
+buscamos : if (Companion)
+Agregamos debajo de ese :
+  if (Owner.Companion != null)
+                {
+                    Owner.Map.RemoveEntity(Owner.Companion);
+                    var data = new MsgAction(true);
+                    data.UID = Owner.Companion.UID;
+                    data.ID = PacketMsgAction.Mode.RemoveEntity;
+                    Owner.Companion.MonsterInfo.SendScreen(data);
+                    Owner.Companion = null;
+                }
+
+===================================================
+2.- GameState/GameClient
+a Inicios Agregamos :
+
+ #region MsgPets
+        public Game.Player Companion;//en caso de error con player lo cambias a Entity
+        public Game.Player Companion2;
+        #endregion
+Buscamos : void Shutdown 
+
+debajo de la parte de los clones agregamos :
+ if (Companion != null)
+                    {
+                        Map.RemoveEntity(Companion);
+                        MsgAction data = new MsgAction(true);
+                        data.UID = Companion.UID;
+                        data.ID = PacketMsgAction.Mode.RemoveEntity;
+                        Companion.MonsterInfo.SendScreen(data);
+                    }
+
+=====================================================
+3.- Thread o World.cs Agregamos : 
+ private void CompanionsCallback(GameState client, int time)
+        {
+            if (!Valid(client)) return;
+            Time32 Now = new Time32(time);
+            if (client.Companion != null)
+            {
+                #region PetAPet
+                if (!client.Player.Dead && client.Player.Hitpoints < client.Player.MaxHitpoints && (client.Companion.Body == 846 || client.Companion.Body == 847))
+                {
+                    MsgMagicEffect suse = new MsgMagicEffect(true);
+                    suse.Attacker = client.Companion.UID;
+                    suse.SpellID = 1055;
+                    suse.SpellLevel = 3;
+                    suse.X = client.Player.X;
+                    suse.Y = client.Player.Y;
+                    suse.AddTarget(client.Player.UID, 0, null);
+                    client.SendScreen(suse, true);
+                    uint val = 1500;
+                    if (client.Companion.Body == 847)
+                        val += 1500;
+                    client.Player.Hitpoints = Math.Min(client.Player.Hitpoints + val, client.Player.MaxHitpoints);
+                }
+                if (!client.Player.Dead && client.Companion.Body == 850 && !client.Player.ContainsFlag((ulong)PacketFlag.Flags.Stigma))
+                {
+                    DB.SpellInformation spell = DB.SpellTable.SpellInformations[1095][4];
+                    MsgMagicEffect suse = new MsgMagicEffect(true);
+                    suse.Attacker = client.Companion.UID;
+                    suse.SpellID = 1055;
+                    suse.SpellLevel = 3;
+                    suse.X = client.Player.X;
+                    suse.Y = client.Player.Y;
+                    suse.AddTarget(client.Player.UID, 0, null);
+                    client.SendScreen(suse, true);
+                    client.Player.ShieldTime = 0;
+                    client.Player.ShieldStamp = Time32.Now;
+                    client.Player.MagicShieldStamp = Time32.Now;
+                    client.Player.MagicShieldTime = 0;
+                    client.Player.AddFlag((ulong)PacketFlag.Flags.MagicShield);
+                    client.Player.MagicShieldStamp = Time32.Now;
+                    client.Player.MagicShieldIncrease = 1.1f;//spell.PowerPercent;
+                    client.Player.MagicShieldTime = (byte)spell.Duration;
+                    if (client.Player.PlayerFlag == PlayerFlag.Player)
+                        client.Player.Owner.Send(DefineConstantsEn_Res.Shield(spell.PowerPercent, spell.Duration));
+                    client.Player.AddFlag((ulong)PacketFlag.Flags.Stigma);
+                    client.Player.StigmaStamp = Time32.Now;
+                    client.Player.StigmaIncrease = spell.PowerPercent;
+                    client.Player.StigmaTime = (byte)spell.Duration;
+                    if (client.Player.PlayerFlag == PlayerFlag.Player)
+                        client.Player.Owner.Send(DefineConstantsEn_Res.Stigma(spell.PowerPercent, spell.Duration));
+
+                }
+                #endregion
+                #region Normal Companion
+                short distance = Kernel.GetDistance(client.Companion.X, client.Companion.Y, client.Player.X, client.Player.Y);
+                if (distance >= 15)
+                {
+                    ushort X = (ushort)(client.Player.X + Kernel.Random.Next(2));
+                    ushort Y = (ushort)(client.Player.Y + Kernel.Random.Next(2));
+                    if (!client.Map.SelectCoordonates(ref X, ref Y))
+                    {
+                        X = client.Player.X;
+                        Y = client.Player.Y;
+                    }
+                    client.Companion.X = X;
+                    client.Companion.Y = Y;
+                    Network.GamePackets.MsgAction data = new COServer.Network.GamePackets.MsgAction(true);
+                    data.ID = PacketMsgAction.Mode.Jump;
+                    data.dwParam = (uint)((Y << 16) | X);
+                    data.X = X;
+                    data.Y = Y;
+                    data.UID = client.Companion.UID;
+                    client.Companion.MonsterInfo.SendScreen(data);
+                }
+                else if (distance > 3)
+                {
+                    Enums.ConquerAngle facing = Kernel.GetAngle(client.Companion.X, client.Companion.Y, client.Companion.Owner.Player.X, client.Companion.Owner.Player.Y);
+                    if (!client.Companion.Move(facing))
+                    {
+                        facing = (Enums.ConquerAngle)Kernel.Random.Next(7);
+                        if (client.Companion.Move(facing))
+                        {
+                            client.Companion.Facing = facing;
+                            Network.GamePackets.GroundMovement move = new COServer.Network.GamePackets.GroundMovement(true);
+                            move.Direction = facing;
+                            move.UID = client.Companion.UID;
+                            move.GroundMovementType = Network.GamePackets.GroundMovement.Run;
+                            client.Companion.MonsterInfo.SendScreen(move);
+                        }
+                    }
+                    else
+                    {
+                        client.Companion.Facing = facing;
+                        Network.GamePackets.GroundMovement move = new COServer.Network.GamePackets.GroundMovement(true);
+                        move.Direction = facing;
+                        move.UID = client.Companion.UID;
+                        move.GroundMovementType = Network.GamePackets.GroundMovement.Run;
+                        client.Companion.MonsterInfo.SendScreen(move);
+                    }
+                }
+                else
+                {
+                    var monster = client.Companion;
+                    if (monster.MonsterInfo.InSight == 0)
+                    {
+                        if (client.Player.AttackPacket != null)
+                        {
+                            if (client.Player.AttackPacket.InteractType == MsgInteract.Magic)
+                            {
+                                if (client.Player.AttackPacket.Decoded)
+                                {
+                                    if (DB.SpellTable.SpellInformations.ContainsKey((ushort)client.Player.AttackPacket.Damage))
+                                    {
+                                        
+                                            var info = DB.SpellTable.SpellInformations[(ushort)client.Player.AttackPacket.Damage].Values.ToArray()[client.Spells[(ushort)client.Player.AttackPacket.Damage].Level];
+                                            if (info.CanKill)
+                                            {
+                                                monster.MonsterInfo.InSight = client.Player.AttackPacket.Attacked;
+                                            }
+                                       
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                monster.MonsterInfo.InSight = client.Player.AttackPacket.Attacked;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (monster.MonsterInfo.InSight > 400000 && monster.MonsterInfo.InSight < 600000 || monster.MonsterInfo.InSight > 800000 && monster.MonsterInfo.InSight != monster.UID)
+                        {
+                            Player attacked = null;
+
+                            if (client.Screen.TryGetValue(monster.MonsterInfo.InSight, out attacked))
+                            {
+                                if (Now > monster.AttackStamp.AddMilliseconds(monster.MonsterInfo.AttackSpeed))
+                                {
+                                    monster.AttackStamp = Now;
+                                    if (attacked.Dead)
+                                    {
+                                        monster.MonsterInfo.InSight = 0;
+                                    }
+                                    else
+                                        new Game.Attacking.Handle(null, monster, attacked);
+                                }
+                            }
+                            else
+                                monster.MonsterInfo.InSight = 0;
+                        }
+                    }
+                }
+            }
+            #endregion Normal Companion
+            #region Shadow2
+            if (client.Companion2 != null)
+            {
+                #region PetAPet
+                if (!client.Player.Dead && client.Player.Hitpoints < client.Player.MaxHitpoints && (client.Companion2.Body == 846 || client.Companion2.Body == 847))
+                {
+                    MsgMagicEffect suse = new MsgMagicEffect(true);
+                    suse.Attacker = client.Companion2.UID;
+                    suse.SpellID = 1055;
+                    suse.SpellLevel = 3;
+                    suse.X = client.Player.X;
+                    suse.Y = client.Player.Y;
+                    suse.AddTarget(client.Player.UID, 0, null);
+                    client.SendScreen(suse, true);
+                    uint val = 1500;
+                    if (client.Companion2.Body == 847)
+                        val += 1500;
+                    client.Player.Hitpoints = Math.Min(client.Player.Hitpoints + val, client.Player.MaxHitpoints);
+                }
+                if (!client.Player.Dead && client.Companion2.Body == 850 && !client.Player.ContainsFlag((ulong)PacketFlag.Flags.Stigma))
+                {
+                    DB.SpellInformation spell = DB.SpellTable.SpellInformations[1095][4];
+                    MsgMagicEffect suse = new MsgMagicEffect(true);
+                    suse.Attacker = client.Companion2.UID;
+                    suse.SpellID = 1055;
+                    suse.SpellLevel = 3;
+                    suse.X = client.Player.X;
+                    suse.Y = client.Player.Y;
+                    suse.AddTarget(client.Player.UID, 0, null);
+                    client.SendScreen(suse, true);
+                    client.Player.ShieldTime = 0;
+                    client.Player.ShieldStamp = Time32.Now;
+                    client.Player.MagicShieldStamp = Time32.Now;
+                    client.Player.MagicShieldTime = 0;
+                    client.Player.AddFlag((ulong)PacketFlag.Flags.MagicShield);
+                    client.Player.MagicShieldStamp = Time32.Now;
+                    client.Player.MagicShieldIncrease = 1.1f;//spell.PowerPercent;
+                    client.Player.MagicShieldTime = (byte)spell.Duration;
+                    if (client.Player.PlayerFlag == PlayerFlag.Player)
+                        client.Player.Owner.Send(DefineConstantsEn_Res.Shield(spell.PowerPercent, spell.Duration));
+                    client.Player.AddFlag((ulong)PacketFlag.Flags.Stigma);
+                    client.Player.StigmaStamp = Time32.Now;
+                    client.Player.StigmaIncrease = spell.PowerPercent;
+                    client.Player.StigmaTime = (byte)spell.Duration;
+                    if (client.Player.PlayerFlag == PlayerFlag.Player)
+                        client.Player.Owner.Send(DefineConstantsEn_Res.Stigma(spell.PowerPercent, spell.Duration));
+
+                }
+                #endregion
+                short distance = Kernel.GetDistance(client.Companion2.X, client.Companion2.Y, client.Player.X, client.Player.Y);
+                if (distance >= 15)
+                {
+                    ushort X = (ushort)(client.Player.X + Kernel.Random.Next(2));
+                    ushort Y = (ushort)(client.Player.Y + Kernel.Random.Next(2));
+                    if (!client.Map.SelectCoordonates(ref X, ref Y))
+                    {
+                        X = client.Player.X;
+                        Y = client.Player.Y;
+                    }
+                    client.Companion2.X = X;
+                    client.Companion2.Y = Y;
+                    Network.GamePackets.MsgAction data = new COServer.Network.GamePackets.MsgAction(true);
+                    data.ID = PacketMsgAction.Mode.Jump;
+                    data.dwParam = (uint)((Y << 16) | X);
+                    data.X = X;
+                    data.Y = Y;
+                    data.UID = client.Companion2.UID;
+                    client.Companion2.MonsterInfo.SendScreen(data);
+                }
+                else if (distance > 4)
+                {
+                    Enums.ConquerAngle facing = Kernel.GetAngle(client.Companion2.X, client.Companion2.Y, client.Companion2.Owner.Player.X, client.Companion2.Owner.Player.Y);
+                    if (!client.Companion2.Move(facing))
+                    {
+                        facing = (Enums.ConquerAngle)Kernel.Random.Next(7);
+                        if (client.Companion2.Move(facing))
+                        {
+                            client.Companion2.Facing = facing;
+                            Network.GamePackets.GroundMovement move = new COServer.Network.GamePackets.GroundMovement(true);
+                            move.Direction = facing;
+                            move.UID = client.Companion2.UID;
+                            move.GroundMovementType = Network.GamePackets.GroundMovement.Run;
+                            client.Companion2.MonsterInfo.SendScreen(move);
+                        }
+                    }
+                    else
+                    {
+                        client.Companion2.Facing = facing;
+                        Network.GamePackets.GroundMovement move = new COServer.Network.GamePackets.GroundMovement(true);
+                        move.Direction = facing;
+                        move.UID = client.Companion2.UID;
+                        move.GroundMovementType = Network.GamePackets.GroundMovement.Run;
+                        client.Companion2.MonsterInfo.SendScreen(move);
+                    }
+                }
+                else
+                {
+                    var monster = client.Companion2;
+                    if (monster.MonsterInfo.InSight == 0)
+                    {
+                        if (client.Player.AttackPacket != null)
+                        {
+                            if (client.Player.AttackPacket.InteractType == MsgInteract.Magic)
+                            {
+                                if (client.Player.AttackPacket.Decoded)
+                                {
+                                    if (DB.SpellTable.SpellInformations.ContainsKey((ushort)client.Player.AttackPacket.Damage))
+                                    {
+                                        var info = DB.SpellTable.SpellInformations[(ushort)client.Player.AttackPacket.Damage].Values.ToArray()[client.Spells[(ushort)client.Player.AttackPacket.Damage].Level];
+                                        if (info.CanKill)
+                                        {
+                                            monster.MonsterInfo.InSight = client.Player.AttackPacket.Attacked;
+                                        }
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                monster.MonsterInfo.InSight = client.Player.AttackPacket.Attacked;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (monster.MonsterInfo.InSight > 400000 && monster.MonsterInfo.InSight < 600000 || monster.MonsterInfo.InSight > 800000 && monster.MonsterInfo.InSight != monster.UID)
+                        {
+                            Player
+ attacked = null;
+
+                            if (client.Screen.TryGetValue(monster.MonsterInfo.InSight, out attacked))
+                            {
+                                if (Now > monster.AttackStamp.AddMilliseconds(monster.MonsterInfo.AttackSpeed))
+                                {
+
+                                    monster.AttackStamp = Now;
+                                    if (attacked.Dead)
+                                    {
+                                        monster.MonsterInfo.InSight = 0;
+                                    }
+                                    else
+                                        new Game.Attacking.Handle(null, monster, attacked);
+                                }
+                            }
+                            else
+                                monster.MonsterInfo.InSight = 0;
+                        }
+                    }
+                }
+            }
+            #endregion
+        }
+
+Ahora vamos a buscar : public System.Threading.Generic.TimerRule<GameState> Characters
+Agregamos :
+,Pets
+asi como esta con coma y todo.
+buscamos: bool Register(GameState client)
+Agregamos :
+ Pets.Add(client),
+
+que seria la accion de las Pets o parte de estas.
+====================================================================
+4.- En Attack.cs buscamos 
+HandleAttack y Agregamos :
+ if (client.Companion != null)
+            {
+                if (attack.Attacker == client.Companion.UID)
+                {
+                    client.Companion.AttackPacket = attack;
+                    Game.Player attacked;
+                    if (client.Screen.TryGetValue(attack.Attacked, out attacked))
+                    {
+                        new Game.Attacking.Handle(null, client.Companion, attacked);
+                    }
+                    return;
+                }
+            }
+Es el codigo para que las pets "ataquen"
+======================================================================
+5.- En PacketHandler.cs o GeneralData.cs buscaremos 
+static void ChangeAction
+
+  if (client.Companion != null)
+            {
+                if (action.UID == client.Companion.UID)
+                {
+
+                    PetsControler.ChangeActions(client, action);
+                    return;
+                }
+            }
+
+void PlayerGroundMovment o void PlayerWalk
+  if (client.Companion != null)//PETS
+            {
+                if (groundMovement.UID == client.Companion.UID)
+                {
+
+                    PetsControler.MovementPacket(client, groundMovement);
+                    return;
+                }
+            }
+
+void Jump o void PlayerJump 
+
+ if (client.Companion != null)
+            {
+                if (client.Companion.UID == action.UID)
+                {
+                    PetsControler.datajump(client, action);
+
+                    return;
+                }
+            }
+==============================================
+6.- Handle.cs buscamos #region Companions y la reemplazamos por esta :
+   #region Companions
+                                case 4000:
+                                case 4010:
+                                case 4020:
+                                case 4050:
+                                case 4060:
+                                case 4070:
+                                case 12610:
+                                    {
+                                        if (CanUseSpell(spell, attacker.Owner))
+                                        {
+                                            PetsControler.MakeApet(attacker, spell, X, Y);
+                                        }
+                                        break;
+                                    }
+                                case 12020:
+                                case 12030:
+                                case 12040:
+                                case 12050:
+                                case 12470:
+
+                                    //275
+                                    {
+                                        if (CanUseSpell(spell, attacker.Owner))
+                                        {
+                                            PetsControler.MakeApet(attacker, spell, X, Y);
+                                        }
+                                        break;
+                                    }
+                                #endregion
+
+===================================================
+Creo que no se me olvido Nada, cualquier cosa me dices.

