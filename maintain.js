@@ -4,6 +4,7 @@ const { fetch, setRelays } = require('fetch-relay');
 const dayjs = require('dayjs');
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
+const getSize = require('get-folder-size');
 
 dayjs.extend(timezone);
 dayjs.extend(utc);
@@ -44,6 +45,8 @@ setRelays(['https://proxy-3-one.vercel.app/', 'https://fetches-red.vercel.app', 
    const total = fs.readdirSync('./data').filter(file => file.endsWith('.txt'));
    content += `**Total Datas**: ${total.length}`;
    await browser.close();
-   fs.writeFileSync("./readme.md", `${content}`);
+   getSize('./data', (err, size) => { 
+   fs.writeFileSync("./readme.md", `${content}\n**Total Size**: ${(size / 1024 / 1024).toFixed(2) + ' MB'}`);
+   });
    }, 5000)
 })();
