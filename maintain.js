@@ -4,11 +4,9 @@ const { fetch, setRelays } = require('fetch-relay');
 const dayjs = require('dayjs');
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
-const advanced = requires("dayjs/plugin/advancedFormat");
 
 dayjs.extend(timezone);
 dayjs.extend(utc);
-dayjs.extend(advanced);
 
 function fileSize(filename) {
     var stats = fs.statSync(filename);
