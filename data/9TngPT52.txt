@@ -1,0 +1,40 @@
+internal static class Retry
+{
+    public static async Task DoAsync(Func<Task> action, TimeSpan retryInterval, int retryCount = 3)
+    {
+        _ = await DoAsync<object?>(async () =>
+        {
+            await action();
+            return null;
+        }, retryInterval, retryCount);
+    }
+
+
+    public static async Task<T> DoAsync<T>(Func<Task<T>> action, TimeSpan retryWait, int retryCount = 3)
+    {
+        const string sleepDurationKey = "Broken";
+
+        var circuitBreakerPolicy =  Policy<HttpResponseMessage>
+            .Handle<Exception>()
+            .CircuitBreakerAsync(retryCount, TimeSpan.FromMinutes(30),
+                onBreak: (dr, ts, ctx) => { ctx[sleepDurationKey] = ts; },
+                onReset: (ctx) => { ctx[sleepDurationKey] = null; });
+
+        var retryPolicy = Policy
+            .Handle<Exception>()
+            .Or<BrokenCircuitException>()
+            .WaitAndRetryForeverAsync((_, ctx) =>
+                ctx.ContainsKey(sleepDurationKey) ? (TimeSpan)ctx[sleepDurationKey] : retryWait);
+
+        var policyResult = await Policy
+            .WrapAsync(retryPolicy, circuitBreakerPolicy)
+            .ExecuteAndCaptureAsync(action);
+
+        if (policyResult.Outcome == OutcomeType.Failure)
+        {
+            throw policyResult.FinalException;
+        }
+
+        return policyResult.Result;
+    }
+}
