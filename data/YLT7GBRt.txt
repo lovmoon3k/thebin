@@ -1,0 +1,88 @@
+select 
+	job_name,
+	(
+		select ql3.host_name from qrtz_log ql3
+		where ql3.job_name == ql.job_name
+		order by ql3.trigger_fire_time desc
+	) as host_name,
+	case when exists (
+		select *
+		from (
+			select *
+			from qrtz_log qq
+			where qq.job_name == ql.job_name 
+			order by qq.trigger_fire_time desc
+			limit 1
+		) q
+		where q.job_status is not null and q.job_status <> "OK"
+		or q.job_status is null and 
+		julianday('now') - julianday(q.trigger_fire_time) > (
+			select 2 * max(JULIANDAY(ql2.job_finished_time) - JULIANDAY(ql2.trigger_fire_time))
+			from qrtz_log ql2 
+			where ql2.job_name = q.job_name and
+			ql2.host_name = q.host_name and
+			ql2.job_finished_time is not null
+		)
+	) then 0 
+	else (
+			select round((JULIANDAY(qq.job_finished_time) - JULIANDAY(qq.trigger_fire_time)) * 86400)  
+			from qrtz_log qq
+			where qq.job_name == ql.job_name 
+			and qq.job_finished_time is not null
+			order by qq.trigger_fire_time desc
+			limit 1) end
+	as duration,
+	case when exists (
+		select * from qrtz_log ql4
+		where ql4.job_name = ql.job_name and
+		ql4.job_status = "OK"
+		order by ql4.job_finished_time desc
+		limit 1
+	)
+	then (
+		case when exists(
+			select * from qrtz_log ql5
+			where ql5.job_name = ql.job_name
+			and ql5.job_status = "OK"
+			and ql5.id <> (
+				select ql4.id from qrtz_log ql4
+				where ql4.job_name = ql.job_name and
+				ql4.job_status = "OK"
+				order by ql4.job_finished_time desc
+				limit 1
+			)
+			order by ql5.job_finished_time desc
+		)
+		then round(
+			((
+				select JULIANDAY(ql4.job_finished_time) - JULIANDAY(ql4.trigger_fire_time)
+				from qrtz_log ql4
+				where ql4.job_name = ql.job_name and
+				ql4.job_status = "OK"
+				order by ql4.job_finished_time desc
+				limit 1
+			)
+			-
+			(
+				select JULIANDAY(ql5.job_finished_time) - JULIANDAY(ql5.trigger_fire_time)  
+				from qrtz_log ql5
+				where ql5.job_name = ql.job_name
+				and ql5.job_status = "OK"
+				and ql5.id <> (
+					select ql4.id from qrtz_log ql4
+					where ql4.job_name = ql.job_name and
+					ql4.job_status = "OK"
+					order by ql4.job_finished_time desc
+					limit 1
+				)
+				order by ql5.job_finished_time desc
+			)) * 86400
+		)
+		else 0
+		end
+	)
+	else 0
+	end
+	as duration_diff
+from qrtz_log ql
+group by job_name
