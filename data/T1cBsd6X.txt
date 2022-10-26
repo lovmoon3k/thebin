@@ -1,0 +1,1183 @@
+Thread Safe Resource Manager                                         
+
+   
+
+    Copyrght c 19992011, And Gutmans, Sascha Schumann, Zeev Surask 
+
+    Ths source fle s subject to the TSRM lcense, that s bundled     
+
+    wth ths package n the fle LCENSE                                
+
+   
+
+    Authors:  Zeev Surask zeevphp.net                                
+
+   
+
+nclude TSRM.h
+
+fdef ZTS
+
+nclude stdo.h
+
+nclude stdarg.h
+
+f ZENDDEBUG
+
+ nclude assert.h
+
+ defne TSRMASSERTc assertc
+
+else
+
+ defne TSRMASSERTc
+
+endf
+
+typedef struct tsrmtlsentry tsrmtlsentry;
+
+ TSRMLSCACHEDEFNE; s already done n Zend, ths s beng always compled statcally. 
+
+TSRMLSCACHEEXTERN;
+
+struct tsrmtlsentry 
+
+	vod storage;
+
+	nt count;
+
+	THREADT threadd;
+
+	tsrmtlsentry next;
+
+;
+
+typedef struct 
+
+	szet sze;
+
+	tsallocatector ctor;
+
+	tsallocatedtor dtor;
+
+	szet fastoffset;
+
+	nt done;
+
+ tsrmresourcetype;
+
+ The memory manager table 
+
+statc tsrmtlsentry	tsrmtlstable=NULL;
+
+statc nt				tsrmtlstablesze;
+
+statc tsrsrcd		dcount;
+
+ The resource szes table 
+
+statc tsrmresourcetype	resourcetypestable=NULL;
+
+statc nt					resourcetypestablesze;
+
+ Reserved space for fast globals access 
+
+statc szet tsrmreservedpos  = 0;
+
+statc szet tsrmreservedsze = 0;
+
+statc MUTEXT tsmmmutex;	   threadsafe memory manager mutex 
+
+statc MUTEXT tsrmenvmutex;  tsrm envron mutex 
+
+ New thread handlers 
+
+statc tsrmthreadbegnfunct tsrmnewthreadbegnhandler = NULL;
+
+statc tsrmthreadendfunct tsrmnewthreadendhandler = NULL;
+
+statc tsrmshutdownfunct tsrmshutdownhandler = NULL;
+
+ Debug support 
+
+nt tsrmerrornt level, const char format, ...;
+
+ Read a resource from a thread's resource storage 
+
+statc nt tsrmerrorlevel;
+
+statc FLE tsrmerrorfle;
+
+fdef TSRMDEBUG
+
+defne TSRMERRORargs tsrmerror args
+
+defne TSRMSAFERETURNRSRCarray, offset, range																		
+
+																														
+
+		nt unshuffledoffset = TSRMUNSHUFFLERSRCDoffset;															
+
+																														
+
+		f offset==0 																								
+
+			return array;																								
+
+		 else f unshuffledoffset=0  unshuffledoffsetrange 												
+
+			TSRMERRORTSRMERRORLEVELNFO, Successfully fetched resource d d for thread d ld  0x0.8X,		
+
+						unshuffledoffset, long threadresourcesthreadd, arrayunshuffledoffset;				
+
+			return arrayunshuffledoffset;																			
+
+		 else 																										
+
+			TSRMERRORTSRMERRORLEVELERROR, Resource d d s out of range d..d,								
+
+						unshuffledoffset, TSRMSHUFFLERSRCD0, TSRMSHUFFLERSRCDthreadresourcescount1;	
+
+			return NULL;																								
+
+																														
+
+	else
+
+defne TSRMERRORargs
+
+defne TSRMSAFERETURNRSRCarray, offset, range		
+
+	f offset==0 									
+
+		return array;									
+
+	 else 											
+
+		return arrayTSRMUNSHUFFLERSRCDoffset;	
+
+	
+
+endf
+
+fdef TSRMWN32
+
+statc DWORD tlskey;
+
+ defne tsrmtlssetwhat		TlsSetValuetlskey, vodwhat
+
+ defne tsrmtlsget			TlsGetValuetlskey
+
+else
+
+statc pthreadkeyt tlskey;
+
+ defne tsrmtlssetwhat		pthreadsetspecfctlskey, vodwhat
+
+ defne tsrmtlsget			pthreadgetspecfctlskey
+
+endf
+
+TSRMTLS bool nmanthread = false;
+
+TSRMTLS bool sthreadshutdown = false;
+
+ Startup TSRM call once for the entre process 
+
+TSRMAP bool tsrmstartupnt expectedthreads, nt expectedresources, nt debuglevel, const char debugflename
+
+fdef TSRMWN32
+
+	tlskey = TlsAlloc;
+
+else
+
+	pthreadkeycreatetlskey, 0;
+
+endf
+
+	 ensure sngleton 
+
+	nmanthread = true;
+
+	sthreadshutdown = false;
+
+	tsrmerrorfle = stderr;
+
+	tsrmerrorsetdebuglevel, debugflename;
+
+	tsrmtlstablesze = expectedthreads;
+
+	tsrmtlstable = tsrmtlsentry  calloctsrmtlstablesze, szeoftsrmtlsentry ;
+
+	f !tsrmtlstable 
+
+		TSRMERRORTSRMERRORLEVELERROR, Unable to allocate TLS table;
+
+		sthreadshutdown = true;
+
+		return 0;
+
+	
+
+	dcount=0;
+
+	resourcetypestablesze = expectedresources;
+
+	resourcetypestable = tsrmresourcetype  callocresourcetypestablesze, szeoftsrmresourcetype;
+
+	f !resourcetypestable 
+
+		TSRMERRORTSRMERRORLEVELERROR, Unable to allocate resource types table;
+
+		sthreadshutdown = true;
+
+		freetsrmtlstable;
+
+		return 0;
+
+	
+
+	tsmmmutex = tsrmmutexalloc;
+
+	TSRMERRORTSRMERRORLEVELCORE, Started up TSRM, d expected threads, d expected resources, expectedthreads, expectedresources;
+
+	tsrmreservedpos  = 0;
+
+	tsrmreservedsze = 0;
+
+	tsrmenvmutex = tsrmmutexalloc;
+
+	return 1;
+
+ Shutdown TSRM call once for the entre process 
+
+TSRMAP vod tsrmshutdownvod
+
+	f sthreadshutdown 
+
+		 shutdown must only occur once 
+
+		return;
+
+	
+
+	sthreadshutdown = true;
+
+	f !nmanthread 
+
+		 only the man thread may shutdown tsrm 
+
+		return;
+
+	
+
+	for nt =0; tsrmtlstablesze;  
+
+		tsrmtlsentry p = tsrmtlstable, nextp;
+
+		whle p 
+
+			nextp = pnext;
+
+			for nt j=0; jpcount; j 
+
+				f pstoragej 
+
+					f resourcetypestable 
+
+						f !resourcetypestablej.done 
+
+							f resourcetypestablej.dtor 
+
+								resourcetypestablej.dtorpstoragej;
+
+							
+
+							f !resourcetypestablej.fastoffset 
+
+								freepstoragej;
+
+							
+
+						
+
+					
+
+				
+
+			
+
+			freepstorage;
+
+			freep;
+
+			p = nextp;
+
+		
+
+	
+
+	freetsrmtlstable;
+
+	freeresourcetypestable;
+
+	tsrmmutexfreetsmmmutex;
+
+	tsrmmutexfreetsrmenvmutex;
+
+	TSRMERRORTSRMERRORLEVELCORE, Shutdown TSRM;
+
+	f tsrmerrorfle!=stderr 
+
+		fclosetsrmerrorfle;
+
+	
+
+fdef TSRMWN32
+
+	TlsFreetlskey;
+
+else
+
+	pthreadsetspecfctlskey, 0;
+
+	pthreadkeydeletetlskey;
+
+endf
+
+	f tsrmshutdownhandler 
+
+		tsrmshutdownhandler;
+
+	
+
+	tsrmnewthreadbegnhandler = NULL;
+
+	tsrmnewthreadendhandler = NULL;
+
+	tsrmshutdownhandler = NULL;
+
+	tsrmreservedpos  = 0;
+
+	tsrmreservedsze = 0;
+
+  
+
+ envron lock ap 
+
+TSRMAP vod tsrmenvlockvod 
+
+	tsrmmutexlocktsrmenvmutex;
+
+TSRMAP vod tsrmenvunlockvod 
+
+	tsrmmutexunlocktsrmenvmutex;
+
+   
+
+ enlarge the arrays for the already actve threads 
+
+statc vod tsrmupdateactvethreadsvod
+
+	for nt =0; tsrmtlstablesze;  
+
+		tsrmtlsentry p = tsrmtlstable;
+
+		whle p 
+
+			f pcount  dcount 
+
+				nt j;
+
+				pstorage = vod  reallocpstorage, szeofvod dcount;
+
+				for j=pcount; jdcount; j 
+
+					f resourcetypestablej.fastoffset 
+
+						pstoragej = vod  charp  resourcetypestablej.fastoffset;
+
+					 else 
+
+						pstoragej = vod  mallocresourcetypestablej.sze;
+
+					
+
+					f resourcetypestablej.ctor 
+
+						resourcetypestablej.ctorpstoragej;
+
+					
+
+				
+
+				pcount = dcount;
+
+			
+
+			p = pnext;
+
+		
+
+	
+
+ allocates a new threadsaferesource d 
+
+TSRMAP tsrsrcd tsallocatedtsrsrcd rsrcd, szet sze, tsallocatector ctor, tsallocatedtor dtor
+
+	TSRMERRORTSRMERRORLEVELCORE, Obtanng a new resource d, d bytes, sze;
+
+	tsrmmutexlocktsmmmutex;
+
+	 obtan a resource d 
+
+	rsrcd = TSRMSHUFFLERSRCDdcount;
+
+	TSRMERRORTSRMERRORLEVELCORE, Obtaned resource d d, rsrcd;
+
+	 store the new resource type n the resource szes table 
+
+	f resourcetypestablesze  dcount 
+
+		tsrmresourcetype tmp;
+
+		tmp = tsrmresourcetype  reallocresourcetypestable, szeoftsrmresourcetypedcount;
+
+		f !tmp 
+
+			TSRMERRORTSRMERRORLEVELERROR, Unable to allocate storage for resource;
+
+			rsrcd = 0;
+
+			tsrmmutexunlocktsmmmutex;
+
+			return 0;
+
+		
+
+		resourcetypestable = tmp;
+
+		resourcetypestablesze = dcount;
+
+	
+
+	resourcetypestableTSRMUNSHUFFLERSRCDrsrcd.sze = sze;
+
+	resourcetypestableTSRMUNSHUFFLERSRCDrsrcd.ctor = ctor;
+
+	resourcetypestableTSRMUNSHUFFLERSRCDrsrcd.dtor = dtor;
+
+	resourcetypestableTSRMUNSHUFFLERSRCDrsrcd.fastoffset = 0;
+
+	resourcetypestableTSRMUNSHUFFLERSRCDrsrcd.done = 0;
+
+	tsrmupdateactvethreads;
+
+	tsrmmutexunlocktsmmmutex;
+
+	TSRMERRORTSRMERRORLEVELCORE, Successfully allocated new resource d d, rsrcd;
+
+	return rsrcd;
+
+ Reserve space for fast threadsaferesources 
+
+TSRMAP vod tsrmreserveszet sze
+
+	tsrmreservedpos  = 0;
+
+	tsrmreservedsze = TSRMALGNEDSZEsze;
+
+ allocates a new fast threadsaferesource d 
+
+TSRMAP tsrsrcd tsallocatefastdtsrsrcd rsrcd, szet offset, szet sze, tsallocatector ctor, tsallocatedtor dtor
+
+	TSRMERRORTSRMERRORLEVELCORE, Obtanng a new fast resource d, d bytes, sze;
+
+	tsrmmutexlocktsmmmutex;
+
+	 obtan a resource d 
+
+	rsrcd = TSRMSHUFFLERSRCDdcount;
+
+	TSRMERRORTSRMERRORLEVELCORE, Obtaned resource d d, rsrcd;
+
+	sze = TSRMALGNEDSZEsze;
+
+	f tsrmreservedsze  tsrmreservedpos  sze 
+
+		TSRMERRORTSRMERRORLEVELERROR, Unable to allocate space for fast resource;
+
+		rsrcd = 0;
+
+		offset = 0;
+
+		tsrmmutexunlocktsmmmutex;
+
+		return 0;
+
+	
+
+	offset = TSRMALGNEDSZEszeoftsrmtlsentry  tsrmreservedpos;
+
+	tsrmreservedpos = sze;
+
+	 store the new resource type n the resource szes table 
+
+	f resourcetypestablesze  dcount 
+
+		tsrmresourcetype tmp;
+
+		tmp = tsrmresourcetype  reallocresourcetypestable, szeoftsrmresourcetypedcount;
+
+		f !tmp 
+
+			TSRMERRORTSRMERRORLEVELERROR, Unable to allocate storage for resource;
+
+			rsrcd = 0;
+
+			tsrmmutexunlocktsmmmutex;
+
+			return 0;
+
+		
+
+		resourcetypestable = tmp;
+
+		resourcetypestablesze = dcount;
+
+	
+
+	resourcetypestableTSRMUNSHUFFLERSRCDrsrcd.sze = sze;
+
+	resourcetypestableTSRMUNSHUFFLERSRCDrsrcd.ctor = ctor;
+
+	resourcetypestableTSRMUNSHUFFLERSRCDrsrcd.dtor = dtor;
+
+	resourcetypestableTSRMUNSHUFFLERSRCDrsrcd.fastoffset = offset;
+
+	resourcetypestableTSRMUNSHUFFLERSRCDrsrcd.done = 0;
+
+	tsrmupdateactvethreads;
+
+	tsrmmutexunlocktsmmmutex;
+
+	TSRMERRORTSRMERRORLEVELCORE, Successfully allocated new resource d d, rsrcd;
+
+	return rsrcd;
+
+statc vod allocatenewresourcetsrmtlsentry threadresourcesptr, THREADT threadd
+
+	TSRMERRORTSRMERRORLEVELCORE, Creatng data structures for thread x, threadd;
+
+	threadresourcesptr = tsrmtlsentry  mallocTSRMALGNEDSZEszeoftsrmtlsentry  tsrmreservedsze;
+
+	threadresourcesptrstorage = NULL;
+
+	f dcount  0 
+
+		threadresourcesptrstorage = vod  mallocszeofvod dcount;
+
+	
+
+	threadresourcesptrcount = dcount;
+
+	threadresourcesptrthreadd = threadd;
+
+	threadresourcesptrnext = NULL;
+
+	 Set thread local storage to ths new thread resources structure 
+
+	tsrmtlssetthreadresourcesptr;
+
+	TSRMLSCACHE = threadresourcesptr;
+
+	f tsrmnewthreadbegnhandler 
+
+		tsrmnewthreadbegnhandlerthreadd;
+
+	
+
+	for nt =0; dcount;  
+
+		f resourcetypestable.done 
+
+			threadresourcesptrstorage = NULL;
+
+		 else 
+
+			f resourcetypestable.fastoffset 
+
+				threadresourcesptrstorage = vod  charthreadresourcesptr  resourcetypestable.fastoffset;
+
+			 else 
+
+				threadresourcesptrstorage = vod  mallocresourcetypestable.sze;
+
+			
+
+			f resourcetypestable.ctor 
+
+				resourcetypestable.ctorthreadresourcesptrstorage;
+
+			
+
+		
+
+	
+
+	f tsrmnewthreadendhandler 
+
+		tsrmnewthreadendhandlerthreadd;
+
+	
+
+	tsrmmutexunlocktsmmmutex;
+
+ fetches the requested resource for the current thread 
+
+TSRMAP vod tsresourceextsrsrcd d, THREADT thd
+
+	THREADT threadd;
+
+	nt hashvalue;
+
+	tsrmtlsentry threadresources;
+
+	f !thd 
+
+		 Fast path for lookng up the resources for the current
+
+		  thread. ts used by just about every call to
+
+		  tsresourceex. Ths avods the need for a mutex lock
+
+		  and our hashtable lookup.
+
+		 
+
+		threadresources = tsrmtlsget;
+
+		f threadresources 
+
+			TSRMERRORTSRMERRORLEVELNFO, Fetchng resource d d for current thread d, d, long threadresourcesthreadd;
+
+			 Read a specfc resource from the thread's resources.
+
+			  Ths s called outsde of a mutex, so have to be aware about external
+
+			  changes to the structure as we read t.
+
+			 
+
+			TSRMSAFERETURNRSRCthreadresourcesstorage, d, threadresourcescount;
+
+		
+
+		threadd = tsrmthreadd;
+
+	 else 
+
+		threadd = thd;
+
+	
+
+	TSRMERRORTSRMERRORLEVELNFO, Fetchng resource d d for thread ld, d, long threadd;
+
+	tsrmmutexlocktsmmmutex;
+
+	hashvalue = THREADHASHOFthreadd, tsrmtlstablesze;
+
+	threadresources = tsrmtlstablehashvalue;
+
+	f !threadresources 
+
+		allocatenewresourcetsrmtlstablehashvalue, threadd;
+
+		return tsresourceexd, threadd;
+
+	 else 
+
+		 do 
+
+			f threadresourcesthreadd == threadd 
+
+				break;
+
+			
+
+			f threadresourcesnext 
+
+				threadresources = threadresourcesnext;
+
+			 else 
+
+				allocatenewresourcethreadresourcesnext, threadd;
+
+				return tsresourceexd, threadd;
+
+				
+
+				  threadresources = threadresourcesnext;
+
+				  break;
+
+				 
+
+			
+
+		  whle threadresources;
+
+	
+
+	tsrmmutexunlocktsmmmutex;
+
+	 Read a specfc resource from the thread's resources.
+
+	  Ths s called outsde of a mutex, so have to be aware about external
+
+	  changes to the structure as we read t.
+
+	 
+
+	TSRMSAFERETURNRSRCthreadresourcesstorage, d, threadresourcescount;
+
+ frees all resources allocated for the current thread 
+
+vod tsfreethreadvod
+
+	tsrmtlsentry threadresources;
+
+	THREADT threadd = tsrmthreadd;
+
+	nt hashvalue;
+
+	tsrmtlsentry last=NULL;
+
+	TSRMASSERT!nmanthread;
+
+	tsrmmutexlocktsmmmutex;
+
+	hashvalue = THREADHASHOFthreadd, tsrmtlstablesze;
+
+	threadresources = tsrmtlstablehashvalue;
+
+	whle threadresources 
+
+		f threadresourcesthreadd == threadd 
+
+			for nt =0; threadresourcescount;  
+
+				f resourcetypestable.dtor 
+
+					resourcetypestable.dtorthreadresourcesstorage;
+
+				
+
+			
+
+			for nt =0; threadresourcescount;  
+
+				f !resourcetypestable.fastoffset 
+
+					freethreadresourcesstorage;
+
+				
+
+			
+
+			freethreadresourcesstorage;
+
+			f last 
+
+				lastnext = threadresourcesnext;
+
+			 else 
+
+				tsrmtlstablehashvalue = threadresourcesnext;
+
+			
+
+			tsrmtlsset0;
+
+			freethreadresources;
+
+			break;
+
+		
+
+		f threadresourcesnext 
+
+			last = threadresources;
+
+		
+
+		threadresources = threadresourcesnext;
+
+	
+
+	tsrmmutexunlocktsmmmutex;
+
+ deallocates all occurrences of a gven d 
+
+vod tsfreedtsrsrcd d
+
+	nt rsrcd = TSRMUNSHUFFLERSRCDd;
+
+	tsrmmutexlocktsmmmutex;
+
+	TSRMERRORTSRMERRORLEVELCORE, Freeng resource d d, d;
+
+	f tsrmtlstable 
+
+		for nt =0; tsrmtlstablesze;  
+
+			tsrmtlsentry p = tsrmtlstable;
+
+			whle p 
+
+				f pcount  rsrcd  pstoragersrcd 
+
+					f resourcetypestable 
+
+						f resourcetypestablersrcd.dtor 
+
+							resourcetypestablersrcd.dtorpstoragersrcd;
+
+						
+
+						f !resourcetypestablersrcd.fastoffset 
+
+							freepstoragersrcd;
+
+						
+
+					
+
+					pstoragersrcd = NULL;
+
+				
+
+				p = pnext;
+
+			
+
+		
+
+	
+
+	resourcetypestablersrcd.done = 1;
+
+	tsrmmutexunlocktsmmmutex;
+
+	TSRMERRORTSRMERRORLEVELCORE, Successfully freed resource d d, d;
+
+  Utlty Functons
+
+ 
+
+ Obtan the current thread d 
+
+TSRMAP THREADT tsrmthreaddvod
+
+fdef TSRMWN32
+
+	return GetCurrentThreadd;
+
+else
+
+	return pthreadself;
+
+endf
+
+ Allocate a mutex 
+
+TSRMAP MUTEXT tsrmmutexallocvod
+
+	MUTEXT mutexp;
+
+fdef TSRMWN32
+
+	mutexp = mallocszeofCRTCALSECTON;
+
+	ntalzeCrtcalSectonmutexp;
+
+else
+
+	mutexp = pthreadmutext mallocszeofpthreadmutext;
+
+	pthreadmutexntmutexp,NULL;
+
+endf
+
+fdef THRDEBUG
+
+	prntfMutex created thread: dn,mythreadd;
+
+endf
+
+	return mutexp ;
+
+ Free a mutex 
+
+TSRMAP vod tsrmmutexfreeMUTEXT mutexp
+
+	f mutexp 
+
+fdef TSRMWN32
+
+		DeleteCrtcalSectonmutexp;
+
+		freemutexp;
+
+else
+
+		pthreadmutexdestroymutexp;
+
+		freemutexp;
+
+endf
+
+	
+
+fdef THRDEBUG
+
+	prntfMutex freed thread: dn,mythreadd;
+
+endf
+
+  Lock a mutex.
+
+  A return value of 0 ndcates success
+
+TSRMAP nt tsrmmutexlockMUTEXT mutexp
+
+	TSRMERRORTSRMERRORLEVELNFO, Mutex locked thread: ld, tsrmthreadd;
+
+fdef TSRMWN32
+
+	EnterCrtcalSectonmutexp;
+
+	return 0;
+
+else
+
+	return pthreadmutexlockmutexp;
+
+endf
+
+  Unlock a mutex.
+
+  A return value of 0 ndcates success
+
+TSRMAP nt tsrmmutexunlockMUTEXT mutexp
+
+	TSRMERRORTSRMERRORLEVELNFO, Mutex unlocked thread: ld, tsrmthreadd;
+
+fdef TSRMWN32
+
+	LeaveCrtcalSectonmutexp;
+
+	return 0;
+
+else
+
+	return pthreadmutexunlockmutexp;
+
+endf
+
+  Changes the sgnal mask of the callng thread
+
+fdef HAVESGPROCMASK
+
+TSRMAP nt tsrmsgmasknt how, const sgsett set, sgsett oldset
+
+	TSRMERRORTSRMERRORLEVELNFO, Changed sgmask n thread: ld, tsrmthreadd;
+
+    return pthreadsgmaskhow, set, oldset;
+
+endf
+
+TSRMAP vod tsrmsetnewthreadbegnhandlertsrmthreadbegnfunct newthreadbegnhandler
+
+	vod retval = vod  tsrmnewthreadbegnhandler;
+
+	tsrmnewthreadbegnhandler = newthreadbegnhandler;
+
+	return retval;
+
+TSRMAP vod tsrmsetnewthreadendhandlertsrmthreadendfunct newthreadendhandler
+
+	vod retval = vod  tsrmnewthreadendhandler;
+
+	tsrmnewthreadendhandler = newthreadendhandler;
+
+	return retval;
+
+TSRMAP vod tsrmsetshutdownhandlertsrmshutdownfunct shutdownhandler
+
+	vod retval = vod  tsrmshutdownhandler;
+
+	tsrmshutdownhandler = shutdownhandler;
+
+	return retval;
+
+  Debug support
+
+ 
+
+fdef TSRMDEBUG
+
+nt tsrmerrornt level, const char format, ...
+
+	f level=tsrmerrorlevel 
+
+		valst args;
+
+		nt sze;
+
+		fprntftsrmerrorfle, TSRM:  ;
+
+		vastartargs, format;
+
+		sze = vfprntftsrmerrorfle, format, args;
+
+		vaendargs;
+
+		fprntftsrmerrorfle, n;
+
+		fflushtsrmerrorfle;
+
+		return sze;
+
+	 else 
+
+		return 0;
+
+	
+
+endf
+
+vod tsrmerrorsetnt level, const char debugflename
+
+	tsrmerrorlevel = level;
+
+fdef TSRMDEBUG
+
+	f tsrmerrorfle!=stderr   close fles opened earler 
+
+		fclosetsrmerrorfle;
+
+	
+
+	f debugflename 
+
+		tsrmerrorfle = fopendebugflename, w;
+
+		f !tsrmerrorfle 
+
+			tsrmerrorfle = stderr;
+
+		
+
+	 else 
+
+		tsrmerrorfle = stderr;
+
+	
+
+endf
+
+TSRMAP vod tsrmgetlscachevod
+
+	return tsrmtlsget;
+
+ Returns offset of tsrmlscache slot from Thread Control Block address 
+
+TSRMAP szet tsrmgetlscachetcboffsetvod
+
+f defnedAPPLE  defnedx8664
+
+     TODO: mplement support for fast JT ZTS code ???
+
+	return 0;
+
+elf defnedx8664  defnedGNUC  !defnedFreeBSD  
+
+	!defnedOpenBSD  !defnedMUSL  !defnedHAKU
+
+	szet ret;
+
+	asm movq tsrmlscachegottpoffrp,0
+
+          : =r ret;
+
+	return ret;
+
+elf defned386  defnedGNUC  !defnedFreeBSD  
+
+	!defnedOpenBSD  !defnedMUSL  !defnedHAKU
+
+	szet ret;
+
+	asm leal tsrmlscachentpoff,0
+
+          : =r ret;
+
+	return ret;
+
+elf defnedaarch64
+
+	szet ret;
+
+ fdef APPLE
+
+	 Ponts to struct TLVDecrptor for tsrmlscache n macOS.
+
+	asmadrp 0, tsrmlscacheTLVPPAGEnt
+
+	    ldr 0, 0, tsrmlscacheTLVPPAGEOFF
+
+	     : =r ret;
+
+ else
+
+	asmmov 0, xzrnt
+
+	    add 0, 0, :tprelh12:tsrmlscache, lsl 12nt
+
+	    add 0, 0, :tprello12nc:tsrmlscache
+
+	     : =r ret;
+
+ endf
+
+	return ret;
+
+else
+
+	return 0;
+
+endf
+
+TSRMAP bool tsrmsmanthreadvod
+
+	return nmanthread;
+
+TSRMAP bool tsrmsshutdownvod
+
+	return sthreadshutdown;
+
+TSRMAP const char tsrmapnamevod
+
+fdef TSRMWN32
+
+	return Wndows Threads;
+
+else
+
+	return POSX Threads;
+
+endf
+
+endf  ZTS
