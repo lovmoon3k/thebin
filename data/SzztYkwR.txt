@@ -1,0 +1,74 @@
+db = aiosqlite.connect('report.sqlite')
+dbb = aiosqlite.connect('prefix.sqlite')
+
+async def check_prefix(client, message):
+  cursor = await dbb.cursor()
+  await cursor.execute("SELECT prefix FROM prefixes WHERE guild_id=?", (message.guild.id,))
+  data = await cursor.fetchone()
+  if data:
+    return data
+  else:
+    try:
+      await cursor.execute("INSERT INTO prefixes(prefix, guild_id) VALUES(?, ?)", ('??', message.guild.id))
+      await dbb.commit()
+      await cursor.execute("SELECT prefix FROM prefixes WHERE guild_id=?", (message.guild.id,))
+      data = await cursor.fetchone()
+      if data:
+        await cursor.execute("UPDATE prefixes SET prefix =? WHERE guild_id = ?", ('??', message.guild.id))
+        await dbb.commit()
+    except Exception as e:
+        return '+'
+
+class MyClient(commands.AutoShardedBot):
+    def __init__(self, *, intents: discord.Intents.default()):
+        intents.message_content = True
+        super().__init__(intents=intents, command_prefix=commands.when_mentioned_or("+"), help_command=None)
+
+
+@client.event
+async def on_ready():
+    print(discord.__version__)
+    print(f'Logged in as {client.user} (ID: {client.user.id})')
+    print('------')
+    await dbb
+    await db
+    cursor = await dbb.cursor()
+    await cursor.execute("""
+  CREATE TABLE IF NOT EXISTS prefixes(
+        prefix TEXT, 
+        guild_id BIGINT
+       )""")
+    await dbb.commit()
+
+
+
+@client.event 
+async def on_guild_leave(ctx, guild):
+  cursor = await dbb.cursor()
+  await cursor.execute("SELECT prefix FROM prefixes WHERE guild_id=?", (ctx.guild.id,))
+  data = await cursor.fetchone()
+  if data:
+    await cursor.execute("DELETE FROM prefixes WHERE guild_id=?", (guild.id))
+    await dbb.commit()
+@client.command()
+async def prefix(ctx, prefix: str = None):
+  cursor = await dbb.cursor()
+  if prefix is None:
+    return await ctx.send('put prefix nub')
+
+  await cursor.execute("SELECT prefix FROM prefixes WHERE guild_id=?", (ctx.guild.id,))
+  data = await cursor.fetchone()
+  if data:
+    await cursor.execute("UPDATE prefixes SET prefix =? WHERE guild_id = ?", (prefix, ctx.guild.id))
+    await dbb.commit()
+    return await ctx.send(f'Updated prefix to {prefix}')
+
+  await cursor.execute("INSERT INTO prefixes(prefix, guild_id) VALUES(?, ?)", ('??', ctx.guild.id))
+  await dbb.commit()
+
+@client.event
+async def on_guild_join(guild):
+  await client.tree.sync(guild=guild)
+  cursor = await dbb.cursor()
+  await cursor.execute("INSERT INTO prefixes(prefix, guild_id) VALUES(?, ?)", ('??', guild.id))
+  await dbb.commit()
