@@ -1,0 +1,99 @@
+/// <summary>
+///     This class provides Transient Fault Handling extension methods.
+/// </summary>
+internal static class Retry
+{
+    const string SleepDurationKey = "Broken";
+
+    public static void Do(Action action, TimeSpan retryInterval, int retryCount = 3)
+    {
+        _ = Do<object?>(() =>
+        {
+            action();
+            return null;
+        }, retryInterval, retryCount);
+    }
+
+    public static async Task DoAsync(Func<Task> action, TimeSpan retryInterval, int retryCount = 3)
+    {
+        _ = await DoAsync<object?>(async () =>
+        {
+            await action();
+            return null;
+        }, retryInterval, retryCount);
+    }
+
+    public static T Do<T>(Func<T> action, TimeSpan retryInterval, int retryCount = 3)
+    {
+        var circuitBreakerPolicy = GetCircuitBreakerPolicy(retryCount);
+        var retryPolicy = GetRetryPolicy(retryInterval);
+
+        var policyResult = Policy
+            .Wrap(retryPolicy, circuitBreakerPolicy)
+            .ExecuteAndCapture(action);
+
+        if (policyResult.Outcome == OutcomeType.Failure)
+        {
+            throw policyResult.FinalException;
+        }
+
+        return policyResult.Result;
+    }
+
+    public static async Task<T> DoAsync<T>(Func<Task<T>> action, TimeSpan retryInterval, int retryCount = 3)
+    {
+        var circuitBreakerPolicy = GetCircuitBreakerPolicyAsync(retryCount);
+        var retryPolicy = GetRetryPolicyAsync(retryInterval);
+
+        var policyResult = await Policy
+            .WrapAsync(retryPolicy, circuitBreakerPolicy)
+            .ExecuteAndCaptureAsync(action);
+
+        if (policyResult.Outcome == OutcomeType.Failure)
+        {
+            throw policyResult.FinalException;
+        }
+
+        return policyResult.Result;
+    }
+
+    private static ISyncPolicy GetRetryPolicy(TimeSpan retryInterval)
+    {
+        return Policy
+            .Handle<Exception>()
+            .Or<BrokenCircuitException>()
+            .WaitAndRetryForever((_, ctx) =>
+                ctx.ContainsKey(SleepDurationKey)
+                    ? (TimeSpan)ctx[SleepDurationKey]
+                    : retryInterval);
+    }
+
+    private static ISyncPolicy GetCircuitBreakerPolicy(int retryCount)
+    {
+        return Policy
+            .Handle<Exception>()
+            .CircuitBreaker(retryCount, TimeSpan.FromMinutes(5),
+                onBreak: (dr, ts, ctx) => { ctx[SleepDurationKey] = ts; },
+                onReset: ctx => { ctx[SleepDurationKey] = null; });
+    }
+
+    private static IAsyncPolicy GetRetryPolicyAsync(TimeSpan retryInterval)
+    {
+        return Policy
+            .Handle<Exception>()
+            .Or<BrokenCircuitException>()
+            .WaitAndRetryForeverAsync((_, ctx) =>
+                ctx.ContainsKey(SleepDurationKey)
+                    ? (TimeSpan)ctx[SleepDurationKey]
+                    : retryInterval);
+    }
+
+    private static IAsyncPolicy GetCircuitBreakerPolicyAsync(int retryCount)
+    {
+        return Policy
+            .Handle<Exception>()
+            .CircuitBreakerAsync(retryCount, TimeSpan.FromMinutes(5),
+                onBreak: (dr, ts, ctx) => { ctx[SleepDurationKey] = ts; },
+                onReset: ctx => { ctx[SleepDurationKey] = null; });
+    }
+}
