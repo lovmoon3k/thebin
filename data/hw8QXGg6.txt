@@ -1,0 +1,171 @@
+-- Used in a module to enable info for a tower.
+
+function TowerHandler:ShowTowerInfo(Tower)
+	if not CanShowUpgrades then return end
+	TowerInfoOpen = true
+	
+	local TowerRoot = Tower:FindFirstChild('HumanoidRootPart')
+	local TowerInfo = getTowerInfo(Tower.Name)
+	
+	local TowerData = Events.TowerEvents.GetPlacedTowerInfo:InvokeServer(Tower)
+	local Firerate = TowerInfo.FireRate
+	local Range = TowerData.Range
+	local Damage = TowerInfo.Damage
+	local Level = TowerData.Level
+	
+	local Priority = Tower:GetAttribute('Priority')
+	
+	local TowerInfoFrame = TowerInfoGui.TowerHUD
+	
+	local TowerNameLabel = TowerInfoFrame.TowerName.TextLabel
+	local ExitButton = TowerInfoFrame.Exit.TextButton
+	local SellButton = TowerInfoFrame.Sell.Sell
+	local PriorityButton = TowerInfoFrame.Target.Select
+	
+	local UpgradeList = TowerInfoFrame.UpgradesFrame
+	local StatsList = TowerInfoFrame.StatsList
+	local UpgradeIdentifier = UpgradesFrame.UpgradeIdentifier
+	
+	if TowerInfoConns.Camera then
+		TowerHandler:HideTowerInfo()
+	end
+	
+	if self.RangePart then
+		local rangePart = self.RangePart
+		
+		TweenService:Create(rangePart,TweenInfo.new(.3),{Size = Vector3.new(.1,0,0)}):Play()
+		game.Debris:AddItem(rangePart,.3)
+	end
+	
+	TowerNameLabel.Text = Tower:GetAttribute('TowerType')
+	TowerInfoFrame.Visible = true
+	
+	task.spawn(function()
+		for i = 1,Level do
+			local frame = UpgradeIdentifier[tostring(i)]
+			
+			TweenService:Create(frame,TweenInfo.new(.5),{BackgroundColor3 = Color3.fromRGB(29, 255, 36)}):Play()
+			TweenService:Create(frame,TweenInfo.new(.5),{BackgroundTransparency = .4}):Play()
+			task.wait(.25)
+		end
+	end)
+	
+	local function updategui()		
+		TowerHudFrame.Visible = true
+		
+		TowerInfoFrame.DMGDealt.DmgAmt.Text = Util.numToCommas(math.round(Tower:GetAttribute('TotalDamage')))
+		TowerInfoFrame.Target.Select.Text = Tower:GetAttribute('Priority')
+		
+		StatsList.Damage.Dmg.Text = Util.numToCommas(math.round(Damage))
+		StatsList.Firerate.Rate.Text = math.round(Firerate)
+		StatsList.Radius.Range.Text = math.round(Range)
+		
+		UpgradeList.Level.LevelAmt.Text = Level
+	end
+	
+	local function update()
+		if (HumanoidRootPart.Position - TowerRoot.Position).Magnitude > Range then
+			if TowerInfoFrame.Visible then
+				TowerInfoFrame.Visible = false
+			end
+			return
+		elseif not TowerInfoFrame.Visible then
+			TowerInfoFrame.Visible = true
+		end
+		
+		updategui()
+		
+		local vector, inViewport = Camera:WorldToViewportPoint(TowerRoot.Position+Vector3.new(0,5,0))
+		local viewportPoint = Vector2.new(vector.X, vector.Y)
+		local ScreenSizeX,ScreenSizeY = Mouse.ViewSizeX,Mouse.ViewSizeY
+
+		if inViewport then
+			local x = viewportPoint.X/ScreenSizeX
+			local y = viewportPoint.Y/ScreenSizeY
+			TowerInfoFrame.Position = UDim2.new(x,0,y,0)
+		else
+			TowerInfoFrame.Position = UDim2.new(0.392, 0,0.57, 0)
+		end
+	end
+	
+	local function showRange()	
+		local rangePart = createCircle(.1,Tower)
+		rangePart.Transparency = .75
+		rangePart.Name = 'Range'
+		
+		local Weld = Instance.new('WeldConstraint', rangePart)
+		Weld.Part0 = rangePart
+		Weld.Part1 = TowerRoot
+		
+		self.RangePart = rangePart
+		rangePart.Position = TowerRoot.Position-Vector3.new(0,1.15,0)
+		
+		TweenService:Create(rangePart,TweenInfo.new(.3),{Size = Vector3.new(.1,Range,Range)}):Play()
+	end
+	
+	showRange()
+	update()
+	
+	TowerHandler.CurrentTower = Tower
+
+	local ToggleUpgradesButton = TowerHudFrame.UpgradesToggle.ImageButton
+	TowerInfoConns.TowerChange = Tower.Changed:Connect(updategui)
+	TowerInfoConns.Camera = Camera:GetPropertyChangedSignal('CFrame'):Connect(update)
+	TowerHandler:ShowUpgrades()
+	
+	TowerInfoConns.ExitButton = ExitButton.MouseButton1Click:Once(function()		
+		TowerHandler:HideTowerInfo()
+	end)
+	
+	TowerInfoConns.Upgrade = UpgradeList.Upgrade.Upgrade.MouseButton1Click:Connect(function()
+		local success = Events.TowerEvents.Upgrade:InvokeServer(Tower)
+		
+		if success then
+			Range = success.Range
+			Level = success.Level
+			
+			updategui()
+			
+			local frame = UpgradeIdentifier[tostring(Level)]
+			local RangePart = Tower:FindFirstChild('Range')	
+			
+			UpgradeList.Level.LevelAmt.Text = Level
+			
+			TweenService:Create(frame,TweenInfo.new(.5),{BackgroundColor3 = Color3.fromRGB(29, 255, 36)}):Play()
+			TweenService:Create(frame,TweenInfo.new(.5),{BackgroundTransparency = .4}):Play()
+			
+			
+			if Range then
+				TweenService:Create(RangePart,TweenInfo.new(.3),{Size = Vector3.new(.1,Range,Range)}):Play()
+			end
+			HandlerUtil:PlayAudioOnPart(Sounds.Upgrade,TowerRoot)
+		else
+			HandlerUtil:PlayAudioOnPart(Sounds.NoFunds,TowerRoot)
+		end
+	end)
+	
+	TowerInfoConns.ToggleUpgrade = ToggleUpgradesButton.MouseButton1Click:Connect(function()
+		if UpgradesOpen then
+			TowerHandler:HideUpgrades()
+		else
+			TowerHandler:ShowUpgrades()
+		end
+	end)
+	
+	TowerInfoConns.SellButton = SellButton.MouseButton1Click:Connect(function()
+		local Dot = Util:CreateDot(TowerRoot.Position)
+		Dot.Transparency = 1
+		
+		Events.SellTower:FireServer(Tower)
+		TowerHandler:HideTowerInfo()
+		HandlerUtil:PlayAudioOnPart(Sounds.Sell,Dot)
+		
+		game.Debris:AddItem(Dot,Sounds.Sell.TimeLength)
+	end)
+	
+	TowerInfoConns.ChangePriority = PriorityButton.MouseButton1Click:Connect(function()
+		Events.ChangePriority:FireServer(Tower)
+		
+		HandlerUtil:PlayAudioOnPart(Sounds.Sell,TowerRoot)
+	end)
+end
