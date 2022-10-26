@@ -1,0 +1,93 @@
+#include <iostream>
+#include <math.h>
+
+//128 - (count leading zeros ui128) + 2 
+// Kernel function to add the elements of two arrays
+__global__
+void quadCverg(int n, int *a, int *b, int *c, int tdtarg3)
+{
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+	int ab3,abc3,ctarg;
+	int r0;
+
+	bool dbg=0;
+
+	for (uint i = index; i < n; i += stride){
+		
+		ab3=a[i]*a[i]*a[i]+b[i]*b[i]*b[i];
+		
+		ctarg=tdtarg3-ab3; //ctarg==c*c*c
+		r0 = 1<<( (128-__builtin_clzll(ctarg)+2) / 3);//1<<ceil((128-CLZ) / 3)
+		
+		do{
+			c[i] = r0;
+			r0 = (2*c[i] + ctarg/(c[i]*c[i]))/3 ;
+		}
+		while (r0 < c[i]);
+
+		abc3 = (ab3+c[i]*c[i]*c[i]);
+
+		if(a[i]==6 && b[i]==8){
+			printf("a: %d\nb: %d\nc: %d\nabc3:%d \ntadtarg3:%d\n\n",a[i],b[i],c[i],abc3,tdtarg3);
+		}
+
+		c[i]= (abc3==tdtarg3) ? c[i] : 0 ;
+
+		dbg=0;
+	}
+}
+
+int main(void)
+{
+	int targ = 12;
+	int targ3 = targ*targ*targ;
+	int *a, *b, *c;
+	int ai3,bi3;
+
+	// Allocate Unified Memory – accessible from CPU or GPU
+	cudaMallocManaged(&a, targ*targ/2);
+	cudaMallocManaged(&b, targ*targ/2);
+	cudaMallocManaged(&c, targ*targ/2);
+
+	// initialize x and y arrays on the host
+	int arin=0; //array incrementor
+	for (uint ai = 1; ai<targ; ai++) {
+
+		ai3=ai*ai*ai;
+		if(3*ai3>targ3){break;}
+
+		for (int bi = ai+1; bi<targ; bi++) {
+			bi3=bi*bi*bi;
+			
+			if(ai3+2*bi3>targ3){break;}
+			
+			a[arin] = ai;
+			b[arin] = bi;
+			c[arin] = bi+1;
+//			printf("a: %d\nb: %d\nc: %d\n\n",a[arin],b[arin],c[arin]);
+			arin++;
+		}
+	}
+
+	// Run kernel on 1M elements on the GPU
+	quadCverg<<<1,256>>>(arin+1, a, b, c, targ3);
+
+	// Wait for GPU to finish before accessing on host
+	cudaDeviceSynchronize();
+
+	for(int i=0;i<arin;i++){
+		if(c[i]!=0){
+			std::cout << "a[" << i << "]" << a[i] << " b[" << i << "]" << b[i] << " c[" << i << "]" << c[i] << "\n"; 
+		}
+	}
+
+	// Free memory
+	cudaFree(a);
+	cudaFree(b);
+	cudaFree(c);
+	
+	return 0;
+}
+//nvprof ./add
