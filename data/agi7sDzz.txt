@@ -1,0 +1,77 @@
+// hooks:  arm9 ScrCmd_master_berry_command 080489CC 1
+// alternatively can use a routinepointers entry
+
+u32 ScrCmd_master_berry_command(SCRIPTCONTEXT *ctx)
+{
+    //u16 *var_x800D = GetVarPointer(ctx->fsys, 0x800D); // grab the event id
+    u16 *var_x8004 = GetVarPointer(ctx->fsys, 0x8004);
+    u16 *var_x8005 = GetVarPointer(ctx->fsys, 0x8005);
+    u16 *var_x8006 = GetVarPointer(ctx->fsys, 0x8006);
+
+    //LocalMapObject *object = GetMapObjectByID(ctx->fsys->mapObjectMan, *var_x800D);
+    //u16 tag = MapObject_GetGfxID(object);
+
+    //u32 tag = ctx->fsys->map_events->object_events[*var_x800D].ovid;
+    
+    LocalMapObject **lastTalked = FieldSysGetAttrAddr(ctx->fsys, 10);
+    u32 tag = MapObject_GetGfxID(*lastTalked);
+
+#ifdef DEBUG_BERRY_TREES
+    *((u32 *)(0x023DF00C)) = tag;
+#endif
+
+    u32 sw = ScriptReadByte(ctx);
+    u32 arg0 = ScriptReadHalfword(ctx);
+
+    if (tag < 0x8000) { return FALSE; }
+
+    tag &= 0x3FFF;
+
+    // so now tag is currently the berry spot id.  we grab the misc save data block, which has the berry spots:
+    void *saveData = SaveBlock2_get();
+    struct SAVE_MISC_DATA *saveMiscData = Sav2_Misc_get(saveData);
+
+    switch(sw)
+    {
+    case SW_grab_berry_state: // store berry state in 0x800C
+    {
+        u32 berryID = saveMiscData->berry_tree_spots[tag].berryID;
+        if (berryID != NONE_BERRY_ID) {
+            *var_x8004 = BerryIDToItem(berryID);
+            *var_x8005 = saveMiscData->berry_tree_spots[tag].yield;
+            *var_x8006 = saveMiscData->berry_tree_spots[tag].growthstage;
+        } else {
+            *var_x8006 = NONE_BERRY_ID;
+        }
+        
+        break;
+    }
+    case SW_plant_berry: // var 0x8004 has chosen berry item.  convert to berry id, initialize plant
+        PlantBerry(&saveMiscData->berry_tree_spots[tag], *var_x8004);
+#ifdef DEBUG_BERRY_TREES
+        *((u32 *)(0x023DF010)) = *var_x8004;
+#endif
+        *var_x8004 = BerryIDToItem(*var_x8004);
+        break;
+    case SW_water_berry:
+        saveMiscData->berry_tree_spots[tag].moisturelevel = 100;
+        break;
+    case SW_reset_berry_tree:
+        ClearBerryTree(&saveMiscData->berry_tree_spots[tag]);
+        break;
+    case SW_swap_out_list_std:
+        toggle_std_list_swap ^= 1;
+        break;
+    case SW_convert_var_between_berry_ids:
+        {
+            u16 *idToConvert = GetVarPointer(ctx->fsys, arg0);
+            if (*idToConvert < ITEM_CHERI_BERRY)
+                *idToConvert = BerryIDToItem(*idToConvert);
+            else
+                *idToConvert = ItemToBerryID(*idToConvert);
+            break;
+        }
+    }
+    
+    return FALSE;
+}
