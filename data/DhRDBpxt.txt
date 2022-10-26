@@ -1,0 +1,330 @@
+#define FastCopy MemCpy
+__private function MemCpy cdecl alias "memcpy" (pTarget as any ptr,pSource as any ptr,iAmount as uinteger) as any ptr
+  asm  
+        #macro SaveByte(DoIt,iBits)
+        #if DoIt=1
+        lsr r5, iBits             'remove iBits bits
+        #endif
+        subs r2, #1               'Byte copied 
+        strb r5, [r1!],#1         'Save Byte and increment
+        beq 9f                    'Done? 
+        #endmacro
+        #macro CopyByte(LastByte)
+        ldrb r3, [r0!],#1         'Load Byte and increment 
+        #if LastByte=0
+        subs r2, #1               'Byte copied 
+        #endif
+        strb r3, [r1!],#1         'Save Byte and increment
+        #if LastByte=0
+        beq 9f                    'Done? 
+        #else
+        b 9f
+        #endif
+        #endmacro
+        'eors r0,r0
+        '0: beq 0b
+        ldr r0, $pSource          'r0 = Source 
+        ldr r1, $pTarget          'r1 = Target 
+        ldr r2, $iAmount          'r2 = Amount 
+        cmp r2, #0                'Amount is valid? 
+        ble 9f                    'no? then do nothing 
+        cmp r2, #7                'Is Amount too small? 
+        bhi 4f                    'No? then do BulkCopy 
+        '-------- Remainder Bytes --------- 
+        CopyByte(0)             '\
+        CopyByte(0)             '|
+        CopyByte(0)             '| copy up to 8 bytes
+        CopyByte(0)             '| unrolled to not
+        CopyByte(0)             '| waste even more
+        CopyByte(0)             '| cpu time.
+        CopyByte(0)             '|
+        CopyByte(1)             '/
+      4:and r4,r1,#3              'Align of Target on first bits 
+        orr r4,r0,LSL #30         'Align of Source on last bits 
+        and r0,#-4                'Force Align Down
+        and r1,#-4                'Force Align Down
+        ldr r3,8f                 'Get Table Address 
+        ldr r15,[r3,r4,ROR #28]   'Jump to Ptr #r4 (28=-4=adj+*4) 
+    '----------------------------------------------------------- 
+    rem ===    Source      | Target Aligned ===
+    00: subs r2, #32              '32 or More bytes left? 
+        blo 4f                    'no? then start 16 each time 
+        ldmia r0 !,{r3-r10}       'load 32 bytes and advance src 
+        stmia r1 !,{r3-r10}       'save 32 bytes and advance tgt 
+        b 00b                     'read more 32 bytes 
+      4:adds r2, #32              'last was exactly 32? 
+        beq 9f                    'yes? then it's done 
+      5:subs r2, #16              '16 or More bytes left? 
+        blo 4f                    'no? then start copying words 
+        ldmia r0 !,{r3,r4,r5,r6}  'load 16 bytes and advance src 
+        stmia r1 !,{r3,r4,r5,r6}  'save 16 bytes and advance tgt 
+        subs r2, #16              '16 or more bytes left? 
+        blo 4f                    'no? then start copying words 
+        ldmia r0 !,{r6,r7,r8,r9}  'load 16 bytes and advance src 
+        stmia r1 !,{r6,r7,r8,r9}  'save 16 bytes and advance tgt 
+        b 5b                      'continue looping until less 16 
+      4:adds r2, #16              'last was exactly 16? 
+        beq 9f                    'then it's done 
+      5:subs r2, #4               '4 or more bytes left? 
+        blo 6f                    'no? then only bytes left 
+        ldr r6,[r0!],#4           'read 4 bytes and advance src 
+        str r6,[r1!],#4           'save 4 bytes and advance tgt 
+        subs r2, #4               '4 or more bytes left? 
+        blo 6f                    'no? then only bytes left 
+        ldr r6,[r0!],#4           'read 4 bytes and advance src 
+        str r6,[r1!],#4           'save 4 bytes and advance tgt 
+        b 5b                      'continue looping until less 4 
+      6:adds r2,#4                'last was exactly 4? 
+        beq 9f                    'yes? then it's done
+        CopyByte(0)               'Copy last bytes (up to 3)
+        CopyByte(0)               'Copy last bytes (up to 3)
+        CopyByte(1)               'Copy last bytes (up to 3)
+    rem ===    Source+1    | Target Aligned ===    
+    01: subs r2, #16              '16 or more bytes left? 
+        blo 4f                    'no? then start copying words 
+        ldmia r0 !, {r5-r9}       'read 16 bytes+padd / adv src 
+      5:mov r4, r5, LSR #8        '\ 
+        orr r4, r6, LSL #24       '|  
+        mov r5, r6, LSR #8        '|   
+        orr r5, r7, LSL #24       '|    
+        mov r6, r7, LSR #8        '| realign words 
+        orr r6, r8, LSL #24       '|   
+        mov r7, r8, LSR #8        '|  
+        orr r7, r9, LSL #24       '/ 
+        stmia r1 !,{r4-r7}        'save 16 bytes 
+        mov r5,r9                 'padd becomes first word 
+        subs r2, #16              '16 or more bytes left? 
+        ldmplia r0 !,{r6-r9}      'yes? load more 16 bytes 
+        bpl 5b                    'yes? continue copy 
+        adds r2, #16              'was exactly 16?      -especial-\ 
+        beq 9f                    'yes? then done       |_\case/_|| 
+        subs r2, #4               '4 or mores bytes left?  \__/   | 
+        blo 7f                    'no? then save bytes from padd  | 
+        ldr r6, [r0!],#4          'padd is there so load 4 bytes  | 
+        b 5f                      'and then continue word by word / 
+      4:adds r2, #16              'was exactly 16? 
+        beq 9f                    'yes? then done 
+        subs r2, #4               '4 or more bytes left? 
+        blo 6f                    'no? then copy bytes 
+        ldmia r0 !,{r5,r6}        '8 bytes plus padding + adv src 
+      5:mov r4, r5, LSR #8        'realign 
+        orr r4, r6, LSL #24       'the word 
+        str r4,[r1!],#4           'save word + adv tgt
+        mov r5,r6                 'padd becomes word 
+        subs r2, #4               '4 or more bytes left?
+        ldrpl r6, [r0!],#4        'yes? load word + adv src 
+        bpl 5b                    'yes? continue copy
+      7:adds r2, #4               'was exactly 4?                \ 
+        beq 9f                    'yes? then done                | 
+        SaveByte(1,#8)            'save last bytes (up to 3)     | 
+        SaveByte(1,#8)            'save last bytes (up to 3)     | 
+        SaveByte(1,#8)            'save last bytes (up to 3)     / 
+      6:adds r2,#4                'last was exactly 4? 
+        beq 9f                    'yes? then it's done
+        CopyByte(0)               'Copy last bytes (up to 3)
+        CopyByte(0)               'Copy last bytes (up to 3)
+        CopyByte(1)               'Copy last bytes (up to 3)
+    rem ===    Source+2    | Target Aligned ===    
+    02: subs r2, #16              '16 or more bytes left? 
+        blo 4f                    'no? then start copying words 
+        ldmia r0 !, {r5-r9}       'read 16 bytes+padd / adv src 
+      5:mov r4, r5, LSR #16       '\ 
+        orr r4, r6, LSL #16       '|  
+        mov r5, r6, LSR #16       '|   
+        orr r5, r7, LSL #16       '|    
+        mov r6, r7, LSR #16       '| realign words 
+        orr r6, r8, LSL #16       '|   
+        mov r7, r8, LSR #16       '|  
+        orr r7, r9, LSL #16       '/ 
+        stmia r1 !,{r4-r7}        'save 16 bytes 
+        mov r5,r9                 'padd becomes first word 
+        subs r2, #16              '16 or more bytes left? 
+        ldmplia r0 !,{r6-r9}      'yes? load more 16 bytes 
+        bpl 5b                    'yes? continue copy 
+        adds r2, #16              'was exactly 16?      -especial-\ 
+        beq 9f                    'yes? then done       |_\case/_|| 
+        subs r2, #4               '4 or mores bytes left?  \__/   | 
+        blo 7f                    'no? then save bytes from padd  | 
+        ldr r6, [r0!],#4          'padd is there so load 4 bytes  | 
+        b 5f                      'and then continue word by word / 
+      4:adds r2, #16              'was exactly 16? 
+        beq 9f                    'yes? then done 
+        subs r2, #4               '4 or more bytes left? 
+        blo 6f                    'no? then copy bytes 
+        ldmia r0 !,{r5,r6}        '8 bytes plus padding + adv src 
+      5:mov r4, r5, LSR #16       'realign 
+        orr r4, r6, LSL #16       'the word 
+        str r4,[r1!],#4           'save word + adv tgt
+        mov r5,r6                 'padd becomes word 
+        subs r2, #4               '4 or more bytes left?
+        ldrpl r6, [r0!],#4        'yes? load word + adv src 
+        bpl 5b                    'yes? continue copy
+      7:adds r2, #4               'was exactly 4?                \ 
+        beq 9f                    'yes? then done                | 
+        SaveByte(1,#16)           'save last bytes (up to 3)     | 
+        SaveByte(1,#8)            'save last bytes (up to 3)     | 
+        ldrb r5, [r0]             'read last byte                | 
+        SaveByte(0,#0)            'save last bytes (up to 3)     / 
+      6:adds r2,#4                'last was exactly 4? 
+        beq 9f                    'yes? then it's done
+        CopyByte(0)               'Copy last bytes (up to 3)
+        CopyByte(0)               'Copy last bytes (up to 3)
+        CopyByte(1)               'Copy last bytes (up to 3)
+    rem ===    Source+3    | Target Aligned ===    
+    03: subs r2, #16              '16 or more bytes left? 
+        blo 4f                    'no? then start copying words 
+        ldmia r0 !, {r5-r9}       'read 16 bytes+padd / adv src 
+      5:mov r4, r5, LSR #24       '\ 
+        orr r4, r6, LSL #8        '|  
+        mov r5, r6, LSR #24       '|   
+        orr r5, r7, LSL #8        '|    
+        mov r6, r7, LSR #24       '| realign words 
+        orr r6, r8, LSL #8        '|   
+        mov r7, r8, LSR #24       '|  
+        orr r7, r9, LSL #8        '/ 
+        stmia r1 !,{r4-r7}        'save 16 bytes 
+        mov r5,r9                 'padd becomes first word 
+        subs r2, #16              '16 or more bytes left? 
+        ldmplia r0 !,{r6-r9}      'yes? load more 16 bytes 
+        bpl 5b                    'yes? continue copy 
+        adds r2, #16              'was exactly 16?      -especial-\ 
+        beq 9f                    'yes? then done       |_\case/_|| 
+        subs r2, #4               '4 or mores bytes left?  \__/   | 
+        blo 7f                    'no? then save bytes from padd  | 
+        ldr r6, [r0!],#4          'padd is there so load 4 bytes  | 
+        b 5f                      'and then continue word by word / 
+      4:adds r2, #16              'was exactly 16? 
+        beq 9f                    'yes? then done 
+        subs r2, #4               '4 or more bytes left? 
+        blo 6f                    'no? then copy bytes 
+        ldmia r0 !,{r5,r6}        '8 bytes plus padding + adv src 
+      5:mov r4, r5, LSR #24       'realign 
+        orr r4, r6, LSL #8        'the word 
+        str r4,[r1!],#4           'save word + adv tgt
+        mov r5,r6                 'padd becomes word 
+        subs r2, #4               '4 or more bytes left?
+        ldrpl r6, [r0!],#4        'yes? load word + adv src 
+        bpl 5b                    'yes? continue copy
+      7:adds r2, #4               'was exactly 4?                \ 
+        beq 9f                    'yes? then done                | 
+        SaveByte(1,#24)           'save last bytes (up to 3)     | 
+        ldr r5,[r0]               'more 2 bytes                  | 
+        SaveByte(0,#0)            'save last bytes (up to 3)     | 
+        SaveByte(1,#8)            'save last bytes (up to 3)     / 
+      6:adds r2,#4                'last was exactly 4? 
+        beq 9f                    'yes? then it's done
+        CopyByte(0)               'Copy last bytes (up to 3)
+        CopyByte(0)               'Copy last bytes (up to 3)
+        CopyByte(1)               'Copy last bytes (up to 3)
+    rem === Source Aligned | Target+1 ===    
+    10: ldr r4, [r0]              '\
+        ldr r5, [r1]              '|
+        and r5, #0xFF             '| copy 3 bytes, so...
+        sub r2, #3                '| Align Target and
+        orr r5, r4, LSL #8        '| Source becomes +3
+        str r5, [r1!],#4          '|
+        b 03b                     '/
+    rem ===    Source+1    | Target+1 ===    
+    11: ldr r4, [r0,#1]           '\
+        ldr r5, [r1]              '|
+        and r5, #0xFF             '| copy 3 bytes, so...
+        sub r2, #3                '| Align Target and
+        orr r5, r4, LSL #8        '| Align Source
+        str r5, [r1!],#4          '|
+        add r0, #4                '|
+        b 00b                     '/
+    rem ===    Source+2    | Target+1 ===    
+    12: ldrh r4, [r0,#2]          '\
+        ldrb r6, [r0,#4]!         '|
+        ldr r5, [r1]              '|
+        and r5, #0xFF             '| copy 3 bytes, so...
+        sub r2, #3                '| Align Target and
+        orr r4, r6, LSL #16       '| Source+1
+        orr r5, r4, LSL #8        '|
+        str r5, [r1!],#4          '|
+        b 01b                     '/
+    rem ===    Source+3    | Target+1 ===    
+    13: ldrb r4, [r0,#3]          '\
+        ldrh r6, [r0,#4]!         '|
+        ldr r5, [r1]              '|
+        and r5, #0xFF             '| copy 3 bytes, so...
+        sub r2, #3                '| Align Target and
+        orr r4, r6, LSL #8        '| Source+2
+        orr r5, r4, LSL #8        '|
+        str r5, [r1!],#4          '|
+        b 02b                     '/
+    rem ----------------------------------------------------------
+    8:  .word 8f      '-\--- Begin of The Table --- 
+      8:.word 00b     ' | Src=Aligned | Dst=Aligned 
+        .word 01b     ' | Src=OffBy 1 | Dst=Aligned 
+        .word 02b     ' | Src=OffBy 2 | Dst=Aligned 
+        .word 03b     ' | Src=OffBy 3 | Dst=Aligned 
+        .word 10b     ' | Src=Aligned | Dst=OffBy 1 
+        .word 11b     ' | Src=OffBy 1 | Dst=OffBy 1 
+        .word 12b     ' | Src=OffBy 2 | Dst=OffBy 1 
+        .word 13b     ' | Src=OffBy 3 | Dst=OffBy 1 
+        .word 20f     ' | Src=Aligned | Dst=OffBy 2 
+        .word 21f     ' | Src=OffBy 1 | Dst=OffBy 2 
+        .word 22f     ' | Src=OffBy 2 | Dst=OffBy 2 
+        .word 23f     ' | Src=OffBy 3 | Dst=OffBy 2 
+        .word 30f     ' | Src=Aligned | Dst=OffBy 3 
+        .word 31f     ' | Src=OffBy 1 | Dst=OffBy 3 
+        .word 32f     ' | Src=OffBy 2 | Dst=OffBy 3 
+        .word 33f     ' | Src=OffBy 3 | Dst=OffBy 3 
+        '-----------------------------------------------------------
+    rem === Source Aligned | Target+2 ===    
+    20: ldrh r4, [r0]             '\                    
+        sub r2, #2                '| copy 2 bytes, so... 
+        strh r4, [r1,#2]          '| Align Target and     
+        add r1,#4                 '| Source becomes +2   
+        b 02b                     '/                    
+    rem ===    Source+1    | Target+2 ===    
+    21: ldr r4, [r0,#1]           '\                    
+        sub r2, #2                '| copy 2 bytes, so... 
+        strh r4, [r1,#2]          '| Align Target and     
+        add r1,#4                 '| Source becomes +3   
+        b 03b                     '/                    
+    rem ===    Source+2    | Target+2 ===    
+    22: ldrh r4, [r0,#2]          '\                    
+        sub r2, #2                '| copy 2 bytes, so... 
+        strh r4, [r1,#2]          '| Align Target and     
+        add r1,#4                 '| Align Source        
+        add r0,#4                 '|                    
+        b 00b                     '/
+    rem ===    Source+3    | Target+2 ===    
+    23: ldrb r4, [r0,#3]          '\                   
+        ldrb r5, [r0,#4]!         '|                    
+        sub r2, #2                '| copy 2 bytes, so... 
+        orr r4, r5, LSL #8        '| Align Target and     
+        strh r4, [r1,#2]          '| Source becomes +1   
+        add r1,#4                 '|                    
+        b 01b                     '/                   
+    rem === Source Aligned | Target+3 ===    
+    30: ldrb r4, [r0]             '\                    
+        sub r2, #1                '| copy 1 bytes, so... 
+        strb r4, [r1,#3]          '| Align Target and     
+        add r1,#4                 '| Source becomes +1   
+        b 01b                     '/                    
+    rem ===    Source+1    | Target+3 ===    
+    31: ldrb r4, [r0,#1]          '\                    
+        sub r2, #1                '| copy 1 bytes, so... 
+        strb r4, [r1,#3]          '| Align Target and     
+        add r1,#4                 '| Source becomes +2   
+        b 02b                     '/                    
+    rem ===    Source+2    | Target+3 ===    
+    32: ldrb r4, [r0,#2]          '\                    
+        sub r2, #1                '| copy 1 bytes, so... 
+        strb r4, [r1,#3]          '| Align Target and     
+        add r1,#4                 '| Source becomes +3   
+        b 03b                     '/                    
+    rem ===    Source+3    | Target+3 ===    
+    33: ldrb r4, [r0,#3]          '\                    
+        sub r2, #1                '| copy 1 bytes, so... 
+        strb r4, [r1,#3]          '| Align Target and     
+        add r1,#4                 '| Align Source        
+        add r0,#4                 '|                    
+        b 00b                     '/                   
+    9: '-----------------------------------------------------------
+  end asm
+  return 0
+end function
