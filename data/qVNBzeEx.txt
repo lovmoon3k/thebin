@@ -1,0 +1,280 @@
+#include<iostream>
+#include<map>
+#include<vector>
+#include<iterator>
+#include<fstream>
+#include<Windows.h> // Обязательно для SetConsoleCP() и SetConsoleOutputCP()
+
+using namespace std;
+
+struct Student
+{
+	char name[30];
+	int group;
+	int score[5];
+};
+
+void printDataStudent(const vector<Student>& currentStudents);
+
+void chekMidScore(const vector<Student>& currentStudents, vector<Student>& filterResult);
+void chekScoreToTwo(const vector<Student>& currentStudents, vector<Student>& filterResult);
+void chekScoreToForFive(const vector<Student>& currentStudents, vector<Student>& filterResult);
+
+int getCountOfStudents(const char fileName[]);
+void addStudent(FILE* f, int& countOfStudent);
+void removeStudent(FILE* f, int& countOfStudent, const char fileName[]);
+
+//Объяви тип указатель на функцию, которая принимает на вход массив структур студентов (и
+typedef void(*studentFilter)(const vector<Student>&, vector<Student>&);
+
+typedef map<int, studentFilter> studentFilterMap;
+typedef map<int, studentFilter>::const_iterator menuFilterIter;
+
+void convertFileToVector(FILE* f, int &countOfStudent, vector<Student> &currentStudents)
+{
+	Student tmpStudent;
+	for (int i = 0; i < countOfStudent; i++)
+	{
+		fseek(f, i * sizeof(Student), SEEK_SET); // перемещаемся от начала (SEEK_SET) файла f на i длинны пакета
+		fread(&tmpStudent, sizeof(Student), 1, f); // считываем из файла f ровно 1 пакет pack размера int_double
+		currentStudents.push_back(tmpStudent);
+	}
+}
+
+int main()
+{
+	SetConsoleCP(1251);
+	SetConsoleOutputCP(1251);
+	
+	bool menuFlag = true;
+
+	vector<Student> currentStudents;
+	vector<Student> filterResult;
+	int key;
+	char fileName[] = "students.dat";
+	int countOfStudent = getCountOfStudents(fileName);
+	FILE *f; // переменная для работы с файлом
+	fopen_s(&f, fileName, "ab+");
+
+	//Объяви map, ключ это номер выбора из меню, значение это указатель на функцию
+	const studentFilterMap MENU =
+	{
+		{1, chekMidScore},
+		{2, chekScoreToTwo},
+		{3, chekScoreToForFive}
+	};
+	menuFilterIter it_MENU;
+
+	while (menuFlag)
+	{
+		cout << endl;
+		cout << "Выберите действие:" << endl;
+		cout << "1) Вывести список студентов на экран" << endl;
+		cout << "2) Добавить студента" << endl;
+		cout << "3) Удалить студента" << endl;
+		cout << "Введите номер действия ";
+		cin >> key;
+		cin.get(); // считывает из потока Enter который пользователь нажимает после последнего ввода
+		   
+		switch (key) {
+		case 1:
+			convertFileToVector(f, countOfStudent, currentStudents);
+
+			cout << endl;
+			cout << "1) Средний балл студента больше 4.0" << endl;
+			cout << "2) Имеющих хотя бы одну оценку 2" << endl;
+			cout << "3) Имеющих оценки 4 и 5" << endl;
+			cout << " > ";
+			cin >> key;
+
+			it_MENU = MENU.find(key);
+			if (it_MENU == MENU.end())
+			{
+				cout << "Такой инструкции нет!!!" << endl;
+			}
+			else
+			{
+				it_MENU->second(currentStudents, filterResult);
+				printDataStudent(filterResult);
+			}
+			break;
+		case 2:
+			addStudent(f, countOfStudent);
+			break;
+		case 3:
+			removeStudent(f, countOfStudent, fileName);
+			break;
+		default:
+			cout << "Введенный номер не корректен" << endl;
+			break;
+		}
+	}
+
+	fclose(f); //Закрываем файл
+	return 0;
+}
+
+void printDataStudent(const vector<Student>& currentStudents)
+{
+	for (int i = 0; i < currentStudents.size(); i++)
+	{
+		cout << "------------------------------------------------" << endl;
+		cout << "Имя, фамилие студента: " << currentStudents[i].name << endl;
+		cout << "Номер группы: " << currentStudents[i].group << endl;
+		for (int j = 0; j < 5; j++)
+		{
+			cout << currentStudents[i].score[j] << "   ";
+		}
+		cout << endl;
+	}
+
+	if (currentStudents.empty())
+	{
+		cout << "Студентов удовлетваряющих условиям нет!" << endl;
+	}
+}
+
+void chekMidScore(const vector<Student> & currentStudents, vector<Student> & filterResult)
+{
+	filterResult.clear();
+
+	double tmpMidlScore; // средний балл текущего студента
+	for (int i = 0; i < currentStudents.size(); i++)
+	{
+		tmpMidlScore = 0;
+		for (int j = 0; j < 5; j++)
+		{
+			tmpMidlScore = tmpMidlScore + currentStudents[i].score[j];
+		}
+		tmpMidlScore = tmpMidlScore / 5;
+
+		if (tmpMidlScore > 4.0)
+		{
+			filterResult.push_back(currentStudents[i]);
+		}
+	}
+}
+
+void chekScoreToTwo(const vector<Student> & currentStudents, vector<Student> & filterResult)
+{
+	filterResult.clear();
+
+	for (int i = 0; i < currentStudents.size(); i++)
+	{
+		for (int j = 0; j < 5; j++)
+		{
+			if (currentStudents[i].score[j] == 2)
+			{
+				filterResult.push_back(currentStudents[i]);
+				break;
+			}
+		}
+	}
+}
+
+void chekScoreToForFive(const vector<Student> & currentStudents, vector<Student> & filterResult)
+{
+	filterResult.clear();
+
+	for (int i = 0; i < currentStudents.size(); i++)
+	{
+		//есть еще идея как реализовать проверку. Сперва добавлять все обьекты, после (если находим другие оценки, удалять)
+		for (int j = 0; j < 5; j++)
+		{
+			if (currentStudents[i].score[j] == 4 || currentStudents[i].score[j] == 5)
+			{
+				if (j = 5)
+				{
+					filterResult.push_back(currentStudents[i]);
+				}
+			}
+			else
+			{
+				break;
+			}
+		}
+	}
+}
+
+int getCountOfStudents(const char fileName[]) //Узнаем размер файла
+{
+	fstream fp;
+	fp.open(fileName, ios::binary | ios::in);
+	if (!fp)
+	{
+		printf("%s", "Error opening file");
+		system("pause");
+		return -1; //ошибка, файл не существует или еще че-то;
+	}
+	fp.seekg(0, ios::end); //указатель на конец файла
+	unsigned long fSize;
+	fSize = fp.tellg();  //получили размер файла в fSize
+	fp.close();    //закрыли файл
+	return fSize / sizeof(Student);
+}
+
+void addStudent(FILE* f, int& countOfStudent)
+{
+	Student curStudent;
+
+	cout << "----Ввод данных о студенте------------------------------------------" << endl;
+	cout << "Введите Имя, Фамилие студента: ";
+	cin.getline(curStudent.name, 30);
+	cout << "Введите номер группы: ";
+	cin >> curStudent.group;
+
+	for (int j = 0; j < 5; j++)
+	{
+		cout << "Введите оценку №" << j + 1 << " ";
+		cin >> curStudent.score[j];
+	}
+	cin.get(); // считывает из потока Enter который пользователь нажимает после последнего ввода
+
+	if (f != 0)
+	{
+		countOfStudent = countOfStudent + 1;
+		fwrite(&curStudent, sizeof(curStudent), 1, f); // записываем в файл f ровно 1 пакет
+	}
+}
+
+void removeStudent(FILE* f, int& countOfStudent, const char fileName[])
+{
+	Student tmpStudent;
+	vector<Student> Students;
+	int tmpKey = 0;
+
+	cout << "Список студентов: " << endl;
+	for (int i = 0; i < countOfStudent; i++)
+	{
+		fseek(f, i * sizeof(Student), SEEK_SET); // перемещаемся от начала (SEEK_SET) файла f на i длинны пакета
+		fread(&tmpStudent, sizeof(Student), 1, f); // считываем из файла f ровно 1 пакет pack размера int_double
+		cout << i + 1 << ") " << tmpStudent.name << endl;
+		Students.push_back(tmpStudent);
+	}
+	cout << "Введите номер студента, которого необходимо удалить - ";
+	cin >> tmpKey;
+
+	fclose(f); //Закрываем файл
+	fopen_s(&f, fileName, "w");
+
+	for (int i = 0; i < countOfStudent; i++)
+	{
+		if (i == tmpKey - 1)
+		{
+			continue;
+		}
+		fwrite(&Students[i], sizeof(tmpStudent), 1, f); // записываем в файл f ровно 1 пакет
+	}
+	countOfStudent = countOfStudent - 1;
+}
+
+// Запуск программы: CTRL+F5 или меню "Отладка" > "Запуск без отладки"
+// Отладка программы: F5 или меню "Отладка" > "Запустить отладку"
+
+// Советы по началу работы 
+//   1. В окне обозревателя решений можно добавлять файлы и управлять ими.
+//   2. В окне Team Explorer можно подключиться к системе управления версиями.
+//   3. В окне "Выходные данные" можно просматривать выходные данные сборки и другие сообщения.
+//   4. В окне "Список ошибок" можно просматривать ошибки.
+//   5. Последовательно выберите пункты меню "Проект" > "Добавить новый элемент", чтобы создать файлы кода, или "Проект" > "Добавить существующий элемент", чтобы добавить в проект существующие файлы кода.
+//   6. Чтобы снова открыть этот проект позже, выберите пункты меню "Файл" > "Открыть" > "Проект" и выберите SLN-файл.
