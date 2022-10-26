@@ -1,0 +1,76 @@
+package main
+
+/*
+#include <pthread.h>
+#include <signal.h>
+
+static int ignore_sigurg()
+{
+	sigset_t set;
+	sigemptyset(&set);
+	sigaddset(&set, SIGURG);
+	return pthread_sigmask(SIG_BLOCK, &set, NULL);
+}
+
+static int handleURG_alt() {
+	struct sigaction sigact;
+	sigact.sa_handler = SIG_BLOCK;
+	sigemptyset(&sigact.sa_mask);
+	sigact.sa_flags = 0;
+	sigaction(SIGURG, &sigact, NULL);
+	return 0;
+}
+*/
+import "C"
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"runtime"
+	"sync"
+	"syscall"
+)
+
+var ignorePreemption = flag.Bool("ignore", false, "Specify true to block SIGURG")
+
+func main() {
+	flag.Parse()
+
+	// tight loop
+	go func() {
+		for {
+		}
+	}()
+
+	var wg sync.WaitGroup
+
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			runtime.LockOSThread()
+
+			if n == 0 && *ignorePreemption {
+				if rc := C.ignore_sigurg(); rc != 0 {
+					panic(rc)
+				}
+				fmt.Println("blocked SIGURG on goroutine", n)
+			}
+
+			ch := make(chan os.Signal, 1)
+			signal.Notify(ch, syscall.SIGURG, os.Interrupt)
+
+			for sig := range ch {
+				fmt.Printf("got signal in goroutine %d: %v\n", n, sig)
+
+				if sig == os.Interrupt {
+					break
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}

@@ -1,0 +1,114 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class InteractWithInteractable: MonoBehaviour
+{
+    public GameObject InteractIcon;
+
+    HashSet<GameObject> NearbyInteractables = new HashSet<GameObject>();
+    GameObject NearestInteractable = null;
+    Vector3 IconHeight = new Vector3(0,2.3f,0);//This is going to be a problem later!!
+
+    //When the object is very far from the interaction point, it needs to be removed
+    float PrevantativeCleanupDistance = 5f;
+
+    public void OnInteract(InputAction.CallbackContext Context)
+    {
+        if (Context.canceled && NearestInteractable != null)
+        {
+            interactable GrabInteractableScript =
+                NearestInteractable.GetComponent<interactable>();
+
+            if (GrabInteractableScript != null)
+            {
+                GrabInteractableScript.DoMainInteraction();
+            }
+            else
+            {
+                string Warning =
+                    string.Format("{0} located at {1} is missing it's interaction script",
+                    NearestInteractable.name,
+                    NearestInteractable.transform.position);
+                Debug.LogWarning(Warning);
+            }
+        }
+    }
+
+    private void Start()
+    {
+        InteractIcon.transform.SetParent(null);//Prevent icon from moving with player
+    }
+
+    private void FixedUpdate()
+    {
+        NearestInteractable = FindTheNearestInteractable();
+        ShowNearestInteractable();
+        /*
+        if (NearestInteractable != null)
+        {
+            string DebugText = string.Format("The nearest Interactable is {0} ID: {1}",
+                NearestInteractable.name,
+                NearestInteractable.GetInstanceID());
+            Debug.Log(DebugText);
+        }
+        */
+    }
+
+    private void OnTriggerEnter(Collider other)
+    {
+        NearbyInteractables.Add(other.gameObject);
+        /*string DebugText = 
+            string.Format( "{0} ID: {1} was added to nearby interacibles",
+            other.name, 
+            other.GetInstanceID());*/
+
+        //Debug.Log(DebugText);
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        NearbyInteractables.Remove(other.gameObject);
+    }
+
+    GameObject FindTheNearestInteractable()
+    {
+        float ShortestDistance = float.MaxValue;
+        GameObject NearestObject = null;
+
+        foreach (GameObject Interactable in NearbyInteractables)
+        {
+            //The pickup point is this empty that hovers infront of the player
+            float DistanceToPickupPoint = 
+                Vector3.Distance(this.transform.position, Interactable.transform.position);
+            //Keep the nearest object
+            if(DistanceToPickupPoint < ShortestDistance) 
+            {
+                ShortestDistance = DistanceToPickupPoint;
+                NearestObject = Interactable;
+            }
+            //Preventative cleanup 
+            if(DistanceToPickupPoint > PrevantativeCleanupDistance)
+            {
+                NearbyInteractables.Remove(Interactable);
+            }
+        }
+
+        return NearestObject;
+    }
+
+    void ShowNearestInteractable()//Every Fixed Update!!
+    {
+        if (NearestInteractable != null)
+        {
+            InteractIcon.SetActive(true);
+            InteractIcon.transform.position = 
+                NearestInteractable.transform.position + IconHeight;
+        }
+        else
+        {
+            InteractIcon.SetActive(false);
+        }
+    }
+}
