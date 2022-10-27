@@ -1,0 +1,37 @@
+[[nodiscard]] inline static float _helper(float a) noexcept {
+	constexpr int32_t P0=0x44c3cb8c, P1=0x10, P2=0x1554; //Magic!
+	constexpr float
+		s     =  0x1.0e153cp+0f , // ≈  1.055
+		BIAS  = -0x1.c28efp-5f  , // ≈ -0.055
+		sA    =  0x1.68f75ap-4f , // ≈  s(1/n), (note n=12)
+		sB    =  0x1.863818p-5f , // ≈  s(1+n)/(2n²)
+		sC    =  0x1.0e774cp-5f , // ≈  s(1+n)(1+2n)/(6n³)
+		sD    =  0x1.a429e8p-6f , // ≈  s(1+n)(1+2n)(1+3n)/(24n⁴)
+		ONE   =  0x1.0000ccp+0f , // ≈  1
+		TWEAK =  0x1.6cb8cap-16f  // ≈  0
+	;
+	float x = std::bit_cast<float>(
+		P0 - (std::bit_cast<int32_t>(a)>>P1)*P2
+	);
+	float sx = s * x;
+	float sAx = sA * x;
+	float x2 = x * x;
+	float sqrta = std::sqrt(a);
+	float x4 = x2 * x2;
+	float ax4 = x4 * a;
+	float x8 = x4 * x4;
+	float y = std::fma( -ax4,x8, ONE );
+	float xy = std::fma( x,y, TWEAK );
+	float y2 = y * y;
+	float sx_sAxy = std::fma( sAx,y, sx );
+	float sC_sDy = std::fma( sD,y, sC );
+	float sBy = sB * y;
+	float sBy_sCy2_sDy3 = std::fma( sC_sDy,y2, sBy );
+	float sx_sAxy_sBxy2_sCxy3_sDxy4 = std::fma(
+		sBy_sCy2_sDy3,xy, sx_sAxy
+	);
+	return std::fma( sqrta,sx_sAxy_sBxy2_sCxy3_sDxy4, BIAS );
+}
+[[nodiscard]] constexpr static float srgb_invgamma(float val) noexcept {
+	return val > 0.0031308f ? _helper(val) : 12.92f*val;
+}
