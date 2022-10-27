@@ -1,0 +1,445 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Maurizio-Ciullo
+
+////////////////////////////////////////////      CREATO 1 TRADING SYSTEM CON TRE VERSIONI. ////////////////////////////////////////////
+//////////////////////////////////    2° VERSIONE 1.6: CON MYEXITCOUNTBAR / TAKE PROFIT / INGRESO MARKET   //////////////////////////////////
+
+// Il trading system completo - Get-Back-Market 1.6 Ver-5 (Strategia Reversal/Swing)
+// (Exchange= FTX) (Sottostante LEO-PERP) (Timeframe= 45M) (Direzione= LONG E SHORT) (Swing Posizione= SI) (Esclusione Ore=NO) (Esclusione Giorni=NO') (Esclusione Mesi=NO) 
+// (Take Profit Long/Short Market = NO) (Take Profit Limit Long/Short= 9%) (Stop Loss Limit Long/Short= -12% Tradingview-Hub)
+// (Stop Loss Market Long/Short= NO) (Trailing Stop=NO) (Stop Emergenza= NO) (Uscita Numero Candele Market Long/Short= SI)
+// (Ingressi Market = SI)
+// (Rischio Operazione 15% Drawdown Massimo)
+// (In Sample Dal=19/02/21 Al 12/04/22) (Out Of Sample Dal=12/04/22 Al 25/08/22)
+// (Progettatta Il=25/08/22)
+
+// Nota su tradestation caricare sessione 23:00 23:00 tutti e 7 i giorni, solo che mi da un problema e non mi fa caricare l'ultima sessione.
+// Per questo motivo invece di usare: highd0 = HighSession(0,0); stò usando: (HighD(0)); Sostituendo le sessioni con i giorni temporali.
+// Per FTX Su Tradestation: Exchange Time, Regular Session, 7x7 23:00 23:00, Session Hour.
+
+
+//@version=5
+strategy(title="Bot Get-Back-Market 1.6 LEO/PERP FTX 45M LONG E SHORT", overlay=true, precision = 4,
+     //max_bars_back=5000, // Serve Per Caricare Più Storico Per Il Trailing Stop
+     pyramiding=0,
+     initial_capital=150,
+     commission_type=strategy.commission.percent,
+     commission_value=0.1,
+     slippage=50,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=23)
+     
+
+// Input
+input_sma = input.int(title='Media BB', defval=20, minval=0, maxval=50, group='Bande')
+input_deviazione_st = input.float(title='Deviazione_st', defval=2.0, step=0.1, group='Bande')
+input_stop_loss_long = input.float(title='stop_loss_long', defval=12, minval=0, maxval=100, step=0.1, group='Stop&Target')
+input_take_profit_long = input.float(title='take_profit_long', defval=9, minval=0, maxval=100, step=0.1, group='Take Profit')
+input_stop_loss_short = input.float(title='stop_loss_short', defval=12, minval=0, maxval=100, step=0.1, group='Stop&Target')
+input_take_profit_short = input.float(title='take_profit_short', defval=9, minval=0, maxval=100, step=0.1, group='Take Profit')
+input_MyExitCountBarL = input.int(title='MyExitCountBarL', defval=76, minval=0, maxval=500, group='Exit Bars Counter')
+input_MyExitCountBarS = input.int(title='MyExitCountBarS', defval=53, minval=0, maxval=500, group='Exit Bars Counter')
+// only_Long = input.bool(title='Solo long trade', defval=false, inline='1', group='Direzione')
+// only_Short = input.bool(title='Solo short trade', defval=false, inline='1', group='Direzione')
+
+
+// Calcolo del range del backtest
+startDate = input.int(title="Start Date",
+     defval=1, minval=1, maxval=31, group="Periodo")
+startMonth = input.int(title="Start Month",
+     defval=02, minval=1, maxval=12, group="Periodo")
+startYear = input.int(title="Start Year",
+     defval=2010, minval=1800, maxval=2150, group="Periodo")
+
+endDate = input.int(title="End Date",
+     defval=01, minval=1, maxval=31, group="Periodo")
+endMonth = input.int(title="End Month",
+     defval=01, minval=1, maxval=12, group="Periodo")
+endYear = input.int(title="End Year",
+     defval=2121, minval=1800, maxval=2150, group="Periodo")
+
+
+inDateRange = (time >= timestamp(syminfo.timezone, startYear,
+         startMonth, startDate, 0, 0)) and
+     (time < timestamp(syminfo.timezone, endYear, endMonth, endDate, 0, 0))
+
+
+// Start Hour Range Trading Non Attivo /////////////////////
+//hourTrading = input(title='sessione valida di trading', defval='0600-2300:23456')
+//hourRangeTrading = time(timeframe.period, hourTrading)
+
+
+///////////////////  Start Detecting High0 Session  ///////////////////
+
+// Configure session with inputs
+session_high  = input.session("0000-2300", title="Trading Session")
+timeZone_high = input.string("GMT", title="Time Zone")
+
+// SessionHigh() returns the highest price during the specified 
+// session, optionally corrected for the given time zone.
+// Returns 'na' when the session hasn't started or isn't on the chart.
+SessionHigh(sessionTime, sessionTimeZone=syminfo.timezone) =>
+    insideSession = not na(time(timeframe.period, sessionTime, sessionTimeZone))
+    var float sessionHighPrice = na
+
+    if insideSession and not insideSession[1]
+        sessionHighPrice := high
+    else if not insideSession and high > sessionHighPrice // Inserito personalmente perchè se fuori sessione e massimo più alto non aggiornava
+        sessionHighPrice := high // // Inserito personalmente perchè se fuori sessione e massimo più alto non aggiornava
+    else if insideSession
+        sessionHighPrice := math.max(sessionHighPrice, high)
+    
+    sessionHighPrice
+
+// InSession() returns 'true' when the current bar happens inside
+// the specified session, corrected for the given time zone (optional).
+// Returns 'false' when the bar doesn't happen in that time period,
+// or when the chart's time frame is 1 day or higher. 
+InSessionHigh(sessionTimes, sessionTimeZone=syminfo.timezone) =>
+    not na(time(timeframe.period, sessionTimes, sessionTimeZone))
+
+// Get the session high
+highd0 = SessionHigh(session_high, timeZone_high)
+
+// Show the session high on the chart
+//plot(highd0, color=color.green, title="Highd0")
+
+// For visual verification, highlight the background of session bars
+bgcolor(InSessionHigh(session_high, timeZone_high) ? color.new(color.orange, 90) : na)
+
+// ///////////////////  End Detecting High0 Session  ///////////////////
+
+
+// ///////////////////  Start Detecting Low0 Session  ///////////////////
+
+// Configure session with inputs
+session_low  = input.session("0000-2300", title="Trading Session")                                  
+timeZone_low = input.string("GMT", title="Time Zone") 
+
+// SessionLow() returns the lowest price during the specified 
+// session, optionally corrected for the given time zone.
+// Returns 'na' when the session hasn't started or isn't on the chart.
+SessionLow(sessionTime, sessionTimeZone=syminfo.timezone) =>                                       
+    insideSession = not na(time(timeframe.period, sessionTime, sessionTimeZone))
+    var float sessionLowPrice = na
+
+    if insideSession and not insideSession[1]
+        sessionLowPrice := low
+    else if not insideSession and low < sessionLowPrice // Inserito personalmente perchè se fuori sessione e minimo più basso non aggiornava
+        sessionLowPrice := low // // Inserito personalmente perchè se fuori sessione e minimo più basso non aggiornava
+    else if insideSession
+        sessionLowPrice := math.min(sessionLowPrice, low)
+    
+    sessionLowPrice
+
+// InSession() returns 'true' when the current bar happens inside
+// the specified session, corrected for the given time zone (optional).
+// Returns 'false' when the bar doesn't happen in that time period,
+// or when the chart's time frame is 1 day or higher. 
+InSessionLow(sessionTimes, sessionTimeZone=syminfo.timezone) => 
+    not na(time(timeframe.period, sessionTimes, sessionTimeZone))
+
+// Get the session low
+lowd0 = SessionLow(session_low, timeZone_low)
+
+// Show the session low on the chart
+//plot(lowd0, color=color.red, title="Lowd0")
+
+// For visual verification, lowest the background of session bars
+//bgcolor(InSessionLow(session_low, timeZone_low) ? color.new(color.orange, 90) : na)
+
+// ///////////////////  End Detecting Low0 Session  ///////////////////
+
+
+PtnBaseSA12  = ((highd0>(lowd0+lowd0*0.75/100)))                     // Sostituirlo Con Il Nome: PtnBaseSACrypto12
+//plotshape(PtnBaseSA12, "PtnBaseSA12") 
+
+
+///////////////////  Start Detecting Open0 Session  ///////////////////
+
+// Configure session with inputs
+session_open  = input.session("0000-2300", title="Trading Session")                                  
+timeZone_open = input.string("GMT", title="Time Zone") 
+
+// SessionOpen() returns the open price during the specified 
+// session, optionally corrected for the given time zone.
+// Returns 'na' when the session hasn't started or isn't on the chart.
+SessionOpen(sessionTime, sessionTimeZone=syminfo.timezone) =>                                       
+    insideSession = not na(time(timeframe.period, sessionTime, sessionTimeZone))
+    var float sessionOpenPrice = na
+
+    if insideSession and not insideSession[1]
+        sessionOpenPrice := open
+    //else if not insideSession and open < sessionOpenPrice // Inserito personalmente perchè se fuori sessione e minimo più basso non aggiornava
+        //sessionLowPrice := open // // Inserito personalmente perchè se fuori sessione e minimo più basso non aggiornava
+        // else if insideSession
+        //     sessionOpenPrice := (sessionOpenPrice, open)
+    
+    sessionOpenPrice
+
+// InSession() returns 'true' when the current bar happens inside
+// the specified session, corrected for the given time zone (optional).
+// Returns 'false' when the bar doesn't happen in that time period,
+// or when the chart's time frame is 1 day or higher. 
+InSessionOpen(sessionTimes, sessionTimeZone=syminfo.timezone) => 
+    not na(time(timeframe.period, sessionTimes, sessionTimeZone))
+
+// Get the session open
+opend0 = SessionOpen(session_open, timeZone_open)
+
+// Show the session open on the chart
+//plot(opend0, color=color.yellow, title="open0")
+
+// For visual verification, lowest the background of session bars
+//bgcolor(InSessionOpen(session_open, timeZone_open) ? color.new(color.orange, 90) : na)
+     
+///////////////////  End Detecting Open0 Session  ///////////////////
+
+
+///////////////////  Start Detecting HighD1 Session  ///////////////////
+
+highd1 = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+//plot(highd1, title="highd1")
+
+// ///////////////////  End Detecting HighD1 Session  ///////////////////
+
+
+// ///////////////////  Start Detecting OpenD1 Session  ///////////////////
+
+opend1 = request.security(syminfo.tickerid, "D", open[1], lookahead = barmerge.lookahead_on)
+//plot(opend1, title="opend1")
+
+// ///////////////////  End Detecting OpenD1 Session  ///////////////////
+         
+
+PtnBaseSA4  = ((highd0-opend0)> ((highd1-opend1)*1))                            // Sostituirlo Con Il Nome: PtnBaseSACrypto4
+//plotshape(PtnBaseSA4, title="PtnBaseSA4")
+
+
+///////////////////  Start Detecting LowD1 Session  ///////////////////
+     
+lowd1 = request.security(syminfo.tickerid, "D", low[1], lookahead = barmerge.lookahead_on)
+//plot(lowd1, title="lowd1")    
+     
+ ///////////////////  End Detecting LowD1 Session  ///////////////////    
+
+
+ ///////////////////  Start Detecting LowD2 Session  ///////////////////
+     
+lowd2 = request.security(syminfo.tickerid, "D", low[2], lookahead = barmerge.lookahead_on)
+//plot(lowd2, title="lowd2")    
+     
+ ///////////////////  End Detecting LowD2 Session  /////////////////// 
+
+
+  ///////////////////  Start Detecting LowD3 Session  ///////////////////
+     
+lowd3 = request.security(syminfo.tickerid, "D", low[3], lookahead = barmerge.lookahead_on)
+//lot(lowd3, title="lowd3")    
+     
+ ///////////////////  End Detecting LowD3 Session  /////////////////// 
+
+
+ ///////////////////  Start Detecting LowD4 Session  ///////////////////
+     
+lowd4 = request.security(syminfo.tickerid, "D", low[4], lookahead = barmerge.lookahead_on)
+//plot(lowd4, title="lowd4")    
+     
+ ///////////////////  End Detecting LowD4 Session  /////////////////// 
+     
+
+PtnBaseSA27  = ((lowd1>lowd2) and (lowd1>lowd3) and (lowd1<lowd4))              // Sostituirlo Con Il Nome: PtnBaseSACrypto27
+//plotshape(PtnBaseSA27, "PtnBaseSA27")
+
+
+PtnBaseSA6  = ((opend0-lowd0)> ((opend1-lowd1)*1))                              // Sostituirlo Con Il Nome: PtnBaseSACrypto6
+//plotshape(PtnBaseSA6, "PtnBaseSA6")
+
+
+// Calculate MyEntryCountBar
+MyEntryCountBar = bar_index - strategy.opentrades.entry_bar_index(0)
+MyEntryCountBar := MyEntryCountBar + 1
+//plot(MyEntryCountBar, title="MyEntryCountBar")
+// plot(bar_index, title="bar_index")
+// plot(strategy.opentrades.entry_bar_index(0), title="strategy.open")
+plotshape(MyEntryCountBar >  input_MyExitCountBarL and strategy.position_size > 0, text="MyExitCountBarL")
+plotshape(MyEntryCountBar > input_MyExitCountBarS and strategy.position_size < 0, text="MyExitCountBarS")
+
+
+//  Bollinger Bands
+middle_Band = ta.sma(close, input_sma)
+deviazione_st = input_deviazione_st * ta.stdev(close, input_sma)
+UpperBand = middle_Band + deviazione_st
+LowerBand = middle_Band - deviazione_st
+plot(middle_Band, color=color.new(color.green, 0), title='B_middle Band')
+plot(UpperBand, color=color.new(color.green, 0), title='UpperBand')
+plot(LowerBand, color=color.new(color.green, 0), title='LowerBand')
+
+
+// Variabili Stop E Take Profit Long
+stop_loss_long_price = (strategy.opentrades.entry_price(0) - (strategy.opentrades.entry_price(0) * input_stop_loss_long) / 100)
+stop_loss_long = (strategy.opentrades.entry_price(0) - stop_loss_long_price) / syminfo.mintick
+take_profit_long_price = (strategy.opentrades.entry_price(0) + ((strategy.opentrades.entry_price(0) * input_take_profit_long) / 100))
+take_profit_long = (take_profit_long_price - strategy.opentrades.entry_price(0)) / syminfo.mintick
+
+// Variabili Stop E Take Profit Short
+stop_loss_short_price = (strategy.opentrades.entry_price(0) + (strategy.opentrades.entry_price(0) * input_stop_loss_short) / 100)
+stop_loss_short = (stop_loss_short_price - strategy.opentrades.entry_price(0)) / syminfo.mintick
+take_profit_short_price = (strategy.opentrades.entry_price(0) - ((strategy.opentrades.entry_price(0) * input_take_profit_short) / 100))
+take_profit_short =(strategy.opentrades.entry_price(0) - take_profit_short_price) / syminfo.mintick
+
+plot(strategy.position_size != 0 ? strategy.opentrades.entry_price(0) : na , color=strategy.position_size > 0 ? color.blue : strategy.position_size < 0 ? color.red : na, style=plot.style_linebr, title="entry_price") // stampa l'entry price in rosso se short in blu se long
+plot(strategy.position_size > 0 ?  take_profit_long_price : strategy.position_size < 0 ? take_profit_short_price: na, color=color.green, style=plot.style_cross, linewidth=2, title="tk_limit")
+plot(strategy.position_size > 0 ?  stop_loss_long_price : strategy.position_size < 0 ? stop_loss_short_price: na, color=color.red, style=plot.style_cross, linewidth=2, title="sl_limit")
+
+
+bgcolor(strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : na, transp=90)// sfondo verde quando siamo long, sfondo rosso quando siamo short, no sfondo quando non siamo in posizione //color.new(color.red, 99): na)
+
+
+// Plot No Trading Allowed giorni da 1 a 7 1 è domenica. Mesi da 1 a 12 1 è Gennaio. //
+
+// giorni_esclusi = dayofweek(time)
+// plotshape(giorni_esclusi[1] == 2 ? giorni_esclusi : na, color=color.green, title="giorni_esclusi")
+// mesi_esclusi = month(time)
+// plotshape(mesi_esclusi[1] == 9 ? mesi_esclusi : na, color=color.yellow, title="mesi_esclusi")
+
+
+buy_command = '{"pair":"LEO-PERP","unitsPercent":"15","unitsType":"percentBalance","exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isBuy":true,"isMarket":true,"stopLossPercent":"-12","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"9"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"cancelAllOrders":true,"subAccount":"Get-Back1.6-LEO-PERP-FTX-45M"}'
+sell_command = '{"pair":"LEO-PERP","unitsPercent":"15","unitsType":"percentBalance","exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isSell":true,"isMarket":true,"stopLossPercent":"-12","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"9"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"cancelAllOrders":true,"subAccount":"Get-Back1.6-LEO-PERP-FTX-45M"}'
+close_command = '{"pair":"LEO-PERP","unitsPercent":"15","exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isClose":true,"subAccount":"Get-Back1.6-LEO-PERP-FTX-45M"}'
+
+
+// Condizione Entrata Long
+condEntryLong = ta.crossover(close, LowerBand)  and PtnBaseSA12 == true and PtnBaseSA27 == false and inDateRange//and not only_Short and month != 4 and month != 8 
+
+// Entrata Long
+if condEntryLong //and strategy.opentrades == 0
+    strategy.entry('operazioneLong', strategy.long, alert_message = "Open Long Position", comment = buy_command)
+
+// Uscita Long (stop/limit x prezzo) (loss/profit x ticks)
+if strategy.opentrades ==1
+    strategy.exit('SL e TP', from_entry='operazioneLong', loss=stop_loss_long, profit=take_profit_long, alert_message = "Your Long SL-TP Has Been Triggered.", comment = close_command) //limit=take_profit_long_price 
+
+// Uscita Long Exit Count Bar
+if strategy.opentrades ==1 and MyEntryCountBar > input_MyExitCountBarL
+    strategy.close(id='operazioneLong', alert_message = "Close Long Position", comment = close_command)
+
+
+//Condizione Entrata Short
+condEntryShort = ta.crossunder(close, UpperBand)  and PtnBaseSA4 == true and PtnBaseSA6 == false and inDateRange//and not only_Long and month != 4 and month != 8 and not only_Short 
+
+// Entrata Short
+if condEntryShort //and strategy.opentrades == 0
+    strategy.entry('operazioneShort', strategy.short, alert_message = "Open Short Position", comment = sell_command)
+
+// Uscita Short (stop/limit x prezzo) (loss/profit x ticks)
+if strategy.opentrades == 1
+    strategy.exit('SL e TP', from_entry='operazioneShort', loss=stop_loss_short, profit=take_profit_short, alert_message = "Your Long SL-TP Has Been Triggered.", comment = close_command) //limit=take_profit_short_price    
+
+// Uscita Short Exit Count Bar
+if strategy.opentrades ==1 and MyEntryCountBar > input_MyExitCountBarS
+    strategy.close(id='operazioneShort', alert_message = "Close Short Position", comment = close_command)
+
+
+// Nome Alert: Get-Back 1.6 LEO/PERP FTX 45M
+// Commento Alert: {{strategy.order.comment}}
+
+
+// ------- Inizio Calcolatore Size Posizioni Aperte E Size Posizioni Residue E Segna Con Una Croce Se Abbiamo Realizzato Un Profitto ------- // 
+                                   // Il Segno Croce Profitto Realizzato Non Funziona Sullo Swing Posizione //
+
+// bought = strategy.position_size[0]> strategy.position_size[1]
+// Close_TP = false    
+// Close_TP := strategy.position_size[1] - strategy.position_size[0] and strategy.position_size[1] != 0 and strategy.position_size[0] != 0
+    
+// plotshape(Close_TP,title="Close_TP", style=shape.xcross, color=color.blue, size =size.small, editable = true)
+// plot(strategy.position_size[1],"Position Old")
+// plot(strategy.position_size,"Position")
+
+// ------- Fine Calcolatore Size Posizioni Aperte E Size Posizioni Residue E Segna Con Una Croce Se Abbiamo Realizzato Un Profitto ------- // 
+
+
+// ----------------- Inizio Tabella risultati mensili. Per visualizzare andare nelle impostazioni proprietà e spuntare ad ogni tick -----------------
+
+// new_month = month(time) != month(time[1])
+// new_year  = year(time)  != year(time[1])
+
+// eq = strategy.equity
+
+// bar_pnl = eq / eq[1] - 1
+
+// cur_month_pnl = 0.0
+// cur_year_pnl  = 0.0
+
+// // Current Monthly P&L
+// cur_month_pnl := new_month ? 0.0 : 
+//                  (1 + cur_month_pnl[1]) * (1 + bar_pnl) - 1 
+
+// // Current Yearly P&L
+// cur_year_pnl := new_year ? 0.0 : 
+//                  (1 + cur_year_pnl[1]) * (1 + bar_pnl) - 1  
+
+// // Arrays to store Yearly and Monthly P&Ls
+// var month_pnl  = array.new_float(0)
+// var month_time = array.new_int(0)
+
+// var year_pnl  = array.new_float(0)
+// var year_time = array.new_int(0)
+
+// last_computed = false
+
+// if (not na(cur_month_pnl[1]) and (new_month or barstate.islast))
+//     if (last_computed[1])
+//         array.pop(month_pnl)
+//         array.pop(month_time)
+
+//     array.push(month_pnl , cur_month_pnl[1])
+//     array.push(month_time, time[1])
+
+// if (not na(cur_year_pnl[1]) and (new_year or barstate.islast))
+//     if (last_computed[1])
+//         array.pop(year_pnl)
+//         array.pop(year_time)
+
+//     array.push(year_pnl , cur_year_pnl[1])
+//     array.push(year_time, time[1])
+
+// last_computed := barstate.islast ? true : nz(last_computed[1])
+
+// // Monthly P&L Table    
+// var monthly_table = table(na)
+// prec      = input(2, title = "Return Precision")
+
+// if (barstate.islast)
+//     monthly_table := table.new(position.bottom_right, columns = 14, rows = array.size(year_pnl) + 1, bgcolor=#0F0F0F,border_width=1,border_color=#000000)
+
+//     table.cell(monthly_table, 0,  0, "",     text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 1,  0, "Jan",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 2,  0, "Feb",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 3,  0, "Mar",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 4,  0, "Apr",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 5,  0, "May",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 6,  0, "Jun",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 7,  0, "Jul",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 8,  0, "Aug",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 9,  0, "Sep",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 10, 0, "Oct",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 11, 0, "Nov",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 12, 0, "Dec",  text_color=#D3D3D3, bgcolor=#0F0F0F)
+//     table.cell(monthly_table, 13, 0, "Year", text_color=#D3D3D3, bgcolor=#0F0F0F)
+
+
+//     for yi = 0 to array.size(year_pnl) - 1
+//         table.cell(monthly_table, 0,  yi + 1, str.tostring(year(array.get(year_time, yi))), text_color=#D3D3D3, bgcolor=#0F0F0F)
+
+//         y_color = array.get(year_pnl, yi) > 0 ? color.lime : color.red
+//         table.cell(monthly_table, 13, yi + 1, str.tostring(math.round(array.get(year_pnl, yi) * 100, prec)), bgcolor = y_color)
+
+//     for mi = 0 to array.size(month_time) - 1
+//         m_row   = year(array.get(month_time, mi))  - year(array.get(year_time, 0)) + 1
+//         m_col   = month(array.get(month_time, mi)) 
+//         m_color = array.get(month_pnl, mi) > 0 ? color.lime : color.red
+
+//         table.cell(monthly_table, m_col, m_row, str.tostring(math.round(array.get(month_pnl, mi) * 100, prec)), bgcolor = m_color)
+
+// ----------------- Fine Tabella risultati mensili. Per visualizzare andare nelle impostazioni proprietà e spuntare ad ogni tick -----------------
