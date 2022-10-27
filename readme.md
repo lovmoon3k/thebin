@@ -1,15 +1,5 @@
-[**ZAJztpz0**](/data/ZAJztpz0.txt) (28/10/22 - 02:48)- 2295 bytes
+[**wcgZtCEE**](/data/wcgZtCEE.txt) (28/10/22 - 03:01)- 67730 bytes
 
-[**LSFR1YnG**](/data/LSFR1YnG.txt) (28/10/22 - 02:48)- 29520 bytes
+**Total Datas**: 599
 
-[**LSFR1YnG**](/data/LSFR1YnG.txt) (28/10/22 - 02:48)- 29520 bytes
-
-[**ZAJztpz0**](/data/ZAJztpz0.txt) (28/10/22 - 02:48)- 2295 bytes
-
-[**1BBDiKeJ**](/data/1BBDiKeJ.txt) (28/10/22 - 02:48)- 187 bytes
-
-[**1BBDiKeJ**](/data/1BBDiKeJ.txt) (28/10/22 - 02:48)- 187 bytes
-
-**Total Datas**: 598
-
-**Total Size**: 3.58 MB / 3.6 MB
+**Total Size**: 3.64 MB / 3.6 MB
