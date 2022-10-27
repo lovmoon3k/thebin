@@ -1,0 +1,180 @@
+					                       // Bot Get-Back-Market 1.6 LEO/PERP FTX 45M LONG E SHORT //
+
+
+////////////////////////////////////////////      CREATO 1 TRADING SYSTEM CON TRE VERSIONI. ////////////////////////////////////////////
+//////////////////////////////////   2° VERSIONE 1.6 MARKET: CON MYEXITCOUNTBAR / TAKE PROFIT / INGRESO MARKET   //////////////////////////////////
+
+// Il trading system completo - Get-Back-Market 1.6 Ver-5 (Strategia Reversal/Swing)
+// (Exchange= FTX) (Sottostante LEO-PERP) (Timeframe= 45M) (Direzione= LONG E SHORT) (Swing Posizione= SI) (Esclusione Ore=NO) (Esclusione Giorni=NO') (Esclusione Mesi=NO) 
+// (Take Profit Long/Short Market = NO) (Take Profit Limit Long/Short= 9%) (Stop Loss Limit Long/Short= -12% Tradingview-Hub)
+// (Stop Loss Market Long/Short= NO) (Trailing Stop=NO) (Stop Emergenza= NO) (Uscita Numero Candele Market Long/Short= SI)
+// (Ingressi Market = SI)
+// (Rischio Operazione 11.92% Drawdown Massimo)
+// (In Sample Dal=19/02/21 Al 12/04/22) (Out Of Sample Dal=12/04/22 Al 25/08/22)
+// (Progettatta Il=25/08/22)
+
+// Nota su tradestation caricare sessione 23:00 23:00 tutti e 7 i giorni, solo che mi da un problema e non mi fa caricare l'ultima sessione.
+// Per questo motivo invece di usare: highd0 = HighSession(0,0); stò usando: (HighD(0)); Sostituendo le sessioni con i giorni temporali.
+// Per FTX Su Tradestation: Exchange Time, Regular Session, 7x7 23:00 23:00, Session Hour.
+
+
+
+
+Input: InitialCapital(100000);
+Input: percent_risk(25); // LASCIARLO A 25 ALTRIMENTI NON CALCOLA BENE TAKE PROFIT E STOP LOSS
+input: Lenght(20), NumDevs(2); // Lenght(20), NumDevs(2) = "Per Bande Di Bollinger"
+input: input_stop_loss(12),  input_target(0);      // !!! QUESTI NON SONO USATI MA GLI INPUT USATI SI TROVANO IN BASSO !!!
+Input: MyStartTimeL(0), MyEndTimeL(23); // Duration(48) = Ingresso consentito tot barre dopo MyStartTime "durata numero di barre"
+Input: MyStartTimeS(0), MyEndTimeS(0);
+Input: MyPtnLY(12), MyPtnSY(4), MyPtnLN(27), MyPtnSN(6);
+Input: MyExitCountBarL(76), MyExitCountBarS(53); // Aggiunto
+
+
+Variable:
+UpperBand(0), LowerBand(0), stop_loss(0), take_profit(0), risk(0), nr_share(0), mycount(0);
+	
+UpperBand = BollingerBand(Close, Lenght, NumDevs);
+LowerBand = BollingerBand(Close, Lenght, -NumDevs);
+
+
+ //Money menagment 
+risk = percent_risk/100;
+nr_share = floor((InitialCapital + NetProfit) * risk) / close;
+stop_loss=((((InitialCapital + NetProfit) * risk)/100) * input_stop_loss);
+take_profit=((((InitialCapital + NetProfit) * risk)/100) * input_target);
+
+// Test Motore Strategia Grezza Long E Short Insieme
+{If Close Cross Under UpperBand then Sellshort("Short") nr_share contracts Next Bar At Market; 
+If Close Cross Over LowerBand  then Buy("Long") nr_share contracts Next Bar At Market;}
+
+
+
+
+
+//////////////			//////////////			//////////////
+
+// Test Motore Strategia Grezza Long E Short Separati
+If Time = 0 then mycount = 0 else mycount = mycount + 1;
+
+{If testphase = 1 then begin  // Solo Long
+	if mycounter = mycount then buy next bar at market;
+	if marketposition = 1 then sell next bar at market;
+end;
+
+If testphase = 2 then begin // Solo Short
+	if mycounter = mycount then sellshort next bar at market;
+	if marketposition = -1 then buytocover next bar at market;
+end;}
+//////////////			//////////////			//////////////}
+
+// Ingressi separati con fasce orarie long e short separate che si incrociano "Entra solo long in fascia oraria A Entra solo short in fascia oraria B".
+{if mycount >= MyStartTimeL and mycount <= MyEndTimeL then Begin
+	if Close Cross Over LowerBand  then Buy("Long") nr_share contracts Next Bar At Market;
+end;
+
+if mycount >= MyStartTimeS and mycount <= MyEndTimeS then begin 
+	if Close Cross Under UpperBand then Sellshort("Short") nr_share contracts Next Bar At Market;
+end;
+
+Setstopcontract;
+if input_stop_loss > 0 then begin;
+	Setstopposition;
+	SetStopLoss(stop_loss);
+end;}
+
+//////////////			//////////////			//////////////
+
+// Ingressi uniti con fasce orarie long e short insieme che si incrociano con prova exit in canlde counter in aggiunta a stop speculari e reversal position
+// e ptn fissati
+Var:
+MyEntryCountBar(0); // Aggiunto
+If Barssinceentry = 0 then MyEntryCountBar = 1 else  MyEntryCountBar = MyEntryCountBar + 1; // Aggiunto
+
+//Stop uniti
+if mycount >= MyStartTimeL and mycount <= MyEndTimeL then Begin;
+	if Close Cross Over LowerBand and PtnBaseSA(MyPtnLY) = True and (PtnBaseSA(MyPtnLN) = False) then Buy("Long") nr_share contracts Next Bar At Market;
+	if Close Cross Under UpperBand and PtnBaseSA(MyPtnSY) = True and (PtnBaseSA(MyPtnSN) = False) then Sellshort("Short") nr_share contracts Next Bar At Market;
+	if Marketposition >0 and MyExitCountBarL >0 and  MyEntryCountBar > MyExitCountBarL then Sell("Exit Bar Long") from entry("Long") Next Bar at Market; // Aggiunto
+	if Marketposition <0 and MyExitCountBarS >0 and  MyEntryCountBar > MyExitCountBarS then Buytocover("Exit Bar Short") from entry("Short") Next Bar At Market; // Aggiunto
+end;
+
+
+//Stop Uniti Buono Originale PER AVERE LO STOP LOSS PRECISO BISOGNA METTERE A 25 IL RISK ALTRIMENTI NON FUNZIONA QUANDO SI OTTIMIZZA METTERLO A 25%
+
+											// Stop loss speculare long e short insieme
+{Setstopcontract;
+if input_stop_loss > 0 then begin;
+	Setstopposition;
+SetStopLoss(stop_loss);   
+if input_target > 0 then begin;
+	Setstopposition;
+	Setprofittarget(take_profit);
+end;
+end;}
+
+
+{Setstopcontract; NON BUONO
+if input_target > 0 then begin;
+	Setstopposition;
+	Setprofittarget(take_profit);	
+end;}
+
+
+											// Stop loss separati long e short FUNZIONA
+input: input_stop_loss_long(12),  input_target_long(9);
+input: input_stop_loss_short(12),  input_target_short(9);
+
+var:stop_loss_long(0), stop_loss_short(0), take_profit_long(0), take_profit_short(0);
+
+
+stop_loss_long=((((InitialCapital + NetProfit) * risk)/100) * input_stop_loss_long);
+take_profit_long=((((InitialCapital + NetProfit) * risk)/100) * input_target_long);
+stop_loss_short=((((InitialCapital + NetProfit) * risk)/100) * input_stop_loss_short);
+take_profit_short=((((InitialCapital + NetProfit) * risk)/100) * input_target_short);
+
+
+Setstopcontract;
+if input_stop_loss_long > 0 and marketposition = 1 then begin;
+	Setstopposition;
+	SetStopLoss(stop_loss_long);   
+if input_target_long > 0 and marketposition = 1 then begin;
+	Setstopposition;
+	Setprofittarget(take_profit_long);
+end;
+end;
+	
+	
+if input_stop_loss_short > 0 and marketposition = -1 then begin;
+	Setstopposition;
+	SetStopLoss(stop_loss_short);
+if input_target_short > 0 and marketposition = -1 then begin;
+	Setstopposition;
+	Setprofittarget(take_profit_short); 
+end;
+end;
+
+
+
+//////////////			//////////////			//////////////
+
+// Ingressi separati con fasce orarie long e short separate che si incrociano ma con l'aggiunta dei pattern. Vedi altri input sotto
+
+{Input: MyStartTimeS(1), MyEndTimeS(10);
+Input: MyPtnLY(41), MyPtnSY(20), MyPtnLN(36), MyPtnSN(42);
+input: input_stop_loss(8);
+
+if mycount >= MyStartTimeL and mycount <= MyEndTimeL then Begin
+	if Close Cross Over LowerBand and PtnBaseSA(MyPtnLY) = True and (PtnBaseSA(MyPtnLN) = False) then Buy("Long") nr_share contracts Next Bar At Market;
+end;
+
+if mycount >= MyStartTimeS and mycount <= MyEndTimeS then begin 
+	if Close Cross Under UpperBand and PtnBaseSA(MyPtnLY) = True and (PtnBaseSA(MyPtnLN) = False) then Sellshort("Short") nr_share contracts Next Bar At Market;
+end;
+
+Setstopcontract;
+if input_stop_loss > 0 then begin;
+	Setstopposition;
+	SetStopLoss(stop_loss);
+end;}
+
+//////////////			//////////////			//////////////
