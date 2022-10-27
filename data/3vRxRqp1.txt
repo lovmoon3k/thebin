@@ -1,0 +1,290 @@
+//  QUESTO TEST SERVE A VERIFICARE CON UNA STRATEGIA FITTIZIA INGRESSI E USCITE LIMIT CANCELLANDO GLI ORDINI PENDENTI PRIMA DELL'ESECUZIONE
+// DI UN NUOVO ORDINE O UNA NUOVA CONDIZIONE
+
+                                                //TEST CANCEL PENDING ALERT BTC/PERP 1 MINUTO
+
+//@version=5
+strategy(title="Study Test Alert/Ingre Limit/Canc Ord Pend", overlay=true, precision = 4,
+     //max_bars_back=5000, // Serve Per Caricare Più Storico Per Il Trailing Stop
+     pyramiding=0,
+     initial_capital=150,
+     commission_type=strategy.commission.percent,
+     commission_value=0.1,
+     slippage=3,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=15)
+     
+
+// Input
+
+input_stop_loss_long = input.float(title='stop_loss_long', defval=0.1, minval=0, maxval=100, step=0.1, group='Stop&Target')
+input_take_profit_long = input.float(title='take_profit_long', defval=0.1, minval=0, maxval=100, step=0.1, group='Take Profit')
+input_stop_loss_short = input.float(title='stop_loss_short', defval=0.1, minval=0, maxval=100, step=0.1, group='Stop&Target')
+input_take_profit_short = input.float(title='take_profit_short', defval=0.1, minval=0, maxval=100, step=0.1, group='Take Profit')
+input_cancel_pending_limit_long = input.int(title='cancel_limit_pending_long', defval=10, minval=0, maxval=500, group='Cancel Pending Orders')
+input_cancel_pending_limit_short = input.int(title='cancel_limit_pending_short', defval=10, minval=0, maxval=500, group='Cancel Pending Orders')
+input_MyExitCountBarL = input.int(title='MyExitCountBarL', defval=2, minval=0, maxval=500, group='Exit Bars Counter')
+input_MyExitCountBarS = input.int(title='MyExitCountBarS', defval=2, minval=0, maxval=500, group='Exit Bars Counter')
+// only_Long = input.bool(title='Solo long trade', defval=false, inline='1', group='Direzione')
+// only_Short = input.bool(title='Solo short trade', defval=false, inline='1', group='Direzione')
+
+
+// Calculate MyEntryCountBar
+MyEntryCountBar = bar_index - strategy.opentrades.entry_bar_index(0)
+MyEntryCountBar := MyEntryCountBar + 1
+//plot(MyEntryCountBar, title="MyEntryCountBar")
+// plot(bar_index, title="bar_index")
+// plot(strategy.opentrades.entry_bar_index(0), title="strategy.open")
+plotshape(MyEntryCountBar >  input_MyExitCountBarL and strategy.position_size > 0, text="MyExitCountBarL")
+plotshape(MyEntryCountBar > input_MyExitCountBarS and strategy.position_size < 0, text="MyExitCountBarS")
+
+
+// Variabili Stop E Take Profit Long
+stop_loss_long_price = (strategy.opentrades.entry_price(0) - (strategy.opentrades.entry_price(0) * input_stop_loss_long) / 100)
+stop_loss_long = (strategy.opentrades.entry_price(0) - stop_loss_long_price) / syminfo.mintick
+take_profit_long_price = (strategy.opentrades.entry_price(0) + ((strategy.opentrades.entry_price(0) * input_take_profit_long) / 100))
+take_profit_long = (take_profit_long_price - strategy.opentrades.entry_price(0)) / syminfo.mintick
+
+// Variabili Stop E Take Profit Short
+stop_loss_short_price = (strategy.opentrades.entry_price(0) + (strategy.opentrades.entry_price(0) * input_stop_loss_short) / 100)
+stop_loss_short = (stop_loss_short_price - strategy.opentrades.entry_price(0)) / syminfo.mintick
+take_profit_short_price = (strategy.opentrades.entry_price(0) - ((strategy.opentrades.entry_price(0) * input_take_profit_short) / 100))
+take_profit_short =(strategy.opentrades.entry_price(0) - take_profit_short_price) / syminfo.mintick
+
+plot(strategy.position_size != 0 ? strategy.opentrades.entry_price(0) : na , color=strategy.position_size > 0 ? color.blue : strategy.position_size < 0 ? color.red : na, style=plot.style_linebr, title="entry_price") // stampa l'entry price in rosso se short in blu se long
+plot(strategy.position_size > 0 ?  take_profit_long_price : strategy.position_size < 0 ? take_profit_short_price: na, color=color.green, style=plot.style_cross, linewidth=2, title="tk_limit")
+plot(strategy.position_size > 0 ?  stop_loss_long_price : strategy.position_size < 0 ? stop_loss_short_price: na, color=color.red, style=plot.style_cross, linewidth=2, title="sl_limit")
+
+bgcolor(strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : na, transp=90)// sfondo verde quando siamo long, sfondo rosso quando siamo short, no sfondo quando non siamo in posizione //color.new(color.red, 99): na)
+
+
+//------------------------------------ Inizio Codice se voglio attivare un trigger ored touched ------------------------------------//
+
+
+// Variabili Trigger Fill Or Cancel Long
+input_trigger_fill_or_cancel_long = input.float(title='trigger_fill_or_cancel_long', defval=0.02, minval=0, maxval=100, step=0.01, group='Trigger Fill Or Cancel')
+input_trigger_fill_or_cancel_short = input.float(title='trigger_fill_or_cancel_short', defval=0.02, minval=0, maxval=100, step=0.01, group='Trigger Fill Or Cancel')
+
+trigger_fill_or_cancel_long = (strategy.opentrades.entry_price(0) - (strategy.opentrades.entry_price(0) * input_trigger_fill_or_cancel_long) / 100)
+//plot(trigger_fill_or_cancel_long, title="fill_or_canc_l", color=color.yellow)
+
+// take_profit_long_price = (strategy.opentrades.entry_price(0) + ((strategy.opentrades.entry_price(0) * input_take_profit_long) / 100))
+
+// Variabili Trigger Fill Or Cancel Long
+trigger_fill_or_cancel_short = (strategy.opentrades.entry_price(0) + (strategy.opentrades.entry_price(0) * input_trigger_fill_or_cancel_short) / 100)
+plot(trigger_fill_or_cancel_short, title="fill_or_canc_s", color=color.yellow)
+
+// take_profit_short_price = (strategy.opentrades.entry_price(0) - ((strategy.opentrades.entry_price(0) * input_take_profit_short) / 100))
+
+
+
+
+range_barre_trailing = bar_index - strategy.opentrades.entry_bar_index(0) +1
+plot(range_barre_trailing, title = 'lunghezza')
+
+highesthigh = strategy.opentrades ==1 ? ta.highest(high, range_barre_trailing): na
+plot(highesthigh, title="hh",  color=color.rgb(238, 68, 187))
+
+lowestlow = strategy.opentrades ==1 ? ta.lowest(low, range_barre_trailing): na
+//plot(lowestlow, title="ll", color=color.rgb(68, 238, 68))
+
+
+
+
+pending_cancelled_l = 0
+if trigger_fill_or_cancel_long <= lowestlow
+    pending_cancelled_l := 1
+else
+    pending_cancelled_l := 0
+plot(pending_cancelled_l, title="pen_canc_l")
+
+pending_cancelled_s = 0
+if trigger_fill_or_cancel_short >= highesthigh
+    pending_cancelled_s := 1
+else
+    pending_cancelled_s := 0
+plot(pending_cancelled_s, title="pen_canc_s")
+
+
+
+
+// // Cancel the pending take profit and stop loss orders left once they are hit QUESTO FUNZIONA MA VA TESTATO
+// // var int hit_tk = 0
+// var int hit_tk_sl = 0
+
+// if high >= take_profit_long or low <= stop_loss_long or low <= take_profit_short or high >=  stop_loss_short 
+//     hit_tk_sl := 0
+// else
+//     hit_tk_sl := 1
+// //plot(hit_tk_sl)
+
+
+
+
+//------------------------------------ Fine Codice se voglio attivare un trigger ored touched ------------------------------------//
+
+
+/////////////////////////  INIZIO LAVORO DA QUI IN POI ///////////////////////// ,"delay":"15"}'
+
+
+// Qui abbiamo in delay buy, sell, close command: ,"delay":"15" per dare il tempo di cancellare prima eventuali ordini pendenti e poi entrare in posizione
+// Il cancel command non deve avere il delay.
+buy_command = '{"pair":"BTC-PERP","unitsPercent":10,"unitsType":"percentBalance","exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isBuy":true,"isLimit":true,"price":19139,"limitPriceType":"bestPrice","stopLossPercent":"-0.1","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"0.1"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"delay":"15"}'
+sell_command = '{"pair":"BTC-PERP","unitsPercent":10,"unitsType":"percentBalance","exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isSell":true,"isLimit":true,"price":19141,"limitPriceType":"bestPrice","stopLossPercent":"-0.1","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"0.1"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"delay":"15"}'
+close_command = '{"pair":"BTC-PERP","unitsPercent":10,"exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isLimit":true,"price":19143,"limitPriceType":"bestPrice","isClose":true}'
+//cancel_command = '{"pair":"BTC-PERP","unitsPercent":10,"exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isLimit":true,"price":19144,"limitPriceType":"bestPrice","stopLossPercent":"-0.1","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"0.1"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"cancelAll":true}'
+
+// Condizione Entrata Long
+condEntryLong = close > open and close[1] > open[1]
+//Condizione Entrata Short
+condEntryShort = open > close and  open[1] >close[1]
+
+
+// Cancel the pending long entry order if not filled in the number bar since 1      
+if condEntryLong and strategy.position_size <0 or condEntryLong and strategy.position_size ==0 //or strategy.position_size >0 and MyEntryCountBar > input_MyExitCountBarL
+    //strategy.cancel("operazioneShort") // when = CancelLong // //strategy.cancel("operazioneLong")
+    strategy.cancel_all()
+    alert(message='{"pair":"BTC-PERP","unitsPercent":10,"exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isLimit":true,"price":19144,"limitPriceType":"bestPrice","stopLossPercent":"-0.1","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"0.1"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"cancelAll":true}', freq=alert.freq_once_per_bar_close)
+// plotshape(MyEntryCountBar == input_cancel_pending_limit_long, title="cancel_pending_limit_long")
+
+// Entrata Long PROBABILMENTE RITARDATA DALLA STRINGA BUY COMMAND PER DARE PRIMA IL TEMPO DI CANCELLARE EVENTUALI ORDINI APERTI
+if condEntryLong //and strategy.opentrades == 0 FORSE AGGIUNGERE RITARDI INGRESSO PER VIA DELL'ANNULLAMENTO ORDINITK E SL
+    strategy.entry('operazioneLong', strategy.long, limit = close, alert_message = "Open Long Position", comment = buy_command)
+
+if strategy.opentrades == 1
+    strategy.exit('SL e TP', from_entry='operazioneLong', loss=stop_loss_long, profit=take_profit_long, alert_message = "Your Long SL-TP Has Been Triggered.", comment = close_command) //limit=take_profit_short_price    
+// Cancel the pending long entry order if not filled in the number bar since 1
+// if MyEntryCountBar == input_cancel_pending_limit_long
+// 	strategy.cancel("operazioneLong") // when = CancelLong
+//     alert(message='{"pair":"BTC-PERP","unitsPercent":"6","exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isLimit":true,"price":19180,"limitPriceType":"bestPrice","stopLossPercent":"-0.1","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"0.1"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"cancelAll":true}', freq=alert.freq_once_per_bar_close)
+// plotshape(MyEntryCountBar == input_cancel_pending_limit_long, title="cancel_pending_limit_long")
+
+// Cancel the pending long entry order if not filled in the number bar since 2
+// if pending_cancelled_l == 1 and condEntryShort
+// 	strategy.cancel("operazioneLong") // when = CancelLong
+//     alert(message='{"pair":"BTC-PERP","unitsPercent":10,"exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isLimit":true,"price":19159,"limitPriceType":"bestPrice","stopLossPercent":"-0.1","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"0.1"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"delay":"10","cancelAll":true}', freq=alert.freq_once_per_bar_close)
+// plotshape(pending_cancelled_l == 1 and condEntryShort, title="cancel_pending_limit_long")
+
+// Uscita Long (stop/limit x prezzo) (loss/profit x ticks)
+// if strategy.opentrades ==1 and high <= stop_loss_long or strategy.opentrades ==1 and high >= stop_loss_long
+//     strategy.exit('SL e TP LONG', from_entry='operazioneLong', loss=stop_loss_long, profit=take_profit_long, alert_message = "Your Long SL-TP Has Been Triggered.")//, comment = close_command) //limit=take_profit_long_price 
+
+//Uscita Long Exit Count Bar
+if strategy.opentrades ==1 and MyEntryCountBar > input_MyExitCountBarL
+    strategy.close(id='operazioneLong', alert_message = "Close Long Position", comment = close_command)
+
+
+//plot(strategy.opentrades, title = "open")
+
+
+
+
+//Cancel the pending short entry order if not filled in the number bar since 1
+//LA CANCELLAZZIONE PENDING DOPO EXIT BARS: or strategy.position_size >0 and MyEntryCountBar > input_MyExitCountBarL 
+//POTREBBE SEERE RIDONDANTE E FORSE INCASINATA PERCHE' GLI ORDINI CLOSE E CANCEL ARRIVANO ISSIEME E QUINDI DIVREI AGGIUNGERE
+//UN RITARDO SULLA STRINGA CANCEL E AUMENTARE DI CONSEGUENZA ANCHE IL RITARDO ATTUALE DEGLI INGRESSI PER TENERLI SEMPRE DISTANTI               
+if condEntryShort and strategy.position_size >0 or condEntryShort and strategy.position_size ==0 //or strategy.position_size <0 and MyEntryCountBar > input_MyExitCountBarS
+    //strategy.cancel("operazioneLong") // when = CancelShort // //strategy.cancel("operazioneShort")
+    strategy.cancel_all()
+    alert(message='{"pair":"BTC-PERP","unitsPercent":10,"exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isLimit":true,"price":19144,"limitPriceType":"bestPrice","stopLossPercent":"-0.1","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"0.1"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"cancelAll":true}', freq=alert.freq_once_per_bar_close)
+// plotshape(MyEntryCountBar == input_cancel_pending_limit_short, title="cancel_pending_limit_short")
+
+// Entrata Short PROBABILMENTE RITARDATA DALLA STRINGA BUY COMMAND PER DARE PRIMA IL TEMPO DI CANCELLARE EVENTUALI ORDINI APERTI
+if condEntryShort //and strategy.opentrades == 0 // FORSE AGGIUNGERE RITARDI INGRESSO PER VIA DELL'ANNULLAMENTO ORDINITK E SL
+    strategy.entry('operazioneShort', strategy.short, limit = close, alert_message = "Open Short Position", comment = sell_command)
+
+// Uscita Short (stop/limit x prezzo) (loss/profit x ticks)
+if strategy.opentrades == 1
+    strategy.exit('SL e TP', from_entry='operazioneShort', loss=stop_loss_short, profit=take_profit_short, alert_message = "Your Short SL-TP Has Been Triggered.", comment = close_command) //limit=take_profit_short_price    
+
+//Cancel the pending short entry order if not filled in the number bar since 1
+// if MyEntryCountBar == input_cancel_pending_limit_short
+//     strategy.cancel("operazioneShort") // when = CancelShort
+//     alert(message='{"pair":"BTC-PERP","unitsPercent":"6","exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isLimit":true,"price":19180,"limitPriceType":"bestPrice","stopLossPercent":"-0.1","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"0.1"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"cancelAll":true}', freq=alert.freq_once_per_bar_close)
+// plotshape(MyEntryCountBar == input_cancel_pending_limit_short, title="cancel_pending_limit_short")
+
+//Cancel the pending short entry order if not filled in the number bar since 2
+// if pending_cancelled_s == 1 and condEntryLong
+//     strategy.cancel("operazioneShort") // when = CancelShort
+//     alert(message='{"pair":"BTC-PERP","unitsPercent":10,"exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isLimit":true,"price":19159,"limitPriceType":"bestPrice","stopLossPercent":"-0.1","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"0.1"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"delay":"10","cancelAll":true}', freq=alert.freq_once_per_bar_close)
+// plotshape(pending_cancelled_s == 1 and condEntryLong, title="cancel_pending_limit_short")
+
+
+
+// Uscita Long Exit Count Bar
+if strategy.opentrades ==1 and MyEntryCountBar > input_MyExitCountBarS
+    strategy.close(id='operazioneShort', alert_message = "Close Short Position", comment = close_command)
+
+// // Cancel the pending take profit and stop loss orders left once they are hit //on both side long and short
+// // FORSE METTERE CANCEL ALL
+// if strategy.position_size > 0 and hit_tk_sl == 1
+//     strategy.cancel("SL e TP LONG") // when = hit_tk_sl
+// if strategy.position_size < 0 and hit_tk_sl == 1
+//     strategy.cancel("SL e TP SHORT") // when = hit_tk_sl
+//     alert(message='{"pair":"LEO-PERP","unitsPercent":"6","exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isLimit":true,"price":4.2992,"limitPriceType":"bestPrice","stopLossPercent":"-12","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"9"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"cancelAll":true}', freq=alert.freq_once_per_bar_close)
+// plotshape(hit_tk_sl, title="hit_tk_sl")
+
+plot(strategy.position_size, title="posit_size")
+plotshape(condEntryLong and strategy.position_size <0 or condEntryLong and strategy.position_size ==0)
+plotshape(condEntryShort and strategy.position_size >0 or condEntryShort and strategy.position_size ==0)
+
+
+// Nome Alert: Test 4 Cancellare Alert
+// Commento Alert: {{strategy.order.comment}}
+
+
+/////////////////////////  FINE LAVORO DA QUI  /////////////////////////
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+// ELABORAZIONE CANCELLAZZIONE ORDINE PENDENTE DOPO OPPOSTO SE PRESO UN TK O STOP //
+//PER METTERE INGRESSI LIMIT SU TV-HUB NON ABBIAMO MESSO CANCEL PENDING ORDERS, PER QUESTO MOTIVO LI DEVO FARE A MANO //
+
+// // QUESTO FUNZIONA MA VA TESTATO
+// // var int hit_tk = 0
+// var int hit_tk_sl = 0
+
+// if high >= take_profit_long or low <= stop_loss_long or low <= take_profit_short or high >=  stop_loss_short 
+//     hit_tk_sl := 0
+// else
+//     hit_tk_sl := 1
+// plot(hit_tk_sl)
+
+
+
+//plot(strategy.opentrades, title="open_trades")
+//plot(strategy.position_size, title="position_size")
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+// PROVA ANCHE CON ALTRI METODI DI POSIZIONE
+
+// bought = strategy.position_size[0]> strategy.position_size[1]
+// Close_TP = false    
+// Close_TP := strategy.position_size[1] - strategy.position_size[0] and strategy.position_size[1] != 0 and strategy.position_size[0] != 0
+
+
+// plotshape(Close_TP,title="Close_TP", style=shape.xcross, color=color.blue, size =size.small, editable = true)
+// plot(strategy.position_size[1],"Position Old")
+// plot(strategy.position_size,"Position")
+
+
+//plot(strategy.opentrades.entry_time(0)[1], title="bar_in")
+
+
+//     strategy.cancel("operazioneLong") // when = CancelLong
+//     alert(message='{"pair":"LEO-PERP","unitsPercent":"6","exchange":"Ftx","apiKey":"FTX","token":"e6d67d6e-1a5f-4e53-a9fd-6276dfa2a34b","isLimit":true,"price":4.2992,"limitPriceType":"bestPrice","stopLossPercent":"-12","stopLossType":"percent","leverage":1,"marginType":"ISOLATED","targets":[{"idx":1,"amount":"100","takeProfitPercent":"9"}],"targetType":"percent","targetAmountInPercent":true,"closeCurrentPosition":true,"preventPyramiding":true,"cancelAll":true}', freq=alert.freq_once_per_bar_close)
+// plotshape(high == take_profit_long, title="pending_tk_stop_l")
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
