@@ -1,0 +1,107 @@
+#include <opencv2/core.hpp>
+#include <opencv2/videoio.hpp>
+#include <opencv2/highgui.hpp>
+#include <iostream>
+
+using namespace cv;
+using namespace std;
+
+void merge_images(cv::Mat* background, cv::Mat* upcoming, int x, int y)
+{
+  auto handle_cv_8uc4 = [=](int i, int j)
+  {
+
+    if(upcoming->at<cv::Vec4b>(j, i)[3] > 10)//10 is only epsilon for trash hold, you can put also 0 or anything else.
+    {
+      background->at<cv::Vec4b>(y+j, x+i) = upcoming->at<cv::Vec4b>(j, i);
+    }
+  };
+
+  auto handle_cv_8uc3 = [=](int i, int j)
+  {
+    background->at<cv::Vec4b>(y+j, x+i)[0] = upcoming->at<cv::Vec3b>(j, i)[0];
+    background->at<cv::Vec4b>(y+j, x+i)[1] = upcoming->at<cv::Vec3b>(j, i)[1];
+    background->at<cv::Vec4b>(y+j, x+i)[2] = upcoming->at<cv::Vec3b>(j, i)[2];
+    background->at<cv::Vec4b>(y+j, x+i)[3] = 255;
+  };
+
+  for(int i = 0; i < upcoming->cols; i++)
+  {
+    for(int j = 0; j < upcoming->rows; j++)
+    {
+      if(j + y >= background->rows)
+      {
+        break;
+      }
+
+      if(x + i >= background->cols)
+      {
+        return;
+      }
+
+      switch(upcoming->channels())
+      {
+        case 3:
+        {
+          handle_cv_8uc3(i, j);
+          break;
+        }
+
+        case 4:
+        {
+          handle_cv_8uc4(i, j);
+          break;
+        }
+
+        default:
+        {
+          //maybe error?
+        }
+      }
+
+    }
+  }
+}
+
+int main(int, char**)
+{
+  Mat frame;
+  //--- INITIALIZE VIDEOCAPTURE
+  VideoCapture cap;
+  // open the default camera using default API
+  // cap.open(0);
+  // OR advance usage: select any API backend
+  int deviceID = 0;             // 0 = open default camera
+  int apiID = cv::CAP_ANY;      // 0 = autodetect default API
+  // open selected camera using selected API
+  cap.open(deviceID, apiID);
+  // check if we succeeded
+  if (!cap.isOpened()) {
+    cerr << "ERROR! Unable to open camera\n";
+    return -1;
+  }
+  //--- GRAB AND WRITE LOOP
+  cout << "Start grabbing" << endl
+       << "Press any key to terminate" << endl;
+
+  auto background = imread("index.png");
+  for (;;)
+  {
+    // wait for a new frame from camera and store it into 'frame'
+    cap.read(frame);
+    cv::Rect roi( cv::Point( 50, 50 ), background.size() );
+    background.copyTo( frame( roi ) );
+    // check if we succeeded
+    if (frame.empty()) {
+      cerr << "ERROR! blank frame grabbed\n";
+      break;
+    }
+    // show live and wait for a key with timeout long enough to show images
+
+    imshow("underlay result", frame);
+    if (waitKey(5) >= 0)
+      break;
+  }
+  // the camera will be deinitialized automatically in VideoCapture destructor
+  return 0;
+}
