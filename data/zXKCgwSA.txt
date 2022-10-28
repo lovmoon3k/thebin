@@ -1,0 +1,208 @@
+#define _USE_MATH_DEFINES 
+#include <iostream>
+#include <iomanip>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <cmath>
+#include <ctime>
+using namespace std;
+using namespace chrono;
+
+typedef vector <double> vec;
+typedef vector <vec> mat;
+
+const double v = 10;
+
+mat operator * (const mat& A, const mat& B)
+{
+    int n = A.size(), m = B.size(), l = B[0].size();
+
+    mat res(n, vec(l));
+
+    for (int i = 0; i < n; ++i)
+        for (int j = 0; j < l; ++j)
+            for (int k = 0; k < m; ++k)
+                res[i][j] += A[i][k] * B[k][j];
+
+    return res;
+}
+
+vec Gauss(mat A, vec b)
+{
+    int n = b.size();
+
+    // прямой ход
+    for (int i = 0; i < n; ++i)
+    {
+        if (fabs(A[i][i]) < 1e-5)
+        {
+            int m = i;
+
+            for (int k = i + 1; k < n; ++k)
+                if (fabs(A[k][i]) > fabs(A[m][i])) m = k;
+
+            swap(b[i], b[m]);
+
+            for (int j = i; j < n; ++j)
+                swap(A[i][j], A[m][j]);
+        }
+
+        // нормируем строку 
+        for (int j = i + 1; j < n; ++j)
+            A[i][j] /= A[i][i];
+
+        // нормируем строку
+        b[i] /= A[i][i]; A[i][i] = 1;
+
+        // вычитаем из нижних строк текущую строку
+        // получаем в i-ом столбце нули
+        for (int k = i + 1; k < n; ++k)
+        {
+            for (int j = i + 1; j < n; ++j)
+                A[k][j] -= A[i][j] * A[k][i];
+
+            b[k] -= b[i] * A[k][i];
+        }        
+    }
+
+    vec x(n);
+
+    // обратный ход
+    for (int i = n - 1; i >= 0; --i)
+    {
+        x[i] = b[i];
+
+        for (int j = i + 1; j < n; ++j)
+            x[i] -= A[i][j] * x[j];
+    }
+
+    return x; 
+}
+
+void print(mat& A)
+{
+    int n = A.size();
+
+    for (int i = 0; i < n; ++i, cout << "\n")
+        for (int j = 0; j < n; ++j)
+            cout << left << setw(10) << A[i][j];
+}
+
+void print(vec& a)
+{
+    int n = a.size();
+    
+    cout << "Вектор: (";
+
+    for (int i = 0; i < n - 1; ++i)
+        cout << a[i] << ", ";
+
+    cout << a[n - 1] << ")\n\n";
+}
+
+void print(mat& A, vec& b)
+{
+    int n = b.size();
+    
+    cout << "Матрица СЛУ имеет вид:\n";
+
+    for (int i = 0; i < n; ++i, cout << "\n")
+    {
+        for (int j = 0; j < n; ++j)
+            cout << left << setw(8) << A[i][j];
+
+        cout << "| " << b[i];
+    }
+
+    cout << "\n";
+}
+
+mat task_matrix(int n)
+{
+    mat res(n, vec(n));
+
+    for (int i = 0; i < n; ++i)
+        for (int j = 0; j < n; ++j)
+        {
+            res[i][j] = v + i;
+
+            if (i != j) res[i][j] /= 100.0;
+            else
+            {
+                int p = rand() % 5;
+                if (p == 0)  res[i][j] = 0;
+            }
+        }
+
+    return res;
+}
+
+mat transpose(mat& A)
+{
+    mat res(A[0].size(), vec(A.size()));
+
+    for (int i = 0; i < A.size(); ++i)
+        for (int j = 0; j < A[0].size(); ++j)
+            res[j][i] = A[i][j];
+
+    return res;
+}
+
+bool check(mat& A)
+{
+    const double EPS = 1e-9;
+
+    bool res = true;
+
+    for (int i = 0; i < A.size() && res; ++i)
+        for (int j = 0; j < A[0].size() && res; ++j)
+            if (i == j) res = fabs(A[i][j] - 1) < EPS;
+            else res = fabs(A[i][j]) < EPS;
+
+    return res;
+}
+
+int main()
+{
+    srand(time(NULL));
+    setlocale(LC_ALL, "Russian");
+    cout << fixed << setprecision(2);
+
+    int n = 100;
+    mat A = task_matrix(n);
+
+    mat B(n, vec(n));
+
+    for (int i = 0; i < n; ++i)
+    {
+        vec b(n); b[i] = 1;
+        B[i] = Gauss(A, b);
+    }
+
+    B = transpose(B);
+
+    cout << "Матрица A:\n\n";
+    print(A);
+
+    cout << "\nМатрица B = A^(-1):\n\n";
+    print(B);
+
+    cout << "\nМатрица C = A * B = E\n\n";
+    mat C = A * B;
+
+    print(C);
+
+    if (check(C)) cout << "\nCORRECT\n\n";
+    else cout << "\nINCORRECT\n\n";
+
+    cout << "\nМатрица C = B * A = E\n\n";
+    C = B * A;
+
+    print(C);
+
+    if (check(C)) cout << "\nCORRECT\n\n";
+    else cout << "\nINCORRECT\n\n";
+
+    return 0;
+}   
