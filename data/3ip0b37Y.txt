@@ -1,0 +1,96 @@
+<?php
+
+// inside routes/api.php
+// 
+// Route::group([
+//     'prefix'     => 'api/proxy/',
+// ], function(){
+//     Route::any('/{any}', 'ProxyController@handle')->where('any', '.*');
+// });
+
+// inside config/services
+// 'proxies' => [
+//     'cukai-tanah' => [
+//         'endpoint' => env('CUKTNH_URL', 'https://10.192.23.332/api'),
+//         'token'    => env('CUKTNH_TOKEN', 'xxx'),
+//     ],
+// ],
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Http;
+
+class ProxyController extends Controller
+{
+    protected function client($service)
+    {
+        $config = config('services.proxies.' . $service);
+        return Http::baseUrl($config['endpoint'])->withHeaders([
+            'Accept'        => 'application/json',
+            'Authorization' => 'Bearer ' . $config['token'],
+        ]);
+    }
+
+    public function handle(Request $request, $path)
+    {
+        $paths = explode('/', $path);
+        // paths = ['cukai-tanah', 'somepath', 'someother-path']
+
+        // get the client based on the first path
+        $client = $this->client($paths[0]);
+
+        array_shift($paths);
+        // shift to get only ['somepath', 'someother-path']
+
+        $path = implode('/', $paths);
+
+        $method = $request->method();
+        if(in_array($method, ['GET', 'POST', 'PUT', 'DELETE'])) {
+            switch($method) {
+                case 'GET':
+                    $response = $client->get($path, $request->all());
+                    break;
+                case 'POST':
+                    $response = $client->post($path, $request->all());
+                    break;
+                case 'PUT':
+                    $response = $client->put($path, $request->all());
+                    break;
+                case 'DELETE':
+                    $response = $client->delete($path, $request->all());
+                    break;
+            }
+
+            if($response->ok()) {
+                return $response->json();
+            }
+
+            return $this->error($response->json(), 'Error', $response->status());
+        }
+
+        return $this->send();
+    }
+
+    public function send($data = [], $message = 'Successful', $code = 200)
+    {
+        return new Response([
+            'message'    => $message,
+            'data'       => $data
+        ], $code, [
+            'Content-Type' => 'application/json'
+        ]);
+    }
+
+    public function error($errors = [], $message = 'Error', $code = 400)
+    {
+        return new Response([
+            'message'    => $message,
+            'errors'     => $errors
+        ], $code, [
+            'Content-Type' => 'application/json'
+        ]);
+    }
+}
