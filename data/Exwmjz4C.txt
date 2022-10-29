@@ -1,0 +1,146 @@
+--Создание спец. таблицы.
+CREATE TABLE spec
+(
+    id int PRIMARY KEY,
+    table_name VARCHAR NOT NULL,
+    column_name VARCHAR NOT NULL,
+    current_maximum_value int NOT NULL
+);
+--Добавление в спец. таблицу записи (1, spec, id, 1). // информация о том, что максимальное число в столбце id спец. таблицы равно 1
+INSERT INTO spec (id, table_name, column_name, current_maximum_value) VALUES (1, 'spec', 'id', 1);
+--Создание хранимой процедуры (ХП).
+
+
+CREATE OR REPLACE FUNCTION maxval(_table_name spec.table_name%type, _column_name spec.column_name%type)
+  RETURNS int AS
+$$
+DECLARE
+
+  _max_value int;
+    BEGIN
+        IF EXISTS(SELECT *  FROM spec
+                   WHERE table_name = _table_name AND column_name = _column_name)
+        THEN
+            SELECT  current_maximum_value INTO _max_value FROM spec
+            WHERE table_name = _table_name AND column_name = _column_name;
+            UPDATE spec SET current_maximum_value = _max_value+1
+            WHERE table_name = _table_name AND column_name = _column_name;
+            RETURN _max_value+1;
+        ELSE
+            EXECUTE format('SELECT Max(%I) FROM %I', quote_ident(_column_name), quote_ident(_table_name)) INTO _max_value;
+            IF (_max_value IS NULL)
+            THEN
+                INSERT INTO spec(id, table_name, column_name, current_maximum_value)
+                VALUES (maxval ('spec','id'), _table_name, _column_name, 1 );
+                RETURN 1;
+            ELSE
+                INSERT INTO spec(id, table_name, column_name, current_maximum_value)
+                VALUES (maxval ('spec','id'), _table_name, _column_name, _max_value+1);
+                RETURN _max_value+1;
+            end if;
+        END IF;
+
+    END
+    $$ LANGUAGE plpgsql;
+
+--Вызов ХП с параметрами 'spec', 'id'
+
+SELECT maxval('spec', 'id');
+
+-- Распечатка содержимого спец. таблицы
+
+SELECT * FROM spec;
+--Вызов ХП с параметрами 'spec', 'id'
+
+SELECT maxval('spec', 'id');
+
+--Распечатка содержимого спец. таблицы
+
+SELECT * FROM spec;
+
+-- Создание новой таблицы с одним столбцом 'id'
+
+CREATE TABLE test
+(
+    id int NOT NULL
+);
+
+--Добавление в таблицу test записи (10)
+
+INSERT INTO test(id)
+VALUES(10);
+
+--Вызов ХП с параметрами 'test', 'id'
+
+SELECT maxval('test', 'id');
+
+--Распечатка содержимого спец. таблицы
+
+SELECT * FROM spec;
+
+--Вызов ХП с параметрами 'test', 'id'
+
+SELECT maxval('test', 'id');
+
+--Распечатка содержимого спец. таблицы
+
+SELECT * FROM spec;
+
+--Создание таблицы 'test2' с столбцами 'numValue1', 'numValue2'
+
+CREATE TABLE test2
+(
+    num_value1 int NOT NULL,
+    num_value2 int NOT NULL
+);
+
+--Вызов ХП с параметрами 'test2', 'numValue1'
+
+SELECT maxval('test2', 'num_value1');
+
+--  Распечатка содержимого спец. таблицы
+
+SELECT * FROM spec;
+
+--Вызов ХП с параметрами 'test2', 'numValue1'
+
+SELECT maxval('test2', 'num_value1');
+
+--Распечатка содержимого спец. таблицы
+
+SELECT * FROM spec;
+
+--Добавление в таблицу 'test2'(numValue1, numValue2) записи (2, 13)
+
+INSERT INTO public.test2(num_value1, num_value2)
+VALUES(2, 13);
+
+--Вызов ХП с параметрами 'test2', 'numValue2'
+
+SELECT maxval('test2', 'num_value2');
+
+--Распечатка содержимого спец. таблицы
+
+SELECT * FROM spec;
+
+--Вызов вашей ХП с параметрами 'test2', 'num_value1' 5 раз.
+
+SELECT maxval('test2', 'num_value1');
+SELECT maxval('test2', 'num_value1');
+SELECT maxval('test2', 'num_value1');
+SELECT maxval('test2', 'num_value1');
+SELECT maxval('test2', 'num_value1');
+
+--Распечатка содержимого спец. таблицы
+
+SELECT * FROM spec;
+
+--Удаление ХП
+
+DROP FUNCTION  maxval(_table_name varchar, _column_name varchar);
+
+--Удаление таблиц
+
+DROP TABLE spec;
+DROP TABLE test;
+DROP TABLE test2;
