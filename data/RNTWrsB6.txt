@@ -1,0 +1,111 @@
+from torchvision.models import resnet18
+
+
+# YOU CAN DEFINE AUGMENTATIONS HERE
+seed_everything(123456)
+batch_size = 256
+
+train_transform = transforms.Compose(
+    [
+        transforms.Resize((256, 256)),
+        transforms.CenterCrop((224, 224)),
+        transforms.ColorJitter(hue=.05, saturation=.05),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(20),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ]
+)
+val_transform = transforms.Compose(
+    [
+        transforms.Resize((256, 256)),
+        transforms.CenterCrop((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ]
+)
+
+train_dataset = ImageFolder('dataset/dataset/train', transform=train_transform)
+val_dataset = ImageFolder('dataset/dataset/val', transform=val_transform)
+# REPLACE ./dataset/dataset WITH THE FOLDER WHERE YOU DOWNLOADED AND UNZIPPED THE DATASET
+device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+
+num_workers = 0 if torch.cuda.is_available() else 8
+
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,
+                              pin_memory=True)
+val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
+
+//new cell
+
+
+class YourModule(pl.LightningModule):
+    def __init__(self, learning_rate, device_tr):
+        super().__init__()
+
+        self.model = resnet18(pretrained=True).to(device_tr)
+
+        self.model.fc = nn.Identity()
+
+        self.classifier = nn.Sequential(
+            nn.Linear(512, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 200)
+        ).to(device)
+
+        self.optimizer = torch.optim.Adam(self.classifier.parameters(), lr=learning_rate)
+        lambda_func = lambda epoch: 0.95 ** epoch
+
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lambda_func)
+        self.loss = nn.CrossEntropyLoss()
+
+    def forward(self, x):
+        features = self.model(x)
+        return  self.classifier(features)
+
+    def configure_optimizers(self):
+        return {
+            "optimizer": self.optimizer,
+            "lr_scheduler": {
+                "scheduler": self.scheduler,
+                "monitor": "accuracy",
+                "frequency": 1
+            },
+        }
+
+    def training_step(self, train_batch, batch_idx):
+        images, target = train_batch
+        preds = self.forward(images)
+        loss = self.loss(preds, target)
+        self.log("train_loss", loss, prog_bar=True)
+        wandb.log({"train_loss": loss})
+        return loss
+
+    def validation_step(self, val_batch, batch_idx):
+        images, target = val_batch
+        preds = self.forward(images)
+        loss = self.loss(preds, target)
+        acc = accuracy(torch.argmax(preds, dim=-1).long(), target.long())
+        self.log("val_loss", loss, prog_bar=True)
+        self.log("accuracy", acc, prog_bar=True)
+
+
+
+//new cell
+
+wandb_logger = WandbLogger(log_model='all', project="Classifier-10")  # какие возможности дает с pytorch_lightning https://docs.wandb.ai/guides/integrations/lightning
+device =  torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+
+module = YourModule(device_tr=device, learning_rate=1e-3)  # YOUR CODE HERE
+
+
+//new cell
+
+trainer = pl.Trainer(logger=wandb_logger, max_epochs=25, accelerator='gpu', devices=1)  # YOUR CODE HERE
+trainer.fit(module, train_dataloader, val_dataloader)  # YOUR CODE HERE
+
+//new cell
+
+
+wandb.finish()
