@@ -1,0 +1,97 @@
+# https://forum.gamer.com.tw/C.php?bsn=60292&snA=8087
+
+import sys
+from pathlib import Path
+from PySide2 import QtCore, QtUiTools
+from PySide2.QtWidgets import QApplication, QWidget
+from PySide2.QtGui import QPixmap
+
+
+class UiLoader(QtUiTools.QUiLoader):
+    _baseinstance = None
+
+    def createWidget(self, classname, parent=None, name=''):
+        if parent is None and self._baseinstance is not None:
+            widget = self._baseinstance
+        else:
+            widget = super(UiLoader, self).createWidget(
+                classname, parent, name)
+            if self._baseinstance is not None:
+                setattr(self._baseinstance, name, widget)
+        return widget
+
+    def loadUi(self, uifile, baseinstance=None):
+        self._baseinstance = baseinstance
+        widget = self.load(uifile)
+        QtCore.QMetaObject.connectSlotsByName(widget)
+        return widget
+
+
+class MainWindow(QWidget):
+    def __init__(self, parent=None):
+        super(MainWindow, self).__init__(parent)
+        self.ui()
+        self._widgetUnderMouse = None
+
+    def ui(self):
+        self.test = UiLoader().loadUi('example.ui', self)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        """
+        處理「拖移檔案進視窗」事件的行爲。
+        將檔案路徑顯示於 QlistWidget (self.listWidget) 之中。
+        """
+        urls = event.mimeData().urls()
+        paths = [Path(url.toLocalFile()) for url in urls]
+
+        # 先清空原本的清單
+        self.listWidget.clear()
+        
+        # 逐項加入
+        for path in paths:
+            self.listWidget.addItem(str(path))
+
+        # 滑鼠懸停事件做不出來，改用 click 事件（選取）
+        # 當某個 item 被選取後，觸發 _showImage 函式
+        self.listWidget.itemSelectionChanged.connect(self._showImage)
+
+    def _showImage(self):
+        # 當清單重設時，避免超出陣列長度的錯誤
+        if len(self.listWidget.selectedItems()) == 0:
+            return
+
+        allowImageTypes = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif', 'webp')
+        item = self.listWidget.selectedItems()[0]
+        file = item.text()
+        
+        # 檢查檔案是否存在
+        if Path(file).is_file():
+            # 檢查檔案是否爲允許的圖片類型（根據副檔名）
+            if file.lower().endswith(allowImageTypes):
+                # 顯示圖片
+                pixmap = QPixmap(file)
+                self.imagePreviewArea.setPixmap(pixmap)
+                # 清除原本預設的文字
+                self.imagePreviewArea.text = ""
+
+            
+        
+
+if __name__ == '__main__':
+    # 修正執行時的警告「Qt WebEngine seems to be initialized from a plugin. Please set Qt::AA_ShareOpenGLContexts using QCoreApplication::setAttribute before constructing QGuiApplication.」
+    # Ref: https://stackoverflow.com/a/57306187/8595750
+    QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
+
+    # 考量到後續可能有設定參數的需求，這裡傳入 sys.argv 而非空陣列 []
+    app = QApplication(sys.argv)
+
+    window = MainWindow()
+    window.show()
+    app.exec_()
