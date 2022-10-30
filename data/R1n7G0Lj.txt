@@ -1,0 +1,464 @@
+// https://www.youtube.com/c/LeventeDaradici/videos
+ 
+#include <NTPClient.h>
+#include <ESP8266WiFi.h>
+#include <WiFiUdp.h>
+#include <LCD_I2C.h>
+#include <Adafruit_Sensor.h>  
+#include <Adafruit_BMP280.h>
+#include <DHT.h>
+#include <esp8266-google-home-notifier.h>
+ 
+#define DHTPIN 2
+#define DHTTYPE DHT22
+#define BMP280_I2C_ADDRESS  0x76
+ 
+DHT dht(DHTPIN, DHTTYPE);
+ 
+//#define BMP_SCK 13
+//#define BMP_MISO 12
+//#define BMP_MOSI 11 
+//#define BMP_CS 10
+ 
+Adafruit_BMP280 bmp280;
+ 
+LCD_I2C lcd(0x27); 
+ 
+WiFiClient client;
+WiFiClientSecure sclient;
+ 
+const char *ssid = "NETSTREAM";
+const char *password = "*#Magda2007";
+int STARTHOUR = 9;                              //write here the time when the notifications start
+int ENDHOUR = 21;                               //write here the time to stop notifications
+String Notificare ="";
+const long utcOffsetInSeconds = 7200;          //Edit here to get the right time for your area, delay is in seconds ! This value is valable for Romania CET
+unsigned long previous_time = 0;
+unsigned long pauza = 25000;  // 20 seconds delay
+GoogleHomeNotifier ghn;
+ 
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
+ 
+String daysOfTheWeek[7]={"vasárnap", "hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat"};
+String months[12]={"január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"};
+ 
+int a = 0;
+#define ESP_RESET ESP.reset()
+ 
+unsigned long MillisINITIAL;
+unsigned long MillisACTUAL;
+unsigned long MillisINITIAL2;
+unsigned long MillisACTUAL2;
+unsigned long last_wifi_check_time = 10;
+#define WIFI_TIMEOUT 30000 
+ 
+const unsigned long PERIOADA = 5000; 
+const unsigned long PERIOADAceas = 500; 
+ 
+float UMIDITATE;
+float TEMPERATURAC;
+float TEMPERATURAF;
+float PRESIUNE;
+float UMIDITATEprecedenta;
+float TEMPERATURACprecedenta;
+float TEMPERATURAFprecedenta;
+float PRESIUNEprecedenta;
+bool BackLightState;
+int BackLightOnTime, BackLightOffTime;
+ 
+char * messagePadded = "                METEOROLOGIAI ALLOMAS HANGERTESITESSEL A GOOGLE NESTBEN, DHT22 HOMERSEKLET ES PARATARTALOM-ERZEKELOVEL ES BMP280 LEGNYOMAS-ERZEKELOVEL, VALAMINT 1602-ES LCD-KIJELZOVEL                ";
+ 
+void AfiseazaPrezentarea()
+    {
+       for (int letter = 0; letter <= strlen(messagePadded) - 16; letter++) //From 0 to upto n-16 characters supply to below function
+           {
+              showLetters(0, letter);
+           }      
+    }
+    
+void showLetters(int printStart, int startLetter)
+    {
+       lcd.setCursor(printStart, 0);
+       for (int letter = startLetter; letter <= startLetter + 15; letter++)
+           {
+              lcd.print(messagePadded[letter]);
+           }
+       lcd.print(" ");
+       delay(200);
+    }
+ 
+void VerificaDHTsensor()
+   {
+        PRESIUNE    = bmp280.readPressure();
+        UMIDITATE = dht.readHumidity();
+        TEMPERATURAC = dht.readTemperature();
+        TEMPERATURAF = dht.readTemperature(true);
+         if (isnan(UMIDITATE) || isnan(TEMPERATURAC) || isnan(TEMPERATURAF)) 
+           {
+              Serial.println("Nem sikerült leolvasni a DHT-érzékelőről!");
+              lcd.clear();
+              lcd.setCursor(0,0);
+              lcd.print("DHT22 HIBA !");
+              delay(2000);
+              lcd.clear();
+              return;
+           } else
+                {
+                   lcd.clear();
+                   lcd.setCursor(0,0);
+                   lcd.print("DHT22 -> OK");       
+                   delay(1000);          
+                }
+   }
+ 
+void AfiseazaDatelePeEcran()
+   {       
+        PRESIUNE    = bmp280.readPressure();
+        UMIDITATE = dht.readHumidity();
+        TEMPERATURAC = dht.readTemperature();
+        TEMPERATURAF = dht.readTemperature(true);
+ 
+        Serial.println(timeClient.getFormattedTime());        
+        Serial.print("Hőmérséklet = ");        
+        Serial.print(TEMPERATURAC,1);
+        Serial.println(" °C"); 
+        Serial.print("Nedvesség = ");
+        Serial.print(UMIDITATE);
+        Serial.println(" %");
+        Serial.print("Légköri nyomás = ");
+        Serial.print(PRESIUNE/100);
+        Serial.println(" hPa");  
+        Serial.println("________________________________");   
+                             
+        
+        if (TEMPERATURAC != TEMPERATURACprecedenta)
+           { 
+               lcd.setCursor(10,0);
+               lcd.print("     "); 
+               lcd.setCursor(10,0);
+               lcd.print(TEMPERATURAC,1); 
+               lcd.setCursor(14,0);
+               lcd.print("\xDF" "C"); 
+           }
+        if (PRESIUNE != PRESIUNEprecedenta)
+           {            
+               lcd.setCursor(7,1);
+               lcd.print("      "); 
+               lcd.setCursor(7, 1); 
+               lcd.print(PRESIUNE/100,1);
+               lcd.setCursor(13, 1); 
+               lcd.print("hPA");
+           }
+        if (UMIDITATE != UMIDITATEprecedenta)
+           {     
+               lcd.setCursor(0,1);
+               lcd.print("      "); 
+               lcd.setCursor(0,1);
+               lcd.print(UMIDITATE,1); 
+               lcd.setCursor(4,1);
+               lcd.print("%");                 
+           }      
+        
+        PRESIUNEprecedenta = PRESIUNE;
+        UMIDITATEprecedenta = UMIDITATE;
+        TEMPERATURACprecedenta = TEMPERATURAC;
+        TEMPERATURAFprecedenta = TEMPERATURAF;             
+   }
+ 
+void wifi_setup() 
+     {
+      a = 0;
+      Serial.println();
+      Serial.print("Csatlakozás a következőhöz ");
+      Serial.println(ssid);
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("WIFI CSATLAKOZAS");
+      //lcd.setCursor(0,1);
+      //lcd.print(ssid);
+      WiFi.begin(ssid, password);
+      WiFi.mode(WIFI_STA);
+ 
+      unsigned long connect_start = millis();
+      while(WiFi.status() != WL_CONNECTED) {
+          delay (500);
+          lcd.setCursor(a,1);
+          lcd.print(">");
+          a = a+1;
+          if (a > 15)
+             { 
+                a = 0;
+                lcd.setCursor(a,1);
+                lcd.print("                ");               
+             }
+          
+ 
+    if(millis() - connect_start > WIFI_TIMEOUT) {
+      Serial.println();
+      Serial.print("Megpróbáltam ");
+      Serial.print(WIFI_TIMEOUT);
+      Serial.print("ms. Az ESP újraindítása most.");
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("NEM CSATLAKOZOTT !");
+      lcd.setCursor(0,1);
+      lcd.print("ESP UJRAINDITASA !");
+      delay(2000);
+      ESP_RESET;
+    }
+    //lcd.clear();
+  }
+ 
+  Serial.println("");
+  Serial.println("WiFi csatlakozva");  
+  Serial.print("IP-cím: ");
+  Serial.println(WiFi.localIP());
+  Serial.println();
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("CSATLAKOZVA:");
+  lcd.setCursor(0,1);
+  lcd.print(WiFi.localIP());
+  delay(2000);
+  lcd.clear();
+  ConectareLaGoogleHome();
+}
+ 
+void ConectareLaGoogleHome()
+    {
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("CSATLAKOZAS A");
+      lcd.setCursor(0,1);
+      lcd.print("GOOGLE NESTHEZ");
+      const char displayName[] = "Entryway speaker";   //Enter the name of your google home speaker here 
+      Serial.println("CSATLAKOZÁS A GOOGLE NESTHEZ...");
+      if (ghn.device(displayName, "hu") != true) 
+         {
+           Serial.println(ghn.getLastError());
+           return;
+         }
+      Serial.print("megtalálta a Google Home-ot ");
+      Serial.print(ghn.getIPAddress());
+      Serial.print(":");
+      Serial.print(ghn.getPort());
+      Serial.println(" ");
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("CSATLAKOZVA A");
+      lcd.setCursor(0,1);
+      lcd.print("GOOGLE HOMEHOZ");
+      delay(2000);
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("IP: ");
+      lcd.setCursor(4,0);
+      lcd.print(ghn.getIPAddress());
+      lcd.setCursor(0,1);
+      lcd.print("PORT: ");
+      lcd.setCursor(6,1);
+      lcd.print(ghn.getPort());      
+      delay(2000);
+      lcd.clear();
+    }
+ 
+void VoiceNotificationINTRO()
+     {
+             if (ghn.notify("Szia, a nevem D1 Mini, és el fogom mondani neked, a google home hangszórón keresztül, a pontos idöt, hömérsékletet, páratartalmat és a légnyomás értékét, amit a szobádban mérek.") != true) 
+          {
+             Serial.println(ghn.getLastError());
+             return;
+          }
+       Serial.println("Kész.");
+       delay(15000);  
+       if (ghn.notify("A memóriámba betöltött kód elején, beállított órák között, 15 percenként, küldök értesítést, a hangszóródra.") != true) 
+          {
+             Serial.println(ghn.getLastError());
+             return;
+          }
+       Serial.println("Kész.");
+       timeClient.update();
+       delay(10000);  
+     }
+ 
+void VoiceNotification()
+     {
+        timeClient.update();
+        unsigned long epochTime = timeClient.getEpochTime();
+        struct tm *ptm = gmtime ((time_t *)&epochTime);
+        int monthDay = ptm->tm_mday;
+        int currentMonth = ptm->tm_mon+1;
+        int currentYear = ptm->tm_year+1900;
+        String currentMonthName = months[currentMonth-1];
+ 
+        float UMIDITATE = dht.readHumidity();
+        float TEMPERATURAC = dht.readTemperature();
+        float TEMPERATURAF = dht.readTemperature(true);
+ 
+       if (isnan(UMIDITATE) || isnan(TEMPERATURAC) || isnan(TEMPERATURAF)) 
+          {
+             Serial.println("Nem sikerült leolvasni a DHT érzékelőről!");
+             return;
+          }
+   
+        Notificare = Notificare +"Ma, "; 
+        Notificare = Notificare +daysOfTheWeek[timeClient.getDay()];
+        Notificare = Notificare +", ";
+        Notificare = Notificare +currentMonthName;
+        Notificare = Notificare +monthDay;
+        Notificare = Notificare +", ";
+        Notificare = Notificare +currentYear;
+        Notificare = Notificare +",a pontos idö, ";
+        Notificare = Notificare + timeClient.getHours(); 
+        Notificare = Notificare +"óra, és ";
+
+            if(timeClient.getMinutes() != 0)
+                {
+                    Notificare = Notificare + timeClient.getMinutes();
+                    Notificare = Notificare +"perc ";          
+                }
+                
+        Notificare = Notificare +", a hőmérséklet, ";
+        Notificare = Notificare + String(TEMPERATURAC,1);
+        Notificare = Notificare + "fok Celzius,";
+        Notificare = Notificare + "a relatív páratartalom pedig,";
+        Notificare = Notificare + String(UMIDITATE,1);
+        Notificare = Notificare + "százalék ";
+        Notificare = Notificare + "és a légnyomás értéke";
+        Notificare = Notificare + String(PRESIUNE/100,0);
+        Notificare = Notificare + "hektopascal.";
+ 
+        if (ghn.notify (Notificare.c_str()) != true) 
+           {
+              Serial.println(ghn.getLastError());
+              ConectareLaGoogleHome();
+              lcd.clear();
+              return;
+           }
+        Notificare = "";
+     }
+   
+void setup()
+    {
+ 
+       BackLightState = true;
+       BackLightOnTime = 7; 
+       BackLightOffTime = 23;
+       
+       Serial.begin(9600);
+       lcd.begin(); 
+       lcd.backlight();
+       lcd.clear();
+       //AfiseazaPrezentarea();   
+       lcd.clear();           
+       lcd.setCursor(0,0);
+       lcd.print("ERZEKELOK");
+       lcd.setCursor(0,1);
+       lcd.print("ELLENORZESE");        
+       delay(2000);
+       lcd.clear();      
+   
+       dht.begin();  
+       VerificaDHTsensor();     
+       if (!bmp280.begin(BMP280_I2C_ADDRESS))
+          {  
+             Serial.println("Nem található érvényes BMP280 érzékelő, ellenőrizze a vezetékeket!");
+            // lcd.clear();
+             lcd.setCursor(0,1);
+             lcd.print("BMP280 HIBA !");
+             while (1);
+          } else
+                {
+                  // lcd.clear();
+                   lcd.setCursor(0,1);
+                   lcd.print("BMP280 -> OK");
+                   delay(1000);
+                }
+       wifi_setup();
+       timeClient.begin();
+       lcd.clear();
+       //lcd.setCursor(0,0);
+       //lcd.print("HANGBEMUTATO");
+       //lcd.setCursor(0,1);
+       //lcd.print("A GOOGLE NESTEN");
+       //VoiceNotificationINTRO();
+       //lcd.clear();     
+       AfiseazaDatelePeEcran();
+       MillisINITIAL = millis();
+       //VoiceNotification();
+    }
+ 
+void loop()
+     {
+       MillisACTUAL = millis();  
+         
+       if (MillisACTUAL - MillisINITIAL >= PERIOADA)  
+          {
+             AfiseazaDatelePeEcran();
+             MillisINITIAL = MillisACTUAL;  
+          }  
+          
+       if (MillisACTUAL - MillisINITIAL >= PERIOADAceas)  
+          {          
+             timeClient.update();       
+             lcd.setCursor(0,0);
+             lcd.print(timeClient.getFormattedTime());  
+             MillisINITIAL2 = MillisACTUAL2;  
+          }    
+ 
+  if(MillisACTUAL - last_wifi_check_time > WIFI_TIMEOUT) 
+        {
+           Serial.print("WiFi ellenőrzése... ");
+           if(WiFi.status() != WL_CONNECTED) {
+           Serial.println("A WiFi kapcsolat megszakadt. Újracsatlakozás...");
+           wifi_setup();
+        } else 
+               {
+                  Serial.println("OK");
+               }
+            last_wifi_check_time = MillisACTUAL;
+         } 
+ 
+       if (timeClient.getHours() >= STARTHOUR && timeClient.getHours() < ENDHOUR && timeClient.getHours() > 0)
+           {
+                     if (timeClient.getMinutes() == 0 && timeClient.getSeconds() < 1)
+                        {
+                          VoiceNotification();
+                          delay(1000);
+                        }
+                     if (timeClient.getMinutes() == 15 && timeClient.getSeconds() < 1)
+                        {
+                          VoiceNotification();
+                          delay(1000);                         
+                        }
+                     if (timeClient.getMinutes() == 30 && timeClient.getSeconds() < 1)
+                        {
+                          VoiceNotification();
+                          delay(1000);
+                        }
+                      if (timeClient.getMinutes() == 45 && timeClient.getSeconds() < 1)
+                        {
+                          VoiceNotification();
+                          delay(1000);                          
+                        }         
+           }
+                
+      if (timeClient.getHours() >= BackLightOnTime && timeClient.getHours() <= BackLightOffTime)
+          {
+            if(BackLightState == false)
+            {
+              BackLightState = true;
+              lcd.backlight();
+            }
+             
+          }
+          else
+          {
+            if(BackLightState == true)
+            {
+              BackLightState = false;
+              lcd.noBacklight();
+            }
+          }
+}
