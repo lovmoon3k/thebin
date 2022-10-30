@@ -1,9 +1,5 @@
-[**GzWTseV8**](/data/GzWTseV8.txt) (31/10/22 - 06:28)- 1220 bytes
+[**XDMaU6Cd**](/data/XDMaU6Cd.txt) (31/10/22 - 06:40)- 593 bytes
 
-[**GzWTseV8**](/data/GzWTseV8.txt) (31/10/22 - 06:28)- 1220 bytes
+**Total Datas**: 970
 
-[**HK7BJMQX**](/data/HK7BJMQX.txt) (31/10/22 - 06:28)- 432 bytes
-
-**Total Datas**: 969
-
-**Total Size**: 5.66 MB / 5.7 MB
+**Total Size**: 5.67 MB / 5.7 MB
