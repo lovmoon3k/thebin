@@ -1,0 +1,66 @@
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+
+local Tool:Tool = script.Parent
+local Handle:Part = Tool:FindFirstChild("Handle")
+local ShootPart:Attachment = Handle:FindFirstChild("Attachment")
+local RemoteEvent:RemoteEvent = Tool:FindFirstChild("RemoteEvent")
+local OnCooldown = false
+
+local Do = {
+	Damage = 30;
+	Cooldown = 0.5;
+	Visualize = true;
+	ShootSound = "rbxassetid://5238024665";
+}
+
+RemoteEvent.OnServerEvent:Connect(function(Player,Received)
+	if not OnCooldown then
+		OnCooldown = true
+		task.delay(Do.Cooldown,function()
+			OnCooldown = false
+		end)
+		
+		local Origin = ShootPart.WorldPosition
+		local Direction = (Received.Position-Origin).Unit*3000
+		local Raycast = workspace:Raycast(Origin,Direction)
+		
+		local Intersection = Raycast and Raycast.Position or Origin + Direction
+		local Distance = (Origin - Intersection).Magnitude
+
+		local Visualizer = Instance.new("Part")
+		Visualizer.CanTouch = false
+		Visualizer.CanCollide = false
+		Visualizer.CanQuery = false
+		Visualizer.CastShadow = false
+		Visualizer.Anchored = true
+		Visualizer.Material = Enum.Material.Neon
+		Visualizer.Color = Color3.fromRGB(255, 255, 0)
+		Visualizer.Size = Vector3.new(.15,.15,Distance)
+		Visualizer.CFrame = CFrame.new(Origin, Intersection)*CFrame.new(0,0,-Distance/2)
+
+		if Do.Visualize == true then
+			Visualizer.Parent = workspace
+			TweenService:Create(Visualizer,TweenInfo.new(.3),{Transparency = 1, Size = Vector3.new(0,0,Distance)}):Play()
+			Debris:AddItem(Visualizer,.35)
+		end
+
+		if (Do.ShootSound ~= "" or Do.ShootSound ~= nil) then
+			local Sound = Instance.new("Sound")
+			Sound.SoundId = Do.ShootSound
+			Sound.Volume = .65
+			Sound.PlayOnRemove = true
+			Sound.Parent = Handle
+			Sound:Destroy()
+		end
+		
+		if Raycast then
+			local Hit:Part = Raycast.Instance
+			local Humanoid = (Hit.Parent:FindFirstChildOfClass("Humanoid") or Hit.Parent.Parent:FindFirstChildOfClass("Humanoid"))
+
+			if Humanoid and Humanoid.Parent ~= Player.Character then
+				Humanoid:TakeDamage(Do.Damage)
+			end
+		end
+	end
+end)
