@@ -1,0 +1,121 @@
+///***** Cloned from badwrong: https://pastebin.com/RFmzHY0Z ******
+// ******************* CREATE *************************************** //
+
+on_ground   = 0;
+facing      = 1;
+speed_max   = 20;
+speed_accel = 5;
+
+friction = 4;
+gravity  = 6;
+
+// You must set the mask_index of the object to something or use the following line:
+if (!mask_index) mask_index = sprite_index;
+
+
+// ******************* STEP ***************************************** //
+
+// Counters
+on_ground = on_ground >> 1;
+
+// Inputs
+var _x_axis = keyboard_check(ord("D")) - keyboard_check(ord("A")),
+	_jump   = keyboard_check_pressed(vk_space);
+
+// Horizontal movement
+if (_x_axis != 0)
+{
+	facing = sign(_x_axis);
+	motion_add(darccos(_x_axis), speed_accel);
+	
+	// Use motion_set() and no accel value if you want instant movement
+	// then add and else branch with hspeed = 0;
+}
+
+// Set sprite and check for jump
+if (on_ground)
+{
+	if (_jump)
+	{
+		on_ground = 0;
+		motion_add(-gravity_direction, 200);  // Or jump power variable
+		image_index  = 0;
+	} 
+	// Here is where you set run or idle sprite (hspeed == 0 ? idle : run )
+} 
+else if (!_jump) vspeed = max(vspeed, vspeed * 0.5);	
+/* Here you would add full else { } block of code where you set jump sprite
+ * This is one way to stop the jump sprite at the end
+ * image_index = min(image_index, image_number - 1);
+ */
+	
+	
+// Clamp speeds and set left/right facing direction
+image_xscale = facing;
+hspeed = clamp(hspeed, -speed_max, speed_max);
+vspeed = clamp(vspeed, -200, 200);  // Or some terminal velocity macro
+// Adding delta time should be done on the above few lines with hspeed and vspeed
+// Multiply them by the change in delta time, i.e., no difference would be 1
+
+
+
+// ********** COLLISION EVENT WITH STATIC COLLISION OBJECT ********** //
+
+/* General AABB collision algorithm: Move back and resolve collisions per axis.
+ *
+ * By placing this solution in an actual "collision event" it automatically
+ * provides information about each specific collision, as if instance_place_list()
+ * were being used.  However, as an internally triggered event the extra overhead and
+ * cost of manually checking is eliminated.
+ * 
+ * This solution uses built-in vspeed and hspeed, along with setting the instance
+ * variables for gravity and friction.  Note, built-in movement occurs between step and
+ * end-step events.  There is no loss of control or scary "black box" to worry about when
+ * using such a solution.  This also means automatic acceleration and deceleration if desired.
+ */
+
+// First store the vector that caused the collision
+var _vx = x - xprevious,
+	_vy = y - yprevious;
+x = xprevious;
+y = yprevious;
+
+/* 
+ * With static objects many of the values below can be precomputed on create and assigned to variables.
+ * We find exact centers based on bbox and not instance x/y, and
+ * collisions are then resolved through the mask offsets 
+ * 
+ * This solution does allow for non-centered origins, although it is recommended in most cases.
+ * If image_xscale is used to mirror a sprite, then the x-axis should be centered at least. 
+ */
+
+// Horizontal
+if place_meeting(x + _vx, y, other)
+{
+	// Offset by exact values from centers
+	if (x < other.x) x = other.bbox_left - sprite_get_width(mask_index) + sprite_get_xoffset(mask_index);
+	else x = other.bbox_right + sprite_get_xoffset(mask_index);	
+	
+	// If you want wall jumping an on_wall variable with a sign +/- is appropriate here
+	
+} else x += _vx;
+
+// Vertical
+if place_meeting(x, y + _vy, other)
+{
+	// Same as horizontal but with the y-axis
+	if (y < other.y)
+	{
+		y = other.bbox_top - sprite_get_height(mask_index) + sprite_get_yoffset(mask_index);
+		vspeed = 0;
+		on_ground = 10; // Or some variable or macro for "coyote frames"
+	}
+	else 
+	{
+		y = other.bbox_bottom + sprite_get_yoffset(mask_index);
+		vspeed *= 0.9; // Don't stop instantly when hitting ceiling
+	}
+	
+} else y += _vy;
+
+// And ya, that's like 90% comments and very little code.

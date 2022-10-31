@@ -1,0 +1,165 @@
+///***** Cloned from badwrong: https://pastebin.com/fYN34fXv ******
+// ********* Create ***************//
+bbox = new tile_bbox(mask_index); // Instance of the struct below
+
+// ********* How to call it when moving (step event or something) *************** //
+bbox.move_collide(id, x, y, _vx, _vy);  // _vx and _vy are whatever your movement speeds are
+
+
+// ********* The struct ******************************//
+function tile_bbox(_mask) constructor
+{
+	/* Performs tile collision independent from object's bbox.
+	 * Since we can use a separate mask here from the objects, that allows
+	 * the object to use a different shaped mask for hit detection and not
+	 * need a whole other "hurtbox" object.
+	 * 
+	 * Plus this is actually faster and requires less round/floor/ceil nonsense
+	 * to fix some internal junk.
+	 *
+	 * Note the "& 1" checks for odd numbered tiles as "solid", pretty usefull 
+	 * if you want waist high walls that cause movement collision but can be 
+	 * shot over with a gun or something.
+	 */
+
+	#macro TILE_SOLID 1
+	#macro TILE_ONE_WAY 2
+	#macro TILE_SIZE 16
+	#macro TILE_SIZE_M1 15
+	
+	#macro COLLIDE_VER_UP 1
+	#macro COLLIDE_VER_DOWN -1
+	#macro COLLIDE_VER_NONE 0
+	#macro COLLIDE_HOR_RIGHT 1
+	#macro COLLIDE_HOR_LEFT -1
+	#macro COLLIDE_HOR_NONE 0
+	
+	var _w = sprite_get_width(_mask), 
+		_h = sprite_get_height(_mask),
+		_y_count = ceil(_h / TILE_SIZE),
+		_x_count = ceil(_w / TILE_SIZE);
+		
+	mask_sprite = _mask;
+	
+	cmap   = global.layer_collision;  
+	// or layer_tilemap_get_id(layer_get_id("collision_map")); 
+	// Remember the id could change between rooms
+	
+	left   = -sprite_get_xoffset(_mask);
+	right  = _w - sprite_get_xoffset(_mask);
+	top    = -sprite_get_yoffset(_mask);
+	bottom = _h - sprite_get_yoffset(_mask);
+	
+	hor_count     = _y_count + 1;
+	hor_increment = (_h - 1) / _y_count;
+	ver_count     = _x_count + 1;
+	ver_increment = (_w - 1) / _x_count;
+	
+	on_horizontal = 0; // Useful for wall jumps
+	on_vertical = 0; // Can be used to set on_ground
+	on_one_way_platform = false;
+				
+	function move_collide(_this, _x, _y, _vx, _vy)
+	{
+		_x += _vx;
+		if (_vx > 0) _x = collide_right(_x, _y);
+		else if (_vx < 0) _x = collide_left(_x, _y);
+		else on_horizontal = COLLIDE_HOR_NONE;
+
+		_y += _vy;
+		if (_vy > 0) _y = collide_bottom(_x, _y, _vy);
+		else if (_vy < 0) _y = collide_top(_x, _y);
+		else 
+		{
+			on_vertical = COLLIDE_VER_NONE;
+			on_one_way_platform = false;
+		}
+		
+		_this.x = _x;
+		_this.y = _y;
+	}			
+				
+	function collide_right(_x, _y)
+	{
+		var _right = _x + right;
+		_y = round(_y + top);
+		for (var _i = 0; _i < hor_count; _i++)
+		{
+			if ((tilemap_get_at_pixel(cmap, _right, _y) & tile_index_mask) & 1)
+			{
+				on_horizontal = COLLIDE_HOR_RIGHT;
+				return (_right &~ TILE_SIZE_M1) - right;
+			}
+			_y += hor_increment;
+		}
+		on_horizontal = COLLIDE_HOR_NONE;
+		return _x;
+	}
+	
+	function collide_left(_x, _y)
+	{
+		var _left = _x + left;
+		_y = round(_y + top);
+		for (var _i = 0; _i < hor_count; _i++)
+		{
+			if ((tilemap_get_at_pixel(cmap, _left, _y) & tile_index_mask) & 1) 
+			{
+				on_horizontal = COLLIDE_HOR_LEFT;
+				return (_left &~ TILE_SIZE_M1) + TILE_SIZE - left;
+			}
+			_y += hor_increment;
+		}
+		on_horizontal = COLLIDE_HOR_NONE;
+		return _x;
+	}
+	
+	function collide_top(_x, _y)
+	{
+		on_one_way_platform = false;
+		var _top = _y + top;
+		_x = round(_x + left);
+		for (var _i = 0; _i < ver_count; _i++)
+		{
+			if ((tilemap_get_at_pixel(cmap, _x, _top) & tile_index_mask) & 1)
+			{
+				on_vertical = COLLIDE_VER_UP;
+				return (_top &~ TILE_SIZE_M1) + TILE_SIZE - top;
+			}
+			_x += ver_increment;
+		}
+		on_vertical = COLLIDE_VER_NONE;
+		return _y;
+	}
+	
+	function collide_bottom(_x, _y, _vy)
+	{
+		// A bit different to account for one-way platforms
+		
+		var _bottom = _y + bottom,
+			_tile_top = _bottom &~ TILE_SIZE_M1,
+			_above_one_way = (_bottom - _vy) <= _tile_top;
+			
+		_x = round(_x + left);
+		for (var _i = 0; _i < ver_count; _i++)
+		{
+			var _tile_index = tilemap_get_at_pixel(cmap, _x, _bottom) & tile_index_mask,
+				_on_one_way_platform = (_above_one_way && _tile_index == TILE_ONE_WAY);
+			
+			if (_tile_index & 1 || _on_one_way_platform)
+			{
+				on_vertical = COLLIDE_VER_DOWN;
+				on_one_way_platform = _on_one_way_platform;
+				return _tile_top - bottom;
+			}
+			_x += ver_increment;
+		}
+		on_vertical = COLLIDE_VER_NONE;
+		return _y;
+	}
+	
+	function draw_mask(_x, _y)
+	{
+		draw_sprite(mask_sprite, 0, _x, _y);
+	}
+	
+}
