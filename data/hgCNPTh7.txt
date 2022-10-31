@@ -1,0 +1,325 @@
+#include <bits/stdc++.h>
+#include <ext/pb_ds/assoc_container.hpp>
+#include <ext/pb_ds/tree_policy.hpp>
+
+using namespace std;
+using namespace __gnu_pbds;
+
+#define int long long
+#define mp make_pair
+#define pb push_back
+
+constexpr int N = (int)1e5 + 111;
+constexpr int INF = (int)1e16 + 11123;
+constexpr int md = (int)998244353;
+
+#pragma GCC optimize("Ofast")
+#pragma GCC optimize("unroll-loops")
+#pragma GCC target("avx2")
+
+vector<pair<int,int>> g[N];
+int sz[N];
+bool wasCentroid[N];
+int leader[20][N];
+int d[20][N];
+int tin[20][N],tout[20][N];
+multiset<int> st[20][N];
+bool opened[N];
+
+struct node{
+    int mn = 0;
+    int val = INF;
+    bool is = false;
+    int w = 0;
+    node(){}
+    node(node a,node b){
+        mn = 0;
+        is = false;
+        w = 0;
+        val = INF;
+        mn = min(a.mn,b.mn);
+        if(a.is)
+            val = min(val,a.val);
+        if(b.is)
+            val = min(val,b.val);
+        is = a.is | b.is;
+    }
+    int get(){
+        return val;
+    }
+};
+
+struct SegTree{
+    vector<node> t;
+    int n;
+    SegTree(){}
+    SegTree(int n):n(n){
+        t.resize(4*(n+1),node());
+    }
+    void push(int v){
+        t[v<<1].mn += t[v].w;
+        t[v<<1|1].mn += t[v].w;
+        t[v<<1].val += t[v].w;
+        t[v<<1|1].val += t[v].w;
+        t[v<<1].w += t[v].w;
+        t[v<<1|1].w += t[v].w;
+        t[v].w = 0;
+        return;
+    }
+    void upd(int v,int l,int r,int tl,int tr,int x){
+        if(l > r || tl > tr)
+            return;
+//        cerr << "upd " << v << " " << l << " " << r << " " << tl << " " << tr << " " << x << "\n";
+        if(l == tl && r == tr){
+//            cerr << "??\n";
+            t[v].mn += x;
+            t[v].val += x;
+            t[v].w += x;
+//            cerr << "++\n";
+            return;
+        }
+        push(v);
+        int m = (l+r)>>1;
+        upd(v<<1,l,m,tl,min(tr,m),x);
+        upd(v<<1|1,m+1,r,max(tl,m+1),tr,x);
+        t[v] = node(t[v<<1],t[v<<1|1]);
+        return;
+    }
+    void upd(int l,int r,int x){
+        upd(1,0,n-1,l,r,x);
+        return;
+    }
+    void changeState(int v,int l,int r,int pos){
+        if(l == r){
+            t[v].is ^= 1;
+            if(t[v].is)
+                t[v].val = t[v].mn;
+            else
+                t[v].val = INF;
+            return;
+        }
+        int m = (l+r)>>1;
+        push(v);
+        if(pos <= m)
+            changeState(v<<1,l,m,pos);
+        else
+            changeState(v<<1|1,m+1,r,pos);
+        t[v] = node(t[v<<1],t[v<<1|1]);
+        return;
+    }
+    void changeState(int pos){
+        changeState(1,0,n-1,pos);
+        return;
+    }
+    int get(int v,int l,int r,int pos){
+        if(l == r){
+            assert(pos == l);
+//            cerr << "got l = " << l << "\n";
+            return t[v].mn;
+        }
+//        cerr << "get " << v << " " << l << " " << r << " " << pos << "\n";
+        push(v);
+        int m = (l+r)>>1;
+        if(pos <= m)
+            return get(v<<1,l,m,pos);
+        else
+            return get(v<<1|1,m+1,r,pos);
+    }
+    int get(int pos){
+        return get(1,0,n-1,pos);
+    }
+} t[N];
+
+void dfs1(int v,int pr = -1){
+    sz[v] = 1;
+    for(auto&[to,w] : g[v]){
+        if(!wasCentroid[to] && pr != to){
+            dfs1(to,v);
+            sz[v] += sz[to];
+        }
+    }
+    return;
+}
+
+int dfs2(int v,int S,int pr = -1){
+    for(auto&[to,w] : g[v]){
+        if(wasCentroid[to] || to == pr)
+            continue;
+        if(2 * sz[to] > S)
+            return dfs2(to,S,v);
+    }
+    return v;
+}
+
+void changeLeader(int v,int L,int lvl,int pr = -1){
+    leader[lvl][v] = L;
+    for(auto&[to,w] : g[v]){
+        if(to == pr || wasCentroid[to])
+            continue;
+        changeLeader(to,L,lvl,v);
+    }
+    return;
+}
+
+int timer = 0;
+
+void dfs3(int v,int lvl,int pr = -1,bool f = true){
+    tin[lvl][v] = timer++;
+    int L = leader[lvl][v];
+//    cerr << v << " ";
+//    cerr << "?\n";
+//    cerr << "v = " << v << ", tin[v] = " << tin[lvl][v] << "\n";
+//    cerr << "v = " << v << ", val = " << t[L].get(tin[lvl][v]) << "\n";
+    if(f)
+        t[L].upd(tin[lvl][v],tin[lvl][v],d[lvl][v]);
+//    cerr << "v = " << v << ", val = " << t[lvl][L].get(tin[lvl][v]) << "\n";
+//    cerr << "d[lvl][v] = " << d[lvl][v] << "\n";
+//    cerr << "ok\n";
+    for(auto&[to,w] : g[v]){
+        if(wasCentroid[to] || to == pr)
+            continue;
+        if(f)
+            d[lvl][to] = d[lvl][v] + w;
+        dfs3(to,lvl,v);
+    }
+    tout[lvl][v] = timer;
+    return;
+}
+
+void buildCentroid(int v,int pr = -1,int lvl = 0){
+    dfs1(v,pr);
+    int cur = dfs2(v,sz[v],pr);
+    wasCentroid[cur] = true;
+    changeLeader(cur,cur,lvl);
+    timer = 0;
+    dfs3(cur,lvl,-1,false);
+    t[cur] = SegTree(timer);
+//    cerr << v << " " << lvl << "\n";
+//    cerr << "centroid " << cur << "\n";
+    timer = 0;
+    d[lvl][cur] = 0;
+//    cerr << cur << ", " << lvl << ":\n";
+    dfs3(cur,lvl);
+//    cerr << "\n";
+    for(auto&[to,w] : g[cur]){
+//        cerr << v << " " << to << " " << wasCentroid[to] << "\n";
+        if(!wasCentroid[to]){
+            buildCentroid(to,v,lvl+1);
+        }
+    }
+    return;
+}
+
+int getDistVertexCentroid(int v,int lvl){
+    int pos = tin[lvl][v];
+    int centroid = leader[lvl][v];
+    return t[centroid].get(pos);
+}
+
+int getClosestOpenned(int v){
+    int ans = INF;
+    for(int i = 19; i >= 0; i--){
+        if(leader[i][v] == 0)
+            continue;
+        int L = leader[i][v];
+//        cerr << "v = " << v << ", L = " << leader[i][v] << "\n";
+//        cerr << t[L].t[1].get() << " " << getDistVertexCentroid(v,i) << "\n";
+        int cur = t[L].t[1].get() + getDistVertexCentroid(v,i);
+        ans = min(ans,cur);
+    }
+    return (ans > (int)1e15 ? -1 : ans);
+}
+
+int upper(int a,int b,int lvl){
+    return tin[lvl][a] <= tin[lvl][b] ? a : b;
+}
+
+void ChangeRestState(int v){
+    for(int i = 19; i >= 0; i--){
+        if(leader[i][v] == 0)
+            continue;
+        int L = leader[i][v];
+//        cerr << "lvl = " << i << "\n";
+//        cerr << "centroid " << L << ", v = " << v << "\n";
+        t[L].changeState(tin[i][v]);
+    }
+    return;
+}
+
+map<pair<int,int>,int> cost;
+
+void ChangeEdgeWeight(int a,int b,int c){
+    int delta = c - cost[mp(a,b)];
+    cost[mp(a,b)] = cost[mp(b,a)] = c;
+    for(int i = 19; i >= 0; i--){
+        if(leader[i][a] == 0)
+            continue;
+        int L = leader[i][a];
+        if(leader[i][a] == leader[i][b]){
+            int u = upper(a,b,i);
+            int v = a^b^u;
+//            cerr << "leader = " << L << "\n";
+//            cout << "l,r = " << tin[i][v] << " " << tout[i][v] << "\n";
+//            cerr << "lower = " << v << "\n";
+            t[L].upd(tin[i][v],tout[i][v]-1,delta);
+        }
+    }
+    return;
+}
+
+void solve(){
+    int n,q;
+    cin >> n >> q;
+
+    for(int i = 1; i < n; i++){
+        int a,b,c;
+        cin >> a >> b >> c;
+        cost[mp(a,b)] = cost[mp(b,a)] = c;
+        g[a].pb(mp(b,c));
+        g[b].pb(mp(a,c));
+    }
+
+    /// build centroid decomposition
+    buildCentroid(1);
+//    return;
+
+    for(int i = 0; i < q; i++){
+        int tp;
+        cin >> tp;
+//        cerr << getClosestOpenned(1) << "\n";
+        if(tp == 1){ /// get min dist
+            int v;
+            cin >> v;
+            cout << getClosestOpenned(v) << "\n";
+            /// DO smth
+        }
+        if(tp == 2){ /// open/close restaurant
+            int v;
+            cin >> v;
+            ChangeRestState(v);
+            /// do smth
+        }
+        if(tp == 3){
+            int a,b,c;
+            cin >> a >> b >> c;
+            ChangeEdgeWeight(a,b,c);
+            /// change weight
+        }
+    }
+
+    return;
+}
+
+signed main(){
+    ios::sync_with_stdio(false);cin.tie(nullptr);cout.tie(nullptr);
+    int tests = 1;
+//    cin >> tests;
+    for(int test = 1; test <= tests; test++){
+        solve();
+    }
+    return 0;
+}
+/**
+2993249233
+3445767159
+**/
