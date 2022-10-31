@@ -1,0 +1,61 @@
+[Authorize(Policy = "read:authorrequest")]
+        [HttpGet("GetAuthorRequestListing")]
+        public async Task<object> GetAuthorRequestListing(int currentPage = 1, int pageSize = 10, string searchTerm = "", int statusId = 0)
+        {
+            try
+            {
+                if (pageSize == 0)
+                {
+                    var authorListForExport = await UnitOfWork.AuthorRequestRepository.Get(inf => inf.User != null &&
+                (statusId == 0 || inf.StatusID == statusId) && (string.IsNullOrWhiteSpace(searchTerm) || EF.Functions.Like(inf.User.Email, $"%{searchTerm}%") ||
+                 EF.Functions.Like(inf.User.UserDetail.FullName, $"%{searchTerm}%")
+                ), pageSize: pageSize, pageNumber: currentPage, orderBy: u => u.OrderByDescending(inf => inf.AddedOn), includeProperties: "User.UserDetail,User,User.Role")
+                   .Select(u => new
+                   {
+                       u.User.UserDetail.FullName,
+                       u.User.Email,
+                       PhoneNo = string.IsNullOrWhiteSpace(u.User.PhoneNo) ? string.Empty : u.User.PhoneNo,
+                       u.User.Role.RoleName,
+                       u.IsActive,
+                       u.StatusID
+                   }).ToListAsync();
+                    return ApiResultHelper.CreateApiResult(this, success: true, messageType: ApiResultHelper.MessageTypes.Retrieved, entity: "Authhor Request", result: authorListForExport);
+                }
+                var authorRequestCount = await UnitOfWork.AuthorRequestRepository.Get(inf => inf.User != null &&
+                (statusId == 0 || inf.StatusID == statusId) && (string.IsNullOrWhiteSpace(searchTerm) || EF.Functions.Like(inf.User.Email, $"%{searchTerm}%") ||
+                 EF.Functions.Like(inf.User.UserDetail.FullName, $"%{searchTerm}%")
+                ), pageSize: pageSize, pageNumber: currentPage).CountAsync();
+                var totalAuthorRequestCount = await UnitOfWork.AuthorRequestRepository.Get(inf => inf.User != null &&
+                (statusId == 0 || inf.StatusID == statusId) && (string.IsNullOrWhiteSpace(searchTerm) || EF.Functions.Like(inf.User.Email, $"%{searchTerm}%") ||
+                 EF.Functions.Like(inf.User.UserDetail.FullName, $"%{searchTerm}%")
+                )).CountAsync();
+
+                var influencersList = await UnitOfWork.AuthorRequestRepository.Get(inf => inf.User != null &&
+                (statusId == 0 || inf.StatusID == statusId) && (string.IsNullOrWhiteSpace(searchTerm) || EF.Functions.Like(inf.User.Email, $"%{searchTerm}%") ||
+                 EF.Functions.Like(inf.User.UserDetail.FullName, $"%{searchTerm}%")
+                ), pageSize: pageSize, pageNumber: currentPage, orderBy: u => u.OrderByDescending(inf => inf.AddedOn), includeProperties: "User.UserDetail,User,User.Role")
+                    .Select(u => new AuthorRequestViewModel
+                    {
+                        Email = u.User.Email,
+                        PhoneNo = u.User.PhoneNo,
+                        FullName = u.User.UserDetail.FullName,
+                        RoleName = u.User.Role.RoleName,
+                        IsActive = u.IsActive,
+                        AuthorRequestID = u.AuthorRequestID,
+                        UserID = u.UserID,
+                        StatusID = u.StatusID
+                    }).ToListAsync();
+
+                foreach (var item in influencersList)
+                {
+                    item.StatusName = Enum.GetName(typeof(AuthorRequestStatus), item.StatusID);
+                }
+
+                return ApiResultHelper.CreateApiResult(this, success: true, messageType: ApiResultHelper.MessageTypes.Retrieved, entity: "Author Request", result: new { Influencers = influencersList, TotalData = authorRequestCount, TotalRows = totalAuthorRequestCount });
+            }
+            catch (Exception ex)
+            {
+                TheLogger.Log(Thread.CurrentThread.Name, LogLevel.Error, "GetAuthorRequestListing " + ex.Message, ex: ex);
+                return ApiResultHelper.CreateApiResult(this, success: false, messageType: ApiResultHelper.MessageTypes.FailedToRetrieve, entity: "AuthorRequest", statusCode: System.Net.HttpStatusCode.InternalServerError);
+            }
+        }
