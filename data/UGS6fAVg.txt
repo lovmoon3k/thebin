@@ -1,0 +1,85 @@
+import os
+import struct
+import sys
+
+def rol1(n, d):
+    return ((n << d)|(n >> (8 - d))) & 0xFF
+
+def ror1(n, d):
+    return ((n >> d)|(n << (8 - d))) & 0xFF
+
+def rol4(n, d):
+    return ((n << d)|(n >> (32 - d))) & 0xFFFFFFFF
+
+def ror4(n, d):
+    return ((n >> d)|(n << (32 - d))) & 0xFFFFFFFF
+
+hdr=b"[Scrambled]\r\n"
+hdrsize=len(hdr)
+
+def encryptIni(fname):
+    name,ext=os.path.splitext(fname)
+    f=open(fname,"rb")
+    decdata=f.read()
+    f.close()
+
+    checksum=0x0E10F732F
+    for i in range(len(decdata)):
+        checksum=decdata[i]^rol4(checksum,13)
+
+    encdata=bytearray()
+    encdata+=hdr
+    key=0x0DE60ED55
+
+    for i in range(len(decdata)):
+        ch=decdata[i]
+        encch=rol1(ch,3)^(key&0xFF)
+        key=rol4(key,5)^encch
+        encdata.append(encch)
+
+    encdata+=struct.pack("<I",checksum)
+    f=open(name+".scrambled"+ext,"wb")
+    f.write(encdata)
+    f.close()
+
+def decryptIni(fname):
+    name,ext=os.path.splitext(fname)
+    f=open(fname,"rb")
+    encdata=f.read()
+    f.close()
+
+    if not encdata.startswith(hdr):
+        raise Exception("Bad scrambled ini header")
+
+    decdata=bytearray()
+    textsize=len(encdata)-hdrsize-4
+    key=0x0DE60ED55
+
+    for i in range(textsize):
+        encch=encdata[hdrsize+i]
+        ch=ror1(encch^(key&0xFF),3)
+        key=rol4(key,5)^encch
+        decdata.append(ch)
+
+    checksum=0x0E10F732F
+    for i in range(textsize):
+        checksum=decdata[i]^rol4(checksum,13)
+
+    srcChecksum=struct.unpack("<I",encdata[hdrsize+textsize:])[0]
+    if checksum!=srcChecksum:
+        raise Exception("Checksum mismatch, scrambled ini is corrupted")
+
+    f=open(name+".unscrambled"+ext,"wb")
+    f.write(decdata)
+    f.close()
+
+if __name__=="__main__":
+    fname=sys.argv[1]
+    f=open(fname,"rb")
+    data=f.read(hdrsize)
+    f.close()
+
+    if data.startswith(hdr):
+        decryptIni(fname)
+    else:
+        encryptIni(fname)

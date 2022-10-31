@@ -1,0 +1,362 @@
+match_schedule <- read.csv("C:/Users/clair/Downloads/worldcup2022/match_schedule.csv")
+
+teams <- c("ARG", "AUS", "BEL", "BRA", "CAN", "CMR", "CRC", "CRO",
+           "DEN", "ECU", "ENG", "ESP", "FRA", "GER", "GHA", "IRN",
+           "JPN", "KOR", "KSA", "MAR", "MEX", "NED", "POL", "POR",
+           "QAT", "SEN", "SRB", "SUI", "TUN", "URU", "USA", "WAL")
+
+xG_matrix <- data.frame(matrix(nrow = 32, ncol = 32))
+xG_matrix[is.na(xG_matrix)] <- 1.5 # you'll find a different way to do this later, ok?
+rownames(xG_matrix) <- teams
+colnames(xG_matrix) <- teams
+
+finish_matrix <- data.frame(matrix(nrow = 32, ncol = 9))
+finish_matrix[is.na(finish_matrix)] <- 0
+rownames(finish_matrix) <- teams
+colnames(finish_matrix) <- c("Group 1st", "Group 2nd", "Group 3rd", "Group 4th", "Round of 16", "Quarter Finals", "Semi Finals", "Final", "Champion")
+
+grouptotal <- c(1:48)
+r16total <- c(49:56)
+qftotal <- c(57:60)
+sftotal <- c(61,62)
+medaltotal <- c(63,64)
+
+simcount <- c(1:100)
+
+for(count in simcount){
+
+## FIXTURE PREDICTING (GROUP STAGE)
+# note to future Claire: *away* teams first
+for (val in grouptotal){
+  gamenumber <- val
+  match_schedule[gamenumber, "HomexG"] <- xG_matrix[match(match_schedule[gamenumber, "Away"],rownames(xG_matrix)),match(match_schedule[gamenumber, "Home"],colnames(xG_matrix))]
+  match_schedule[gamenumber, "AwayxG"] <- xG_matrix[match(match_schedule[gamenumber, "Home"],rownames(xG_matrix)),match(match_schedule[gamenumber, "Away"],colnames(xG_matrix))]
+}
+
+## FIXTURE SIMULATING (GROUP STAGE)
+for (val in grouptotal){
+  gamenumber <- val
+  match_schedule[gamenumber, "HomeG"] <- rpois(1,match_schedule[gamenumber, "HomexG"])
+  match_schedule[gamenumber, "AwayG"] <- rpois(1,match_schedule[gamenumber, "AwayxG"])
+}
+
+match_schedule$HomeDiff <- match_schedule$HomeG - match_schedule$AwayG; match_schedule$AwayDiff <- match_schedule$AwayG - match_schedule$HomeG
+# this comes in handy when we sort the group stages later
+
+## POINT ALLOCATING (GROUP STAGE)
+for (val in grouptotal){
+  gamenumber <- val
+  if (match_schedule[gamenumber, "HomeG"] > match_schedule[gamenumber, "AwayG"]){
+    match_schedule[gamenumber, "HomePts"] <- 3
+    match_schedule[gamenumber, "AwayPts"] <- 0
+    match_schedule[gamenumber, "HomeW"] <- match_schedule[gamenumber, "HomeW"] + 1
+    } else if (match_schedule[gamenumber, "HomeG"] < match_schedule[gamenumber, "AwayG"]){
+    match_schedule[gamenumber, "HomePts"] <- 0
+    match_schedule[gamenumber, "AwayPts"] <- 3
+    match_schedule[gamenumber, "AwayW"] <- match_schedule[gamenumber, "AwayW"] + 1
+    } else {
+    match_schedule[gamenumber, "HomePts"] <- 1
+    match_schedule[gamenumber, "AwayPts"] <- 1
+    match_schedule[gamenumber, "Draw"] <- match_schedule[gamenumber, "Draw"] + 1
+    }
+}
+
+## GROUP TABLE GENERATION
+groupresults <- array()
+
+for (var in c("A", "B", "C", "D", "E", "F", "G", "H")) {
+  groupnumber <- var
+  table <- match_schedule[match_schedule$Group == var, ]
+  table <- subset(table, select = -c(Match, Stage, Group, Date, Venue, HomexG, AwayxG))
+  table <- cbind(stack(table[1:2]),stack(table[3:4]),stack(table[5:6]),stack(table[7:8]))
+  colnames(table) <- c("Team", NA, "GF", NA, "Pts", NA, "GD", NA)
+  table <- subset(table, select = c(Team, GF, Pts, GD))
+  table <- table[, c(1, 2, 4, 3)]
+  table <- data.frame(c(aggregate(table$GF, list(table$Team), FUN=sum),
+                        aggregate(table$GD, list(table$Team), FUN=sum),
+                        aggregate(table$Pts, list(table$Team), FUN=sum)))
+  colnames(table) <- c("Team", "GF", NA, "GD", NA, "Pts")
+  table <- subset(table, select = c(Team, GF, GD, Pts))
+  table <- table[with(table, order(-Pts, -GD, -GF)), ]
+  groupresults <- append(groupresults, table)
+}
+
+## ROUND OF 16 SCHEDULING
+match_schedule[49,"Home"] <- groupresults[[ 2]][[1]]; match_schedule[49,"Away"] <- groupresults[[ 6]][[2]]
+match_schedule[50,"Home"] <- groupresults[[10]][[1]]; match_schedule[50,"Away"] <- groupresults[[14]][[2]]
+match_schedule[51,"Home"] <- groupresults[[ 6]][[1]]; match_schedule[51,"Away"] <- groupresults[[ 2]][[2]]
+match_schedule[52,"Home"] <- groupresults[[14]][[1]]; match_schedule[52,"Away"] <- groupresults[[10]][[2]]
+match_schedule[53,"Home"] <- groupresults[[18]][[1]]; match_schedule[53,"Away"] <- groupresults[[22]][[2]]
+match_schedule[54,"Home"] <- groupresults[[26]][[1]]; match_schedule[54,"Away"] <- groupresults[[30]][[2]]
+match_schedule[55,"Home"] <- groupresults[[22]][[1]]; match_schedule[55,"Away"] <- groupresults[[18]][[2]]
+match_schedule[56,"Home"] <- groupresults[[30]][[1]]; match_schedule[56,"Away"] <- groupresults[[26]][[2]]
+
+## FIXTURE PREDICTING (KNOCKOUT STAGE)
+# note to future Claire: *away* teams first
+for (val in r16total){
+  gamenumber <- val
+  match_schedule[gamenumber, "HomexG"] <- xG_matrix[match(match_schedule[gamenumber, "Away"],rownames(xG_matrix)),match(match_schedule[gamenumber, "Home"],colnames(xG_matrix))]
+  match_schedule[gamenumber, "AwayxG"] <- xG_matrix[match(match_schedule[gamenumber, "Home"],rownames(xG_matrix)),match(match_schedule[gamenumber, "Away"],colnames(xG_matrix))]
+  match_schedule[gamenumber, "HomeG"] <- rpois(1,match_schedule[gamenumber, "HomexG"])
+  match_schedule[gamenumber, "AwayG"] <- rpois(1,match_schedule[gamenumber, "AwayxG"])
+  if (match_schedule[gamenumber, "HomeG"] > match_schedule[gamenumber, "AwayG"]){
+    match_schedule[gamenumber, "HomePts"] <- 3
+    match_schedule[gamenumber, "AwayPts"] <- 0
+  } else if (match_schedule[gamenumber, "HomeG"] < match_schedule[gamenumber, "AwayG"]){
+    match_schedule[gamenumber, "AwayPts"] <- 3
+    match_schedule[gamenumber, "HomePts"] <- 0
+  } else {
+    match_schedule[gamenumber, "HomeG"] <- match_schedule[gamenumber, "HomeG"] + rpois(1,(match_schedule[gamenumber, "HomexG"])/2)
+    match_schedule[gamenumber, "AwayG"] <- match_schedule[gamenumber, "AwayG"] + rpois(1,(match_schedule[gamenumber, "AwayxG"])/2)
+    if (match_schedule[gamenumber, "HomeG"] > match_schedule[gamenumber, "AwayG"]){
+      match_schedule[gamenumber, "HomePts"] <- 3
+      match_schedule[gamenumber, "AwayPts"] <- 0
+    } else if (match_schedule[gamenumber, "HomeG"] < match_schedule[gamenumber, "AwayG"]){
+      match_schedule[gamenumber, "AwayPts"] <- 3
+      match_schedule[gamenumber, "HomePts"] <- 0
+    } else {
+      penalties <- runif(1)
+      if (penalties > 0.5){
+        match_schedule[gamenumber, "HomePts"] <- 3
+        match_schedule[gamenumber, "AwayPts"] <- 0
+      } else {
+        match_schedule[gamenumber, "AwayPts"] <- 3
+        match_schedule[gamenumber, "HomePts"] <- 0
+      }
+    }
+  }
+}
+
+## QUARTER FINAL SCHEDULE
+if (match_schedule[49, "HomePts"] == 3){
+  match_schedule[57,"Home"] <- match_schedule[49,"Home"]
+} else {
+  match_schedule[57,"Home"] <- match_schedule[49,"Away"]
+}
+if (match_schedule[50, "HomePts"] == 3){
+  match_schedule[57,"Away"] <- match_schedule[50,"Home"]
+} else {
+  match_schedule[57,"Away"] <- match_schedule[50,"Away"]
+}
+if (match_schedule[51, "HomePts"] == 3){
+  match_schedule[59,"Home"] <- match_schedule[51,"Home"]
+} else {
+  match_schedule[59,"Home"] <- match_schedule[51,"Away"]
+}
+if (match_schedule[52, "HomePts"] == 3){
+  match_schedule[59,"Away"] <- match_schedule[52,"Home"]
+} else {
+  match_schedule[59,"Away"] <- match_schedule[52,"Away"]
+}
+if (match_schedule[53, "HomePts"] == 3){
+  match_schedule[58,"Home"] <- match_schedule[53,"Home"]
+} else {
+  match_schedule[58,"Home"] <- match_schedule[53,"Away"]
+}
+if (match_schedule[54, "HomePts"] == 3){
+  match_schedule[58,"Away"] <- match_schedule[54,"Home"]
+} else {
+  match_schedule[58,"Away"] <- match_schedule[54,"Away"]
+}
+if (match_schedule[55, "HomePts"] == 3){
+  match_schedule[60,"Home"] <- match_schedule[55,"Home"]
+} else {
+  match_schedule[60,"Home"] <- match_schedule[55,"Away"]
+}
+if (match_schedule[56, "HomePts"] == 3){
+  match_schedule[60,"Away"] <- match_schedule[56,"Home"]
+} else {
+  match_schedule[60,"Away"] <- match_schedule[56,"Away"]
+}
+
+## FIXTURE SIMULATING (KNOCKOUT STAGE)
+for (val in qftotal){
+  gamenumber <- val
+  match_schedule[gamenumber, "HomexG"] <- xG_matrix[match(match_schedule[gamenumber, "Away"],rownames(xG_matrix)),match(match_schedule[gamenumber, "Home"],colnames(xG_matrix))]
+  match_schedule[gamenumber, "AwayxG"] <- xG_matrix[match(match_schedule[gamenumber, "Home"],rownames(xG_matrix)),match(match_schedule[gamenumber, "Away"],colnames(xG_matrix))]
+  match_schedule[gamenumber, "HomeG"] <- rpois(1,match_schedule[gamenumber, "HomexG"])
+  match_schedule[gamenumber, "AwayG"] <- rpois(1,match_schedule[gamenumber, "AwayxG"])
+  if (match_schedule[gamenumber, "HomeG"] > match_schedule[gamenumber, "AwayG"]){
+    match_schedule[gamenumber, "HomePts"] <- 3
+    match_schedule[gamenumber, "AwayPts"] <- 0
+  } else if (match_schedule[gamenumber, "HomeG"] < match_schedule[gamenumber, "AwayG"]){
+    match_schedule[gamenumber, "AwayPts"] <- 3
+    match_schedule[gamenumber, "HomePts"] <- 0
+  } else {
+    match_schedule[gamenumber, "HomeG"] <- match_schedule[gamenumber, "HomeG"] + rpois(1,(match_schedule[gamenumber, "HomexG"])/2)
+    match_schedule[gamenumber, "AwayG"] <- match_schedule[gamenumber, "AwayG"] + rpois(1,(match_schedule[gamenumber, "AwayxG"])/2)
+    if (match_schedule[gamenumber, "HomeG"] > match_schedule[gamenumber, "AwayG"]){
+      match_schedule[gamenumber, "HomePts"] <- 3
+      match_schedule[gamenumber, "AwayPts"] <- 0
+    } else if (match_schedule[gamenumber, "HomeG"] < match_schedule[gamenumber, "AwayG"]){
+      match_schedule[gamenumber, "AwayPts"] <- 3
+      match_schedule[gamenumber, "HomePts"] <- 0
+    } else {
+      penalties <- runif(1)
+      if (penalties > 0.5){
+        match_schedule[gamenumber, "HomePts"] <- 3
+        match_schedule[gamenumber, "AwayPts"] <- 0
+      } else {
+        match_schedule[gamenumber, "AwayPts"] <- 3
+        match_schedule[gamenumber, "HomePts"] <- 0
+      }
+    }
+  }
+}
+
+## SEMI FINAL SCHEDULE
+if (match_schedule[57, "HomePts"] == 3){
+  match_schedule[61,"Home"] <- match_schedule[57,"Home"]
+} else {
+  match_schedule[61,"Home"] <- match_schedule[57,"Away"]
+}
+if (match_schedule[58, "HomePts"] == 3){
+  match_schedule[61,"Away"] <- match_schedule[58,"Home"]
+} else {
+  match_schedule[61,"Away"] <- match_schedule[58,"Away"]
+}
+if (match_schedule[59, "HomePts"] == 3){
+  match_schedule[62,"Home"] <- match_schedule[59,"Home"]
+} else {
+  match_schedule[62,"Home"] <- match_schedule[59,"Away"]
+}
+if (match_schedule[60, "HomePts"] == 3){
+  match_schedule[62,"Away"] <- match_schedule[60,"Home"]
+} else {
+  match_schedule[62,"Away"] <- match_schedule[60,"Away"]
+}
+
+## FIXTURE SIMULATING (KNOCKOUT STAGE)
+for (val in sftotal){
+  gamenumber <- val
+  match_schedule[gamenumber, "HomexG"] <- xG_matrix[match(match_schedule[gamenumber, "Away"],rownames(xG_matrix)),match(match_schedule[gamenumber, "Home"],colnames(xG_matrix))]
+  match_schedule[gamenumber, "AwayxG"] <- xG_matrix[match(match_schedule[gamenumber, "Home"],rownames(xG_matrix)),match(match_schedule[gamenumber, "Away"],colnames(xG_matrix))]
+  match_schedule[gamenumber, "HomeG"] <- rpois(1,match_schedule[gamenumber, "HomexG"])
+  match_schedule[gamenumber, "AwayG"] <- rpois(1,match_schedule[gamenumber, "AwayxG"])
+  if (match_schedule[gamenumber, "HomeG"] > match_schedule[gamenumber, "AwayG"]){
+    match_schedule[gamenumber, "HomePts"] <- 3
+    match_schedule[gamenumber, "AwayPts"] <- 0
+  } else if (match_schedule[gamenumber, "HomeG"] < match_schedule[gamenumber, "AwayG"]){
+    match_schedule[gamenumber, "AwayPts"] <- 3
+    match_schedule[gamenumber, "HomePts"] <- 0
+  } else {
+    match_schedule[gamenumber, "HomeG"] <- match_schedule[gamenumber, "HomeG"] + rpois(1,(match_schedule[gamenumber, "HomexG"])/2)
+    match_schedule[gamenumber, "AwayG"] <- match_schedule[gamenumber, "AwayG"] + rpois(1,(match_schedule[gamenumber, "AwayxG"])/2)
+    if (match_schedule[gamenumber, "HomeG"] > match_schedule[gamenumber, "AwayG"]){
+      match_schedule[gamenumber, "HomePts"] <- 3
+      match_schedule[gamenumber, "AwayPts"] <- 0
+    } else if (match_schedule[gamenumber, "HomeG"] < match_schedule[gamenumber, "AwayG"]){
+      match_schedule[gamenumber, "AwayPts"] <- 3
+      match_schedule[gamenumber, "HomePts"] <- 0
+    } else {
+      penalties <- runif(1)
+      if (penalties > 0.5){
+        match_schedule[gamenumber, "HomePts"] <- 3
+        match_schedule[gamenumber, "AwayPts"] <- 0
+      } else {
+        match_schedule[gamenumber, "AwayPts"] <- 3
+        match_schedule[gamenumber, "HomePts"] <- 0
+      }
+    }
+  }
+}
+
+## MEDAL GAME SCHEDULES
+if (match_schedule[61, "HomePts"] == 3){
+  match_schedule[64,"Home"] <- match_schedule[61,"Home"]
+  match_schedule[63,"Home"] <- match_schedule[61,"Away"]
+} else {
+  match_schedule[64,"Home"] <- match_schedule[61,"Away"]
+  match_schedule[63,"Home"] <- match_schedule[61,"Home"]
+}
+if (match_schedule[62, "HomePts"] == 3){
+  match_schedule[64,"Away"] <- match_schedule[62,"Home"]
+  match_schedule[63,"Away"] <- match_schedule[62,"Away"]
+} else {
+  match_schedule[64,"Away"] <- match_schedule[62,"Away"]
+  match_schedule[63,"Away"] <- match_schedule[62,"Home"]
+}
+
+## FIXTURE SIMULATING (MEDAL GAMES)
+for (val in medaltotal){
+  gamenumber <- val
+  match_schedule[gamenumber, "HomexG"] <- xG_matrix[match(match_schedule[gamenumber, "Away"],rownames(xG_matrix)),match(match_schedule[gamenumber, "Home"],colnames(xG_matrix))]
+  match_schedule[gamenumber, "AwayxG"] <- xG_matrix[match(match_schedule[gamenumber, "Home"],rownames(xG_matrix)),match(match_schedule[gamenumber, "Away"],colnames(xG_matrix))]
+  match_schedule[gamenumber, "HomeG"] <- rpois(1,match_schedule[gamenumber, "HomexG"])
+  match_schedule[gamenumber, "AwayG"] <- rpois(1,match_schedule[gamenumber, "AwayxG"])
+  if (match_schedule[gamenumber, "HomeG"] > match_schedule[gamenumber, "AwayG"]){
+    match_schedule[gamenumber, "HomePts"] <- 3
+    match_schedule[gamenumber, "AwayPts"] <- 0
+  } else if (match_schedule[gamenumber, "HomeG"] < match_schedule[gamenumber, "AwayG"]){
+    match_schedule[gamenumber, "AwayPts"] <- 3
+    match_schedule[gamenumber, "HomePts"] <- 0
+  } else {
+    match_schedule[gamenumber, "HomeG"] <- match_schedule[gamenumber, "HomeG"] + rpois(1,(match_schedule[gamenumber, "HomexG"])/2)
+    match_schedule[gamenumber, "AwayG"] <- match_schedule[gamenumber, "AwayG"] + rpois(1,(match_schedule[gamenumber, "AwayxG"])/2)
+    if (match_schedule[gamenumber, "HomeG"] > match_schedule[gamenumber, "AwayG"]){
+      match_schedule[gamenumber, "HomePts"] <- 3
+      match_schedule[gamenumber, "AwayPts"] <- 0
+    } else if (match_schedule[gamenumber, "HomeG"] < match_schedule[gamenumber, "AwayG"]){
+      match_schedule[gamenumber, "AwayPts"] <- 3
+      match_schedule[gamenumber, "HomePts"] <- 0
+    } else {
+      penalties <- runif(1)
+      if (penalties > 0.5){
+        match_schedule[gamenumber, "HomePts"] <- 3
+        match_schedule[gamenumber, "AwayPts"] <- 0
+      } else {
+        match_schedule[gamenumber, "AwayPts"] <- 3
+        match_schedule[gamenumber, "HomePts"] <- 0
+      }
+    }
+  }
+}
+
+# CALCULATION OF TOTAL RESULTS
+for (var in teams){
+  trigramme <- var
+  poscheck <- c(groupresults[[ 2]][[1]],groupresults[[ 6]][[1]],groupresults[[10]][[1]],groupresults[[14]][[1]],
+                groupresults[[18]][[1]],groupresults[[22]][[1]],groupresults[[26]][[1]],groupresults[[30]][[1]])
+  if (trigramme %in% poscheck == TRUE){
+    finish_matrix[trigramme, "Group 1st"] <- finish_matrix[trigramme, "Group 1st"] + 1
+  }
+  poscheck <- c(groupresults[[ 2]][[2]],groupresults[[ 6]][[2]],groupresults[[10]][[2]],groupresults[[14]][[2]],
+                groupresults[[18]][[2]],groupresults[[22]][[2]],groupresults[[26]][[2]],groupresults[[30]][[2]])
+  if (trigramme %in% poscheck == TRUE){
+    finish_matrix[trigramme, "Group 2nd"] <- finish_matrix[trigramme, "Group 2nd"] + 1
+  }
+  poscheck <- c(groupresults[[ 2]][[3]],groupresults[[ 6]][[3]],groupresults[[10]][[3]],groupresults[[14]][[3]],
+                groupresults[[18]][[3]],groupresults[[22]][[3]],groupresults[[26]][[3]],groupresults[[30]][[3]])
+  if (trigramme %in% poscheck == TRUE){
+    finish_matrix[trigramme, "Group 3rd"] <- finish_matrix[trigramme, "Group 3rd"] + 1
+  }
+  poscheck <- c(groupresults[[ 2]][[4]],groupresults[[ 6]][[4]],groupresults[[10]][[4]],groupresults[[14]][[4]],
+                groupresults[[18]][[4]],groupresults[[22]][[4]],groupresults[[26]][[4]],groupresults[[30]][[4]])
+  if (trigramme %in% poscheck == TRUE){
+    finish_matrix[trigramme, "Group 4th"] <- finish_matrix[trigramme, "Group 4th"] + 1
+  }
+  poscheck <- c(match_schedule[49, "Home"], match_schedule[49, "Away"], match_schedule[50, "Home"], match_schedule[50, "Away"],
+                match_schedule[51, "Home"], match_schedule[51, "Away"], match_schedule[52, "Home"], match_schedule[52, "Away"],
+                match_schedule[53, "Home"], match_schedule[53, "Away"], match_schedule[54, "Home"], match_schedule[54, "Away"],
+                match_schedule[55, "Home"], match_schedule[55, "Away"], match_schedule[56, "Home"], match_schedule[56, "Away"])
+  if (trigramme %in% poscheck == TRUE){
+    finish_matrix[trigramme, "Round of 16"] <- finish_matrix[trigramme, "Round of 16"] + 1
+  }
+  poscheck <- c(match_schedule[57, "Home"], match_schedule[57, "Away"], match_schedule[58, "Home"], match_schedule[58, "Away"],
+                match_schedule[59, "Home"], match_schedule[59, "Away"], match_schedule[60, "Home"], match_schedule[60, "Away"])
+  if (trigramme %in% poscheck == TRUE){
+    finish_matrix[trigramme, "Quarter Finals"] <- finish_matrix[trigramme, "Quarter Finals"] + 1
+  }
+  poscheck <- c(match_schedule[61, "Home"], match_schedule[61, "Away"], match_schedule[62, "Home"], match_schedule[62, "Away"])
+  if (trigramme %in% poscheck == TRUE){
+    finish_matrix[trigramme, "Semi Finals"] <- finish_matrix[trigramme, "Semi Finals"] + 1
+  }
+  poscheck <- c(match_schedule[64, "Home"], match_schedule[64, "Away"])
+  if (trigramme %in% poscheck == TRUE){
+    finish_matrix[trigramme, "Final"] <- finish_matrix[trigramme, "Final"] + 1
+  }
+  if (match_schedule[64, "Home"] == trigramme & match_schedule[64, "HomePts"] == 3 | match_schedule[64, "Away"] == trigramme & match_schedule[64, "AwayPts"] == 3){
+    finish_matrix[trigramme, "Champion"] <- finish_matrix[trigramme, "Champion"] + 1
+  }
+}
+}
