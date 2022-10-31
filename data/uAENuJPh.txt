@@ -1,0 +1,763 @@
+# Including tkinter header to create and manage ui's
+from tkinter import messagebox
+from tkinter import *
+
+# Using mysql-connector-python for mysql python connection
+import mysql.connector as mc
+
+# Using customtkinter module for modern tkinter button
+import customtkinter
+
+# Using Pillow module for the support of jpg images and resizing the images into specified
+from PIL import Image, ImageTk
+
+# Using tkcalendar module to get date from leave entry into yyyy-mm-dd format
+from tkcalendar import DateEntry
+
+# Using matplotlib to plot the graph into tkinter
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg, NavigationToolbar2Tk)
+from matplotlib.backend_bases import key_press_handler
+from matplotlib.figure import Figure
+
+# Using numpy module for faster array support
+import numpy as np
+
+# Using time module to set program delay
+import time
+
+# MySQL Objects and connection string
+cnx = mc.connect(host="localhost", user="alen",
+                 password="alen", database="school")
+#Setting buffered to True to get rid of unread results found error
+cur = cnx.cursor(buffered=True)
+cnx.autocommit = True
+
+"""
+Home function is the default home page. It consists of the  login page. It asks the user which group he/she belongs to ie (student, teacher, staff, admin)
+"""
+def home():
+    window = Tk()
+    window.title("SCHOOL MANAGEMENT SYSTEM")
+    window.geometry("960x606")
+    window.resizable(0, 0)
+    window.iconbitmap("./ico/school.ico")
+
+    # Creating background image variable
+    bg = PhotoImage(file="./img/login.png")
+
+    # Creating the background label
+    l1 = Label(window, image=bg)
+    l1.place(x=0, y=0)
+
+    # Creating the login text
+    l2 = Label(window, text="LOGIN", font=(
+        "times new roman", 20, "bold"), bg="#184800", fg="#ff007f")
+    l2.place(x=441, y=23)
+
+    # Creating the student button
+    l3 = Button(window, text="STUDENT", width=15, font=(
+        "times new roman", 10, "bold"), command=lambda: stud_lgn_btn(window))
+    l3.place(x=435, y=100)
+
+    # Creating the teacher button
+    l4 = Button(window, text="TEACHER", width=15, font=(
+        "times new roman", 10, "bold"), command=lambda: teacher_lgn_btn(window))
+    l4.place(x=435, y=140)
+
+    # Creating the staff button
+    l5 = Button(window, text="STAFF", width=15, font=(
+        "times new roman", 10, "bold"), command=lambda: staff_lgn_btn(window))
+    l5.place(x=435, y=180)
+
+    # Creating the admin button
+    l6 = Button(window, text="ADMIN", width=15, font=(
+        "times new roman", 10, "bold"), command=lambda: admin_lgn_btn(window))
+    l6.place(x=435, y=220)
+
+    window.mainloop()
+
+"""
+The stud_lgn_btn() is a function that changes the window from home window to student login widnow.
+It accepts the parent window as it's param and destroys the window
+This page consists of username and password entry and a submit button
+The username and password are passed on to the username_var and password_var text variables respectively
+Then the submit button calls on the command stud_lgn()
+"""
+def stud_lgn_btn(window):
+    # Killing the previous window and moving to the student window
+    window.destroy()
+
+    # Making the tkinter window global
+    global root
+
+    # Creating new window
+    root = Tk()
+
+    root.title("STUDENT LOGIN")
+    root.geometry("960x600")
+    root.resizable(0, 0)
+    root.iconbitmap("./ico/student.ico")
+
+    # Creating String Vars
+    global username_var
+    global passw_var
+    username_var = StringVar()
+    passw_var = StringVar()
+
+    # Creating the background image variable
+    bg = PhotoImage(file="./img/all_lgn.png")
+
+    # Creating the label background
+    l1 = Label(root, image=bg)
+    l1.place(x=0, y=0)
+
+    # Creating student login text
+    l2 = Label(root, text="STUDENT LOGIN", background="#413E91",
+               font=("times new roman", 20, "bold"), fg="black")
+    l2.place(x=385, y=13)
+
+    # Creating the login username text
+    lgnt1 = Label(root, text="USERNAME", font=("times new roman", 10, "bold"))
+    lgnt1.place(x=40, y=140)
+
+    # Creating the username login entry form
+    global user
+    user = Entry(root, textvariable=username_var, width=20)
+    user.place(x=140, y=140)
+
+    # Creating the login password text
+    lgnt2 = Label(root, text="PASSWORD", font=("times new roman", 10, "bold"))
+    lgnt2.place(x=40, y=180)
+
+    # Creating the password entry form
+    pswd = Entry(root, textvariable=passw_var, width=20, show="*")
+    pswd.place(x=140, y=180)
+
+    # Creating the submit button
+    submit = Button(root, text="SUBMIT", command=stud_lgn)
+    submit.place(x=130, y=220)
+
+    root.mainloop()
+
+"""
+The stud_lgn() function is used to check for the username and password in the database and make further movements
+Tt uses the global username_var and password_var for checking the values
+It used .get() method to get the str() return of the entered value from the report
+Then that value is used to validate the student using mysql connection
+
+If the entered value is correct then this window proceeds into stud_home()
+If not then the window will show an error message stating 'Cannot find such a user with the given username and passweord. Please retry'
+"""
+def stud_lgn():
+    name = username_var.get()
+    passw = passw_var.get()
+
+    cur.execute(
+        "SELECT * FROM STUDENTS WHERE USERNAME=%s AND PASSWORD=%s", (name, passw))
+
+    a = cur.fetchone()
+
+    global L
+    L = []
+
+    if a !=None and len(a) != 0:
+        for k in a:
+            L.append(k)
+
+        root.destroy()
+        stud_home()
+        
+    else:
+        messagebox.showerror(
+            "User nor found", "Cannot find such a user with the given username and password. Please retry")
+
+    username_var.set("")
+    passw_var.set("")
+
+"""
+This function is the student' home page
+This is proceeded from the stud_lgn(), if the entered credentials are correct then the student proceeds into the home page
+The home page consists of 4 buttons namely, PROFILE, LEAVE ENTRY, ACADEMICS AND LOGOUT
+When the user clicks on the button it proceeds into the next page
+"""
+def stud_home():
+    # Setting window appearance mode
+    customtkinter.set_appearance_mode("dark")
+    
+    # Setting default color theme
+    customtkinter.set_default_color_theme("dark-blue")
+
+    # Creating the student home window
+    shw = customtkinter.CTk()
+
+    shw.title("STUDENT HOME")
+    shw.geometry("941x619")
+    shw.resizable(0, 0)
+    shw.iconbitmap("./ico/student.ico")
+
+    # Creating the background variable for the window
+    bg = PhotoImage(file="./img/stud_home.png")
+    
+    # Setting up the background
+    l1 = Label(shw, image=bg)
+    l1.place(x=0, y=0)
+
+    # Creating a label for user details
+    l2 = Label(shw, text="WELCOME TO STUDENT HOME", font=("Consolas", 20, "bold"), fg="white", bg="black")
+    l2.pack()
+
+    # Creating image variable for icon Images
+    std_profile = ImageTk.PhotoImage(Image.open("./icons/std_profile.png").resize((20, 20), Image.Resampling.LANCZOS))
+    lv_entry = ImageTk.PhotoImage(Image.open("./icons/leave_entry.jpg").resize((20, 20), Image.Resampling.LANCZOS))
+    logout = ImageTk.PhotoImage(Image.open("./icons/logout.png").resize((20, 20), Image.Resampling.LANCZOS))
+    academics = ImageTk.PhotoImage(Image.open("./icons/academics.jpg").resize((20, 20), Image.Resampling.LANCZOS))
+
+    # Student Profile button
+    b1 = customtkinter.CTkButton(master=shw, width=150, height=40, text="PROFILE", image=std_profile, command=lambda: stud_profile(shw, L))
+    b1.place(x=775, y=90)
+
+    # Leave Entry Button
+    b2 = customtkinter.CTkButton(master=shw, width=150, height=40, text="LEAVE ENTRY", image=lv_entry, command=lambda: stud_leave_entry(shw))
+    b2.place(x=775, y=190)
+
+    # Academics Button
+    b3 = customtkinter.CTkButton(master=shw, text="ACADEMICS", width=150, height=40, image = academics, command=lambda: stud_academics(shw))
+    b3.place(x=775, y=290)
+
+    # Logout Button
+    b4 = customtkinter.CTkButton(master=shw, width=150, height=40, text="LOGOUT", image=logout, command=lambda: stud_logout(shw))
+    b4.place(x=775, y=390)
+    shw.mainloop()
+
+"""
+This function is the logout function
+This function destroys the current window and then moves back to the home page
+"""
+def stud_logout(window):
+    window.destroy()
+    home()
+
+"""
+This function is used to show the progress of the student in the academic year
+It consists of test papaers and exam marks
+The student may click and chose the subject from the combobox
+The student may then click and chose the exam progression or test paper progression and the chart displays on the tkinter window
+"""
+def stud_academics(window):
+    window.destroy()
+
+#def stud_academics() -> None:
+    customtkinter.set_appearance_mode("dark")
+    customtkinter.set_default_color_theme("dark-blue")
+
+    # Creating text variable for subject, examination
+    global sub_var
+    global examintaion
+
+    # Creating academics window
+    saw = customtkinter.CTk()
+    saw.geometry("1280x585")
+    saw.resizable(0,0)
+
+    sub_var = StringVar() 
+    examination_var = StringVar()
+    
+    saw.title("STUDENT ACADEMICS")
+    saw.iconbitmap("./ico/stud_academics.ico")
+
+    # Creating background image variable
+    bg = ImageTk.PhotoImage(Image.open("./icons/academics.jpg").resize((1280, 720), Image.Resampling.LANCZOS))
+
+    # Creating background image label
+    l1 = customtkinter.CTkLabel(master=saw, image=bg, bg_color="black")
+    l1.place(x=0, y=0)
+
+    # Creating the subject text label
+    l2 = customtkinter.CTkLabel(master=saw, text="SUBJECT", text_font=("Consolas", 20, "bold"))
+    l2.place(x=1070, y=40)
+
+    # Getting student stream from database
+    stream = L[6]
+
+    # Creating combobox
+    cb1 = customtkinter.CTkComboBox(master=saw)
+
+    if stream == "computer science":
+        cb1["values"] = ["Computer Science", "Maths", "Chemistry", "Physics, English"]
+    
+    elif stream == "bio maths":
+        cb1["values"] = ["Biology", "Maths", "Chemistry", "Physics", "English"]
+
+    elif stream == "bio psychology":
+        cb1["values"] = ["Biology", "Psychology", "Chemistry", "Physics", "English"]
+
+    elif stream == "commerce computer":
+        cb1["values"] = ["Commerce", "Bussiness", "Economics", "Accountancy", "Computer Science"]
+
+    elif stream == "commerce ip":
+        cb1["values"] = ["Commerce", "Bussiness", "Economics", "Accountancy", "IP"]
+
+    elif stream == "commerce maths":
+        cb1["values"] = ["Commerce", "Bussiness", "Economics", "Accountancy", "Maths"]
+
+    cb1.place(x=1070, y=60)
+
+    saw.mainloop()
+
+"""
+This is the stud_profile function
+It accepts 2 arguments
+They accepted positional arguments are parentwindow and the list of the login details of the student
+Firstly, the function destroys the parent window and opens up a new window
+In the profile window the student is shown the profile icon, name, class and dob
+"""
+def stud_profile(pw, L):
+    # Destroying parent window
+    pw.destroy()
+
+    customtkinter.set_appearance_mode("light")
+    customtkinter.set_default_color_theme("dark-blue")
+    
+    spw = customtkinter.CTk()
+    spw.resizable(0,0)
+
+    spw.title("STUDENT PROFILE")
+    spw.iconbitmap("./ico/student.ico")
+
+    l1 = customtkinter.CTkLabel(master=spw, text="STUDENT PROFILE", text_font=("Consolas", 20, "italic"))
+    l1.pack()
+
+    # Creating the image variable for the profile picture image
+    std_profile = ImageTk.PhotoImage(Image.open("./icons/std_profile1.jpg").resize((200, 200), Image.Resampling.LANCZOS))
+    
+    # Creating the label icon
+    l1 = customtkinter.CTkLabel(master=spw, image=std_profile, bg_color="white")
+    l1.place(x=200, y=70)
+
+    # Placing name
+    name = "Name: "
+    l2 = customtkinter.CTkLabel(master=spw, text=name+L[1])
+    l2.place(x=210, y=250)
+
+    # Placing class
+    grade = "Class: "
+    l3 = customtkinter.CTkLabel(master=spw, text=grade+str(L[4])+' '+L[5])
+    l3.place(x=210, y=270)
+
+    # Placing DOB
+    dob = "DOB: "
+    l4 = customtkinter.CTkLabel(master=spw, text=dob+str(L[7]))
+    l4.place(x=210, y=290)
+
+    # Placing go back to student home
+    b1 = customtkinter.CTkButton(master=spw, text="GO BACK TO PREVIOUS WINDOW", command=lambda: go_back_to_prev(spw))
+    b1.place(x=172, y=330)
+
+    spw.mainloop()
+
+"""
+This function is student leave entry function
+This accepts the parent window as its argument
+Firsty, this function destroyes the parent window
+
+The new window has two date entry namely startdate and enddate
+It also has the reason box where the parent has to enter the reason for the leave
+"""
+def stud_leave_entry(win):
+    win.destroy()
+
+    slew = customtkinter.CTk()
+    slew.resizable(0,0)
+    slew.iconbitmap("./ico/student.ico")
+    slew.title("STUDENT LEAVE ENTRY")
+
+    # Creating start date, end date and reason text variables
+    global start_date
+    global end_date
+    global reason
+
+    start_date = StringVar()
+    end_date = StringVar()
+    reason = StringVar()
+
+    # Creating the heading
+    l1 = customtkinter.CTkLabel(master=slew, text="LEAVE ENTRY", text_font=("times new roman", 21, "bold"))
+    l1.pack()
+
+    # Creating the start date text label
+    l1 = customtkinter.CTkLabel(master=slew, text="START DATE", text_font=("Consolas", 12, "bold"))
+    l1.place(x=30, y=90)
+
+    # Creating start date button
+    global b1
+    b1 = DateEntry(master=slew, date_pattern="yyyy-mm-dd",textvariable=start_date)
+    b1.place(x=250, y=100)
+
+    l2 = customtkinter.CTkLabel(master=slew, text="END DATE", text_font=("Consolas", 12, "bold"))
+    l2.place(x=30, y=160)
+
+    global b2
+    b2 = DateEntry(master=slew, date_pattern="yyyy-mm-dd", textvariable=end_date)
+    b2.place(x=250, y=170)
+
+    l3 = customtkinter.CTkLabel(master=slew, text="REASON", text_font=("Consolas", 12, "bold"))
+    l3.place(x=30, y=220)
+
+    global b3
+    b3 = customtkinter.CTkEntry(master=slew, textvariable=reason, width=300)
+    b3.place(x=190, y=220)
+
+    # Creating the submit button
+    submit = customtkinter.CTkButton(master=slew, text="Submit", command=lambda: stud_leave_entry_submit(slew))
+    submit.place(x=190, y=270)
+
+    # Creating go back to student home
+    b4 = customtkinter.CTkButton(master=slew, text="GO BACK TO PREVIOUS WINDOW", command=lambda: go_back_to_prev(slew))
+    b4.place(x=190, y=320)
+
+    slew.mainloop()
+
+"""
+This function is called when the submit button in the stud_leave_entry() function is clicked
+It then used .get() method to extract the str() values from the input
+The inputted values are then passed into mysql and are stored in the stud_leave table
+"""
+def stud_leave_entry_submit(window):
+    sd = start_date.get()
+    ed = end_date.get()
+    rs = reason.get()
+
+    cur.execute("SELECT * FROM STUD_LEAVE")
+    a = cur.rowcount
+
+    cur.execute("INSERT INTO STUD_LEAVE(NAME, CLASS, DIVISION, STARTDATE, ENDDATE, REASON) VALUES (%s, %s, %s, %s, %s, %s)", (L[1], L[4], L[5], sd, ed, rs))   
+
+    cur.execute("SELECT * FROM STUD_LEAVE")
+    b = cur.rowcount
+
+    if b == a + 1:
+        messagebox.showinfo("SUCCESSFUL", "LEAVE ENTRY SUCCESSFULLY INSERTED")
+
+    else:
+        print("Some connection with leave entry, Please approach the developer as soon as possible")
+
+    time.sleep(1)
+
+    go_back_to_prev(window)
+
+""""
+This function is used to close the current window and go back to the student home window
+"""
+def go_back_to_prev(pw):
+    pw.destroy()
+    stud_home()
+
+def teacher_lgn_btn(window):
+    # Killing the previous window and moving to the student window
+    window.destroy()
+
+    # Making the tkinter window global
+    global root
+
+    # Creating new window
+    root = Tk()
+
+    root.title("TEACHER LOGIN")
+    root.geometry("960x600")
+    root.resizable(0, 0)
+    root.iconbitmap("./ico/teacher.ico")
+
+    # Creating String Vars
+    global username_var
+    global passw_var
+    username_var = StringVar()
+    passw_var = StringVar()
+
+    # Creating the background image variable
+    bg = PhotoImage(file="./img/all_lgn.png")
+
+    # Creating the label background
+    l1 = Label(root, image=bg)
+    l1.place(x=0, y=0)
+
+    # Creating student login text
+    l2 = Label(root, text="TEACHER LOGIN", background="#413E91",
+               font=("times new roman", 20, "bold"), fg="black")
+    l2.place(x=385, y=13)
+
+    # Creating the login username text
+    lgnt1 = Label(root, text="USERNAME", font=("times new roman", 10, "bold"))
+    lgnt1.place(x=40, y=140)
+
+    # Creating the username login entry form
+    global user
+    user = Entry(root, textvariable=username_var, width=20)
+    user.place(x=140, y=140)
+
+    # Creating the login password text
+    lgnt2 = Label(root, text="PASSWORD", font=("times new roman", 10, "bold"))
+    lgnt2.place(x=40, y=180)
+
+    # Creating the password entry form
+    pswd = Entry(root, textvariable=passw_var, width=20, show="*")
+    pswd.place(x=140, y=180)
+
+    # Creating the submit button
+    submit = Button(root, text="SUBMIT", command=teacher_lgn)
+    submit.place(x=130, y=220)
+
+    root.mainloop()
+
+
+def teacher_lgn():
+    name = username_var.get()
+    passw = passw_var.get()
+
+    cur.execute(
+        "SELECT * FROM TEACHERS WHERE USERNAME=%s AND PASSWORD=%s", (name, passw))
+
+    a = cur.fetchone()
+
+    global L
+    L = []
+
+    if a != None and len(a) != 0:
+        for k in a:
+            L.append(k)
+
+        root.destroy()
+        teacher_home()
+        
+    else:
+        messagebox.showerror(
+            "User nor found", "Cannot find such a user with the given username and password. Please retry")
+
+    username_var.set("")
+    passw_var.set("")
+
+def teacher_home():
+    # Setting window appearance mode
+    customtkinter.set_appearance_mode("dark")
+    
+    # Setting default color theme
+    customtkinter.set_default_color_theme("dark-blue")
+
+    # Creating the student home window
+    shw = customtkinter.CTk()
+
+    shw.title("TEACHER HOME")
+    shw.geometry("941x619")
+    shw.resizable(0, 0)
+    shw.iconbitmap("./ico/teacher.ico")
+
+    # Creating the background variable for the window
+    bg = ImageTk.PhotoImage(Image.open("./img/teacher_home.jpg").resize((941, 619), Image.Resampling.LANCZOS))
+    
+    # Setting up the background
+    l1 = Label(shw, image=bg)
+    l1.place(x=0, y=0)
+
+    # Creating a label for user details
+    l2 = Label(shw, text="WELCOME TO TEACHER HOME", font=("Consolas", 20, "bold"), fg="white", bg="black")
+    l2.pack()
+
+    # Creating image variable for icon Images
+    std_profile = ImageTk.PhotoImage(Image.open("./icons/std_profile.png").resize((20, 20), Image.Resampling.LANCZOS))
+    lv_entry = ImageTk.PhotoImage(Image.open("./icons/leave_entry.jpg").resize((20, 20), Image.Resampling.LANCZOS))
+    logout = ImageTk.PhotoImage(Image.open("./icons/logout.png").resize((20, 20), Image.Resampling.LANCZOS))
+    academics = ImageTk.PhotoImage(Image.open("./icons/academics.jpg").resize((20, 20), Image.Resampling.LANCZOS))
+
+    # Teacher Profile button
+    b1 = customtkinter.CTkButton(master=shw, width=150, height=40, text="PROFILE", image=std_profile, command=lambda: stud_profile(shw, L))
+    b1.place(x=775, y=90)
+
+    # Leave Entry Button
+    b2 = customtkinter.CTkButton(master=shw, width=150, height=40, text="LEAVE ENTRY", image=lv_entry, command=lambda: stud_leave_entry(shw))
+    b2.place(x=775, y=190)
+
+    # Academics Button
+    #b3 = customtkinter.CTkButton(master=shw, text="ACADEMICS", width=150, height=40, image = academics, command=lambda: stud_academics(shw))
+    #b3.place(x=775, y=290)
+
+    # Logout Button
+    b4 = customtkinter.CTkButton(master=shw, width=150, height=40, text="LOGOUT", image=logout, command=lambda: stud_logout(shw))
+    b4.place(x=775, y=390)
+    shw.mainloop()
+
+
+def staff_lgn_btn(window):
+    # Killing the previous window and moving to the student window
+    window.destroy()
+
+    # Making the tkinter window global
+    global root
+
+    # Creating new window
+    root = Tk()
+
+    root.title("STAFF LOGIN")
+    root.geometry("960x600")
+    root.resizable(0, 0)
+    root.iconbitmap("./ico/staff.ico")
+
+    # Creating String Vars
+    global username_var
+    global passw_var
+    username_var = StringVar()
+    passw_var = StringVar()
+
+    # Creating the background image variable
+    bg = PhotoImage(file="./img/all_lgn.png")
+
+    # Creating the label background
+    l1 = Label(root, image=bg)
+    l1.place(x=0, y=0)
+
+    # Creating student login text
+    l2 = Label(root, text="STAFF LOGIN", background="#413E91",
+               font=("times new roman", 20, "bold"), fg="black")
+    l2.place(x=385, y=13)
+
+    # Creating the login username text
+    lgnt1 = Label(root, text="USERNAME", font=("times new roman", 10, "bold"))
+    lgnt1.place(x=40, y=140)
+
+    # Creating the username login entry form
+    global user
+    user = Entry(root, textvariable=username_var, width=20)
+    user.place(x=140, y=140)
+
+    # Creating the login password text
+    lgnt2 = Label(root, text="PASSWORD", font=("times new roman", 10, "bold"))
+    lgnt2.place(x=40, y=180)
+
+    # Creating the password entry form
+    pswd = Entry(root, textvariable=passw_var, width=20, show="*")
+    pswd.place(x=140, y=180)
+
+    # Creating the submit button
+    submit = Button(root, text="SUBMIT", command=staff_lgn)
+    submit.place(x=130, y=220)
+
+    root.mainloop()
+
+
+def staff_lgn():
+    name = username_var.get()
+    passw = passw_var.get()
+
+    cur.execute(
+        "SELECT * FROM STAFF WHERE USERNAME=%s AND PASSWORD=%s", (name, passw))
+
+    a = cur.fetchone()
+
+    global L
+    L = []
+
+    if a !=None and len(a) != 0:
+        for k in a:
+            L.append(k)
+
+        root.destroy()
+        staff_home()
+        
+    else:
+        messagebox.showerror(
+            "User nor found", "Cannot find such a user with the given username and password. Please retry")
+
+    username_var.set("")
+    passw_var.set("")
+
+
+def admin_lgn_btn(window):
+    # Killing the previous window and moving to the student window
+    window.destroy()
+
+    # Making the tkinter window global
+    global root
+
+    # Creating new window
+    root = Tk()
+
+    root.title("ADMIN LOGIN")
+    root.geometry("960x600")
+    root.resizable(0, 0)
+    root.iconbitmap("./ico/admin.ico")
+
+    # Creating String Vars
+    global username_var
+    global passw_var
+    username_var = StringVar()
+    passw_var = StringVar()
+
+    # Creating the background image variable
+    bg = PhotoImage(file="./img/all_lgn.png")
+
+    # Creating the label background
+    l1 = Label(root, image=bg)
+    l1.place(x=0, y=0)
+
+    # Creating student login text
+    l2 = Label(root, text="ADMIN LOGIN", background="#413E91",
+               font=("times new roman", 20, "bold"), fg="black")
+    l2.place(x=385, y=13)
+
+    # Creating the login username text
+    lgnt1 = Label(root, text="USERNAME", font=("times new roman", 10, "bold"))
+    lgnt1.place(x=40, y=140)
+
+    # Creating the username login entry form
+    global user
+    user = Entry(root, textvariable=username_var, width=20)
+    user.place(x=140, y=140)
+
+    # Creating the login password text
+    lgnt2 = Label(root, text="PASSWORD", font=("times new roman", 10, "bold"))
+    lgnt2.place(x=40, y=180)
+
+    # Creating the password entry form
+    pswd = Entry(root, textvariable=passw_var, width=20, show="*")
+    pswd.place(x=140, y=180)
+
+    # Creating the submit button
+    submit = Button(root, text="SUBMIT", command=admin_lgn)
+    submit.place(x=130, y=220)
+
+    root.mainloop()
+
+
+def admin_lgn():
+    name = username_var.get()
+    passw = passw_var.get()
+
+    cur.execute(
+        "SELECT * FROM ADMIN WHERE USERNAME=%s AND PASSWORD=%s", (name, passw))
+
+    a = cur.fetchone()
+
+    global L
+    L = []
+
+    if a !=None and len(a) != 0:
+        for k in a:
+            L.append(k)
+
+        root.destroy()
+        admin_home()
+        
+    else:
+        messagebox.showerror(
+            "User nor found", "Cannot find such a user with the given username and password. Please retry")
+
+    username_var.set("")
+    passw_var.set("")
+
+def staff_home():
+    pass
+
+def admin_home():
+    pass
+
+if __name__ == "__main__":
+    home()
