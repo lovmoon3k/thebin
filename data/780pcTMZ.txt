@@ -1,0 +1,86 @@
+///@description load_game_data(file_name,overwrite_group_name1,overwrite_group_name2,overwrite_group_name3,overwrite_group_name4,overwrite_group_name5,overwrite_group_name6,overwrite_group_name7,overwrite_group_name8);
+///@param file_name
+///@param overwrite_group_name1
+///@param [overwrite_group_name2]
+///@param [overwrite_group_name3]
+///@param [overwrite_group_name4]
+///@param [overwrite_group_name5]
+///@param [overwrite_group_name6]
+///@param [overwrite_group_name7]
+///@param [overwrite_group_name8]
+function load_game_data(_fileName,_overwrite_group1,_overwrite_group2 = "N/A",_overwrite_group3 = "N/A",_overwrite_group4 = "N/A",_overwrite_group5  = "N/A",_overwrite_group6 = "N/A",_overwrite_group7 = "N/A",_overwrite_group8 = "N/A"){
+	/*  "What is an overwrite group name?"
+		
+		For very simple games you may only need to save large-scale variables, such as level progress, or collectible progress.
+		But for more complex projects, you may need to save data that is exclusive to say, a room (such as preserving instance positions within a room),
+		or maybe you have multiple playable characters and you want to save their individual stats.
+		
+		You don't want to delete the ENTIRE save file because then all the other data that you aren't changing
+		(like rooms that you currently aren't in, or characters that you aren't currently playing)
+		will end up being lost in the process!
+		
+		That is why overwrite groups exist. You separate instances by the current room name, or by the current character object name, however
+		you want to divvy it up.
+		
+		If you don't need to group save data because your game is simple, no worries! Just use the same overwrite group name for everything!
+	
+	*/
+	var _wipedObjects = false, //this will be changed to the overwrite group name after wiping objects within that group
+	_currentEntity = noone, //the current entry within the array that we're reading
+	
+	_overwriteGroup = array_create(argument_count,"N/A"); //an array storing all the overwrite groups we are going to check
+	for (var i = 1; i < argument_count; i++){ 
+		_overwriteGroup[i-1] = argument[i];
+	}
+	
+	if (file_exists(_fileName))
+	{
+		var _loadData = parse_json_from_file(_fileName); //we're gonna pull all data from the json and translate it back into an array
+		
+		//We're going to go through every entry in the JSON array
+		for (i=0; i < array_length(_loadData); i++) { 
+			var _currentEntity = array_get(_loadData,i);
+			for (var g = 0; g < array_length(_overwriteGroup); g++){ //We're also to loop through every group to check each one
+				if (_currentEntity.overwriteGroup == _overwriteGroup[g]){ //if we've found a group we intend to load from...
+					
+					//LOADING OBJECTS//
+					/*The general idea is that, if you have individual instances that you want to save per room, it really only makes sense
+					 to name the overwrite group the room name. 
+					 So, should we be loading instances from the overwrite group named after the room we're currently in, 
+					 we don't want duplicates, so we'll delete all existing instances of objects we intend to save, 
+					 and then recreate them while also giving them the values we saved in the JSON for them.*/
+					if (_currentEntity.overwriteGroup == room_get_name(room)){
+						if (!_wipedObjects){
+							//PUT ALL OBJECTS YOU WANT TO SAVE/LOAD INTO THIS LIST OF DESTROYING OBJECTS!
+							instance_destroy(pSaveMeBasic);
+							instance_destroy(tmpPaletteSwap);
+							//instance_destroy(oExample);
+						}
+						_wipedObjects = true; //We only want to do this once
+					}
+					
+					//Now we're going to actually load in our data
+					//OBJECTS
+					/*This one block of code should cover all objects you'd want to recreate from the save data*/
+					if (_currentEntity.loadType == "object"){ //If for some reason you don't want to use the name "object" for load type, just make sure it's consistent for all objects you want to load
+						instance_create_depth(
+							_currentEntity.x,
+							_currentEntity.y,
+							_currentEntity.depth,
+							asset_get_index(_currentEntity.object),
+							_currentEntity //We're going to load in the entire struct
+						);
+					}
+					
+					//FLOATING DATA
+					if (_currentEntity.loadType == "globalData"){
+						health = _currentEntity.health;
+						lives = _currentEntity.lives;
+					}
+					
+					//ADD ANY OTHER FLOATING DATA YOU WANT TO SAVE/LOAD HERE
+				}
+			}
+		}
+	}
+}

@@ -1,0 +1,120 @@
+///@description save_game_data(file_name,overwrite_group_name1,overwrite_group_name2,overwrite_group_name3,overwrite_group_name4,overwrite_group_name5,overwrite_group_name6,overwrite_group_name7,overwrite_group_name8);
+///@param file_name
+///@param overwrite_group_name1
+///@param [overwrite_group_name2]
+///@param [overwrite_group_name3]
+///@param [overwrite_group_name4]
+///@param [overwrite_group_name5]
+///@param [overwrite_group_name6]
+///@param [overwrite_group_name7]
+///@param [overwrite_group_name8]
+function save_game_data(_fileName,_overwrite_group1,_overwrite_group2 = "N/A",_overwrite_group3 = "N/A",_overwrite_group4 = "N/A",_overwrite_group5  = "N/A",_overwrite_group6 = "N/A",_overwrite_group7 = "N/A",_overwrite_group8 = "N/A"){
+	/*  "What is an overwrite group name?"
+		
+		For very simple games you may only need to save large-scale variables, such as level progress, or collectible progress.
+		But for more complex projects, you may need to save data that is exclusive to say, a room (such as preserving instance positions within a room),
+		or maybe you have multiple playable characters and you want to save their individual stats.
+		
+		You don't want to delete the ENTIRE save file because then all the other data that you aren't changing
+		(like rooms that you currently aren't in, or characters that you aren't currently playing)
+		will end up being lost in the process!
+		
+		That is why overwrite groups exist. You separate instances by the current room name, or by the current character object name, however
+		you want to divvy it up.
+		
+		If you don't need to group save data because your game is simple, no worries! Just use the same overwrite group name for everything!
+	
+	*/
+	
+	var _saveData = array_create(0), //our array of structs that we're going to edit and then save into a json
+		_currentEntity = noone, //the current entity within the json array that we're reading
+		
+		_overwriteGroup = array_create(argument_count,"N/A"); //an array storing all the overwrite groups we are going to check
+		for (var i = 1; i < argument_count; i++){
+			_overwriteGroup[i-1] = argument[i];
+		}
+		
+	
+	//First we're going to pull data from the pre-existing file, if there is one
+	if (file_exists(_fileName)){
+		_saveData = parse_json_from_file(_fileName);
+		
+		//Now we're going to check if any of the overwrite groups we've specified are present in the pre-existing json
+		for (var i=0; i < array_length(_saveData); i++) {
+			_currentEntity = array_get(_saveData,i);
+			for (var g = 0; g < array_length(_overwriteGroup); g++){ //this loop is to check every overwrite group entry, since we can have up to 8
+				if (_currentEntity.overwriteGroup == _overwriteGroup[g]){ 
+					array_delete(_saveData,i,1);
+					i -= 1;
+				}
+			}
+		}
+	}
+	
+	//Now we're going to create our new save data
+	for (var g = 0; g < array_length(_overwriteGroup); g++){ //g is going to represent each overwrite group we're checking for
+		//INDIVIDUAL DATA FIELDS//
+		/*This is where we're going to add any new structs for individual data pieces we'll want to store in each overwrite group. 
+		We can save instance data, global data, anything that you can fit into a struct you can put here. 
+		It's important to remember that every object we add here, we'll need to add a instance_destroy function for it in the [load_game_data] script.
+		Also, for all data not related to objects, you'll need to add it into the [load_game_data] for it actually work.*/
+		
+		if (_overwriteGroup[g] == room_get_name(room)){ 
+			/*When you want to split save data into different overwrite groups, you'll need to use checks like these to ensure they're 
+			separated properly. I would recommend using room names for groups that are split by room.*/
+			
+			//OBJECT EXAMPLE//
+			/*
+			This is entirely just to give an example of how you'll want to structure each new entry into this save script.
+			Feel free to delete "pSaveMeBasic" if you don't plan to use it.
+			It's vitally important that every single entry have an [overwriteGroup] and [loadType] variable. 
+			If any entry doesn't have an [overwriteGroup] and [loadType] variable you will get a fatal error.
+			*/
+			with(pSaveMeBasic) //with() will loop through every instance of the object_index given within the current room.
+			{
+				_currentEntity =
+				{
+					overwriteGroup : room_get_name(room), 
+					loadType : "object", //this will tell us what variables to look for when loading in
+					object : object_get_name(object_index), //We must save the NAME of any assets we preserve because their index can change as the game is updated
+					y : y,
+					x : x,
+					hspeed : hspeed,
+					vspeed : vspeed,
+					visible : visible,
+					sprite_index : sprite_index,
+					image_index : image_index,
+					image_speed : image_speed,
+					image_xscale : image_xscale,
+					image_yscale : image_yscale,
+					image_angle : image_angle,
+					image_blend : image_blend,
+					image_alpha : image_alpha,
+					depth : depth
+				}
+				array_push(_saveData,_currentEntity);
+			}
+			
+			//YOU'D PUT THE NEXT ENTRY FOR THIS OVERWRITE GROUP HERE//
+		}
+		
+		if (_overwriteGroup[g] == "globalData"){
+			/*As stated in the case above, these checks are vitally important to segment our overwrite groups to where we want them.
+			Here is an example of how you might want to do an overwrite group for data that isn't attached to specific room*/
+			_currentEntity = 
+			{
+				overwriteGroup : "globalData",
+				loadType : "globalData", //this will tell us what variables to look for when loading in
+				health : health,
+				lives : lives
+			}
+			array_push(_saveData,_currentEntity);
+				
+			//YOU'D PUT THE NEXT ENTRY FOR THIS OVERWRITE GROUP HERE//
+		}
+	}
+
+	//
+	var _string = json_stringify(_saveData);
+	save_string_to_file(argument0,_string);
+}
