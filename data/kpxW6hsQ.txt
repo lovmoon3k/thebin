@@ -1,0 +1,38 @@
+	-- Совместимость с модами от Hea (SOTO и More Simple Traits)
+	if is_HeaMods and (player:HasTrait("SensitiveDigestion") or player:HasTrait("SensitiveStomach")) then --print('inside')
+		local credit = exc.sdt or 0
+		local level = Excrementum.StomachPain >= 30 and 2 or Excrementum.StomachPain > 0 and 1 or 0 --print('level = ',level)
+		if level > 0 then
+			local need_sickness = level == 2 and 62.5 or 37.5 -- тошнота и лёгкая тошнота
+			local bd = Excrementum.bd
+			local sickness = bd:getFoodSicknessLevel() --print('sick/need = ',sickness,' ',need_sickness)
+			if sickness < need_sickness then -- берём в долг
+				bd:setFoodSicknessLevel(need_sickness)
+				exc.sdt = math.min(need_sickness, credit + (need_sickness - sickness)) -- кредит не может быть больше разумного
+			elseif sickness > 82.5 and credit > 0 then -- жесткое ограничение
+				local refund = sickness - 82.5 -- сколько надо вернуть
+				if refund > credit then -- вернуть надо больше, чем должны
+					bd:setFoodSicknessLevel(sickness - credit)
+					exc.sdt = 0
+				else -- возвращаем часть долга
+					bd:setFoodSicknessLevel(sickness - refund)
+					exc.sdt = credit - refund
+				end
+			elseif level == 1 and sickness > 37.5 and credit > 0 then
+				--странная ситуация, в которой надо бы вернуть часть кредита, но не весь
+				local extra = sickness - 37.5
+				if credit > extra then
+					bd:setFoodSicknessLevel(37.5)
+					exc.sdt = credit - extra
+				else
+					bd:setFoodSicknessLevel(sickness - credit)
+					exc.sdt = 0
+				end
+			end
+		elseif credit > 0 then -- полностью гасим кредит
+			local bd = Excrementum.bd
+			local sickness = bd:getFoodSicknessLevel()
+			bd:setFoodSicknessLevel(sickness - credit)
+			exc.sdt = 0
+		end
+	end
