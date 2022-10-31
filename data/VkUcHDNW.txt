@@ -1,0 +1,73 @@
+package ru.pioneer.my.ui.screens.primaryFlow.tabCabinet.account
+
+import kotlinx.coroutines.flow.MutableStateFlow
+import org.koin.core.component.inject
+import ru.pioneer.my.domain.ext.launchUI
+import ru.pioneer.my.domain.ext.withIO
+import ru.pioneer.my.domain.interfaces.*
+import ru.pioneer.my.domain.models.SalesInfo
+import ru.pioneer.my.domain.models.bids.UiBids
+import ru.pioneer.my.ui.common.mvvm.BaseViewModel
+
+class PersonalAccountViewModel : BaseViewModel() {
+
+    private val authDataStorageInteractor: IAuthDataStorageInteractor by inject()
+    private val salesListInteractor: ISalesInteractor by inject()
+    private val bidsInteractor: IBidsInteractor by inject()
+    private val notificationsInteractor: INotificationsInteractor by inject()
+    private val profileDataInteractor: IProfileDataInteractor by inject()
+
+    private var isAuthorized: Boolean = false
+    private var hasAccounts: Boolean = false
+
+    private val _hasNotifications = MutableStateFlow(value = false)
+    private val _dealsInfo = MutableStateFlow<SalesInfo?>(value = null)
+    private val _lastBid = MutableStateFlow<UiBids.UiBidWithAccount?>(value = null)
+    private val _others = MutableStateFlow<List<OtherRes>>(value = listOf())
+
+    init {
+        initialDataLoading()
+    }
+
+    private fun initialDataLoading() = launchUI(handler) {
+        isAuthorized = withIO { authDataStorageInteractor.isAuthorized() }
+        hasAccounts = withIO { profileDataInteractor.getUserHasAccounts() }
+        loadOthers()
+
+        if (isAuthorized) {
+            getAndUpdateNotificationsState()
+        }
+    }
+
+    private fun loadOthers() {
+        val excessItems = getExcessItems()
+        val notInitialized = OtherTypeEnum.values().mapNotNull {
+            it.takeIf { itemEnum -> !excessItems.contains(itemEnum) }.let { item ->
+                item?.let {
+                    OtherRes(title = item.titleRes, icon = item.iconRes)
+                }
+            }
+        }
+        _others.value = notInitialized
+    }
+
+    private fun getExcessItems(): List<OtherTypeEnum> {
+        return when {
+            isAuthorized && hasAccounts -> {
+                listOf(OtherTypeEnum.SETTINGS)
+            }
+            isAuthorized && !hasAccounts -> {
+                listOf(OtherTypeEnum.SETTINGS)
+            }
+            else -> {
+                listOf(OtherTypeEnum.PROFILE, OtherTypeEnum.WRITE_TO_US)
+            }
+        }
+    }
+
+    private fun getAndUpdateNotificationsState() {
+        launchUI(handler) {
+            _hasNotifications.value = withIO { notificationsInteractor.hasNewNotifications() }
+        }
+    }
+}
