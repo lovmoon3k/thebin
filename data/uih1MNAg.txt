@@ -1,0 +1,92 @@
+import os
+import pandas as pd
+from selenium import webdriver
+from bs4 import BeautifulSoup as bs
+
+browser = webdriver.Chrome()
+
+class GameData:
+
+    def __init__(self):
+        self.date = []
+        self.time = []
+        self.game = []
+        self.score = []
+        self.home_odds = []
+        self.draw_odds = []
+        self.away_odds = []
+        self.country = []
+        self.league = []
+
+
+def parse_data(url):
+    while True:
+        try:
+            browser.get(url)
+            df = pd.read_html(browser.page_source)[0]
+            break
+        except KeyError:
+            browser.quit()
+            continue
+    html = browser.page_source
+    soup = bs(html, "lxml")
+    cont = soup.find('div', {'id': 'wrap'})
+    content = cont.find('div', {'id': 'col-content'})
+    content = content.find('table', {'class': 'table-main'}, {'id': 'tournamentTable'})
+    main = content.find('th', {'class': 'first2 tl'})
+    if main is None:
+        return None
+    count = main.findAll('a')
+    country = count[1].text
+    league = count[2].text
+    game_data = GameData()
+    game_date = None
+    for row in df.itertuples():
+        if not isinstance(row[1], str):
+            continue
+        elif ':' not in row[1]:
+            game_date = row[1].split('-')[0]
+            continue
+        game_data.date.append(game_date)
+        game_data.time.append(row[1])
+        game_data.game.append(row[2])
+        game_data.score.append(row[3])
+        game_data.home_odds.append(row[4])
+        game_data.draw_odds.append(row[5])
+        game_data.away_odds.append(row[6])
+        game_data.country.append(country)
+        game_data.league.append(league)
+    return game_data
+
+# Your urls go here. You can put in as many as you like
+
+urls = {
+"https://www.oddsportal.com/soccer/england/premier-league/results/",
+"https://www.oddsportal.com/soccer/england/premier-league/results/#/page/2/",
+}
+
+if __name__ == '__main__':
+
+    results = None
+
+    for url in urls:
+        try:
+            game_data = parse_data(url)
+            if game_data is None:
+                continue
+            result = pd.DataFrame(game_data.__dict__)
+            if results is None:
+                results = result
+            else:
+                results = results.append(result, ignore_index=True)
+        except ValueError:
+            game_data = parse_data(url)
+            if game_data is None:
+                continue
+            result = pd.DataFrame(game_data.__dict__)
+            if results is None:
+                results = result
+            else:
+                results = results.append(result, ignore_index=True)
+
+results.to_csv(data.csv)

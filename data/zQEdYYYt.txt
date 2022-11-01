@@ -1,0 +1,287 @@
+-- These are arbitrary and not based on the real world coordinates, but just where the turtle is
+-- facing when it starts.
+local XX = 0
+local ZZ = 0
+
+local regularFence = "minecraft:oak_fence"
+local cornerFence = "minecraft:jungle_fence"
+
+local fullyGrownAge = 7
+
+-- 0 is +x, 1 is -z, 2 is -x, 3 is +z
+local facingDirection = 0
+
+-- HELPERS --
+local function refuel()
+    currentFuelRequired = 10
+    if turtle.getFuelLevel() < currentFuelRequired then
+        turtle.select(16)
+        return turtle.refuel(currentFuelRequired)
+    else
+        return true
+    end
+end
+
+local function turnLeft()
+    turtle.turnLeft()
+    facingDirection = facingDirection - 1
+    if facingDirection < 0 then
+        facingDirection = 3
+    end
+end
+
+local function turnRight()
+    turtle.turnRight()
+    facingDirection = facingDirection + 1
+    if facingDirection > 3 then
+        facingDirection = 0
+    end
+end
+
+local function moveForward()
+    refuel()
+    turtle.forward()
+    if facingDirection == 0 then
+        XX = XX + 1
+    elseif facingDirection == 1 then
+        ZZ = ZZ - 1
+    elseif facingDirection == 2 then
+        XX = XX - 1
+    elseif facingDirection == 3 then
+        ZZ = ZZ + 1
+    end
+end
+
+local function moveBackward()
+    refuel()
+    turtle.back()
+    if facingDirection == 0 then
+        XX = XX - 1
+    elseif facingDirection == 1 then
+        ZZ = ZZ + 1
+    elseif facingDirection == 2 then
+        XX = XX + 1
+    elseif facingDirection == 3 then
+        ZZ = ZZ - 1
+    end
+end
+
+local function travelToCoords(dx, dz)
+    local xDiff = dx - XX
+    local zDiff = dz - ZZ
+
+    if xDiff > 0 then
+        while facingDirection ~= 0 do
+            turnRight()
+        end
+    elseif xDiff < 0 then
+        while facingDirection ~= 2 do
+            turnRight()
+        end
+    end
+
+    for i = 1, math.abs(xDiff) do
+        moveForward()
+    end
+
+    if zDiff > 0 then
+        while facingDirection ~= 3 do
+            turnRight()
+        end
+    elseif zDiff < 0 then
+        while facingDirection ~= 1 do
+            turnRight()
+        end
+    end
+
+    for i = 1, math.abs(zDiff) do
+        moveForward()
+    end
+
+    print("Moved to " .. XX .. ", " .. ZZ)
+end
+
+local function onRegularFence()
+    if turtle.detectDown() then
+        local success, data = turtle.inspectDown()
+        if success then
+            return data.name == regularFence
+        end
+    end
+    return false
+end
+
+local function onCornerFence()
+    if turtle.detectDown() then
+        local success, data = turtle.inspectDown()
+        if success then
+            return data.name == cornerFence
+        end
+    end
+    return false
+end
+
+local farm = {}
+local corners = {}
+local innerFarmSizeX = 0
+local innerFarmSizeZ = 0
+
+local function addToMappedFarm(type)
+    if farm[XX] == nil then
+        farm[XX] = {}
+    end
+
+    farm[XX][ZZ] = type
+end
+
+-- MAIN --
+local function mapFarm()
+    -- Turn around just in case we've moved off of a fence
+    turnRight()
+    turnRight()
+
+    -- Move forward until we're on a fence
+    while not onRegularFence() and not onCornerFence() do
+        moveForward()
+    end
+
+    -- If we're on a corner fence, figure out which direction has regular fences and move onto that
+    if onCornerFence() then
+        moveForward()
+        while not onRegularFence() do
+            moveBackward()
+            turnLeft()
+            moveForward()
+        end
+    end
+
+    -- Now that we're on a regular fence, figure out which direction has more fences and turn towards that
+    moveForward()
+    while not onRegularFence() do
+        moveBackward()
+        turnLeft()
+        moveForward()
+    end
+    moveBackward()
+
+    -- Now we're on a regular fence facing more regular fences
+    local startX = XX
+    local startZ = ZZ
+    addToMappedFarm("regular")
+    moveForward()
+
+    -- While we're not where we started, keep mapping out the farm
+    while not (startX == XX and startZ == ZZ) do
+        -- Move forward until we're on a corner fence, adding to the farm map
+        while (not onCornerFence()) do
+            if onRegularFence() then
+                -- If we're at where we started, we're done
+                if startX == XX and startZ == ZZ then
+                    break
+                end
+                addToMappedFarm("regular")
+                moveForward()
+            else
+                -- Print out saying the farm is broken and exit
+                print("Farm is broken 0x0")
+                return
+            end
+        end
+
+        if onCornerFence() then
+            addToMappedFarm("corner")
+        end
+
+        if startX == XX and startZ == ZZ then
+            break
+        end
+
+        -- See if the fences turn left or right and move in that direction
+        turnLeft()
+        moveForward()
+        if not onRegularFence() then
+            moveBackward()
+            turnRight()
+            turnRight()
+            moveForward()
+            if not onRegularFence() then
+                -- Print out saying the farm is broken and exit
+                print("Farm is broken 0x1")
+                return
+            end
+        end
+    end
+
+    -- Get all of the corners and store them in the corners table
+    for x, zTable in pairs(farm) do
+        for z, type in pairs(zTable) do
+            if type == "corner" then
+                table.insert(corners, {
+                    x = x,
+                    z = z
+                })
+            end
+        end
+    end
+
+    -- Sort the corners from top left to bottom right
+    table.sort(corners, function(a, b)
+        if a.x == b.x then
+            return a.z < b.z
+        else
+            return a.x < b.x
+        end
+    end)
+
+    -- Figure out the inner size of the farm
+    innerFarmSizeX = corners[2].x - corners[1].x - 1
+    innerFarmSizeZ = corners[4].z - corners[1].z - 1
+
+    print("Farm is mapped")
+    print("4 corners:")
+    for i, corner in ipairs(corners) do
+        print(corner.x .. ", " .. corner.z)
+    end
+    print("Inner farm size: " .. innerFarmSizeX .. ", " .. innerFarmSizeZ)
+end
+
+local function beginFarming()
+    -- Get in the starting position
+    turnRight()
+    moveForward()
+    turnLeft()
+    moveForward()
+
+    -- Start moving around the inner farm, one row at a time
+    for i = 1, innerFarmSizeZ do
+        -- Move forward one row
+        for j = 1, innerFarmSizeX do
+            moveForward()
+        end
+
+        -- On odd rows, turn right and move forward
+        if i % 2 == 1 then
+            turnRight()
+            moveForward()
+            turnRight()
+            -- On even rows, turn left and move forward
+        else
+            turnLeft()
+            moveForward()
+            turnLeft()
+        end
+    end
+end
+
+local function begin()
+    mapFarm()
+    -- Travel to the top left corner
+    travelToCoords(corners[1].x, corners[1].z)
+    -- Face +x direction
+    while facingDirection ~= 0 do
+        turnRight()
+    end
+    -- beginFarming()
+end
+
+begin()
