@@ -1,0 +1,120 @@
+@Service
+@RequiredArgsConstructor
+public class AuthServiceImpl implements AuthService {
+
+  private final EmailValidator emailValidator;
+  private final EmailSenderService emailSenderService;
+  private final AuthenticationManager authenticationManager;
+  private final JwtUtils jwtUtils;
+  private final PasswordEncoder encoder;
+  private final UserRepository userRepository;
+  private final RoleRepository roleRepository;
+  private final OrgRepository orgRepository;
+
+  @Override
+  public ResponseEntity<?> authenticateUser(LoginRequest loginRequest) {
+    Authentication authentication =
+        authenticationManager.authenticate(
+            new UsernamePasswordAuthenticationToken(
+                loginRequest.getUsername(), loginRequest.getPassword()));
+
+    SecurityContextHolder.getContext().setAuthentication(authentication);
+    String jwt = jwtUtils.generateJwtToken(authentication);
+
+    UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+    List<String> roles =
+        userDetails.getAuthorities().stream()
+            .map(item -> item.getAuthority())
+            .collect(Collectors.toList());
+
+    return ResponseEntity.ok(
+        new JwtResponse(
+            jwt, userDetails.getId(), userDetails.getUsername(), userDetails.getEmail(), roles));
+  }
+
+  @Override
+  public ResponseEntity<?> registerUser(SignupRequest signUpRequest) {
+    boolean isValidEmail = emailValidator.test(signUpRequest.getEmail());
+    if (!isValidEmail) {
+      throw new InvalidEmailCustomException("PLEASE ENTER VALID EMAIL ADDRESS", "INVALID_REQUEST");
+    }
+    if (userRepository.existsByUsername(signUpRequest.getUsername())) {
+      return ResponseEntity.badRequest()
+          .body(new MessageResponse("Error: Username is already taken!"));
+    }
+
+    if (userRepository.existsByEmail(signUpRequest.getEmail())) {
+      return ResponseEntity.badRequest()
+          .body(
+              new MessageResponse(
+                  "Error: Email is already taken by someone else. Please "
+                      + "Enter different email!"));
+    }
+
+    if (!orgRepository.existsByOrgName(signUpRequest.getOrganization().getOrgName())) {
+      orgRepository.save(signUpRequest.getOrganization());
+    }
+
+    // Create new user's account
+    String verificationCode = RandomString.make(64);
+    User user =
+        new User(
+            signUpRequest.getUsername(),
+            signUpRequest.getEmail(),
+            encoder.encode(signUpRequest.getPassword()),
+            verificationCode,
+            false,
+            signUpRequest.getOrganization());
+
+    Set<String> strRoles = signUpRequest.getRoles();
+    Set<Role> roles = new HashSet<>();
+
+    if (strRoles == null) {
+      Role userRole =
+          roleRepository
+              .findByName(ERole.ROLE_USER)
+              .orElseThrow(() -> new RuntimeException("Error: Role is not found."));
+      roles.add(userRole);
+    } else {
+      strRoles.forEach(
+          role -> {
+            switch (role) {
+              case "admin":
+                Role adminRole =
+                    roleRepository
+                        .findByName(ERole.ROLE_ADMIN)
+                        .orElseThrow(() -> new RuntimeException("Error: Role is not found."));
+                roles.add(adminRole);
+
+                break;
+
+              default:
+                Role userRole =
+                    roleRepository
+                        .findByName(ERole.ROLE_USER)
+                        .orElseThrow(() -> new RuntimeException("Error: Role is not found."));
+                roles.add(userRole);
+            }
+          });
+
+      emailSenderService.sendVerificationEmail(user, user.getEmail(), user.getVerificationCode());
+    }
+
+    user.setRoles(roles);
+    userRepository.save(user);
+    return ResponseEntity.ok(new MessageResponse("User registered successfully!"));
+  }
+
+  public boolean verify(String verificationCode) {
+    User user = userRepository.findByVerificationCode(verificationCode);
+
+    if (user == null || user.isEnabled()) {
+      return false;
+    } else {
+      user.setEnabled(true);
+      user.setVerificationCode(null);
+      userRepository.save(user);
+      return true;
+    }
+  }
+}
