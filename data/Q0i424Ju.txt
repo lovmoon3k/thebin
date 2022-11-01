@@ -1,0 +1,121 @@
+			/* Commentary:
+				userCycleTime: floating point value; represents the cycletime the user chooses to operate their gun
+				shotToBeFired: integer value, represents the number of the bullet that would be fired with the next shot. In other words, if this was 1, we'd be interested to see the inaccuracy before taking the 1st shot (in a row). If this was 26, we'd be interested to see the inaccuracy before taking the 26th shot in a row.
+
+				Note that with the way this is coded, this method would probably be used within a loop itself to deliver the inaccuracy values for a whole magazine. A single call to this method will not do that.
+			*/
+public float Calculate(float userCycleTime, int shotToBeFired)
+        {
+            /* 
+             * Use similar algorithm to Classic, but only do the following: smoothly swap recovery times. Leave everythin as is, and then try again
+             */
+
+			/* Commentary: 
+				Here are just some guards to ensure that the calculation makes sense. Don't worry about this bit of code too much! 
+			*/
+            if (userCycleTime < CurrentWeapon.Cycletime)
+            {
+                throw new ArgumentOutOfRangeException($"Cycletime of the user is too fast for the weapon! userCycleTime {userCycleTime}, {CurrentWeapon.Name}'s cycletime {CurrentWeapon.Cycletime}");
+            }
+            if (shotToBeFired < 1)
+            {
+                throw new ArgumentOutOfRangeException($"shotToBeFired must be > 0! (is {shotToBeFired}");
+            }
+            if(Analysis.InaccuracyTransitionPeriod <= 0)
+            {
+                throw new ArgumentException($"The inaccuracy transition period of the weapon {CurrentWeapon.Name} must not be <= 0! (is {CurrentWeapon.RecoveryTransitionEndBullet} - {CurrentWeapon.RecoveryTransitionStartBullet} = {Analysis.InaccuracyTransitionPeriod}");
+            }
+
+            float firingInaccuracy;
+            float recoveryTimeStart, recoveryTimeEnd, initialInaccuracy;
+
+			/* Commentary:
+				Here we determine the initial values. IsStanding is a boolean (true/false value) instance property (i.e. defined out of scope for this method) that will also be set outside of this method. It says whether the user is standing (=true) or crouching (=false); no additional movement is modeled here.
+
+				Also note that Anaysis.StandingXXX returns the actual standing inaccuracy of a gun (Spread + InaccuracyStand). The CurrentWeapon.RecoveryTimeXXX values deliver their suggested values from the items_game.txt directly.
+			*/
+            //set initial inaccuracy
+            if (IsStanding)
+            {
+                initialInaccuracy = Analysis.StandingInaccuracy;
+                recoveryTimeStart = CurrentWeapon.RecoveryTimeStand;
+                recoveryTimeEnd = CurrentWeapon.RecoveryTimeStandFinal;
+            }
+            else
+            {
+                initialInaccuracy = Analysis.CrouchingInaccuracy;
+                recoveryTimeStart = CurrentWeapon.RecoveryTimeCrouch;
+                recoveryTimeEnd = CurrentWeapon.RecoveryTimeCrouchFinal;
+            }
+
+			/* Commentary:
+				I decided to throw each individually calculated part of this sum into a list that will be added together at the end. I hoped refactoring it this way would help me with fixing my issue, but I had no luck so far
+			*/
+            List<float> fireInaccuracies = new List<float>();
+
+			/* Commentary:
+				Ignore this commented-out code please :s
+			*/
+            //float recoveryTimeStartShareAbsolute = Math.Max(CurrentWeapon.RecoveryTransitionEndBullet - shotToBeFired + 1, 0);
+            //float recoveryTimeStartShare = recoveryTimeStartShareAbsolute / (Analysis.InaccuracyTransitionPeriod);
+            //recoveryTimeStartShare = Math.Min(recoveryTimeStartShare, 1);
+            //float recoveryTimeEndShare = 1 - recoveryTimeStartShare;
+
+			/* Commentary:
+				This is the actual interesting bit!
+
+				This for-loop simply represents each component of this sum that comes from the "firing the gun part". What I mean is that the value we are interested in consistss of the base inaccuracy + the overlaid inaccuracies of this and all previous sots fired. We are calculating the overlaid inaccuracies in this for-loop; the base inaccuracy will be added at the end. 
+
+				Note that the index "i" represents the i-th that that *was actually fired*, meaning that at shotToBeFired == i-1, we have calculated each required part of the sum.
+			*/
+            //Calculate new inaccuracy
+            for (int i = 1; i < shotToBeFired; i++)
+            {
+				/* Commentary:
+					This bit calculates the share of each recovery time for the i-th bullet fired. It looks a bnit messy (partially becuase I have to manually keep the values within the range of [0, 1]), but trust me that the values here always align with what one can find in your spreadsheet at 'Analysis'!J2:W45 ... :D
+				*/
+                float recoveryTimeStartShareAbsolute = Math.Max(CurrentWeapon.RecoveryTransitionEndBullet - i, 0);
+                float recoveryTimeStartShare = recoveryTimeStartShareAbsolute / Analysis.InaccuracyTransitionPeriod;
+                recoveryTimeStartShare = Math.Min(recoveryTimeStartShare, 1);
+                float recoveryTimeEndShare = 1 - recoveryTimeStartShare;
+
+				/* Commentary:
+					Calculates the average recovery time. No issues here!
+				*/
+                float averageRecoveryTime = recoveryTimeEndShare * recoveryTimeEnd + recoveryTimeStartShare * recoveryTimeStart;
+                
+				/* Commentary:
+					Calculates how much time has passed since the suer started firing. Note that as "i" increases for each iteration of this loop, we're going from the first to the last bullet 
+				*/
+                float timePassedSinceFiring = userCycleTime * (shotToBeFired - i);
+
+				/* Commentary:
+					Calculates the new inaccuracy. The algorithm is the follwoing:
+						return value = CurrentWeapon.InaccuracyFire * (float) Math.Pow(0.1f, timePassedSinceFiring / averageRecoveryTime)
+					You can find it in full here: https://github.com/crashkid3000/CsgoDamageVisualizer/blob/master/CsgoDamageVisualizerCore/analysis/InaccuracyCalculations.cs
+					
+					...if I had to point out wehre the error might be, I suspect it would be here. But for the love of anything, I cannot imagine how else it could look like! :(
+				*/
+                float newInaccuracy = new InaccuracyCalculations().CalculateExtraInaccuracyAfterTime(CurrentWeapon.InaccuracyFire, averageRecoveryTime, timePassedSinceFiring);
+
+				/* Commentary:
+					This just adds/appends the newly calculated part to our list that I discussed earlier. The one where I suspected it might help with finding a solution but didnt, remember?
+				*/
+                fireInaccuracies.Add(newInaccuracy);
+				
+				/* Commentary:
+					Igore these few lines again :)
+					Commented-out code followed by some "print this to console" statements
+					Really boring, I'm telling you.
+				*/
+				//firingInaccuracy = newInaccuracy;
+                //fireInaccuracies.Add(firingInaccuracy);
+                Debug.WriteLine($"[{i + 1}] recoveryTime share (start/end) {recoveryTimeEndShare}/{recoveryTimeStartShare} - recoveryTime {averageRecoveryTime} - new inaccuracy {newInaccuracy} - sum {fireInaccuracies.Sum()}");
+                //Debug.WriteLineIf(i == shotToBeFired - 1, $"[{i+1}] recoveryTime share (start/end) {recoveryTimeEndShare}/{recoveryTimeStartShare} - recoveryTime {averageRecoveryTime} - new inaccuracy {newInaccuracy}");
+            }
+
+			/* Commentary:
+				This adds each part of the sum for the "firing the gun part" and then adds the base inaccuracy on top of that
+			*/
+            return fireInaccuracies.Sum() + initialInaccuracy;
+        }
