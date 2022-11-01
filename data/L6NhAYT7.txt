@@ -1,0 +1,144 @@
+--[[   opencomputers nano на русском
+Программа для включения эффектов нанитов.
+
+требования: планшет или компьютер с wi-fi картой
+примечание: могут одновременно активны только 2 эффекта
+
+4 назначить вход 
+номер входа 1-18
+состояние вкл(1) выкл(2)
+ ]]--
+local component = require("component")
+local computer = require("computer")
+local event = require("event")
+local colors = require("colors")
+local gpu = component.gpu
+local unicode = require("unicode")
+local term = require("term")
+local sides = require("sides")
+local modem = component.modem
+local lastResponse = ""
+term.clear()
+
+function fixedLengthRandom(digits)
+  digits = 10 ^ (digits - 1)
+  return math.floor(digits + math.random() * (digits - 1))
+end
+ports = fixedLengthRandom(4)
+modem.open(ports)
+modem.broadcast(ports, "nanomachines", "setResponsePort", ports)
+
+local function printResponse()
+  local w, h = component.gpu.getResolution()
+  component.gpu.fill(1, h, w, h, " ")
+  component.gpu.set(1, h, lastResponse)
+end
+
+local function handleModemMessage(_, _, _, _, _, header, command, ...)
+  if header ~= "nanomachines" then return end
+  lastResponse = "последний ответ: " .. command
+  for _, v in ipairs({...}) do
+    lastResponse = lastResponse .. ", " .. tostring(v)
+  end
+  printResponse()
+end
+
+event.listen("modem_message", handleModemMessage)
+
+local function send(command, ...)
+  component.modem.broadcast(ports, "nanomachines", command, ...)
+end
+
+local function readNumber(name, validator)
+  local index
+  while not index do
+    io.write(name..": ")
+    index = tonumber(io.read())
+    if not index or validator and not validator(index) then
+      index = nil
+      io.write("такого входа не существует\n")
+    end
+  end
+  return index
+end
+
+local running = true
+local commands = {
+  { "ЭФФЕКТЫ",
+    function()
+      send("getActiveEffects")
+    end
+  },
+  { "СОСТОЯНИЕ ВХОДА",
+    function()
+      local index = readNumber("номер входа")
+      send("getInput", index)
+    end
+  },
+  { "УСТАНОВКА ВХОДА",
+    function()
+      local index = readNumber("номер входа")
+      io.write("1. влючить                                       \n")
+      io.write("2. выключить\n")
+      local value = readNumber("состояние", function(x) return x == 1 or x == 2 end)
+      send("setInput", index, value == 1)
+    end
+  },
+  { " АКТИВНЫЕ ВХОДА",
+    function()
+      send("getMaxActiveInputs")
+    end
+  },
+  { "ИГРОК",
+    function()
+      send("getName")
+    end
+  },
+  { "ОПЫТ",
+    function()
+      send("getExperience")
+    end
+  },
+  { "ON ALL INPUTS",
+    function()
+      for u 1, 18 do
+	  modem.broadcast(ports,"nanomachines","setInput",u,true)
+    end
+	end
+  },
+  { "OFF ALL INPUTS",
+    function()
+      for j 1, 18 do
+	  modem.broadcast(ports,"nanomachines","setInput",j,false)
+    end
+	end
+  },
+  { "ВЫХОД",
+    function()
+      running = false
+    end
+  }
+}
+
+function main()
+  while running do
+    term.clear()
+    for i = 1, #commands do
+      local command = commands[i]
+      io.write(i,"  ",command[1],"\n")
+    end
+    printResponse()
+
+    local command = readNumber("введите команду", function(x) return x > 0 and x <= #commands end)
+    commands[command][2]()
+  end
+end
+
+local result, reason = pcall(main)
+if not result then
+  io.stderr:write(reason, "\n")
+end
+
+event.ignore("modem_message", handleModemMessage)
+
+term.clear()
