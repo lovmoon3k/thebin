@@ -1,0 +1,196 @@
+class Candidate {
+    constructor(chromosome, fitness) {
+        this.chromosome = chromosome;
+        this.fitness = fitness;
+    }
+
+    /**
+     * sap xep mot array cac Candidate
+     * objects.
+     */
+    static sort(candidates, asc) {
+        candidates.sort((a, b) => (asc)
+            ? (a.fitness - b.fitness)
+            : (b.fitness - a.fitness)
+        );
+    }
+}
+
+class GeneticAlgorithm {
+    constructor(params) {
+        this.alphabet = params.alphabet;
+        this.target = params.target;
+        this.chromosomeLength = params.target.length;
+        this.populationSize = params.populationSize;
+        this.selectionSize = params.selectionSize;
+        this.mutationRate = params.mutationRate;
+        this.mutateGeneCount = params.mutateGeneCount;
+        this.maxGenerations = params.maxGenerations;
+    }
+
+    /**
+     * tra ket qua so nguyen ngau nhien [0-max].
+     */
+    randomInt(max) {
+        return Math.floor(Math.random() * max);
+    }
+
+    /**
+     * Tao nhiem sac the moi tu alen ngau nhien.
+     */
+    createChromosome() {
+        const chrom = [];
+        for (let i = 0; i < this.chromosomeLength; i++) {
+            chrom.push(this.alphabet[
+                this.randomInt(this.alphabet.length)
+            ]);
+        }
+        return chrom;
+    }
+
+    /**
+     * Tao quan the voi nhiem sac the ngau nhien, va chi đinh
+     * moi nst voi mot diem so phu hop, chuan bi cho qua trinh tien hoa.
+     */
+    init() {
+        this.generation = 0;
+        this.population = [];
+
+        for (let i = 0; i < this.populationSize; i++) {
+            const chrom = this.createChromosome();
+            const score = this.calcFitness(chrom);
+            this.population.push(new Candidate(chrom, score));
+        }
+    }
+
+    /**
+     * Đo lường mức độ phù hợp của nhiễm sắc thể dựa trên mức độ
+     * gần gũi của gen của nó đối với gen của mục tiêu;
+     * sử dụng sai số toàn phương trung bình.
+     */
+    calcFitness(chrom) {
+        let error = 0;
+        for (let i = 0; i < chrom.length; i++) {
+            error += Math.pow(
+                this.target[i].charCodeAt() - chrom[i].charCodeAt(),
+                2
+            );
+        }
+        return error / chrom.length;
+    }
+
+    /**
+     * Giảm thiểu quần thể xuống chỉ với những ứng cử viên
+     * phù hợp nhất; gọi là chiến lược lựa chọn tinh hoa.
+     */
+    select() {
+        // MSE thấp hơn thì tốt hơn
+        Candidate.sort(this.population, true);
+        this.population.splice(this.selectionSize);
+    }
+
+    /**
+     * Áp dụng trao đổi chéo và đột biến để tạo ra các nhiễm sắc
+     * thể con mới và làm tăng quần thể.
+     */
+    reproduce() {
+        const offspring = [];
+        const numOffspring = this.populationSize /
+            this.population.length * 2;
+
+        for (let i = 0; i < this.population.length; i += 2) {
+            for (let j = 0; j < numOffspring; j++) {
+                let chrom = this.crossover(
+                    this.population[i].chromosome,
+                    this.population[i + 1].chromosome,
+                );
+                chrom = this.mutate(chrom);
+
+                const score = this.calcFitness(chrom);
+                offspring.push(new Candidate(chrom, score));
+            }
+        }
+
+        this.population = offspring;
+    }
+
+    /**
+     * Tạo nhiễm sắc thể mới thông qua trao đổi chéo đồng đều.
+     */
+    crossover(chromA, chromB) {
+        const chromosome = [];
+        for (let i = 0; i < this.chromosomeLength; i++) {
+            chromosome.push(
+                this.randomInt(2) ? chromA[i] : chromB[i]
+            );
+        }
+        return chromosome;
+    }
+
+    /**
+     * (Có khả năng) đưa đột biến vào nhiễm sắc thể.
+     */
+    mutate(chrom) {
+        if (this.mutationRate < this.randomInt(1000) / 1000) {
+            return chrom;
+        }
+
+        for (let i = 0; i < this.mutateGeneCount; i++) {
+            chrom[this.randomInt(this.chromosomeLength)] =
+                this.alphabet[
+                    this.randomInt(this.alphabet.length)
+                ];
+        }
+        return chrom;
+    }
+
+    /**
+     * Trả kết quả liệu trình thực thi sẽ  tiếp tục xử lý
+     * thế hệ tiếp theo hay nên dừng lại.
+     */
+    stop() {
+        if (this.generation > this.maxGenerations) {
+            return true;
+        }
+
+        for (let i = 0; i < this.population.length; i++) {
+            if (this.population[i].fitness == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Thực hiện lặp đi lặp lại các thao tác di truyền
+     * trên tập hợp nhiễm sắc thể ứng viên nhằm
+     * cố gắng tìm được giải pháp phù hợp nhất.
+     */
+    evolve() {
+        this.init();
+        do {
+            this.generation++;
+            this.select();
+            this.reproduce();
+        } while (!this.stop());
+
+        return {
+            generation: this.generation,
+            population: this.population
+        };
+    }
+}
+
+const result = new GeneticAlgorithm({
+    alphabet: Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ !'),
+    target: Array.from('HELLO WORLD!'),
+    populationSize: 100,
+    selectionSize: 40,
+    mutationRate: 0.03,
+    mutateGeneCount: 2,
+    maxGenerations: 1000000
+}).evolve();
+
+console.log('Generation', result.generation);
+Candidate.sort(result.population, true);
+console.log('Fittest candidate', result.population[0]);
