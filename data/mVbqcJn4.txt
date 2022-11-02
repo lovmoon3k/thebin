@@ -1,0 +1,208 @@
+-- CONFIG
+
+local DIG_SIZE = 5
+
+--
+
+local x_pos = 0
+local y_pos = 0
+local z_pos = 0
+
+local is_going_forward_x = true
+local is_going_forward_z = true
+
+local function go_forward()
+  succ = turtle.forward()
+  if (succ)
+  then
+    x_pos = x_pos + (is_going_forward_x and 1 or -1)
+    print(x_pos)
+  end
+  return succ
+end
+
+--
+
+local function xor(a, b)
+  if (a ~= b)
+  then
+    return true
+  else
+    return false
+  end
+end
+
+local function isInvTooFull()
+  local empty_cells = 0
+  for i = 5,15
+  do
+    if (turtle.getItemCount(i) == 0)
+    then
+      empty_cells = empty_cells + 1
+    end
+  end
+  if (empty_cells < 3)
+  then return true end
+  return false
+end
+
+local function emptyInv()
+  local turns = 0
+
+  turtle.select(16)
+  for i = 1,4
+  do
+    succ = turtle.place()
+    if (succ)
+    then break end
+    turtle.turnLeft()
+    turns = turns + 1
+  end
+  
+  for i = 5,15
+  do
+    turtle.select(i)
+    turtle.drop()
+  end
+  
+  turtle.select(16)
+  turtle.dig()
+  turtle.select(1)
+  
+  for i = 1,turns
+  do
+    turtle.turnRight()
+  end
+end
+
+local function refuel()
+  if (turtle.getFuelLevel() > 1000)
+  then
+    return
+  end
+
+  local availableFuelPos = nil
+  for i = 1,4
+  do
+    if (turtle.getItemCount(i) > 1)
+    then
+      availableFuelPos = i
+      break
+    end
+  end
+  if (availableFuelPos == nil)
+  then
+    error("No fuel left")
+  end
+  
+  turtle.select(availableFuelPos)
+  turtle.refuel(turtle.getItemCount() - 1)
+end
+
+local function findNextFreeBlock()
+  print("Stuck ! Trying to get out")
+  local i = 0
+  local y_diff = 0
+  
+  while (i == 0 or y_diff > 0)
+  do
+    print("loop start")
+    i = i+1
+
+    -- Loop for finding a new safe place by going up & forward
+    local can_go_forward = go_forward()
+    while (not can_go_forward)
+    do
+      print("up")
+      local can_go_up = turtle.up()
+      if (not can_go_up) then 
+        error("Cannot get out of stuck situation")
+      end
+      y_diff = y_diff + 1
+      
+      print("forward")
+      can_go_forward = go_forward()
+    end
+
+    -- Loop for going back to base level (going down)
+    while (y_diff > 0)
+    do
+      print("down")
+      local can_go_down = turtle.down()
+      if (not can_go_down)
+      then
+        break
+      end
+      y_diff = y_diff - 1
+    end
+  end
+end
+
+turtle.digDown()
+turtle.dig()
+  
+while (true)
+do
+  refuel()
+  
+  if (isInvTooFull())
+  then
+    emptyInv()
+  end
+  
+  succ = go_forward()
+  if (not succ)
+  then
+    findNextFreeBlock()
+  end
+
+  turtle.digDown()
+  turtle.dig()
+  
+  -- If end of a x-row
+  if ((x_pos == DIG_SIZE - 1 and is_going_forward_x) or (x_pos <= 0 and (not is_going_forward_x)))
+  then
+    -- If also end of z-row
+    if ((z_pos == DIG_SIZE - 1 and is_going_forward_z) or (z_pos <= 0 and (not is_going_forward_z)))
+    then
+      turtle.down()
+      turtle.digDown()
+      turtle.down()
+
+      y_pos = y_pos - 2
+      turtle.turnLeft()
+      turtle.turnLeft()
+
+      turtle.digDown()
+      turtle.dig()
+
+      is_going_forward_z = not is_going_forward_z
+      is_going_forward_x = not is_going_forward_x
+    else -- If only end of row
+      if (xor(is_going_forward_x, not is_going_forward_z))
+      then
+        turtle.turnLeft()
+      else
+        turtle.turnRight()
+      end
+      turtle.dig()
+    
+      -- Possible problem if can't go forward
+      local succ = turtle.forward() -- Sideway forward so no go_forward
+      if (not succ) then error("Cannot go forward") end
+    
+      if (xor(is_going_forward_x, not is_going_forward_z))
+      then
+        turtle.turnLeft()
+      else
+        turtle.turnRight()
+      end
+
+      is_going_forward_x = not is_going_forward_x
+      z_pos = z_pos + (is_going_forward_z and 1 or -1)
+        
+      turtle.digDown()
+      turtle.dig()
+    end
+  end
+end
