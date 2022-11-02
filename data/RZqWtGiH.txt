@@ -1,0 +1,188 @@
+#include <a_samp>
+#include <dof2>
+
+#define MAX_LENGHT_IP 		(16)
+#define MAX_LENGHT_PASS		(16)
+
+enum 
+{
+	dialog_unknown,
+	dialog_register,
+	dialog_login
+};
+
+enum PlayerData
+{
+	pName[MAX_PLAYER_NAME + 1],
+	pIP[MAX_LENGHT_IP],
+	pPassword[MAX_LENGHT_PASS],
+
+	pSkin,
+	pMoney,
+	pScore,
+
+	pWrong,
+	bool:pLogged
+};
+new PlayerInfo[MAX_PLAYERS][PlayerData];
+new pArchive[64];
+
+main(){}
+
+public OnGameModeInit()
+{
+	if(!fexist("contas"))
+	{						
+		print("\n\n[ERRO] Crie a pasta \"contas\" em \"scriptfiles\"\n\n");
+		SendRconCommand("exit");
+	}
+	return 1;
+}
+
+public OnGameModeExit()
+{
+	DOF2_Exit();
+	return 1;
+}
+
+public OnPlayerRequestClass(playerid, classid)
+{
+	format(pArchive, sizeof(pArchive), "contas/%s.ini", PlayerInfo[playerid][pName]);
+	if(DOF2_FileExists(pArchive))
+	{
+		format(PlayerInfo[playerid][pPassword], MAX_LENGHT_PASS, DOF2_GetString(pArchive, "password"));		
+		ShowPlayerDialog(playerid, dialog_login, DIALOG_STYLE_INPUT, "Logar-se", "Insira sua senha abaixo:", "Logar", "X");
+	} else {
+		ShowPlayerDialog(playerid, dialog_register, DIALOG_STYLE_INPUT, "Registre-se", "Insira uma senha abaixo:", "Registrar", "X");
+	}
+	return 1;
+}
+
+public OnPlayerConnect(playerid)
+{
+	GetPlayerName(playerid, PlayerInfo[playerid][pName], MAX_PLAYER_NAME + 1);
+	GetPlayerIp(playerid, PlayerInfo[playerid][pIP], MAX_LENGHT_IP);
+	return 1;
+}
+
+public OnPlayerDisconnect(playerid, reason)
+{
+	Player_Save(playerid);
+	Player_Reset(playerid);
+	return 1;
+}
+
+public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
+{
+	switch(dialogid)
+	{
+		case dialog_login:
+		{
+			if(!response)
+				return Kick(playerid);
+
+			if(response)
+			{
+				if(!strlen(inputtext))
+					return ShowPlayerDialog(playerid, dialog_login, DIALOG_STYLE_INPUT, "Logar-se", "ERRO: Insira algo na box.\nInsira sua senha abaixo:", "Logar", "X");
+
+				if(strcmp(PlayerInfo[playerid][pPassword], inputtext, true) == 0)
+				{
+					Player_Load(playerid);				
+				} else {
+					ShowPlayerDialog(playerid, dialog_login, DIALOG_STYLE_INPUT, "Logar-se", "ERRO: Senha incorreta.\nInsira sua senha abaixo:", "Logar", "X");
+					PlayerInfo[playerid][pWrong]++;
+
+					if(PlayerInfo[playerid][pWrong] >= 3)
+						return Kick(playerid);
+				}
+			}
+		}
+		case dialog_register:
+		{
+			if(!response)
+				return Kick(playerid);
+
+			if(response)
+			{
+				if(!strlen(inputtext))
+					return ShowPlayerDialog(playerid, dialog_register, DIALOG_STYLE_INPUT, "Registre-se", "ERRO: Insira algo na box.\nInsira uma senha abaixo:", "Registrar", "X");
+
+				if(strlen(inputtext) < 4 || strlen(inputtext) > MAX_LENGHT_PASS)
+					return ShowPlayerDialog(playerid, dialog_register, DIALOG_STYLE_INPUT, "Registre-se", "Insira uma senha abaixo:", "Registrar", "X");
+
+				format(PlayerInfo[playerid][pPassword], MAX_LENGHT_PASS, inputtext);
+				Player_Create(playerid, PlayerInfo[playerid][pName], PlayerInfo[playerid][pIP], PlayerInfo[playerid][pPassword]);
+			}
+		}
+	}
+	return 1;
+}
+
+Player_Create(playerid, name[], ip[], password[])
+{
+	format(pArchive, sizeof(pArchive), "contas/%s.ini", name);
+	if(!DOF2_FileExists(pArchive))
+	{
+		DOF2_CreateFile(pArchive);
+
+		DOF2_SetString(pArchive, "name", name);
+		DOF2_SetString(pArchive, "ip", ip);
+		DOF2_SetString(pArchive, "password", password);
+
+		DOF2_SetInt(pArchive, "skin", random(311));
+		DOF2_SetInt(pArchive, "money", 250);
+		DOF2_SetInt(pArchive, "score", 1);
+
+		DOF2_SaveFile();
+
+		Player_Load(playerid);
+	}
+	return 1;
+}
+
+Player_Load(playerid)
+{	
+	format(pArchive, sizeof(pArchive), "contas/%s.ini", PlayerInfo[playerid][pName]);
+	if(DOF2_FileExists(pArchive))
+	{
+		PlayerInfo[playerid][pSkin] 	= DOF2_GetInt(pArchive, "skin");
+		PlayerInfo[playerid][pMoney] 	= DOF2_GetInt(pArchive, "money");
+		PlayerInfo[playerid][pScore] 	= DOF2_GetInt(pArchive, "score");
+
+		PlayerInfo[playerid][pWrong] 	= 0;
+		PlayerInfo[playerid][pLogged] 	= true;
+
+		SetSpawnInfo(playerid, NO_TEAM, PlayerInfo[playerid][pSkin], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+		SpawnPlayer(playerid);
+	}
+	return 1;
+}
+
+Player_Save(playerid)
+{
+	if(PlayerInfo[playerid][pLogged])
+	{
+		format(pArchive, sizeof(pArchive), "contas/%s.ini", PlayerInfo[playerid][pName]);
+		if(DOF2_FileExists(pArchive))
+		{
+			DOF2_SetString(pArchive, "name", PlayerInfo[playerid][pName]);
+			DOF2_SetString(pArchive, "ip", PlayerInfo[playerid][pIP]);
+			DOF2_SetString(pArchive, "password", PlayerInfo[playerid][pPassword]);
+
+			DOF2_SetInt(pArchive, "skin", PlayerInfo[playerid][pSkin]);
+			DOF2_SetInt(pArchive, "money", PlayerInfo[playerid][pMoney]);
+			DOF2_SetInt(pArchive, "score", PlayerInfo[playerid][pScore]);
+
+			DOF2_SaveFile();
+		}
+	}
+	return 1;
+}
+
+Player_Reset(playerid)
+{
+	new dummy[PlayerData];
+	PlayerInfo[playerid] = dummy;
+	return 1;
+}
