@@ -1,0 +1,83 @@
+import React, { useEffect, useState, useCallback } from "react";
+import UserProfileTemplate from "../templates/UserProfileTemplate";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+
+import { useLazyQuery, useQuery } from "@apollo/client";
+import { GET_USER_BY_ID, GET_IDENTIFY_ID } from "../environment/apollo/queries";
+import { useFocusEffect } from "@react-navigation/native";
+import LayoutWithLoader from "../molecules/LayoutWithLoader";
+
+const UserProfile = ({ navigation, route }) => {
+  const { navigate } = navigation;
+  const [loading, setLoading] = useState<boolean>(true);
+  const [userId, setUserId] = useState(null);
+  const [data, setUserData] = useState();
+
+  const { params } = route;
+
+  const userIdentify = useQuery(GET_IDENTIFY_ID);
+
+  const [getUserById] = useLazyQuery(GET_USER_BY_ID, {
+    onCompleted: () => setLoading(false),
+  });
+
+  useEffect(() => {
+    const userId = userIdentify.data?.identify?.id;
+    if (userId) {
+      setUserId(userId);
+      handleFetchUserData(userId);
+    }
+  }, [userIdentify.data]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const userId = userIdentify.data?.identify?.id;
+
+      if (userId) {
+        setTimeout(() => handleFetchUserData(userId), 1000);
+      }
+    }, [userIdentify.data])
+  );
+
+  useEffect(() => {
+    if (params?.__typename === "gigl_users") {
+      const newUserData = {
+        ...data,
+        ...params,
+      };
+      setUserData(newUserData);
+    }
+  }, [params]);
+
+  const handleFetchUserData = (id: string) => {
+    getUserById({
+      variables: {
+        id: id,
+      },
+    }).then(({ data }) => setUserData(data.gigl_users_by_pk));
+  };
+
+  const handleNavigateToEditProfile = () => {
+    navigate("EditProfile");
+  };
+
+  const handleNavigateToSettings = () => {
+    navigate("ProfileSettings");
+  };
+
+  if (loading) {
+    return <LayoutWithLoader />;
+  }
+
+  if (data) {
+    return (
+      <UserProfileTemplate
+        userData={data}
+        handleNavigateToEditProfile={handleNavigateToEditProfile}
+        handleNavigateToSettings={handleNavigateToSettings}
+      />
+    );
+  }
+};
+
+export default UserProfile;
