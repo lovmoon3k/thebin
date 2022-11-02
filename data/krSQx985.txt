@@ -1,0 +1,80 @@
+import numpy as np
+
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.layers import Dense, Conv2D, Flatten, MaxPooling2D
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.layers import GlobalAveragePooling2D, Dense
+from tensorflow.keras.applications.resnet import ResNet50
+
+
+optimizer = Adam(lr=0.0001) 
+batch_size_1 = 32
+
+backbone = ResNet50(input_shape=(224, 224, 3),
+                    weights='/datasets/keras_models/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
+                    include_top=False) 
+
+def load_train(path):
+
+    train_datagen = ImageDataGenerator(
+    validation_split=0.25,
+    rescale=1./255
+    )
+    
+    train_datagen_flow = train_datagen.flow_from_dataframe(
+    dataframe=path,
+    class_mode='sparse',
+    target_size= (224, 224),
+    batch_size=batch_size_1,
+    subset='training',
+    seed=69)
+       
+    return train_datagen_flow
+
+def load_test(path):
+    validation_datagen = ImageDataGenerator(
+    validation_split=0.25,
+    rescale=1./255
+    )
+
+    valid_datagen_flow = valid_datagen.flow_from_dataframe(
+    dataframe=path,
+    class_mode='sparse',
+    target_size= (224, 224),
+    batch_size=batch_size_1,
+    subset='validation',
+    seed=69)
+
+    return valid_datagen_flow
+       
+
+def create_model(input_shape):
+
+    backbone = ResNet50(input_shape=(224, 224, 3),
+                        weights='/datasets/keras_models/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
+                        include_top=False) 
+    
+    model = Sequential()
+    
+    model.add(backbone)
+    model.add(GlobalAveragePooling2D())
+
+    model.add(Dense(1, activation='relu'))
+    
+    model.compile(optimizer=optimizer, loss='mean_squared_error',
+                  metrics=['mean_absolute_error'])
+
+    return model
+
+def train_model(model, train_data, test_data, batch_size=None, epochs=3,
+               steps_per_epoch=None, validation_steps=None):
+ 
+    model.fit(train_data,
+              validation_data=test_data,
+              batch_size=batch_size, epochs=epochs,
+              steps_per_epoch=steps_per_epoch,
+              validation_steps=validation_steps,
+              verbose=2, shuffle=True)
+
+    return model 
