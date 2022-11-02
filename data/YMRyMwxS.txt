@@ -1,0 +1,204 @@
+package cz.otte.rum.json
+
+import android.util.Log
+import org.json.JSONArray
+import kotlin.reflect.KMutableProperty
+import kotlin.reflect.full.declaredMemberProperties
+import org.json.JSONException
+import org.json.JSONObject
+import org.json.JSONTokener
+import kotlin.reflect.KClass
+import kotlin.reflect.KProperty1
+import kotlin.reflect.KType
+import kotlin.reflect.full.createInstance
+import kotlin.reflect.full.createType
+import kotlin.reflect.full.memberProperties
+
+annotation class JsonName(val name: String)
+
+annotation class JsonExclude()
+
+open class Codable {
+    @Suppress("UNCHECKED_CAST")
+    fun<R> readInstanceProperty(instance: Any, propertyName: String): R {
+        val property = instance::class.members
+            .first { it.name == propertyName } as KProperty1<Any, *>
+
+        return property.get(instance) as R
+    }
+
+    fun toJsonObject(): JSONObject {
+        var result: JSONObject = JSONObject()
+
+        for (property in this::class.declaredMemberProperties) {
+            var name = property.name
+            var annotation = property.annotations.find { it is JsonName } as? JsonName
+            if (annotation != null) {
+                name = annotation.name
+            }
+
+            var exclude = property.annotations.find { it is JsonExclude } as? JsonExclude
+            if (exclude != null) {
+                continue
+            }
+
+            Log.d("RUM", "Property - name ${property.returnType}")
+
+            if (property.returnType == kotlin.String::class.createType()) {
+                Log.d("RUM", "Setting - $name")
+                result.put(name, readInstanceProperty<String>(this, property.name))
+            } else if (property.returnType == kotlin.Boolean::class.createType()) {
+                result.put(name, readInstanceProperty<Boolean>(this, property.name))
+            } else if (property.returnType == kotlin.Double::class.createType()) {
+                result.put(name, readInstanceProperty<Double>(this, property.name))
+            } else if (property.returnType == kotlin.Int::class.createType()) {
+                result.put(name, readInstanceProperty<Int>(this, property.name))
+            } else if (property.returnType.toString().contains("ArrayList")) {
+                // Handle arrays
+                var elemType = property.returnType.arguments[0].type
+
+                var array: ArrayList<Any> = readInstanceProperty<ArrayList<Any>>(this, property.name)
+                var jsonArray: JSONArray = JSONArray()
+
+                for (i in 0..(array.count()-1)) {
+                    Log.d("RUM", "Element - $i - Value - ${array[i]}")
+                    jsonArray.put(i, array[i])
+                }
+
+                result.put(name, jsonArray)
+            } else {
+                // Handle generic object
+                //var jsonObject: JSONObject = JSONObject()
+
+                try {
+                    var codable: Codable = (readInstanceProperty(this, property.name) as Codable)
+                    if (codable != null) {
+                        result.put(name, codable.toJsonObject())
+                    }
+                } catch (ex: ClassCastException) {
+                    Log.d("RUM", "Exception - class cast mismatch - '" + ex.toString() + "'")
+                }
+            }
+        }
+
+        return result
+    }
+
+    fun<R> writeInstanceProperty(instance: Any, propertyName: Any, propertyValue: R) {
+        val property = instance::class.memberProperties
+            .first { it.name == propertyName }
+
+        if (property is KMutableProperty<*>) {
+            property.setter.call(instance, propertyValue)
+        }
+    }
+
+    fun fromJsonObjectArrayHelper(json: JSONObject, instance: Any) {
+        var it : Iterator<String> = json.keys()
+        while (it.hasNext()) {
+            var key: String = it.next()
+            var value = json.get(key)
+            if (value.toString() == "null") {
+                continue
+            }
+            var type: KType = json.get(key)::class.createType()
+            Log.d("RUM", "Array Element Property - ${key} ${type} = ${value}")
+
+            for (property in instance::class.declaredMemberProperties) {
+                var name = property.name
+
+                var annotation = property.annotations.find { it is JsonName } as? JsonName
+                if (annotation != null) {
+                    name = annotation.name
+                }
+
+                var exclude = property.annotations.find { it is JsonExclude } as? JsonExclude
+                if (exclude != null) {
+                    continue
+                }
+
+                if (name == key) {
+                    if (property.returnType == type) {
+                        this.writeInstanceProperty(instance, property.name, value)
+                        Log.d("RUM", "Array Element Writing - ${key}")
+                    } else {
+                        Log.d("RUM", "Array Element Type mismatch - ${key} has type of ${type}, tries to match to ${property.returnType} - array ${property.returnType.javaClass.isArray()}")
+                    }
+                }
+            }
+        }
+    }
+
+    fun fromJsonObject(json: JSONObject) {
+        var it : Iterator<String> = json.keys()
+        while (it.hasNext()) {
+            var key: String = it.next()
+            var value = json.get(key)
+            if (value.toString() == "null") {
+                continue
+            }
+            var type: KType = json.get(key)::class.createType()
+            Log.d("RUM", "Property - ${key} ${type} = ${value}")
+
+            for (property in this::class.declaredMemberProperties) {
+                var name = property.name
+
+                var annotation = property.annotations.find { it is JsonName } as? JsonName
+                if (annotation != null) {
+                    name = annotation.name
+                }
+
+                var exclude = property.annotations.find { it is JsonExclude } as? JsonExclude
+                if (exclude != null) {
+                    continue
+                }
+
+                if (name == key) {
+                    if (property.returnType == type) {
+                        this.writeInstanceProperty(this, property.name, value)
+                        Log.d("RUM", "Writing - ${key}")
+                    } else if (type.toString() == "org.json.JSONObject") {
+                        // Attempt to match JSON object
+                        var instance = (property.returnType.classifier!! as KClass<*>).createInstance()
+                        fromJsonObjectArrayHelper(value as JSONObject, instance)
+                        this.writeInstanceProperty(this, property.name, instance)
+                    } else if (type.toString() == "org.json.JSONArray" && property.returnType.toString().contains("ArrayList")) {
+                        // Handle arrays
+                        var arrayValue = value as JSONArray
+                        Log.d("RUM", "JSON Array of size ${arrayValue.length()}")
+
+                        var elemType = property.returnType.arguments[0].type
+
+                        Log.d("RUM", "No. of template arguments in typ - ${property.returnType.arguments.count()}")
+                        Log.d("RUM", "Template argument type - ${property.returnType.arguments[0].type}")
+
+                        if (elemType != null) {
+                            for (i in 0..(arrayValue.length() - 1)) {
+                                Log.d("RUM", "JSONArray element ${i} with type ${elemType}")
+
+                                var arrayItem = arrayValue.getJSONObject(i)
+                                var instance = (elemType.classifier!! as KClass<*>).createInstance()
+                                fromJsonObjectArrayHelper(arrayItem, instance)
+
+                                var propertyInstance = this::class.memberProperties.first { it.name == property.name }
+                                (propertyInstance.getter.call(this) as ArrayList<Any?>).add(instance)
+                            }
+                        }
+                    } else {
+                        Log.d("RUM", "Type mismatch - ${key} has type of ${type}, tries to match to ${property.returnType} - array ${property.returnType.javaClass.isArray()}")
+                    }
+                }
+            }
+        }
+    }
+
+    fun decode(str: String) {
+        var json = JSONTokener(str).nextValue() as JSONObject
+        this.fromJsonObject(json)
+    }
+
+    fun encode(): String {
+        var result : JSONObject = this.toJsonObject()
+        return result.toString()
+    }
+}
