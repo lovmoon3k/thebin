@@ -1,0 +1,398 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Animal_Crossing_Text_Editor.Classes.Parser.NDS
+{
+    public static class MessageTags
+    {
+        private const byte TagChar = 0x1A;
+
+        public sealed class MessageTag
+        {
+            public byte Group;
+            public ushort Index;
+            public int ArgsByteCount;
+
+            public readonly Conversion Conversion;
+
+            public MessageTag(byte group, ushort index, int argsByteCount, Conversion conversion)
+            {
+                Group = group;
+                Index = index;
+                ArgsByteCount = argsByteCount;
+                Conversion = conversion;
+            }
+
+            public MessageTag(byte group, ushort index, int argsByteCount, Func<byte, ushort, byte[], string> b2s, Func<byte, ushort, byte[], int, byte[], int> s2b)
+                : this(group, index, argsByteCount, (b2s, s2b)) { }
+        }
+
+        public static string GetMessageTagString(byte group, ushort index, in byte[] arguments = null)
+        {
+            if (Tags.ContainsKey(group) && Tags[group].ContainsKey(index))
+            {
+                return Tags[group][index].Conversion.Bytes2String(group, index, arguments);
+            }
+
+            var argsStr = arguments?.Aggregate("", (result, i) => result + i.ToString("X2") + " ").Trim() ?? "";
+            return $"<Unk {group:X2}|{index:X4}|{argsStr}>";
+        }
+
+        public sealed class Conversion
+        {
+            public Func<byte, ushort, byte[], int, byte[], int> String2Bytes;
+            public Func<byte, ushort, byte[], string> Bytes2String;
+
+
+
+            public void ToBytes(byte group, ushort index, in byte[] args, ref int write_ofs, in byte[] data)
+            {
+                int res = String2Bytes(group, index, args, write_ofs, data);
+                write_ofs += res;
+            }
+
+            public string ToString(byte group, ushort index, in byte[] args) => Bytes2String(group, index, args);
+
+            public static implicit operator Conversion(Func<byte, ushort, byte[], int, byte[], int> s2b)
+            {
+                return new Conversion() { String2Bytes = s2b };
+            }
+
+            public static implicit operator Conversion(Func<byte, ushort, byte[], string> b2s)
+            {
+                return new Conversion() { Bytes2String = b2s };
+            }
+
+            public static implicit operator Conversion((Func<byte, ushort, byte[], string>, Func<byte, ushort, byte[], int, byte[], int>) methods)
+            {
+                return new Conversion() { Bytes2String = methods.Item1, String2Bytes = methods.Item2 };
+            }
+        }
+
+        private static readonly Func<byte, ushort, byte[], int, byte[], int> default_string2bytes = (group, index, args, i, data) =>
+        {
+            data[i] = TagChar;
+            data[i + 1] = 0x5;
+            data[i + 2] = group;
+            data[i + 3] = (byte)index;
+            data[i + 4] = (byte)(index >> 8);
+            return 5;
+        };
+
+        public static readonly IReadOnlyDictionary<byte, IReadOnlyDictionary<ushort, MessageTag>> Tags = new Dictionary<byte, IReadOnlyDictionary<ushort, MessageTag>>()
+        {
+            {
+                0x00, new Dictionary<ushort, MessageTag> // 00-0A
+                {
+                    {
+                        0x0000,
+                        new MessageTag(0x00, 0x0000, 0,
+                        (_, __, ___) => "<Heart Symbol>",
+                        default_string2bytes)
+                    },
+                    {
+                        0x0001,
+                        new MessageTag(0x00, 0x0001, 0,
+                        (_, __, ___) => "<Music Note>",
+                        default_string2bytes)
+                    },
+                    {
+                        0x0002,
+                        new MessageTag(0x00, 0x0002, 0,
+                        (_, __, ___) => "<Player Initial>",
+                        default_string2bytes)
+                    },
+                    {
+                        0x0006,
+                        new MessageTag(0x00, 0x0006, 0,
+                        (_, __, ___) => "<Arrow Symbol>",
+                        default_string2bytes)
+                    },
+                    {
+                        0x0007,
+                        new MessageTag(0x00, 0x0007, 0,
+                        (_, __, ___) => "<Star Symbol>",
+                        default_string2bytes)
+                    },
+                    {
+                        0x0008,
+                        new MessageTag(0x00, 0x0008, 0,
+                        (_, __, ___) => "<Droplet Symbol>",
+                        default_string2bytes)
+                    },
+                }
+            },
+
+            {
+                0x01, new Dictionary<ushort, MessageTag> //  0x00-0x10
+                {
+                    {
+                        0x0000,
+                        new MessageTag(0x01, 0x0000, 2,
+                        (_, __, args) => $"<Pause [{BitConverter.ToUInt16(args, 0):X2}]>",
+                        (group, index, args, i, data) => {
+                            data[i] = TagChar;
+                            data[i + 1] = 0x5 + sizeof(ushort);
+                            data[i + 2] = group;
+                            data[i + 3] = (byte)index;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = args[0];
+                            data[i + 6] = args[1];
+                            return 5 + sizeof(ushort);
+                        })
+                    },
+                    { 0x0001, new MessageTag(0x01, 0x0001, 0, (_, __, ___) => "<Press Button>", default_string2bytes) }, // Not sure about this one.
+                    { 0x0002, new MessageTag(0x01, 0x0002, 0, (_, __, ___) => "<No Text Delay>", default_string2bytes) },
+                    { 0x0003, new MessageTag(0x01, 0x0003, 0, (_, __, ___) => "<Resume Text Delay>", default_string2bytes) },
+                    //{ 0x0004, new MessageTag(0x01, 0x0004, 0, (_, __, ___) => "", default_string2bytes) },
+                    { 0x0008, new MessageTag(0x01, 0x0008, 0, (_, __, ___) => "<Small Vibration>", default_string2bytes) },
+                    { 0x0009, new MessageTag(0x01, 0x0009, 0, (_, __, ___) => "<Medium Vibration>", default_string2bytes) },
+                    { 0x000A, new MessageTag(0x01, 0x000A, 0, (_, __, ___) => "<Large Vibration>", default_string2bytes) },
+                }
+            },
+
+            {
+                0x02, new Dictionary<ushort, MessageTag>
+                {
+                    {
+                        0x0000,
+                        new MessageTag(0x02, 0x0000, 2,
+                        (_, __, args) => $"<Set Choices [{args[0]:X2}] [{args[1]:X2}]>",
+                        (group, index, args, i, data) => {
+                            data[i] = TagChar;
+                            data[i + 1] = 0x5 + 2 * sizeof(byte);
+                            data[i + 2] = group;
+                            data[i + 3] = (byte)index;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = args[0];
+                            data[i + 6] = args[1];
+                            return 5 + 2 * sizeof(byte);
+                        })
+                    },
+                    {
+                        0x0001,
+                        new MessageTag(0x02, 0x0001, 3,
+                        (_, __, args) => $"<Set Choices [{args[0]:X2}] [{args[1]:X2}] [{args[2]:X2}]>",
+                        (group, index, args, i, data) => {
+                            data[i] = TagChar;
+                            data[i + 1] = 0x5 + 3 * sizeof(byte);
+                            data[i + 2] = group;
+                            data[i + 3] = (byte)index;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = args[0];
+                            data[i + 6] = args[1];
+                            data[i + 7] = args[2];
+                            return 5 + 3 * sizeof(byte);
+                        })
+                    },
+                    {
+                        0x0002,
+                        new MessageTag(0x02, 0x0002, 4,
+                        (_, __, args) => $"<Set Choices [{args[0]:X2}] [{args[1]:X2}] [{args[2]:X2}] [{args[3]:X2}]>",
+                        (group, index, args, i, data) => {
+                            data[i] = TagChar;
+                            data[i + 1] = 0x5 + 4 * sizeof(byte);
+                            data[i + 2] = group;
+                            data[i + 3] = (byte)index;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = args[0];
+                            data[i + 6] = args[1];
+                            data[i + 7] = args[2];
+                            data[i + 8] = args[3];
+                            return 5 + 4 * sizeof(byte);
+                        })
+                    },
+                }
+            },
+
+            {
+                0x03, new Dictionary<ushort, MessageTag>
+                {
+
+                }
+            },
+
+            // String group
+            {
+                0x04, new Dictionary<ushort, MessageTag> // 35
+                {
+                    { 0x0000, new MessageTag(0x04, 0x0000, 0, (_, __, ___) => "<Player>", default_string2bytes) }, // Might default to nickname.
+                    { 0x0001, new MessageTag(0x04, 0x0001, 0, (_, __, ___) => "<NPC>", default_string2bytes) },
+                    { 0x0002, new MessageTag(0x04, 0x0002, 0, (_, __, ___) => "<Catchphrase>", default_string2bytes) },
+                    { 0x0003, new MessageTag(0x04, 0x0003, 0, (_, __, ___) => "<Town>", default_string2bytes) },
+                    { 0x0004, new MessageTag(0x04, 0x0004, 0, (_, __, ___) => "<Year>", default_string2bytes) },
+                    { 0x0005, new MessageTag(0x04, 0x0005, 0, (_, __, ___) => "<Month>", default_string2bytes) },
+                    { 0x0006, new MessageTag(0x04, 0x0006, 0, (_, __, ___) => "<Day>", default_string2bytes) },
+                    { 0x0007, new MessageTag(0x04, 0x0007, 0, (_, __, ___) => "<Weekday>", default_string2bytes) },
+                    { 0x0008, new MessageTag(0x04, 0x0008, 0, (_, __, ___) => "<Hour>", default_string2bytes) },
+                    { 0x0009, new MessageTag(0x04, 0x0009, 0, (_, __, ___) => "<Minute>", default_string2bytes) },
+                    { 0x000A, new MessageTag(0x04, 0x000A, 0, (_, __, ___) => "<Second>", default_string2bytes) },
+                    { 0x000B, new MessageTag(0x04, 0x000B, 0, (_, __, ___) => "<Gossip Villager 1>", default_string2bytes) },
+                    { 0x000C, new MessageTag(0x04, 0x000C, 0, (_, __, ___) => "<Gossip Villager 2>", default_string2bytes) },
+                    { 0x000D, new MessageTag(0x04, 0x000D, 0, (_, __, ___) => "<Gossip Villager 3>", default_string2bytes) },
+                    { 0x000E, new MessageTag(0x04, 0x000E, 0, (_, __, ___) => "<Gossip Villager 4>", default_string2bytes) },
+
+                    // String 1 - 11
+                    { 0x000F, new MessageTag(0x04, 0x000F, 0, GetStringMessage, default_string2bytes) },
+                    { 0x0010, new MessageTag(0x04, 0x0010, 0, GetStringMessage, default_string2bytes) },
+                    { 0x0011, new MessageTag(0x04, 0x0011, 0, GetStringMessage, default_string2bytes) },
+                    { 0x0012, new MessageTag(0x04, 0x0012, 0, GetStringMessage, default_string2bytes) },
+                    { 0x0013, new MessageTag(0x04, 0x0013, 0, GetStringMessage, default_string2bytes) },
+                    { 0x0014, new MessageTag(0x04, 0x0014, 0, GetStringMessage, default_string2bytes) },
+                    { 0x0015, new MessageTag(0x04, 0x0015, 0, GetStringMessage, default_string2bytes) },
+                    { 0x0016, new MessageTag(0x04, 0x0016, 0, GetStringMessage, default_string2bytes) },
+                    { 0x0017, new MessageTag(0x04, 0x0017, 0, GetStringMessage, default_string2bytes) },
+                    { 0x0018, new MessageTag(0x04, 0x0018, 0, GetStringMessage, default_string2bytes) },
+                    { 0x0019, new MessageTag(0x04, 0x0019, 0, GetStringMessage, default_string2bytes) },
+
+                    // Item String 1 - 4
+                    { 0x001A, new MessageTag(0x04, 0x001A, 0, GetItemStringMessage, default_string2bytes) },
+                    { 0x001B, new MessageTag(0x04, 0x001B, 0, GetItemStringMessage, default_string2bytes) },
+                    { 0x001C, new MessageTag(0x04, 0x001C, 0, GetItemStringMessage, default_string2bytes) },
+                    { 0x001D, new MessageTag(0x04, 0x001D, 0, GetItemStringMessage, default_string2bytes) },
+
+                    { 0x001E, new MessageTag(0x04, 0x001E, 0, (_, __, ___) => "<Player Remembered Action>", default_string2bytes) },
+                    { 0x001F, new MessageTag(0x04, 0x001F, 0, (_, __, ___) => "<Player Nickname>", default_string2bytes) }, // Might use player name specifically.
+                    { 0x0020, new MessageTag(0x04, 0x0020, 0, (_, __, ___) => "<String Dummpy Proc 32>", default_string2bytes) },
+                    { 0x0021, new MessageTag(0x04, 0x0021, 0, (_, __, ___) => "<Yay Day Compliment>", default_string2bytes) },
+                    { 0x0022, new MessageTag(0x04, 0x0022, 0, (_, __, ___) => "<Hobby>", default_string2bytes) }
+                }
+            },
+
+            {
+                0x05, new Dictionary<ushort, MessageTag>
+                {
+
+                }
+            },
+
+            {
+                0x06, new Dictionary<ushort, MessageTag>
+                {
+                    {
+                        0x0000,
+                        new MessageTag(0x06, 0x0000, 2,
+                        (_, __, args) => $"<Select Random Dialog from [{args[0]:X2}] [{args[1]:X2}]>",
+                        (group, index, args, i, data) => {
+                            data[i] = TagChar;
+                            data[i + 1] = 0x5 + 2 * sizeof(byte);
+                            data[i + 2] = group;
+                            data[i + 3] = (byte)index;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = args[0];
+                            data[i + 6] = args[1];
+                            return 5 + 2 * sizeof(byte);
+                        })
+                    },
+                    {
+                        0x0001,
+                        new MessageTag(0x06, 0x0001, 3,
+                        (_, __, args) => $"<Select Random Dialog from [{args[0]:X2}] [{args[1]:X2}] [{args[2]:X2}]>",
+                        (group, index, args, i, data) => {
+                            data[i] = TagChar;
+                            data[i + 1] = 0x5 + 3 * sizeof(byte);
+                            data[i + 2] = group;
+                            data[i + 3] = (byte)index;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = args[0];
+                            data[i + 6] = args[1];
+                            data[i + 7] = args[2];
+                            return 5 + 3 * sizeof(byte);
+                        })
+                    }
+                }
+            },
+
+            {
+                0x07, new Dictionary<ushort, MessageTag>
+                {
+                    { 0x0000, new MessageTag(0x07, 0x0000, 0, (_, __, ___) => "<Clear Reaction>", default_string2bytes) },
+                    { 0x0001, new MessageTag(0x07, 0x0001, 0, (_, __, ___) => "<Reaction (Annoyed)>", default_string2bytes) },
+                    { 0x0002, new MessageTag(0x07, 0x0002, 0, (_, __, ___) => "<Reaction (Shocked)>", default_string2bytes) },
+                    { 0x0003, new MessageTag(0x07, 0x0003, 0, (_, __, ___) => "<Reaction (Laughter)>", default_string2bytes) },
+                    { 0x0004, new MessageTag(0x07, 0x0004, 0, (_, __, ___) => "<Reaction (Amazed)>", default_string2bytes) },
+                    { 0x0005, new MessageTag(0x07, 0x0005, 0, (_, __, ___) => "<Reaction (Aggravation)>", default_string2bytes) },
+                    { 0x0006, new MessageTag(0x07, 0x0006, 0, (_, __, ___) => "<Reaction (Distress)>", default_string2bytes) },
+                    { 0x0007, new MessageTag(0x07, 0x0007, 0, (_, __, ___) => "<Reaction (Fearful)>", default_string2bytes) },
+                    { 0x0008, new MessageTag(0x07, 0x0008, 0, (_, __, ___) => "<Reaction (Sorrow)>", default_string2bytes) },
+                    { 0x0009, new MessageTag(0x07, 0x0009, 0, (_, __, ___) => "<Reaction (Cold Chill)>", default_string2bytes) },
+                    { 0x000A, new MessageTag(0x07, 0x000A, 0, (_, __, ___) => "<Reaction (Joy)>", default_string2bytes) },
+                    { 0x000B, new MessageTag(0x07, 0x000B, 0, (_, __, ___) => "<Reaction (Curiosity)>", default_string2bytes) },
+                    { 0x000C, new MessageTag(0x07, 0x000C, 0, (_, __, ___) => "<Reaction (Inspiration)>", default_string2bytes) },
+                    { 0x000D, new MessageTag(0x07, 0x000D, 0, (_, __, ___) => "<Reaction (Glee)>", default_string2bytes) },
+                    { 0x000E, new MessageTag(0x07, 0x000E, 0, (_, __, ___) => "<Reaction (Thought)>", default_string2bytes) },
+                    { 0x000F, new MessageTag(0x07, 0x000F, 0, (_, __, ___) => "<Reaction (Sadness)>", default_string2bytes) },
+                    { 0x0010, new MessageTag(0x07, 0x0010, 0, (_, __, ___) => "<Reaction (Heartbreak)>", default_string2bytes) },
+                    { 0x0011, new MessageTag(0x07, 0x0011, 0, (_, __, ___) => "<Reaction (Mischief)>", default_string2bytes) },
+                    { 0x0012, new MessageTag(0x07, 0x0012, 0, (_, __, ___) => "<Reaction (Sleepy)>", default_string2bytes) },
+                    { 0x0013, new MessageTag(0x07, 0x0013, 0, (_, __, ___) => "<Reaction (Love)>", default_string2bytes) },
+                    { 0x0014, new MessageTag(0x07, 0x0014, 0, (_, __, ___) => "<Reaction (Happiness)>", default_string2bytes) },
+                    { 0x0015, new MessageTag(0x07, 0x0015, 0, (_, __, ___) => "<Reaction (Intense)>", default_string2bytes) },
+                    { 0x0016, new MessageTag(0x07, 0x0016, 0, (_, __, ___) => "<Reaction (Worry)>", default_string2bytes) },
+                    { 0x0017, new MessageTag(0x07, 0x0017, 0, (_, __, ___) => "<Reaction (Bashfulness)>", default_string2bytes) },
+                    { 0x0018, new MessageTag(0x07, 0x0018, 0, (_, __, ___) => "<Reaction (Shaken)>", default_string2bytes) },
+                    { 0x0019, new MessageTag(0x07, 0x0019, 0, (_, __, ___) => "<Reaction (Agreement)>", default_string2bytes) },
+                    { 0x001A, new MessageTag(0x07, 0x001A, 0, (_, __, ___) => "<Reaction (Delight)>", default_string2bytes) },
+                    { 0x001B, new MessageTag(0x07, 0x001B, 0, (_, __, ___) => "<Reaction (Resignation)>", default_string2bytes) },
+                    { 0x001C, new MessageTag(0x07, 0x001C, 0, (_, __, ___) => "<Reaction (Sighing)>", default_string2bytes) },
+                    { 0x001D, new MessageTag(0x07, 0x001D, 0, (_, __, ___) => "<Reaction (Surprise)>", default_string2bytes) },
+                    { 0x001E, new MessageTag(0x07, 0x001E, 0, (_, __, ___) => "<Reaction (Spread Cards)>", default_string2bytes) },
+                    { 0x001F, new MessageTag(0x07, 0x001F, 0, (_, __, ___) => "<Reaction (Pick Card)>", default_string2bytes) },
+                    { 0x0020, new MessageTag(0x07, 0x0020, 0, (_, __, ___) => "<Reaction (Putaway Cards)>", default_string2bytes) },
+                    { 0x0021, new MessageTag(0x07, 0x0021, 0, (_, __, ___) => "<Reaction (Read Fortune)>", default_string2bytes) },
+                    { 0x0022, new MessageTag(0x07, 0x0022, 0, (_, __, ___) => "<Reaction (Gatekeeper Salute)>", default_string2bytes) },
+                    { 0x0023, new MessageTag(0x07, 0x0023, 0, (_, __, ___) => "<Reaction (Gatekeeper Attention)>", default_string2bytes) },
+                    { 0x0024, new MessageTag(0x07, 0x0024, 0, (_, __, ___) => "<Reaction (Gatekeeper Surprise)>", default_string2bytes) },
+                    { 0x0025, new MessageTag(0x07, 0x0025, 0, (_, __, ___) => "<Reaction (GateKeeper Curiosity)>", default_string2bytes) },
+                    { 0x0026, new MessageTag(0x07, 0x0026, 0, (_, __, ___) => "<Reaction (Gulliver Joy)>", default_string2bytes) },
+                    { 0x0027, new MessageTag(0x07, 0x0027, 0, (_, __, ___) => "<Reaction (Gulliver Sleepy)>", default_string2bytes) },
+                    { 0x0028, new MessageTag(0x07, 0x0028, 0, (_, __, ___) => "<Reaction (Sleeping Yawn)>", default_string2bytes) },
+                    { 0x0029, new MessageTag(0x07, 0x0029, 0, (_, __, ___) => "<Reaction (Resetti Aggravation)>", default_string2bytes) },
+                    { 0x002A, new MessageTag(0x07, 0x002A, 0, (_, __, ___) => "<Reaction (Resetti Worry)>", default_string2bytes) },
+                    { 0x002B, new MessageTag(0x07, 0x002B, 0, (_, __, ___) => "<Reaction (Resetti Cold Chill)>", default_string2bytes) },
+                    { 0x002C, new MessageTag(0x07, 0x002C, 0, (_, __, ___) => "<Reaction (Resetti Surprise)>", default_string2bytes) },
+                    { 0x002D, new MessageTag(0x07, 0x002D, 0, (_, __, ___) => "<Reaction (Resetti Intense)>", default_string2bytes) },
+                    { 0x002E, new MessageTag(0x07, 0x002E, 0, (_, __, ___) => "<Reaction (Resetti Distrust)>", default_string2bytes) },
+                    { 0x002F, new MessageTag(0x07, 0x002F, 0, (_, __, ___) => "<Reaction (Resetti Rage)>", default_string2bytes) },
+                    { 0x0030, new MessageTag(0x07, 0x0030, 0, (_, __, ___) => "<Reaction (Kapp'n 1)>", default_string2bytes) }, // TODO: Check these and further
+                    { 0x0031, new MessageTag(0x07, 0x0031, 0, (_, __, ___) => "<Reaction (Kapp'n 2)>", default_string2bytes) },
+                    { 0x0032, new MessageTag(0x07, 0x0032, 0, (_, __, ___) => "<Reaction (Kapp'n 3)>", default_string2bytes) },
+                    // 0x003B is the last entry
+                }
+            },
+
+            {
+                0x0B, new Dictionary<ushort, MessageTag>
+                {
+                    //{ 0x0000, (_, __, ___) => "" }
+                    { 0x0002, new MessageTag(0x0B, 0x0002, 0, (_, __, ___) => "<Cut Article>", default_string2bytes) },
+                    { 0x0003, new MessageTag(0x0B, 0x0003, 0, (_, __, ___) => "<Capitalize>", default_string2bytes) },
+                }
+            },
+
+            {
+                0xFF, new Dictionary<ushort, MessageTag>
+                {
+                    {
+                        0x0000,
+                        new MessageTag(0xFF, 0x0000, 1,
+                        (_, __, args) => $"<Line Color [{args[0]:X2}]>",
+                        (group, index, args, i, data) => {
+                            data[i] = TagChar;
+                            data[i + 1] = 0x5 + sizeof(byte);
+                            data[i + 2] = group;
+                            data[i + 3] = (byte)index;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = args[0];
+                            return 5 + sizeof(byte);
+                        })
+                    }
+                }
+            }
+        };
+
+        private static string GetStringMessage(byte group, ushort index, byte[] arguments = null) => $"<String {index - 0x000E}>";
+        private static string GetItemStringMessage(byte group, ushort index, byte[] arguments = null) => $"<Item String {index - 0x0019}>";
+    }
+}
