@@ -1,0 +1,86 @@
+#include <stdio.h>
+#include <string.h>
+#include <vector>
+#include <string>
+#include <optional>
+
+const char* input = R""""(/dev/mmcblk1: UUID="5AC1-7280"
+/dev/mmcblk2p5: LABEL="userdata" UUID="f9c0a07b-2456-42d3-b071-a31bdef672a2"
+/dev/mmcblk2p4: LABEL="app" UUID="8c57a3f3-f973-4397-8cfc-f37ef171de8e"
+/dev/mmcblk2p2: LABEL="rootfs" UUID="ac5d1e87-f2de-44e7-b59a-aea7fc044541"
+/dev/mmcblk2p1: UUID="130D-ABE9"
+)"""";
+
+struct BlkidEntry {
+    std::string path;
+    std::string label;
+    std::string uuid;
+};
+
+enum class BlkidParseState {
+    ReadingPath,
+    ReadingProperties,
+};
+
+int main(int argc, char** argv)
+{
+    BlkidParseState state = BlkidParseState::ReadingPath;
+    std::vector<BlkidEntry> entries;
+    BlkidEntry entry;
+    uint32_t input_length = strlen(input);
+    for (uint32_t i = 0; i < input_length; i++) {
+        char currentChar = i < input_length ? input[i] : '\0';
+        if (state == BlkidParseState::ReadingPath) {
+            static std::optional<int32_t> startPos;
+            if (!startPos.has_value()) {
+                startPos = std::make_optional(i);
+            }
+            if (currentChar == ':') {
+                entry.path = std::string(input + startPos.value(), i - startPos.value());
+                startPos = std::nullopt;
+                state = BlkidParseState::ReadingProperties;
+            }
+        } else if (state == BlkidParseState::ReadingProperties) {
+            static bool isInValue = false;
+            static std::string key;
+            if (!isInValue) {
+                if (currentChar != ' ' && currentChar != '\r' && currentChar != '\n') {
+                    static std::optional<uint32_t> keyPos;
+                    if (!keyPos.has_value()) {
+                        keyPos = std::make_optional(i);
+                    }
+                    if (currentChar == '=') {
+                        key = std::string(input + keyPos.value(), i - keyPos.value());
+                        keyPos = std::nullopt;
+                        isInValue = true;
+                    }
+                }
+                
+            } else {
+                static bool isInString = false;
+                if (!isInString && currentChar == '"') {
+                    isInString = true;
+                    continue;
+                }
+                static std::optional<uint32_t> valuePos;
+                if (!valuePos.has_value()) {
+                    valuePos = std::make_optional(i);
+                }
+                if (currentChar == ' ' || currentChar == '\n' || currentChar == '\0' || currentChar == '"') {
+                    std::string value = std::string(input + valuePos.value(), i - valuePos.value());
+                    valuePos = std::nullopt;
+                    isInString = false;
+                    if (key == "UUID") entry.uuid = value;
+                    else if (key == "LABEL") entry.label = value;
+                    isInValue = false;
+                }
+            }
+            if (currentChar == '\n' || currentChar == '\r' || currentChar == '\0') {
+                entries.push_back(entry);
+                entry = BlkidEntry();
+                state = BlkidParseState::ReadingPath;
+            }
+        }
+    }
+    return 0;
+}
