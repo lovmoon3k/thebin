@@ -1,0 +1,147 @@
+import subprocess
+import zipfile
+import gzip
+import shutil
+from argparse import ArgumentParser
+from pathlib import Path
+
+
+WORKING_DIR = Path("work")
+FILES = WORKING_DIR / "files.txt"
+ROOTFS = WORKING_DIR / "rootfs.ext4"
+ROOTFS_MOUNT = WORKING_DIR / "rootfs"
+NEW_SWU = Path("../cr1203_recovery.swu")
+
+
+def clean():
+    """
+    Remove the working directory
+    """
+    shutil.rmtree("work", ignore_errors=True)
+
+
+def extract_zip(file: str | Path) -> Path:
+    """
+    Extract the recovery zip file for os-installation of CR1203
+    The path to the .swu file is returned
+    """
+    with zipfile.ZipFile(file, "r") as zip_fd:
+        for zf in zip_fd.filelist:
+            if (swu := Path(zf.filename)).suffix == ".swu":
+                zip_fd.extract(zf)
+                swu.rename(swu.name)
+                swu.parent.rmdir()
+                break
+        else:
+            raise RuntimeError("Could not find swu file in archive")
+
+    return Path(swu.name)
+
+
+def extract_swu(swu: str | Path) -> Path:
+    """
+    Extract .swu file to WORKING_DIR and
+    returns the pathobject pointing to the compressed
+    ext4 root file system
+    """
+    WORKING_DIR.mkdir(exist_ok=True)
+    swu.rename(WORKING_DIR / swu.name)
+    proc = subprocess.run(
+        ["cpio", "-iv", "--file", swu],
+        cwd=WORKING_DIR,
+        capture_output=True,
+        encoding="utf8",
+    )
+    files = proc.stderr.splitlines()[:-1]
+    with FILES.open("w") as fd_txt:
+        fd_txt.writelines("\n".join(files))
+        fd_txt.write("\n")
+
+    for file in WORKING_DIR.glob("*.ext4.gz"):
+        return file
+    raise RuntimeError("Could not find the root filesystem.")
+
+
+def extract_rootfs(root_gz: str | Path) -> None:
+    with gzip.open(root_gz, "rb") as fd_in:
+        with ROOTFS.open("wb") as fd_out:
+            buffer = bytearray(4 * 1024**2)
+            view = memoryview(buffer)
+            while chunk_size := fd_in.readinto(view):
+                fd_out.write(bytes(view[:chunk_size]))
+
+
+def mount() -> None:
+    ROOTFS_MOUNT.mkdir(exist_ok=True)
+    subprocess.run(["sudo", "mount", "-t", "ext4", ROOTFS, ROOTFS_MOUNT])
+
+
+def umount() -> None:
+    subprocess.run(["sudo", "umount", ROOTFS_MOUNT])
+
+
+def pack_rootfs(root_gz: str | Path) -> None:
+    """
+    Pack rootfs to root_gz
+    """
+    with ROOTFS.open("rb") as fd_in:
+        with gzip.open(root_gz, "wb") as fd_out:
+            buffer = bytearray(4 * 1024**2)
+            view = memoryview(buffer)
+            while chunk_size := fd_in.readinto(view):
+                fd_out.write(view[:chunk_size])
+
+    Path("work/rootfs.ext4").unlink()
+
+
+def pack_swu():
+    with open("work/files.txt") as fd:
+        subprocess.run(
+            ["cpio", "-o", "-H", "crc", "--file", NEW_SWU], stdin=fd, cwd="work"
+        )
+
+    shutil.rmtree("work")
+
+
+def get_args():
+    parser = ArgumentParser()
+    parser.add_argument(
+        "package",
+        nargs="?",
+        help="Path to package",
+        default=Path.home().joinpath("Downloads/ifm_ecomatDisplay_Package_FW22012.zip"),
+    )
+    return parser.parse_args()
+
+
+def main():
+    args = get_args()
+    clean()
+
+    print("Entpacke zip-Datei")
+    swu_file = extract_zip(args.package)
+
+    print("Entpacke SWU-CPIO-Archiv")
+    rootfs_file = extract_swu(swu_file)
+
+    print("Dekomprimiere root-Dateisystem")
+    extract_rootfs(rootfs_file)
+
+    print("Root-Dateisystem wird eingehangen")
+    mount()
+
+    input("Mit Eingabe fortfahren -> ")
+    print("Root-Dateisystem wird ausgehangen")
+    umount()
+
+    print("Root-Dateisystem wird gepackt")
+    pack_rootfs(rootfs_file)
+
+    print("SWU-Datei wird erstellt")
+    pack_swu()
+
+    print("Fertig")
+
+
+if __name__ == "__main__":
+    main()
