@@ -1,0 +1,110 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using MoreMountains.TopDownEngine;
+using MoreMountains.Tools;
+using Kaze;
+using Kaze.DamageImitation;
+using Kaze.Buffs;
+
+namespace KazePashaMSK
+{
+    public class KZPlayerHealth : NewKZHealth
+    {
+        public Vector3 Center;
+
+        protected KZCharacter _kzCharacter;
+        protected KZCharacterBlock _block;
+        protected KZCharacterOrientation _characterOrientation;
+        protected Vector3 _directionToTarget, _offset;
+        protected float _blockAngle;
+        protected float _distanceToTarget;
+        protected Stat attackDropRateStat;
+
+
+        protected override void Awake()
+        {
+            base.Awake();
+            _kzCharacter = (KZCharacter) _character;
+            _characterOrientation = GetComponentInParent<KZCharacterOrientation>();
+            _block = GetComponentInParent<KZCharacterBlock>();
+
+            _offset = _block.Offset;
+            _blockAngle = _block.BlockAngle;
+            Center = transform.position + _offset;
+        }
+        public override void KZDamage(CombatAttack combatAttack)
+        {
+            base.KZDamage(combatAttack);
+            if (_kzCharacter.GetStat(StatModifier.StatType.AttackDropRate, out attackDropRateStat))
+            {
+                if (Random.Range(1, 101) <= attackDropRateStat.GetCurrentValue)
+                {
+                    Buff55Activated.Trigger();
+                }
+            }
+        }
+
+
+        /// <summary>
+        /// Checking the block condition
+        /// </summary>
+        /// <param name="combatAttack"></param>
+        /// <returns> the damage that will be done </returns>
+        protected override int CalculateDamage(CombatAttack combatAttack, out int damage)
+        {
+            if (_kzCharacter != null && _block != null
+                                     && _kzCharacter.MovementState.CurrentState ==
+                                     CharacterStates.MovementStates.UsedAbility &&
+                                     _block.cooldown._remainingCharge > 0)
+            {
+                GameObject dealer = combatAttack.Actor;
+                if (CheckCollision(dealer))
+                {
+                    damage = 0;
+                    _block.cooldown.MinusCharge();
+                    return CurrentHealth;
+                }
+
+            }
+
+            int health = StaticDamage.KZDamage(CurrentHealth, combatAttack, out damage);
+
+            return health;
+        }
+
+        public override void Kill()
+        {
+            base.Kill();
+            GetComponent<PlayerSaveSystem>().ResetSave();
+        }
+
+
+        /// <summary>
+        /// a method that calculates the angle between the player and the object that caused him damage
+        /// </summary>
+        /// <returns> true if the object that caused the damage is in a corner "VisionAngle"</returns>
+        protected virtual bool CheckCollision(GameObject dealer)
+        {
+            Vector3 _temp = new(dealer.transform.position.x, Center.y, dealer.transform.position.z);
+            _directionToTarget = (_temp - transform.position + _offset).normalized;
+
+            /*if (Vector3.Angle(_characterOrientation.ModelDirection, _directionToTarget) < _blockAngle / 2f)
+            {
+                return true;
+            }*/
+
+            /*if (Vector3.Angle(_characterOrientation.CurrentLookDirection3D, _directionToTarget) < _blockAngle / 2f)
+            {
+                return true;
+            }*/
+
+            if (Vector3.Angle(_block.CurrentBlockDirection, _directionToTarget) < _blockAngle / 2f)
+            {
+                return true;
+            }
+
+            return false;
+        }
+    }
+}

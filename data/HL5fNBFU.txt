@@ -1,0 +1,334 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System;
+using MoreMountains.TopDownEngine;
+using MoreMountains.Tools;
+using KazePashaMSK;
+using Kaze.Buffs;
+
+namespace Kaze
+{
+    [DefaultExecutionOrder(100)]
+    public class KZCharacter : Character
+    {
+        [Header("Kaze Stats")]
+        [MMInformation(
+            "The range of possible values for each stat is set here. The values below are fractions of one (percentage divided by 100) from the base value. " +
+            "For example, if you want the minimum value to be 50% of the base value, and the maximum value to be 200%, " +
+            "then you need to fill in the corresponding fields with 0.5 and 2.0 values respectively",
+            MMInformationAttribute.InformationType.Info, false)]
+        [Header("Kaze Parameters")]
+        [SerializeField]
+        float ComboPointsBurnTime = 3f;
+
+        [SerializeField]
+        int MaxComboPoints = 3;
+
+        [MMReadOnly]
+        [SerializeField]
+        int CurrentComboPoints;
+
+        [Header("Speed")]
+        [Range(0f, 1f)]
+        [SerializeField]
+        float minSpeedPercent = 0.5f;
+
+        [Range(1f, 5f)]
+        [SerializeField]
+        float maxSpeedPercent = 2f;
+
+        [Header("Acceleration")]
+        [Range(0f, 1f)]
+        [SerializeField]
+        float minAccelerationPercent = 0.5f;
+
+        [Range(1f, 5f)]
+        [SerializeField]
+        float maxAccelerationPercent = 2f;
+
+        [Header("Health")]
+        [Range(0f, 1f)]
+        [SerializeField]
+        float minHealthPercent = 0.5f;
+
+        [Range(1f, 5f)]
+        [SerializeField]
+        float maxHealthPercent = 2f;
+
+        [Header("Attack")]
+        [Range(0f, 1f)]
+        [SerializeField]
+        float minDamagePercent = 0.5f;
+
+        [Range(1f, 5f)]
+        [SerializeField]
+        float maxDamagePercent = 2f;
+
+        [Header("AI Damage")]
+        [SerializeField]
+        public int BaseDamage = 10;
+
+        [SerializeField]
+        public int AbilityDamage = 100;
+
+        [SerializeField]
+        public float BaseCooldown = 2f;
+
+        [SerializeField]
+        public float AbilityCooldown = 10f;
+
+        [Header("Buffs Settings")]
+        [SerializeField]
+        private BuffsSettings BuffsSettings;
+
+        [SerializeField]
+        private Buff55Settings Buff55Settings;
+
+        public CharacterAbility UsedAbility { get; set; }
+        public KZComboPoints ComboPoints { get; private set; }
+
+        private List<IBaseBuff> _tempBuffs = new();
+
+        private List<IBaseBuff> _constantBuffs = new();
+
+        protected List<Affliction> afflictions = new List<Affliction>();
+        protected Dictionary<StatModifier.StatType, Stat> _stats = new Dictionary<StatModifier.StatType, Stat>();
+
+        protected override void Initialization()
+        {
+            base.Initialization();
+
+            if (MaxComboPoints > 0) ComboPoints = new KZComboPoints(ComboPointsBurnTime, MaxComboPoints);
+        }
+
+        protected virtual void Start()
+        {
+            InitializationStats();
+        }
+
+        protected override void Update()
+        {
+            if (ComboPoints != null)
+            {
+                ComboPoints.UpdateCP();
+                CurrentComboPoints = ComboPoints.CurrentCP;
+            }
+
+            base.Update();
+
+            if (afflictions.Count == 0)
+            {
+                return;
+            }
+
+            // timer countdown
+            foreach (Affliction affliction in afflictions.ToArray())
+            {
+                affliction.Update();
+            }
+        }
+
+        /// <summary>
+        /// Initialize the stats that will be changed. Complete the method when you need other stats
+        /// </summary>
+        protected virtual void InitializationStats()
+        {
+            // You need to check that the component you want exists on this character
+            if (gameObject.TryGetComponent(out CharacterMovement kZPlayerMovement))
+            {
+                // Then create a new stat, and add 2 new fields to the header "stats" in the inspector
+                float baseSpeed = kZPlayerMovement.WalkSpeed;
+                Stat stat = new Stat(baseSpeed, baseSpeed * minSpeedPercent, baseSpeed * maxSpeedPercent);
+
+                // Get a stat of the desired type (by first adding this type to the StatModifiers class)
+                _stats.Add(StatModifier.StatType.Movement, stat);
+
+                // And add a callback to it for a value that will change
+                stat.addCallback(
+                    (float value) => { kZPlayerMovement.MovementSpeed = value; });
+
+                float baseAcceleration = kZPlayerMovement.Acceleration;
+                Stat stat_1 = new Stat(baseAcceleration, baseAcceleration * minAccelerationPercent,
+                    baseAcceleration * maxAccelerationPercent);
+                _stats.Add(StatModifier.StatType.Acceleration, stat_1);
+                stat_1.addCallback((float value) =>
+                {
+                    kZPlayerMovement.Acceleration = value;
+                });
+            }
+
+            if (gameObject.TryGetComponent(out KZHealth kZHealth))
+            {
+                Stat stat = new Stat(kZHealth.CurrentHealth, 0f, kZHealth.MaximumHealth);
+                _stats.Add(StatModifier.StatType.CurrentHealth, stat);
+                stat.addCallback((float value) =>
+                {
+                    kZHealth.CurrentHealth = (int) Mathf.Floor(value);
+                });
+
+                float maxHealth = kZHealth.MaximumHealth;
+                Stat _stat = new Stat(maxHealth, maxHealth * minHealthPercent, maxHealth * maxHealthPercent);
+                _stats.Add(StatModifier.StatType.MaxHealth, _stat);
+                _stat.addCallback((float value) =>
+                {
+                    kZHealth.MaximumHealth = (int) Mathf.Floor(value);
+                });
+            }
+
+            if (gameObject.TryGetComponent(out CharacterHandleWeapon handleWeapon))
+            {
+                Weapon weapon = handleWeapon.CurrentWeapon;
+
+                if (weapon.TryGetComponent(out NewKZProjectileWeapon projectileWeapon))
+                {
+                    DamageTouch damageTouch = projectileWeapon.ProjectileDamageTouch;
+                    if (damageTouch != null)
+                    {
+                        float damage = damageTouch.DamageCaused;
+                        Stat stat = new Stat(damage, damage * minDamagePercent, damage * maxDamagePercent);
+                        _stats.Add(StatModifier.StatType.Attack, stat);
+                        stat.addCallback((float value) =>
+                        {
+                            damageTouch.DamageCaused = (int)Mathf.Floor(value);
+                        });
+                    }
+                }
+                else if (weapon.TryGetComponent(out KZNewMeleeWeapon kZNewMeleeWeapon))
+                {
+                    DamageTouch damageTouch = kZNewMeleeWeapon.DamageTouchLink;
+                    if (damageTouch != null)
+                    {
+                        float damage = damageTouch.DamageCaused;
+                        Stat stat = new Stat(damage, damage * minDamagePercent, damage * maxDamagePercent);
+                        _stats.Add(StatModifier.StatType.Attack, stat);
+
+                        stat.addCallback((float value) =>
+                        {
+                            damageTouch.DamageCaused = (int)Mathf.Floor(value);
+                        });
+                    }
+                   
+                }
+            }
+
+            if (BuffsSettings != null)
+            {
+                Stat healthPower = new Stat(BuffsSettings.BaseDropPower, 0, BuffsSettings.MaxDropPower);
+                _stats.Add(StatModifier.StatType.HealthDropPower, healthPower);
+                healthPower.addCallback((float value) =>
+                {
+                    gameObject.GetComponent<NewKZHealth>()
+                        .AddCurrentHP(Mathf.RoundToInt(healthPower.GetCurrentValue));
+                });
+
+                Stat healthRate = new Stat(BuffsSettings.BaseDropRate, 0, BuffsSettings.MaxDropRate);
+                _stats.Add(StatModifier.StatType.HealthDropRate, healthRate);
+            }
+
+            if (Buff55Settings != null)
+            {
+                Stat attackRate = new Stat(Buff55Settings.BaseDropRate, Buff55Settings.DropRate, Buff55Settings.MaxDropRate);
+
+                _stats.Add(StatModifier.StatType.AttackDropRate, attackRate);
+
+                Stat attackDamage = new Stat(Buff55Settings.BaseDamage, Buff55Settings.DropDamage, Buff55Settings.MaxDamage);
+
+                _stats.Add(StatModifier.StatType.GhostAttackDamage, attackDamage);
+
+                Stat attackDeceleration = new Stat(Buff55Settings.BaseDeceleration, Buff55Settings.DropDeceleration, Buff55Settings.MaxDeceleration);
+
+                _stats.Add(StatModifier.StatType.GhostAttackDeceleration, attackDeceleration);
+
+            }
+        }
+
+        /// <summary>
+        /// Method that allows you to get a stat by its type
+        /// </summary>
+        /// <param name="statType"></param>
+        /// <returns></returns>
+        public virtual bool GetStat(StatModifier.StatType statType, out Stat stat)
+        {
+            return _stats.TryGetValue(statType, out stat);
+        }
+
+        /// <summary>
+        /// Adding affliction and applying its modifiers to a character
+        /// </summary>
+        /// <param name="affliction"></param>
+        /// <param name="_timer"></param>
+        public virtual void AddAffliction(Affliction affliction, float _timer)
+        {
+            afflictions.Add(affliction);
+            affliction.SetTimer(_timer);
+            affliction.ApplyToCharacter(this);
+        }
+
+        public virtual void AddAfflictionWithCallback(Affliction affliction, float _timer, Action endCallback)
+        {
+            afflictions.Add(affliction);
+            affliction.SetTimer(_timer);
+            affliction.AddCallbackOnEnd(endCallback);
+            affliction.ApplyToCharacter(this);
+        }
+
+        /// <summary>
+        /// Removing affliction
+        /// </summary>
+        /// <param name="affliction"></param>
+        /// <returns></returns>
+        public virtual bool RemoveAffliction(Affliction affliction)
+        {
+            if (afflictions.Contains(affliction))
+            {
+                afflictions.Remove(affliction);
+                return true;
+            }
+
+            return false;
+        }
+
+        public void AddTempBuff(IBaseBuff buff)
+        {
+            _tempBuffs.Add(buff);
+        }
+
+        public void AddConstantBuff(IBaseBuff buff)
+        {
+            _constantBuffs.Add(buff);
+        }
+
+        public void RemoveTempBuff(IBaseBuff buff)
+        {
+            if (_tempBuffs.Contains(buff))
+            {
+                _tempBuffs.Remove(buff);
+            }
+        }
+
+        public void RemoveConstantBuff(IBaseBuff buff)
+        {
+            if (_constantBuffs.Contains(buff))
+            {
+                _constantBuffs.Remove(buff);
+            }
+        }
+
+        public void RemoveAllBuffs()
+        {
+            RemoveAllTempBuffs();
+            RemoveAllConstantBuffs();
+        }
+
+        public void RemoveAllTempBuffs()
+        {
+            _tempBuffs.Clear();
+        }
+
+        public void RemoveAllConstantBuffs()
+        {
+            _constantBuffs.Clear();
+        }
+    }
+}
