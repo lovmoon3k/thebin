@@ -1,0 +1,212 @@
+#include "test_runner.h"
+
+#include <algorithm>
+#include <iostream>
+#include <iterator>
+#include <map>
+#include <numeric>
+#include <set>
+#include <sstream>
+#include <string>
+#include <tuple>
+#include <vector>
+
+using namespace std;
+
+template <typename Iterator>
+class IteratorRange {
+public:
+    IteratorRange(Iterator begin, Iterator end)
+        : first(begin)
+        , last(end)
+    {
+    }
+
+    Iterator begin() const
+    {
+        return first;
+    }
+
+    Iterator end() const
+    {
+        return last;
+    }
+
+private:
+    Iterator first, last;
+};
+
+template <typename Collection>
+auto Head(Collection& v, size_t top)
+{
+    return IteratorRange { v.begin(), next(v.begin(), min(top, v.size())) };
+}
+
+struct Person {
+    string name;
+    int age, income;
+    bool is_male;
+};
+
+bool operator<(const Person& lhs, const Person& rhs)
+{
+    return tie(lhs.is_male, lhs.age, lhs.name, lhs.income) < tie(rhs.is_male, rhs.age, rhs.name, rhs.income);
+}
+
+vector<Person> ReadPeople(istream& input)
+{
+    int count;
+    input >> count;
+
+    vector<Person> result(count);
+    for (Person& p : result) {
+        char gender;
+        input >> p.name >> p.age >> p.income >> gender;
+        p.is_male = (gender == 'M');
+    }
+
+    return result;
+}
+
+struct Demographics {
+private:
+    struct Name {
+        string name_ { "" };
+        int count_ { 0 };
+    };
+
+public:
+    void ReadPeople(istream& input = cin)
+    {
+        int count;
+        input >> count;
+
+        vector<Person> data(count);
+        for (Person& p : data) {
+            char gender;
+            input >> p.name >> p.age >> p.income >> gender;
+            p.is_male = (gender == 'M');
+            int count = 0;
+            if (p.is_male) {
+                count = ++data_popular_name_m_[p.name];
+                if (man_.count_ < count) {
+                    man_.name_ = p.name;
+                    man_.count_ = count;
+                }
+            } else {
+                count = ++data_popular_name_w_[p.name];
+                if (woman_.count_ < count) {
+                    woman_.name_ = p.name;
+                    woman_.count_ = count;
+                }
+            }
+            top_income_.insert(p.income);
+        }
+        sort(data.begin(), data.end(), [](const Person& lhs, const Person& rhs) {
+            return lhs.age < rhs.age;
+        });
+        data_ = move(data);
+    }
+    int Age(int age) const
+    {
+        auto it = lower_bound(data_.begin(), data_.end(), age, [](const Person& p, const int age) {
+            return p.age < age;
+        });
+        return distance(it, data_.end());
+    }
+
+    int TopIncome(int top) const
+    {
+        int sum = 0;
+        for (set<int>::iterator it = prev(top_income_.end(), top); it != top_income_.end(); it = next(it))
+            sum += *it;
+        return sum;
+    }
+    Name PopName(char ch)
+    {
+        if (ch == 'M' && (!data_popular_name_m_.empty()))
+            return man_;
+        else if ('W' && (!data_popular_name_w_.empty()))
+            return woman_;
+        return { "Null", 0 };
+    }
+
+    void FromInput(istream& input = cin, ostream& output = cout)
+    {
+        for (string command; input >> command;) {
+            if (command == "AGE") {
+                int adult_age;
+                input >> adult_age;
+                output << "There are " << Age(adult_age)
+                       << " adult people for maturity age " << adult_age << '\n';
+            } else if (command == "WEALTHY") {
+                int count;
+                input >> count;
+                output << "Top-" << count << " people have total income " << TopIncome(count) << '\n';
+            } else if (command == "POPULAR_NAME") {
+                char gender;
+                input >> gender;
+                auto name = PopName(gender);
+                if (name.count_ == 0)
+                    output << "No people of gender " << gender << '\n';
+                else {
+                    output << "Most popular name among people of gender " << gender << " is "
+                           << name.name_ << '\n';
+                }
+            }
+        }
+    }
+
+private:
+    vector<Person> data_;
+    unordered_map<string, int> data_popular_name_m_;
+    unordered_map<string, int> data_popular_name_w_;
+    multiset<int> top_income_;
+    Name man_;
+    Name woman_;
+};
+
+void TestSimple()
+{
+    istringstream input(
+        "11\n"
+        "Ivan 25 1000 M\n"
+        "Olga 30 623 W\n"
+        "Sergey 24 825 M\n"
+        "Maria 42 1254 W\n"
+        "Mikhail 15 215 M\n"
+        "Oleg 18 230 M\n"
+        "Denis 53 8965 M\n"
+        "Maxim 37 9050 M\n"
+        "Ivan 47 19050 M\n"
+        "Ivan 17 50 M\n"
+        "Olga 23 550 W\n"
+        "AGE 18\n"
+        "AGE 25\n"
+        "WEALTHY 5\n"
+        "POPULAR_NAME M\n");
+
+    Demographics dm;
+    dm.ReadPeople(input);
+
+    ostringstream output;
+    dm.FromInput(input, output);
+
+    ostringstream output_expected(
+        "There are 9 adult people for maturity age 18\n"
+        "There are 6 adult people for maturity age 25\n"
+        "Top-5 people have total income 39319\n"
+        "Most popular name among people of gender M is Ivan\n");
+
+    ASSERT_EQUAL(output.str(), output_expected.str());
+}
+
+int main()
+{
+    TestRunner tr;
+    RUN_TEST(tr, TestSimple);
+    Demographics dm;
+    dm.ReadPeople();
+    dm.FromInput();
+    return 0;
+}
