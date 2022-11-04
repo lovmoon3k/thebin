@@ -1,0 +1,162 @@
+enum StripPlayerInfoInsideLog_State
+{
+	k_Starting,
+	k_Id,
+	k_AuthEntered,
+	k_Auth,
+	k_LastAngleBrackets,
+	k_LastAngleBracketsExited,
+}
+
+stock bool TryWriteIntoBuffer(char[] dest, int &cursor, char value, int maxlen)
+{
+	if (cursor == maxlen - 1)
+	{
+		dest[cursor++] = '\0';
+		return false;
+	}
+	else
+	{
+		dest[cursor++] = value;
+		return true;
+	}
+}
+
+stock bool TryWriteIntoBuffer_Span(char[] dest, int &cursor, const char[] src, int begin, int end, int maxlen)
+{
+	for (int i = begin; i < end; ++i)
+	{
+		char value = src[i];
+		
+		if (!TryWriteIntoBuffer(dest, cursor, value, maxlen))
+			return false;
+	}
+	
+	return true;
+}
+
+stock bool IsSpanPlayerInfo(const char[] src, int begin, int end)
+{
+	StripPlayerInfoInsideLog_State state = k_Starting;
+	
+	for (int i = end - 1; i >= begin; --i)
+	{
+		char value = src[i]; // assert value != '"';
+		
+		switch (state)
+		{
+			case k_Starting:
+			{
+				if (value == '>')
+				{
+					state = k_LastAngleBracketsExited;
+				}
+				else
+				{
+					return false;
+				}
+			}
+			case k_LastAngleBracketsExited:
+			{
+				if (value == '<')
+				{
+					state = k_LastAngleBrackets;
+				}
+				else
+				{
+					state = k_Auth;
+				}
+			}
+			case k_LastAngleBrackets:
+			{
+				if (value == '>')
+				{
+					state = k_Auth;
+				}
+				else
+				{
+					return false;
+				}
+			}
+			case k_Auth:
+			{
+				if (value == '<')
+				{
+					state = k_AuthEntered;
+				}
+			}
+			case k_AuthEntered:
+			{
+				if (value == '>')
+				{
+					state = k_Id;
+				}
+				else
+				{
+					return false;
+				}
+			}
+			case k_Id:
+			{
+				if (value == '<')
+				{
+					return true;
+				}
+			}
+			
+			// default: unreachable
+		}
+	}
+	
+	return false;
+}
+
+stock void StripPlayerInfo(const char[] src, char[] dest, int maxlen)
+{
+	int srcCur = 0;
+	int destCur = 0;
+	
+	bool insideQuota = false;
+	int quotaBegin;
+	
+	for (;;++srcCur)
+	{
+		int value = src[srcCur];
+		
+		if (value == '\0')
+		{
+			TryWriteIntoBuffer(dest, destCur, '\0', maxlen);
+			return;
+		}
+		
+		if (value == '"')
+		{
+			if (insideQuota)
+			{
+				// assert quotaBegin is defined
+				
+				if (!IsSpanPlayerInfo(src, quotaBegin, srcCur))
+				{
+					if (!TryWriteIntoBuffer_Span(dest, destCur, src, quotaBegin, srcCur, maxlen))
+						return;
+				}
+				
+				insideQuota = false;
+			}
+			else
+			{
+				quotaBegin = srcCur;
+				insideQuota = true;
+			}
+		}
+	}
+}
+
+public void OnPluginStart()
+{
+	char src[] = "\"XeroX<26><[U:1:44668609]><>\" kicked \"slapped \"Paxzyneat<29><BOT><>\" (damage \"0\")\" (reason \"\"test\"\")"
+	char dest[2048];
+	
+	StripPlayerInfo(src, dest, sizeof(dest));
+	PrintToServer("OUTPUT: %s", dest); 
+}
