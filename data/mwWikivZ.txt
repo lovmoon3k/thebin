@@ -1,0 +1,130 @@
+#################################################################
+### SHELLY GROUP UPDATE
+#################################################################
+
+#################################################################
+### Customize
+#################################################################
+homeassistant:
+  customize:
+    ################################################
+    ## Node Anchors
+    ################################################
+    package.node_anchors:
+      customize: &customize
+        Package: ---Shelly Group Update---
+        Create by: MaGiDeL
+
+      expose: &expose
+        <<: *customize
+        haaska_hidden: false
+        homebridge_hidden: false
+
+########################################################################
+### INPUT
+########################################################################
+input_select:
+  loads_list_shelly:
+    options: 
+      - not selected
+
+input_text:
+  last_shelly_update:
+    name: Last Shelly Update
+
+########################################################################
+### AUTOMATION
+########################################################################
+automation:
+  - alias: Update Loads List Shelly
+    id: update_loads_list_shelly
+    initial_state: true
+    trigger:
+      - platform: template
+        value_template: >-
+          {% macro update_load_shelly() %}
+          {% for device in states %}
+          {% if 'firmware_update' in device.entity_id and 'beta_firmware_update' not in device.entity_id %}
+          {% if device.attributes.installed_version != device.attributes.latest_version %}
+          {{ device.attributes.installed_version != device.attributes.latest_version }},
+          {% endif %}
+          {% endif %}
+          {% endfor %}
+          {% endmacro %}
+          {% set value = update_load_shelly().split(',') %}
+          {{ not not value[0] }}
+    action:
+      - service: notify.telegram
+        data_template:
+          title: '--- *Shelly Update* ---'
+          message: "List shelly creation"
+      - service: input_select.set_options
+        data_template:
+          entity_id: input_select.loads_list_shelly
+          options: >-
+            {%- macro list_load_entity() -%}
+            {%- for device in states -%}
+            {%- if 'firmware_update' in device.entity_id and 'beta_firmware_update' not in device.entity_id -%}
+            {%- if device.attributes.installed_version != device.attributes.latest_version -%}
+            "{{ device.entity_id}}",
+            {%- endif -%}
+            {%- endif -%}
+            {%- endfor -%}
+            {%- endmacro -%} 
+            [{{ list_load_entity()}} "not_select"]
+      - service: notify.telegram
+        data_template:
+          title: '--- *Shelly Update* ---'
+          message: >-
+            Load List Shelly:{{ "\n" }}
+            {%- macro list_load_entity() -%}
+            {%- for device in states -%}
+            {%- if 'firmware_update' in device.entity_id and 'beta_firmware_update' not in device.entity_id -%}
+            {%- if device.attributes.installed_version != device.attributes.latest_version -%}
+            "{{ device.entity_id}}"{{ "\n" }}
+            {%- endif -%}
+            {%- endif -%}
+            {%- endfor -%}
+            {%- endmacro -%} 
+            [{{ list_load_entity()}}]{{ "\n" }}
+            at {{ now().strftime('%Y-%m-%d %H:%M:%S') }}
+      - service: script.turn_on
+        entity_id: script.update_shelly
+
+########################################################################
+### SCRIPT
+########################################################################
+script:
+  update_shelly:
+    sequence:
+      - repeat:
+          while: "{{ (states('input_select.loads_list_shelly')) != 'not_select' }}"
+          sequence:
+            - service: input_text.set_value
+              data:
+                entity_id: input_text.last_shelly_update
+                value: >-
+                  {%- macro update_first_shelly() -%}
+                  {%- set entity_shelly_to_update = states.input_select.loads_list_shelly.attributes.options|join(',')-%}
+                  {%- for item in entity_shelly_to_update.split(',') if (states(item) != 'off') and (item != '') and (states(item) != 'unavailable') -%}
+                  {{ item }}{% if not loop.last %},{% endif %}
+                  {%- endfor -%}
+                  {%- endmacro -%}
+                  {{ update_first_shelly().split(',') | first }}
+            - service: notify.telegram
+              data_template:
+                title: '--- *Shelly Update* ---'
+                message: >-
+                  Shelly device: {{ states("input_text.last_shelly_update").replace('_',' ').replace('.',' ').replace('update',' ').replace('firmware',' ') }} at {{ now().strftime('%Y-%m-%d %H:%M:%S') }}
+            - service: update.install
+              target:
+                entity_id: >-
+                  {%- macro update_first_shelly() -%}
+                  {%- set entity_shelly_to_update = states.input_select.loads_list_shelly.attributes.options|join(',')-%}
+                  {%- for item in entity_shelly_to_update.split(',') if (states(item) != 'off' and (item != '')) and (states(item) != 'unavailable')-%}
+                  {{ item }}{% if not loop.last %},{% endif %}
+                  {%- endfor -%}
+                  {%- endmacro -%}
+                  {{ update_first_shelly().split(',') | first }}
+            - delay:
+                minutes: 2
