@@ -1,0 +1,140 @@
+binary_sensor:
+  - platform: group
+    name: "Finestre mansarda"
+    device_class: opening
+    unique_id: 719f1a3c-b07d-4ebc-afb6-5898d08836fd
+    entities:
+      - binary_sensor.finestra_mansarda_letto
+      - binary_sensor.finestra_mansarda_pc
+      - binary_sensor.lucernario_pc_sx
+      - binary_sensor.lucernario_cameretta_erica
+
+  - platform: group
+    name: "Finestre pian terreno"
+    device_class: opening
+    unique_id: dad0d5ec-10dc-4ba7-949f-4de5bb8c3c09
+    entities:
+      - binary_sensor.porta_ingresso
+      - binary_sensor.finestra_cucina
+      - binary_sensor.portafinestra_cucina
+      - binary_sensor.finestra_soggiorno_dx
+      - binary_sensor.finestra_soggiorno_sx
+
+  - platform: group
+    name: "Finestre camera"
+    device_class: opening
+    unique_id: 7a4288e2-2794-4078-9726-1a88abde638d
+    entities:
+      - binary_sensor.finestra_camera
+      - binary_sensor.portafinestra_camera
+
+  - platform: group
+    name: "Finestre cameretta"
+    device_class: opening
+    unique_id: 3b4e15f8-5996-42dd-a442-768801f41999
+    entities:
+      - binary_sensor.finestra_cameretta
+      - binary_sensor.portafinestra_cameretta
+
+  - platform: group
+    name: "Finestre corridoio"
+    device_class: opening
+    unique_id: cf58a846-fee0-483e-9ec9-c42218808f21
+    entities:
+      - binary_sensor.finestra_corridoio
+      - binary_sensor.finestra_scale
+
+# Automazione che gestisce l'apertura delle finestre di una stanza e attende fino alla chiusura, con ripristino riscaldamento
+# Funziona per qualunque stanza, basta aggiungere nei trigger il relativo gruppo (da creare qui sopra) che VA INSERITO NELL'AREA CORRETTA TRAMITE UI!
+automation:
+  - alias: "Stanza aperta"
+    mode: parallel
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.finestre_mansarda
+        for: "00:00:30"
+        to: "on"
+      - platform: state
+        entity_id: binary_sensor.finestre_pian_terreno
+        for: "00:00:30"
+        to: "on"
+      - platform: state
+        entity_id: binary_sensor.finestre_camera
+        for: "00:00:30"
+        to: "on"
+      - platform: state
+        entity_id: binary_sensor.finestre_cameretta
+        for: "00:00:30"
+        to: "on"
+      - platform: state
+        entity_id: binary_sensor.finestra_bagno
+        for: "00:00:30"
+        to: "on"
+      - platform: state
+        entity_id: binary_sensor.lucernario_bagno_mansarda
+        for: "00:00:30"
+        to: "on"
+      - platform: state
+        entity_id: binary_sensor.finestre_corridoio
+        for: "00:00:30"
+        to: "on"
+    condition:
+      - condition: state
+        entity_id: input_boolean.estate
+        state: "off"
+    action:
+      - variables:
+          source_entity_id: trigger.entity_id
+          source_area_id: "area_id(source_entity_id)"
+          source_area_name: "area_name(source_area_id)"
+          climate_entity_id: "{{ expand(states.climate) | selectattr('entity_id', 'in', area_entities(source_area_id)) | selectattr('attributes.supported_features', 'eq', 17) | map(attribute='entity_id') | list | first | default('') }}"
+      #TODO: Rilevare se il source_entity_id non appartiene ad alcuna area e dare un messaggio specifico interrompendo l'automazione
+      # Se configurato di spegnere il riscaldamento dopo un tot che è aperta lo faccio
+      - choose:
+          conditions:
+            - condition: state
+              entity_id: input_boolean.spegnimento_riscaldamento_finestre
+              state: "on"
+            - "{{climate_entity_id != ''}}"
+          sequence:
+            - service: script.spegni_riscaldamento
+              data:
+                entity: "{{climate_entity_id}}"
+      # Attendo un delay e loop notifiche finchè ancora aperta
+      - wait_template: "{{is_state(trigger.entity_id, 'off')}}"
+        timeout:
+          minutes: "{{ states('input_number.ritardo_notifiche_finestre_min') | int}}"
+      - repeat:
+          while:
+            - "{{is_state(trigger.entity_id, 'on')}}"
+            - condition: state
+              entity_id: input_boolean.notifiche_finestre
+              state: "on"
+          sequence:
+            - service: script.multinotify
+              data:
+                title: "Finestre {{source_area_name}} aperte troppo a lungo"
+                message: >
+                  {% set minuti = ((now().timestamp()-as_timestamp(trigger.to_state.last_changed)) / 60)|round(0) %}
+                  {{[ source_area_name ~ " ha le finestre aperte da " ~ minuti ~ " minuti!", 
+                     "I pinguini scorazzano liberamente in " ~ source_area_name ~ " ormai da " ~ minuti ~ " minuti!",
+                     "Il ghiaccio sta prendendo il sopravvento da " ~ minuti ~ " minuti, in " ~ source_area_name ~ "!",
+                     "Fa freschino in " ~ source_area_name ~ ", le finestre sono aperte da " ~ minuti ~ " minuti!",
+                     "Io dico che dopo " ~ minuti ~ " minuti di cambio aria puoi chiudere le finestre di " ~ source_area_name ~ "!",
+                     "Secondo me " ~ minuti ~ " minuti di finestre aperte possono bastare, in " ~ source_area_name ~ "!",
+                     "Hey, che ne dici di chiudere le finestre di " ~ source_area_name ~ "? " ~ minuti ~ " minuti di cambio aria sono abbastanza!"] | random}}
+                notify_app:
+                  - notify.all_android_devices
+                  - notify.all_ios_devices
+                channel: warning
+                critical: true
+                alexa_target: media_player.ovunque
+            - wait_template: "{{is_state(trigger.entity_id, 'off')}}"
+              timeout:
+                minutes: "{{ states('input_number.ritardo_notifiche_finestre_min') | int}}"
+      - wait_template: "{{is_state(trigger.entity_id, 'off')}}"
+      - if: "{{climate_entity_id != ''}}"
+        then:
+          - service: script.imposta_riscaldamento
+            data:
+              entity: "{{climate_entity_id}}"
