@@ -1,0 +1,141 @@
+from tkinter import *
+from tkinter import font
+from bs4 import BeautifulSoup
+import webbrowser
+import requests
+import psutil
+import json
+import os
+
+running = False
+chrome_path = 'C://Program Files//Google//Chrome//Application//chrome.exe'
+webbrowser.register('chrome', None, webbrowser.BackgroundBrowser(chrome_path))
+
+def check_connection():
+    url = "http://www.google.com"
+    timeout = 5
+    try:
+        request = requests.get(url, timeout=timeout)
+        return True
+    except (requests.ConnectionError, requests.Timeout) as exception:
+        return False
+
+def kill_chrome():
+    lst = []
+    for i in psutil.process_iter():
+        if i.name() == 'RobloxPlayerBeta.exe' or i.name() == 'chrome.exe':
+            lst.append(i.name())
+    if len(set(lst)) == 2:
+        os.system('taskkill /f /im chrome.exe')
+
+def save(s, id):
+    entry_data = {'server': s, 'rblxID': id}
+    a_file = open('autorejoin.json', 'w')
+    json.dump(entry_data, a_file)
+    a_file.close()
+    
+def load():
+    d = {'rblxID': '', 'server': ''}
+    try:
+        a_file = open('autorejoin.json', 'r')
+        output = json.load(a_file)
+        a_file.close()
+        return output
+    except FileNotFoundError:
+        return d
+
+def player_status():
+    if check_connection():
+        url = f'https://www.roblox.com/users/{rblx_id}/profile'
+        result = requests.get(url)
+        try:
+            doc = BeautifulSoup(result.text, 'html.parser')
+            status = doc.find_all(class_='avatar-status')[-1]
+            return status['class'][1]
+        except IndexError:
+            return None
+
+def open_rblx():
+    global chrome_path
+    if running:
+        if player_status() != 'game':
+            webbrowser.get('chrome').open(private_server)
+        root.after(90000, open_rblx)
+        root.after(120000, kill_chrome)
+
+def strt_btn():
+    global running
+    running = True
+
+    global rblx_id
+    global private_server
+    rblx_id = profile_entry.get()
+    private_server = server_entry.get()
+
+    save(private_server, rblx_id)
+
+    btn2['state'] = 'normal'
+    btn2.bind("<ButtonRelease-1>", lambda e: stop_btn())
+
+    profile_entry['state'] = 'disabled'
+    server_entry['state'] = 'disabled'
+    btn1['state'] = 'disabled'
+    btn1.unbind('<ButtonRelease-1>')
+
+    open_rblx()
+
+def stop_btn():
+    global running
+    running = False
+
+    profile_entry['state'] = 'normal'
+    server_entry['state'] = 'normal'
+    btn1['state'] = 'normal'
+    btn1.bind("<ButtonRelease-1>", lambda e: strt_btn())
+
+    btn2.unbind('<ButtonRelease-1>')
+    btn2['state'] = 'disabled'
+
+root = Tk()
+root.title('AUTO REJOIN')
+root.geometry('255x180')
+root.minsize(255, 180)
+root.maxsize(255, 180)
+root.config(background='black')
+
+frame1 = Frame(root, height=5)
+frame1.pack(pady=10, padx=10)
+
+frame2 = Frame(root, height=5)
+frame2.pack(pady=10, padx=10)
+
+frame3 = Frame(root, height=5)
+frame3.pack(pady=10, padx=10)
+
+frame4 = Frame(root, height=5)
+frame4.pack()
+
+profile = Label(frame1, text='RBLX ID', font=('Helvitica', 15), relief='raised', bg='#272822', fg='#F8F8F2')
+profile.pack(side=LEFT)
+profile_entry = Entry(frame1, width=16, relief='sunken', font=('Helvitca', 15))
+profile_entry.insert(0, load()['rblxID'])
+profile_entry.pack(side=LEFT)
+#profile_entry.bind("<Button-1>", lambda e: profile_entry.delete(0, END))
+
+server = Label(frame2, text='SERVER', font=('Helvitica', 15), relief='raise', bg='#272822', fg='white')
+server.pack(side=LEFT)
+server_entry = Entry(frame2, width=15, relief='sunken', font=('Helvitca', 15))
+server_entry.insert(0, load()['server'])
+server_entry.pack(side=LEFT)
+
+btn1 = Button(frame3, text='START', font=('Helvitca', 12), relief='raise', bg='#272822', fg='white')
+btn1.pack(side=LEFT)
+btn1.bind("<ButtonRelease-1>", lambda e: strt_btn())
+
+btn2 = Button(frame3, text='STOP', font=('Helvitca', 12), relief='raise', state='disabled', bg='#272822', fg='white')
+btn2.pack(side=RIGHT)
+
+author = Label(frame4, bg='black', fg='#2e2e2e', text='Made by Todo#8788', width=23, font=('Helvitca', 15), relief='raise')
+author.pack(side=LEFT)
+
+root.mainloop()
