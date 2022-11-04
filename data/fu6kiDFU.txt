@@ -1,0 +1,134 @@
+#Класс Графа
+class Graph:
+    #number_of_vertices - количество вершин графа; weight_of_all_arcs - словарь дуг и их вес
+    def __init__(self, number_of_vertices, weight_of_all_arcs):
+        self.number_of_vertices = number_of_vertices
+        self.weight_of_all_arcs = weight_of_all_arcs
+
+    # дуги входящие в вершину - vert. Возвращает список ключей(дуг) которые входят в вершину vert
+    def _arcs_that_enter_the_vertex(self, vert):
+        val = list(self.weight_of_all_arcs.keys()) #список всех дуг
+        list_arcs = [] #список дуг входящие в вершину
+        for arc in val:
+            if arc[1] == vert:
+                list_arcs.append(arc)
+        return list_arcs
+
+    # дуги выходящие из вершины - vert. Возвращает список ключей(дуг) которые выходят из вершины vert
+    def _arcs_coming_out_of_a_vertex(self, vert):
+        val = list(self.weight_of_all_arcs.keys()) #список всех дуг
+        list_arcs = [] #список дуг выходящих из вершины
+        for arc in val:
+            if arc[0] == vert:
+                list_arcs.append(arc)
+        return list_arcs
+
+
+#Класс Сетевой график. Поиск критического пути
+class Network_diagram():
+    def __init__(self, Graph):
+        self.Graph = Graph # наследуем класс Graph
+        self.temp_tp = [0 for i in range(self.Graph.number_of_vertices)] #раннее время наступления событий
+        self.temp_tn = [0 for i in range(self.Graph.number_of_vertices)] #позднее время наступления событий
+
+#Вычисление ранего времени наступления событий
+    def _tp(self):
+        for vertic in range(self.Graph.number_of_vertices): # Прогонка по вершинам
+            # метод класса Graph который возвращает дуги входящие в вершину vertic
+            atetv = self.Graph._arcs_that_enter_the_vertex(vertic)
+            #если в вершину не входит дуга, тогда это начальная вершина время возникновения событий для которой будет = 0
+            if len(atetv) == 0:
+                self.temp_tp[vertic] = 0
+            #если в вершину входит 1 дуга, тогда в хранение времени возникновения событий для вершин внесем вес этой дуги + вес вершины
+            elif len(atetv) == 1:
+                self.temp_tp[vertic] = self.Graph.weight_of_all_arcs[atetv[0]] + self.temp_tp[atetv[0][0]] #нулевой индекс так как atetv является списком
+            else:
+                self.maxTP(atetv)
+        return(self.temp_tp)
+
+    def maxTP(self, atetv):
+        max = 0
+        for i in range(len(atetv)):
+            if max < self.temp_tp[atetv[i][0]] + self.Graph.weight_of_all_arcs[atetv[i]]:
+                max = self.temp_tp[atetv[i][0]] + self.Graph.weight_of_all_arcs[atetv[i]]
+        self.temp_tp[atetv[i][1]] = max
+
+#Вычисление позднего времени наступления событий
+    def _tn(self):
+        for vertic in range(self.Graph.number_of_vertices): # Прогонка по вершинам
+            v = self.Graph.number_of_vertices - (vertic + 1)
+            # метод класса Graph который возвращает дуги выходящие из вершины v
+            acooav = self.Graph._arcs_coming_out_of_a_vertex(v)
+            #если из вершины не выходит дуга, тогда это начальная вершина время возникновения событий для которой будет равно последнему TP
+            if len(acooav) == 0:
+                self.temp_tn[v] = self.temp_tp[-1]
+            #если из вершины выходит 1 дуга, тогда в хранение времени возникновения событий для вершин внесем (вес вершины - вес этой дуги)
+            elif len(acooav) == 1:
+                self.temp_tn[v] = self.temp_tn[acooav[0][1]] - self.Graph.weight_of_all_arcs[acooav[0]]
+            else:
+                self.minTN(acooav)
+        return(self.temp_tn)
+
+    def minTN(self, acooav):
+        min = None
+        for i in range(len(acooav)):
+            if min == None:
+                min = self.temp_tn[acooav[i][1]] - self.Graph.weight_of_all_arcs[acooav[i]]
+            if min > self.temp_tn[acooav[i][1]] - self.Graph.weight_of_all_arcs[acooav[i]]:
+                min = self.temp_tn[acooav[i][1]] - self.Graph.weight_of_all_arcs[acooav[i]]
+        self.temp_tn[acooav[i][0]] = min
+
+#Резервы времени событий
+    def _event_time_reserves(self):
+        self.event_time_reserves = []
+        for i in range(self.Graph.number_of_vertices):
+            self.event_time_reserves.append(self.temp_tn[i] - self.temp_tp[i])
+        return self.event_time_reserves
+
+#В критический путь не входят события
+    def _event_are_not_includes(self):
+        list_event = []
+        for etr in range(len(self.event_time_reserves)):
+            if self.event_time_reserves[etr] != 0 :
+                list_event.append(etr)
+        return list_event
+
+#Полные резервы времени работ
+    def _full_reserves_of_work_time(self):
+        self.full_reserves_of_work_time = {}
+        for arc in self.Graph.weight_of_all_arcs.keys():
+            self.full_reserves_of_work_time[arc] = (self.temp_tn[arc[1]] - self.temp_tp[arc[0]] - self.Graph.weight_of_all_arcs[arc])
+        return self.full_reserves_of_work_time
+
+#Критический путь
+    def _critical_path(self):
+        self.critical_path = []
+        for frowt in self.full_reserves_of_work_time:
+            if self.full_reserves_of_work_time[frowt] == 0:
+                self.critical_path.append(frowt[0])
+                last = frowt[1]
+        self.critical_path.append(last)
+        return self.critical_path
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+#Примеры графов
+g = Graph( 9, { (0,1):4, (0,2):3, (0,3):5, (1,4):3,
+                (2,4):6, (2,5):8, (3,4):2, (3,6):8,
+                (4,5):6, (5,7):5, (6,7):3, (7,8):6
+              }
+         )
+g2 = Graph( 8, { (0,1):4, (1,2):3, (1,3):8, (2,4):10,
+                (2,5):4, (3,4):12, (4,5):7, (4,6):4,
+                (5,6):2, (6,7):3
+              }
+         )
+#-------------------------------------------------------------------------------
+
+ND = Network_diagram(g2)
+print("раннее время наступления событий - ", ND._tp())
+print("позднее время наступления событий - ", ND._tn())
+print("Резервы времени событий - ", ND._event_time_reserves())
+print("В критический путь не входят события", ND._event_are_not_includes())
+print("Полные резервы времени работ",ND._full_reserves_of_work_time())
+print("Критический путь", ND._critical_path())
