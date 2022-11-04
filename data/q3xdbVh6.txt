@@ -1,0 +1,151 @@
+local ServerStorage = game:GetService("ServerStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local manager = require(script.Manager)
+
+local intermissionTime = 10
+local voteTime = 15
+local fuseFactor = 20
+local SelectedMap = nil
+
+local values = {
+	Title = ReplicatedStorage.Values.Title,
+	Subtitle = ReplicatedStorage.Values.Subtitle,
+	Contestants = ReplicatedStorage.Values.Contestants,
+	BombDebounce = script.BombDebounce,
+	RoundEnded = ReplicatedStorage.Values.RoundEnded,
+	Voting = ReplicatedStorage.Values.Voting,
+	BombGuy = ReplicatedStorage.Values.BombGuy
+}
+
+ReplicatedStorage.Events.SendVote.OnServerEvent:Connect(function(sender, number, antiNumberString) --Vote recieve
+	values.Voting[number].Value += 1
+	if antiNumberString then
+		values.Voting[antiNumberString].Value -= 1
+	end
+end)
+
+while true do
+	repeat task.wait(.5)
+		values.Title.Value = "Not enough players!"
+		values.Subtitle.Value = "..."
+	until #Players:GetPlayers() > 1
+	
+	manager.intermission(intermissionTime, values) --Intermission
+	
+	values.Title.Value = "Voting!"
+	values.Subtitle.Value = "..."
+	
+	local threeMaps = {} --Randomizing 3 maps to choose from
+	
+	repeat task.wait() --Map selection
+		local mList = game.ServerStorage.Maps:GetChildren()
+		local map = mList[math.random(#mList)].Name
+		if not table.find(threeMaps, map) then
+			table.insert(threeMaps, map)
+		end
+	until #threeMaps == 3
+	
+	ReplicatedStorage.Events.Voting:FireAllClients({
+		Time = voteTime,
+		Maps = threeMaps
+	})
+	
+	task.wait(voteTime)
+	
+	local voteResults = {
+		[threeMaps[1]] = values.Voting["1"].Value,
+		[threeMaps[2]] = values.Voting["2"].Value,
+		[threeMaps[3]] = values.Voting["3"].Value
+	}
+	
+	local highest = nil
+	local firstMap = nil
+	local equalCount = {}
+	local x = 1
+	
+	for map, number in pairs(voteResults) do
+		if highest then
+			if number > highest then
+				highest = number
+				SelectedMap = map
+			elseif number == highest then
+				if not table.find(equalCount, firstMap) and x==2 then
+					table.insert(equalCount, firstMap)
+				end
+				
+				table.insert(equalCount, map)
+			end
+		else
+			firstMap = map
+			highest = number
+			SelectedMap = map
+		end
+		x+=1
+	end
+	
+	if #equalCount > 2 and table.find(equalCount, SelectedMap) then
+		SelectedMap = equalCount[math.random(#equalCount)]
+	end
+	
+	values.Title.Value = SelectedMap .. " got selected"
+	values.Subtitle.Value = "..."
+	
+	task.wait(2.5)
+	
+	local map = manager:spawnMap(SelectedMap, values)
+	
+	game.ReplicatedStorage.Events.Transition:FireAllClients(1,0.7)
+	
+	task.wait(1) --Voting ended
+		
+	for _, player in pairs(Players:GetPlayers()) do --Setting up players
+		local character = player.Character
+		if character == nil then
+			continue
+		end
+		
+		local contValue = Instance.new("ObjectValue")
+		contValue.Name = player.Name
+		contValue.Value = player
+		contValue.Parent = values.Contestants
+		
+		local function removeContestant()
+			contValue:Destroy()
+		end
+		
+		player.Character.Humanoid.Died:Connect(removeContestant)
+		game.Players.PlayerRemoving:Connect(function(removingPlayer)
+			if removingPlayer == player then
+				removeContestant()
+			end
+		end)
+		
+		for _, Script in pairs(game.ServerStorage.Items.CharacterScripts:GetChildren()) do
+			Script = Script:Clone(); Script.Parent = character; Script.Disabled = false
+		end
+	end
+	
+	manager:teleportAll(map.Spawns, CFrame.new(0,5,0))
+	
+	repeat task.wait() --Match bomb passing loop
+		local fuseTime = #values.Contestants:GetChildren() * fuseFactor
+		manager.game(fuseTime, values)
+	until #values.Contestants:GetChildren() <= 1
+	
+	local winner = values.Contestants:GetChildren()[1]
+	values.Subtitle.Value = "..."
+	if winner then
+		values.Title.Value = "Winner: " .. winner.Name
+		winner.Value.leaderstats.Wins.Value += 1
+	else
+		values.Title.Value = "Nobody won? Lol? Bad?"
+	end
+	
+	game.ReplicatedStorage.Events.Transition:FireAllClients(1.2, 0.7)
+	
+	task.wait(2)
+	
+	manager:reset(values)
+end
