@@ -1,0 +1,52 @@
+Param
+(
+    [object]$WebhookData
+)
+if ($WebhookData)
+{
+    $WebhookBody = (ConvertFrom-Json -InputObject $WebhookData.RequestBody)
+    $Email = $WebhookBody.email
+}
+#Disconnect existing sessions
+Get-PSSession | Remove-PSSession
+$errorActionPreference = "Stop"
+#Authentication
+$UserCredential = Get-AutomationPSCredential -Name "bettercloud"
+Connect-ExchangeOnline -Credential $UserCredential -ShowProgress $true
+Switch ($WebhookBody.operation)
+{
+    #Convert Mailbox to Shared Mailbox
+    "CONVERT_MAILBOX_TO_SHARED" {
+        Set-Mailbox $Email -Type Shared
+    }
+    #Add to Distribution List
+    "ADD_TO_DISTRIBUTION_GROUP" {
+        $Group = $WebhookBody.groupName
+        Add-DistributionGroupMember -Identity $Group -Member $Email -BypassSecurityGroupManagerCheck -confirm:$false
+    }
+    #Remove Distribution Group
+    "REMOVE_FROM_DISTRIBUTION_GROUP" {
+        $Group = $WebhookBody.groupName
+        Remove-DistributionGroupMember -Identity $Group -Member $Email -BypassSecurityGroupManagerCheck -confirm:$false
+    }
+    #Add Email Alias to Mailbox
+    "ADD_EMAIL_ALIAS" {
+        $Alias = $WebhookBody.alias
+        Set-Mailbox "$Email" -EmailAddresses @{ add = "$Alias" } -Confirm:$false
+    }
+    #Remove Email Alias to Mailbox
+    "REMOVE_EMAIL_ALIAS" {
+        $Alias = $WebhookBody.alias
+        Set-Mailbox "$Email" -EmailAddresses @{ remove = "$Alias" } -Confirm:$false
+    }
+	#Hide from Global Address List
+    “HIDE_FROM_GLOBAL_ADDRESS_LIST“ {
+        $Email = $WebhookBody.email
+        Set-Mailbox -Identity "$Email" -HiddenFromAddressListsEnabled $true
+    }
+    #Auth_Check
+    "AUTH_CHECK" {
+    }
+}
+Disconnect-ExchangeOnline -Confirm:$false
+Get-PSSession | Remove-PSSession
