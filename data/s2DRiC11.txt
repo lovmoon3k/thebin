@@ -1,0 +1,245 @@
+var WebSocketServer = require('websocket').server;
+var http = require('http');
+const axios = require('axios');
+var log = require('npmlog')
+const { XMLParser, XMLBuilder, XMLValidator} = require("fast-xml-parser");
+
+var logfile = require('npmlog-file') 
+// write everything npmlog has logged thus far to log.txt
+
+
+var server = http.createServer(function (request, response) {
+    // Qui possiamo processare la richiesta HTTP
+    // Dal momento che ci interessano solo le WebSocket, non dobbiamo implementare nulla
+});
+server.listen(8080, function () { });
+log.info('avvio', 'server websocket in ascolto sulla porta 8080')
+logfile.write(log, 'log.txt');
+
+const debug_attivo = false;
+
+
+// Creazione del server
+wsServer = new WebSocketServer({
+    httpServer: server
+});
+function zeroPad(num, places) {
+    var zero = places - num.toString().length + 1;
+    return Array(+(zero > 0 && zero)).join("0") + num;
+}
+
+if(debug_attivo){
+    setInterval(() => {log.info('ping', 'stato servizio'); logfile.write(log, 'log.txt');}, 5000);
+}
+
+// Gestione degli eventi
+wsServer.on('request', function (request) {
+    var connection = request.accept(null, request.origin);
+    connection.on('message', function (message) {
+        // Metodo eseguito alla ricezione di un messaggio
+        if (message.type === 'utf8') {
+            // Se il messaggio è una stringa, possiamo leggerlo come segue:
+            //console.log('Il messaggio ricevuto è: ' + message.utf8Data);
+            log.info('messaggio', 'messaggio ricevuto',message.utf8Data)
+            const doc = JSON.parse(message.utf8Data);
+            genera_rch(doc,connection)
+        }
+    });
+    connection.on('close', function (connection) {
+        log.info('chiusuraconn', 'connessione client chiusa')
+    });
+});
+wsServer.on("close", () => {
+    log.info('chiusura', 'connessione client chiusa')
+    logfile.write(log, 'log.txt');
+});
+wsServer.on("connection", () => {
+    log.info('connection', 'nuova connessione')
+    logfile.write(log, 'log.txt');
+});
+wsServer.on("message", (messaggio) => {
+    log.info('message', 'nuova messaggio',messaggio)
+    logfile.write(log, 'log.txt');
+});
+
+function genera_rch(documento,conn) {
+    log.info('genera_rch', 'messaggio ricevuto',documento)
+    var comandi = [];
+    if (documento.modellostampante == 'RCH' || true) {
+        if(documento.tipo =='COMANDO'){
+            if(documento.comando =='ANNULLASCONTRINO'){
+                let parametri = documento.parametri_comando.split(";")
+                let data_annullo = parametri[2];
+                const anno = data_annullo.substring(2, 4);
+                const mese = data_annullo.substring(4, 6);
+                const giorno = data_annullo.substring(6, 8);
+                const chiusura = parametri[0];
+                const progressivo = parametri[1];
+    
+                const data = giorno+mese+anno
+                comandi.push("=k/&"+data+"/[" + chiusura  + "/]" + progressivo);
+                comandi.push("=K");
+            }
+            if(documento.comando =='CHIUSURAGG'){
+                comandi.push('=C3');
+                comandi.push('=C10');
+                comandi.push('=C1');
+            }
+            if(documento.comando =='RISTAMPAULTIMO'){
+                comandi.push('=C1');
+                comandi.push('=T5');
+                comandi.push('=K');
+            }
+        }
+
+
+        if(documento.tipo =='SCNT'){
+            
+            if (documento.reso == 1) {
+                // this.doSend('"' + documento.azzreso.padStart(4,'0') + '-' + documento.progreso.padStart(4,'0') + '"51F'); 
+            }
+    
+    
+            if (documento.testata.cf) {
+                comandi.push('="/?C/(' + documento.testata.cf + ')');
+            }
+            // Codice Lotteria
+            if (documento.testata.codicelotteria) {
+                comandi.push('="/?L/$1/(' + documento.testata.codicelotteria + ')');
+            }
+    
+            var riga_prec_is_sconto = false;
+            let tot = 0;
+            documento.righe.forEach(function (element) {
+                element.Descrizione = element.Descrizione.replace('(', '[');
+                element.Descrizione = element.Descrizione.replace(')', ']');
+                var importo = Number(element.Importo);
+                if (importo == 0) {
+                    comandi.push('="/(' + element.Descrizione.substr(0, 30) + ')');
+                }
+                if (element.Importo > 0) {
+                    comandi.push('=R' + element.Reparto + "/$" + element.Importo + "/*" + element.Quantita + "/(" + element.Descrizione.substr(0, 30) + ")");
+                    riga_prec_is_sconto = false;
+                }
+                else if (element.Importo < 0) {
+                    comandi.push('=S');
+                    importo *= -1;
+                    comandi.push('=V/$' + importo + '/(' + element.Descrizione.substr(0, 30) + ')');
+                }
+    
+                var lunghezza_max_riga = 30;
+                if (element.Descrizione.length > lunghezza_max_riga) {
+                    var chunks = element.Descrizione.match(/.{1,30}/g);
+                    for (var i = 1; i < chunks.length; i++) {
+                        comandi.push('="/(' + chunks[i] + ')');
+                    }
+    
+                }
+    
+                tot += importo
+    
+            });
+    
+            if (documento.reso == 0) {
+                if (documento.scadenze.length == 0) {
+                    let scad = { Data: '', Pagamento: documento.pagamento, Tipo: '', Incassata: 0, Descrizione: '', Importo: tot, TipoRT: '' }
+                }
+                for (i = 0; i < documento.scadenze.length; i++) {
+                    var item = documento.scadenze[i];
+                    if (item.TipoRT != '') {
+                        comandi.push('=T' + item.Pagamento + '/$' + item.Importo);
+                    }
+                    else if (item.Incassata == 1) {
+                        comandi.push('=T' + item.Pagamento + '/$' + item.Importo);
+                    } else {
+                        comandi.push('=T2/$' + item.Importo);
+                    }
+                }
+            }
+    
+    
+            if (documento.doppia_copia > 0) { //seconda copia
+                comandi.push('=C1');
+                comandi.push('=T5');
+                comandi.push('=C1');
+                comandi.push('=K');
+            }
+    
+        }
+
+        log.info('invio comandi', 'messaggio ricevuto',comandi)
+        if(comandi.length > 0){
+            inviaComandoHTTP_RCH(comandi, documento.ip)
+            .then(r=>{
+                //const parser = new DOMParser();
+                //const doc = parser.parseFromString(r.data, "application/xml");
+                const options = {
+                    ignoreAttributes: false,
+                    attributeNamePrefix : "@_",
+                    allowBooleanAttributes: true
+                };
+                const parser = new XMLParser(options);
+                let doc = parser.parse(r.data);
+
+
+                log.info('risposta', 'da printf',doc)
+                //let success =doc.response['@_success'];
+                let error_code = doc.Service.Request.errorCode;
+                let success = doc.Service.Request.errorCode == 0
+                if(success){
+                    let zRepNumber =  Number(doc.Service.Request.lastZ)+1;
+                    let fiscalReceiptNumber = doc.Service.Request.lastDocF;
+
+                    const d = new Date();
+                    let text = d.toJSON();
+                    let yymmdd = text.substring(2,4) + text.substring(5,7)+ text.substring(8,10)
+                    let hhmm = text.substring(11,13)+text.substring(14,16)
+
+                    let retval = yymmdd + hhmm +"F"+zeroPad(fiscalReceiptNumber,5)+"A"+zeroPad(zRepNumber,5)
+                    let msg = "docprinted:" + retval + ":" + documento.testata.iddocumento
+                    log.info('invio risposta', 'documento stampato',msg)
+                    conn.send(msg);
+                }
+                else{
+                    let msg="ERR "+error_code;
+                    conn.send(msg);
+                }
+
+            })
+            .catch(err=>{
+                log.error('errore', 'errore durante la comunicazione con printf',err);
+            })
+
+        }
+        
+
+    }
+}
+
+function inviaComandoHTTP_RCH(comandi, ip) {
+    ip = '192.168.0.10'
+    var XML = "<?xml version=\"1.0\" encoding=\"UTF - 8\"?>";
+    XML += "<Service>";
+    for (var j = 0; j < comandi.length; j++) {
+        XML += "<cmd>" + comandi[j] + "</cmd>";
+    }
+    XML += "</Service>";
+
+
+    return new Promise((resolve, reject) => {
+        axios.post('http://' + ip + '/service.cgi', XML,
+            {
+                headers: { 'content-type': 'application/xml' }
+            }
+        )
+            .then(function (response) {
+                log.info('risposta','http',response.data);
+                resolve(response)
+            })
+            .catch(function (error) {
+                reject(error)
+            });
+
+    });
+
+}
