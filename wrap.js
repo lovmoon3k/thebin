@@ -9,7 +9,7 @@ total.forEach(async (e) => {
   if(array.includes(e))return;
   const data = fs.readFileSync(`./data/${e}`, 'utf-8');
   index = `${index}\n\n${data}`;
+  array.push(e);
   index = index.replace(exist, `${JSON.stringify(array)}//index-files`);
   fs.writeFileSync("./data/indexFile.text", index);
-  array.push(e);
 })
