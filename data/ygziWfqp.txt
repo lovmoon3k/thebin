@@ -1,0 +1,204 @@
+//  XirallicBolts
+//  Sync 3 Rear Camera At Speed for Ford Flex
+//  
+//  Use Eject button to request camera at speed, or optional external momentary pushbutton
+//  
+//  
+//  Arduino Connections
+//  INT     2       Pink / Brown
+//  Switch  8       Grey
+//  CS      10      White / Pink
+//  S1      11      White
+//  S0      12      Yellow
+//  SCK     13      Purple
+//
+//  --------------------------------
+//
+//  HS3-CAN +         Orange
+//  HS3-CAN -         White / Orange
+//  Acc 12v           Red
+//  Ground            White / Red
+//
+//  --------------------------------
+//    
+//  Message ID 0x109   Data:  00 00 00 00 00 00 00 00
+//                            ^^ ^^                     RPM (Hex, multiplied by 4)
+//                                  ^                   Gear (0 Park | 1 Reverse | 2 Neutral | 3 Drive | 4 Sport)
+//                                     ^^ ^^ ^^         Vehicle Speed
+//                                              ^       Ignition Mode? (2 Accessory | 5 Engine Running)
+//
+//
+//  Message ID 0x2A0   xx FF FF FF 10 00 1E 02     Button is PRESSED
+//  (Front Panel)      xx FF FF FF 10 00 1E 00     Button is HELD
+//                     xx FF FF FF 00 00 1E 00     Button is RELEASED
+//                     0x34: Eject         0x18: Sound       0x5F: Home     0x1F: Power
+//
+//  Message ID 0x3EE   00 08 08 1B 80 00 00 00     Request camera display
+//  (Image Processor)  00 00 08 1B 80 00 00 00     Cancel camera display
+//
+// External button connects to ground
+//  
+// CAN0.sendMsgBuf(message_ID, 0, message_LENGTH, message_DATA);
+ 
+ 
+#include <mcp_can.h>
+#include <SPI.h>
+#define CAN_INT         2
+#define CAN_CS          10
+#define EJECT_ENABLED   5     // Allow Eject to be used to toggle camera
+#define BUTTON_REQUEST  8     // Request Camera button. Connect to Ground to signal.
+ 
+
+
+MCP_CAN CAN0(CAN_CS);
+ 
+
+byte CameraRequestButtonHeld = 0;
+byte CameraButtonReleased    = 0;    // Camera Request button was released, attempt to display camera if conditions are right
+byte CurrentGear             = 0;    // Every time 0x109 comes through, take note of current gear
+byte CameraViewActive        = 0;    // Are we currently in a camera view?
+String PendingMessage      = "none";
+String LastMessage         = "none";
+ 
+
+
+long unsigned int message_ID;
+unsigned char message_LENGTH = 0;
+unsigned char message_DATA[8];
+unsigned char message_Camera_Request[8] = {0x00, 0x08, 0x08, 0x1B, 0x80, 0x00, 0x00, 0x00};
+unsigned char message_Camera_Cancel[8] = {0x00, 0x00, 0x08, 0x1B, 0x80, 0x00, 0x00, 0x00};
+unsigned char message_Fake_Speed[8] = {0x09, 0x13, 0x31, 0x00, 0x00, 0x00, 0x58, 0x00};
+ 
+
+
+
+
+void setup() {
+  pinMode(EJECT_ENABLED, INPUT_PULLUP);
+  pinMode(BUTTON_REQUEST, INPUT_PULLUP);
+  pinMode(CAN_INT, INPUT);
+ 
+  Serial.begin(115200);
+    Serial.println("XirallicBolts");
+    Serial.println("Ford Flex Video-in-Motion 11/5/2022");
+    Serial.println("-------");
+ 
+  if(CAN0.begin(MCP_STDEXT, CAN_500KBPS, MCP_16MHZ) == CAN_OK)
+    Serial.println("MCP2515 Initialized Succesfully");
+  else
+    Serial.println("Could not initialize MCP2515 (CS 10, INT 2, 500KBPS, 16MHz)";  
+  
+  // Immediately send a Camera Cancel in case something got stuck on the last ignition cycle
+  CAN0.setMode(MCP_NORMAL);
+  CAN0.sendMsgBuf(0x3EE, 0, 8, message_Camera_Cancel);
+}
+ 
+void loop() {
+ 
+  if(!digitalRead(CAN_INT))
+  {
+    CAN0.readMsgBuf(&message_ID, &message_LENGTH, message_DATA);
+ 
+    // Send a "Camera Cancel" if the car is shifted into Park
+    // Store the Current Gear for other uses.
+    if(message_ID == 0x109)
+    {
+      if((message_DATA[2] <= 0x0F) && (CurrentGear >= 0x10))
+      {
+        CAN0.sendMsgBuf(0x3EE, 0, 8, message_Camera_Cancel);
+        CameraViewActive = 0;
+        Serial.println("Vehicle shifted to Park. Canceling camera");
+      }
+      CurrentGear = message_DATA[2];
+    }
+ 
+    // If the Camera Request is pressed and not in Camera View, request the camera.
+    if((CameraButtonReleased == 1) && (CameraViewActive == 0))
+    {
+      Serial.println("\nCamera has been requested.");
+      if(CurrentGear != 0x01)
+      {
+        Serial.println("Vehicle is not in Park.  Sending a falsified speed message...");
+        CAN0.sendMsgBuf(0x109, 0, 8, message_Fake_Speed);
+      }
+      Serial.println("Sending Camera Request...");
+      CAN0.sendMsgBuf(0x3EE, 0, 8, message_Camera_Request);
+      CameraButtonReleased = 0;
+      CameraViewActive = 1;
+    }
+ 
+ 
+ 
+ 
+    // If the Camera Request is pressed and currently in Camera View,  cancel the camera.
+    if((CameraButtonReleased == 1) && (CameraViewActive == 1))
+    {
+      Serial.println("\nCamera CANCEL Requested");
+      CAN0.sendMsgBuf(0x3EE, 0, 8, message_Camera_Cancel);
+      CameraButtonReleased = 0;
+      CameraViewActive = 0;
+    }
+ 
+ 
+ 
+ 
+// ===============================================================================================
+
+    //
+    // Check if Eject was released for camera request, but only send if EJECT_ENABLED is grounded
+    //
+
+    if(message_ID == 0x2A0 and message_DATA[0] == 0x34 and message_DATA[4] == 0x10)
+    {
+      if(digitalRead(EJECT_ENABLED) == LOW)
+      {
+        Serial.println("Eject button was released, Eject Detection enabled, setting Camera Request bit");
+        CameraButtonReleased = 1;
+      }
+      if(digitalRead(BUTTON_REQUEST) == HIGH)
+      {
+        Serial.println("Eject button was released, but Eject Detection disabled. Action ignored.");
+      }
+    }
+  }
+ 
+ 
+ 
+ 
+ 
+// ===========================================================================================
+// 
+//  Input Triggers
+//  Monitor the Request and Toggle inputs
+//
+ 
+  // Check if the button is currently being pressed (Pin connected to ground)
+  if(digitalRead(BUTTON_REQUEST) == LOW)
+  {  
+    CameraRequestButtonHeld = 1;
+  }
+
+  // React if a pressed button has been released.
+  if(digitalRead(BUTTON_REQUEST) == HIGH and CameraRequestButtonHeld == 1)
+  {
+    Serial.println("\nCamera Request has been released.\n");
+    CameraRequestButtonHeld = 0;
+    CameraButtonReleased = 1;
+  }
+  
+ 
+ 
+// ===========================================================================================
+ 
+ 
+  
+// If there's a pending message and it's NOT a duplicate of the last message, broadcast it.
+// Only used for messages that tend to repeat, to help keep SerialMonitor clean.
+  if((PendingMessage != "none") && (PendingMessage != LastMessage))
+  {
+    Serial.println(PendingMessage);
+    LastMessage = PendingMessage;
+    PendingMessage = "none";
+  }
+  
+}
