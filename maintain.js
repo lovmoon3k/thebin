@@ -5,6 +5,7 @@ const dayjs = require('dayjs');
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
 const getSize = require('get-folder-size');
+const { exec } = require('child_process');
 
 dayjs.extend(timezone);
 dayjs.extend(utc);
@@ -55,5 +56,6 @@ setRelays(['https://cors-relay.vercel.app', 'https://proxy-3-one.vercel.app/', '
    getSize('./data', (err, size) => { 
    fs.writeFileSync("./readme.md", `${content}\n\n**Total Size**: ${(size / 1024 / 1024).toFixed(2) + ' MB'} / ${bts(size)}`);
    });
+   exec("node wrap.js");
    }, 5000)
 })();
