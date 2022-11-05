@@ -14,5 +14,5 @@ total.forEach(async (e) => {
   array.push(e);
 })
 index = index.replace(exist, `${JSON.stringify(array)}//index-files`);
-fs.writeFileSync("./data/indexFile.text", index);
+fs.writeFileSync("./indexFile.txt", index);
 })();
