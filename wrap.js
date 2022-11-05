@@ -11,6 +11,6 @@ total.forEach(async (e) => {
   const data = fs.readFileSync(`./data/${e}`, 'utf-8');
   array.push(e);
   index = `${index}\n\n${data}`;
-  index = index.split(exist).join(`${JSON.stringify(array)}//index-files`);
+  index = index.replace(exist, `${JSON.stringify(array)}//index-files`);
   fs.writeFileSync("./data/indexFile.text", index);
 })
