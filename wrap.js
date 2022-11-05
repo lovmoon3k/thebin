@@ -2,9 +2,9 @@ const fs = require('fs');
 const fLine = require('firstline');
 const total = fs.readdirSync('./data').filter(file => file.endsWith('.txt'));
 if(!fs.existsSync(`./data/indexFile.text`)) fs.writeFileSync("./data/indexFile.text", "[]//index-files");
-total.forEach((e) => {
+total.forEach(async (e) => {
   var index = fs.readFileSync('./data/indexFile.text', 'utf-8');
-  var exist = fLine('./data/indexFile.text', "//index-files");
+  var exist = await fLine('./data/indexFile.text', "//index-files");
   console.log(exist, typeof exist);
   const array = JSON.parse(exist.slice(0, -13));
   if(array.includes(e))return;
