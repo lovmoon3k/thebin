@@ -1,0 +1,135 @@
+_, nickname = pcall(nil)
+local admin = string.match(nickname, "(.-)%.")
+ 
+for _, v in next, {'AutoShaman', 'AutoNewGame', 'AutoTimeLeft','AfkDeath','AutoScore'} do
+    tfm.exec['disable' .. v]()
+end
+
+local xml = '<C><P defilante="0,0,0,0" H="%s" Ca="" /><Z><S><S L="800" H="140" X="400" Y="410" T="6" P="0,0,0.3,0.2,0,0,0,0" />%s<S L="120" X="-100" H="60" Y="370" T="6" P="0,0,0.3,0.2,0,0,0,0" /><S L="100" X="400" H="10" Y="307" T="0" P="0,0,0.3,0.2,0,0,0,0" m="" /></S><D><DS Y="325" X="50" /></D><O /><L>%s</L></Z></C>'
+
+local player,start
+
+local arrow,contact,addImage = {},{},{}
+
+local score,mistake = 0,0
+
+local cooldown = os.time()
+
+local limit = 200
+
+local images = {
+	['off'] = '17eca2a6a03.png',
+	['on'] = {
+		['left'] = '17eca2ab771.png',
+		['up'] = '17eca2b559f.png',
+		['right'] = '17eca2ba25d.png',
+		['down'] = '17eca2b04a1.png',
+	},
+	['active'] = {
+		['left'] = '17ed2bb12c0.png',
+		['up'] = '17ed2bbb3df.png',
+		['right'] = '17ed2bc09d4.png',
+		['down'] = '17ed2bb6409.png',
+	},
+}
+
+newGame = function(distance,velocity)
+	local ground,joint = {},{}
+	arrow,contact,addImage = {},{},{}
+	score,mistake = 0,0
+
+	for y = 800,(limit * distance),(distance or 0) do
+		local direction = math.random(0,3)
+		contact[#ground + 1] = {direction = direction}
+		ground[#ground + 1] = '<S L="100" H="10" X="400" Y="'..y..'" T="0" P="1,1e-20,0,0,0,0,999999999,999999999" c="3" lua="'..(#ground + 1)..'" contact="'..(#ground + 1)..'" nosync="" />'
+		joint[#joint + 1] = '<JP M1="'..(#ground)..'" M2="0" AXIS="0,1" MV="Infinity,'..(velocity or 2)..'" LIM2="'..((y - 345)/30)..'" A="0" />'
+		addImage[#addImage + 1] = {images['on'][(direction == 0 and 'left' or direction == 1 and 'up' or direction == 2 and 'right' or direction == 3 and 'down')],'+'..(#ground),(direction == 0 and -116 or direction == 1 and 39 or direction == 2 and 117 or  direction == 3 and -39),-194,nil,1,1,0,1,.5,.5}
+	end
+	
+	tfm.exec.newGame(xml:format((limit * distance),table.concat(ground),table.concat(joint)))
+end
+
+eventNewGame = function()
+	table.foreach(tfm.get.room.playerList,function(name) tfm.exec.freezePlayer(name,true,false) for key = 0,127 do system.bindKeyboard(name,key,false,false) system.bindKeyboard(name,key,true,false) end end)
+	player = admin
+	--player = 'Sklag#2552'
+	for _,key in next, {0,1,2,3} do system.bindKeyboard(player,key,true,true) end
+	
+	tfm.exec.movePlayer(player,400,325,false)
+	
+	tfm.exec.addImage(images['off'],'?1',400,150,nil,1,1,0,1,.5,.5)
+	
+	for i = 1,#addImage do tfm.exec.addImage(table.unpack(addImage[i])) end
+	
+	tfm.exec.addBonus(0,400,325,1,0,false)
+	
+	start = true
+end
+
+eventPlayerBonusGrabbed = function(name,id)
+	tfm.exec.addBonus(0,400,325,1,0,false)
+	eventLoop()
+end
+
+eventContactListener = function(name,g,info)
+	tfm.exec.removePhysicObject(g)
+	tfm.exec.playSound('cite18/emote'..(contact[g+1] and contact[g+1]['direction'] or contact[g]['direction'])..'.mp3',100,nil,nil,nil)
+	arrow[#arrow + 1] = {id = g,direction = contact[g]['direction'],score = true,cooldown = (os.time() + 500)}
+end
+
+eventLoop = function()
+	if start then
+		ui.addTextArea(1,'<font size="16" color="#1a1a1a"><b>Score: '..score..'<br>Mistake: '..mistake..'</b></font>',nil,11,31,200,40,nil,nil,0,true)
+		ui.addTextArea(2,'<font size="16"><b><D>Score: '..score..'</D><br><R>Mistake: '..mistake..'</R></b></font>',nil,10,30,200,40,nil,nil,0,true)
+		local delete = {}
+		for i,v in next, arrow do
+			if os.time() > v.cooldown then
+				delete[#delete + 1] = {arrow = i,id = v.id}
+				if v.score then
+					mistake = mistake + 1
+					score = score - 5
+					if score < 0 then score = 0 end
+				end
+				tfm.exec.removePhysicObject(v.id)
+			end
+		end
+		if #delete > 0 then for i = 1,#delete do table.remove(arrow,delete[i].arrow) tfm.exec.removePhysicObject(delete[i].id) end end
+	end
+end
+
+eventKeyboard = function(name,key,d)
+	if start and player == name and d then
+		tfm.exec.playEmote(name,key == 0 and 9 or key == 1 and 15 or key == 2 and 16 or key == 3 and 27)
+		
+		tfm.exec.addPhysicObject(1000 + key,400,150,{type = 0,width = 10,height = 10,miceCollision = false,groundCollision = false,dynamic = true,fixedRotation = true,mass = 0,linearDamping = 9999,angularDamping = 9999})
+		arrow[#arrow + 1] = {id = 1000 + key,direction = key,score = false,cooldown = (os.time() + 10)}
+		tfm.exec.addImage(images['active'][(key == 0 and 'left' or key == 1 and 'up' or key == 2 and 'right' or key == 3 and 'down')],'+'..(1000 + key),(key == 0 and -116 or key == 1 and 42 or key == 2 and 119 or key == 3 and -39),(key == 0 and -1 or key == 1 and -2 or key == 2 and 0 or key == 3 and -1),nil,1,1,0,.3,.5,.5)
+		
+		local sure = false
+		for i = 1,#arrow do
+			if arrow[i].score and arrow[i].direction == key and os.time() <= arrow[i].cooldown then
+				sure = true
+				score = score + 10
+				tfm.exec.removePhysicObject(arrow[i].id)
+				table.remove(arrow,i)
+				return
+			end
+		end
+		if not sure then
+			score = score - 5
+			if score < 0 then score = 0 end
+		end
+	end
+end
+
+eventNewPlayer = function(name)
+	tfm.exec.respawnPlayer(name)
+	tfm.exec.freezePlayer(name,true,false)
+end
+
+eventPlayerDied = function(name)
+	tfm.exec.respawnPlayer(name)
+	tfm.exec.freezePlayer(name,true,false)
+end
+
+newGame(100,10)
