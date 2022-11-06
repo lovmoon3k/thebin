@@ -1,0 +1,117 @@
+# Xiao RP2040 Membrane keypad "PIN code" reader
+# by Ido Gendel, 2022
+# Connections:
+#   D7 (P1) -> 510R -> Buzzer -> GND
+#   D10 (P3) -> Red LED [Cathode] -> 510R -> 3V3
+#   D10 (p3) -> Green LED [Anode] -> 510R -> GND
+#   D0-2 (p26-28) -> Keypad columns
+#   D3-6 (p29,6,7,0) -> Keypad rows
+
+
+from machine import Pin, PWM, Timer
+import time
+
+# Constants
+#================================
+
+# This is a demo, not a secure application!
+SECRET_CODE = const("4567*")
+
+KEYPAD_TIMEOUT = const(5000)
+BEEP_FREQ = const(360)
+
+row_pin_ref = (0,7,6,29)
+# For each column in the keypad, pin ref and keys
+key_map = ((28, ("1", "4", "7", "*")),
+           (27, ("2", "5", "8", "0")),
+           (26, ("3", "6", "9", "#")))
+
+
+# Functions
+#================================
+
+def read_keypad(caller):
+    
+    global col_pin, row_pin
+    global keypad_input
+    global last_key
+    global last_key_time, KEYPAD_TIMEOUT
+    global beep_flag
+    
+    # Scan for keypad short circuit and get appropriate key value
+    result = ""
+    for col in range(len(col_pin)):
+        if result == "":
+            col_pin[col].init(Pin.OUT)
+            col_pin[col].low()
+            for row in range(len(row_pin)):
+                if row_pin[row].value() == 0:
+                    result = key_map[col][1][row]
+                    beep_flag = True
+                    break
+            col_pin[col].init(Pin.IN)
+
+    # Avoid artificial repetitions
+    if result != last_key:
+        # Reset iput string if timed out
+        if time.ticks_diff(time.ticks_ms(), last_key_time) > KEYPAD_TIMEOUT:
+            keypad_input = ""
+        last_key_time = time.ticks_ms()
+        last_key = result
+        keypad_input += result
+
+
+# Global variables and setup
+#================================
+
+row_pin = []
+for pin_ref in row_pin_ref:
+    row_pin.append(Pin(pin_ref, Pin.IN, pull=Pin.PULL_UP))
+    
+col_pin = []
+for key in key_map:
+    col_pin.append(Pin(key[0], Pin.IN))
+
+keypad_input = ""
+last_key = "Unlikely!"
+last_key_time = time.ticks_ms()
+beep_flag = False
+
+keypad_timer = Timer(-1, mode=Timer.PERIODIC, period=50,
+                     callback=read_keypad)
+
+led_pin = Pin(3, Pin.OUT)
+led_pin.low()
+led_timer = Timer(-1)
+
+buzzer_pin = Pin(1)
+buzzer_pwm = PWM(buzzer_pin)
+buzzer_pwm.deinit()
+buzzer_timer = Timer(-1)
+
+
+# Main loop
+#================================
+
+while True:
+
+    if keypad_input.find(SECRET_CODE) >= 0:
+        led_pin.high()
+        led_timer.init(mode=Timer.ONE_SHOT, period=2500,
+                       callback=lambda caller:led_pin.low())
+        keypad_input = ""
+
+    # Prevent memory overflow, without losing last presses
+    elif len(keypad_input) > 32:
+        keypad_input = keypad_input[16:]
+    
+    if beep_flag:
+        buzzer_pwm.freq(BEEP_FREQ)
+        buzzer_pwm.duty_u16(32768)
+        buzzer_timer.init(mode=Timer.ONE_SHOT, period=60,
+                          callback=lambda caller:buzzer_pwm.deinit())        
+        beep_flag = False
+    
+    
+
+
