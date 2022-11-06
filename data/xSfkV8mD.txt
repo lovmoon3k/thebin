@@ -1,0 +1,127 @@
+package com.mojadiapp.pro.presentation.dashboard.fragment.payment.detail_payment
+
+import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.FragmentTransaction
+import com.mojadiapp.pro.R
+import com.mojadiapp.pro.databinding.ActivityCheckoutPaymentBinding
+import com.mojadiapp.pro.databinding.PartHeaderNavigationBinding
+import com.mojadiapp.pro.domain.model.dashboard.cart.BuyCourseModel
+import com.mojadiapp.pro.domain.model.dashboard.payment_method.PaymentMethod
+import com.mojadiapp.pro.external.utils.toCurrencyFormat
+import com.mojadiapp.pro.presentation.dashboard.DashboardActivity
+import com.mojadiapp.pro.presentation.dashboard.fragment.payment.detail_payment.fragment.HowToPayFragment
+import com.mojadiapp.pro.presentation.dashboard.fragment.payment.history_transaction.HistoryTransaction
+
+class CheckoutPayment : AppCompatActivity() {
+    private lateinit var _binding: ActivityCheckoutPaymentBinding
+    private val binding get() = _binding
+    private lateinit var fragmentTransaction: FragmentTransaction
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        _binding = ActivityCheckoutPaymentBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        setupUI()
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun setupUI() {
+        val header = PartHeaderNavigationBinding.bind(binding.headerPaymentCheckout.root)
+        val data = intent
+        val paymentMethod = data.getParcelableExtra<PaymentMethod>("payment_method")
+        val dataCheckout = data.getParcelableExtra<BuyCourseModel>("data_checkout")
+        val isBuy = data.getBooleanExtra("is_buy", false)
+
+        if (isBuy) {
+            binding.apply {
+                header.tvTitleNavigation.text = getString(R.string.detail_payment)
+                tvTotalPayment.text = dataCheckout!!.total_price.toString().toCurrencyFormat()
+                labelPaymentMethod.text = paymentMethod?.title
+                ivPaymentMethod.setImageResource(paymentMethod?.img!!)
+                virtualAccountNumber.text = dataCheckout.payment_number
+                // button ok
+                btOk.setOnClickListener {
+                    val checkout = Intent(this@CheckoutPayment, HistoryTransaction::class.java)
+                    binding.root.context.startActivity(checkout)
+                    finish()
+                }
+            }
+            initFragment(paymentMethod!!.bank.toString().uppercase())
+        } else {
+            binding.apply {
+                header.tvTitleNavigation.text = getString(R.string.detail_payment)
+                tvTotalPayment.text = dataCheckout!!.total_price.toString().toCurrencyFormat()
+                labelPaymentMethod.text = "${dataCheckout.payment_method?.uppercase()} Virtual Account"
+                when {
+                    dataCheckout.payment_method.equals("bca") -> {
+                        ivPaymentMethod.setImageResource(R.drawable.ic_bca)
+                    }
+                    dataCheckout.payment_method.equals("bni") -> {
+                        ivPaymentMethod.setImageResource(R.drawable.ic_bni)
+                    }
+                    dataCheckout.payment_method.equals("mandiri") -> {
+                        ivPaymentMethod.setImageResource(R.drawable.ic_mandiri)
+                    }
+                    else -> {
+                        ivPaymentMethod.setImageResource(R.drawable.ic_bbri)
+                    }
+                }
+                virtualAccountNumber.text = dataCheckout.payment_number
+                // button ok
+                btOk.setOnClickListener {
+                    val url = dataCheckout.payment_url
+                    val openBrowser = Intent(Intent.ACTION_VIEW)
+                    openBrowser.data = Uri.parse(url)
+                    startActivity(openBrowser)
+                }
+            }
+            initFragment(dataCheckout!!.payment_method.toString().uppercase())
+        }
+        binding.btnCopyVirtualNumber.setOnClickListener {
+            copyTextToClipboard()
+        }
+    }
+
+    @SuppressLint("ServiceCast")
+    private fun copyTextToClipboard() {
+        val textToCopy = binding.virtualAccountNumber.text
+        val clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clipData = ClipData.newPlainText("text", textToCopy)
+        clipboardManager.setPrimaryClip(clipData)
+        Toast.makeText(this, "Copied to clipboard", Toast.LENGTH_LONG).show()
+
+    }
+
+    private fun initFragment(bank: String) {
+        val mFragment = HowToPayFragment()
+        val bundle = Bundle()
+        bundle.putString("bank", bank)
+        fragmentTransaction = supportFragmentManager.beginTransaction()
+        mFragment.arguments = bundle
+        fragmentTransaction.replace(R.id.frameCheckout, mFragment)
+        fragmentTransaction.commit()
+    }
+
+
+    override fun onBackPressed() {
+        val data = intent
+        val isBuy = data.getBooleanExtra("is_buy", false)
+        if(isBuy){
+            val checkout = Intent(this@CheckoutPayment, DashboardActivity::class.java)
+            binding.root.context.startActivity(checkout)
+            finish()
+        }else{
+            val checkout = Intent(this@CheckoutPayment, HistoryTransaction::class.java)
+            binding.root.context.startActivity(checkout)
+            finish()
+        }
+        super.onBackPressed()
+    }
+}

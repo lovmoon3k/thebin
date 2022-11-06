@@ -1,0 +1,256 @@
+package com.mojadiapp.pro.presentation.dashboard.fragment.payment
+
+import android.content.Intent
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.material.snackbar.Snackbar
+import com.mojadiapp.pro.R
+import com.mojadiapp.pro.core.network.NetworkResult
+import com.mojadiapp.pro.data.locale.DataStoreViewModel
+import com.mojadiapp.pro.data.remote.dto.payment_course.CartDto
+import com.mojadiapp.pro.databinding.FragmentPaymentBinding
+import com.mojadiapp.pro.databinding.PartHeaderPaymentBinding
+import com.mojadiapp.pro.domain.model.dashboard.cart.CartModel
+import com.mojadiapp.pro.external.adapter.payment.CartAdapter
+import com.mojadiapp.pro.external.adapter.payment.listener.OnClickItemCart
+import com.mojadiapp.pro.external.helper.dpihelper.DPItoPixel
+import com.mojadiapp.pro.presentation.auth.login.LoginActivity
+import com.mojadiapp.pro.presentation.dashboard.fragment.payment.detail_payment.SelectPaymentMethod
+import com.mojadiapp.pro.presentation.dashboard.fragment.payment.viewModel.CartItemViewModel
+import com.mojadiapp.pro.presentation.dashboard.fragment.payment.history_transaction.HistoryTransaction
+import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+
+
+@AndroidEntryPoint
+class PaymentFragment : Fragment(), OnClickItemCart {
+
+    private lateinit var _binding: FragmentPaymentBinding
+    private val binding get() = _binding
+    private val dataStoreModel: DataStoreViewModel by activityViewModels()
+    private val cartItemViewModel: CartItemViewModel by activityViewModels()
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        _binding = FragmentPaymentBinding.inflate(inflater, container, false)
+        return binding.root
+    }
+
+    override fun onResume() {
+        if (dataStoreModel.readIsLogin() == false || dataStoreModel.readIsLogin() == null) {
+            val login = Intent(binding.root.context, LoginActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            binding.root.context.startActivity(login)
+        }
+        super.onResume()
+    }
+
+    override fun onStart() {
+        cartItemViewModel.fetchAllCartItem()
+        observeCart()
+        super.onStart()
+
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        val headerBinding = PartHeaderPaymentBinding.bind(binding.incHeader.root)
+        headerBinding.tvTitleNavigation.text = getString(R.string.payment)
+        headerBinding.ivHistoryPayment.setOnClickListener {
+            val historyPayment = Intent(binding.root.context, HistoryTransaction::class.java)
+            binding.root.context.startActivity(historyPayment)
+        }
+        // get all data my cart
+        cartItemViewModel.fetchAllCartItem()
+        /*
+        observe data cart
+         */
+        observeCart()
+        //refresh cart
+        refreshCart()
+    }
+
+    private fun refreshCart() {
+        binding.apply {
+            //refresh data
+            refreshCart.setColorSchemeResources(R.color.green)
+            refreshCart.setOnRefreshListener { onRefresh() }
+        }
+    }
+
+    private fun onRefresh() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            cartItemViewModel.fetchAllCartItem()
+            observeCart()
+            binding.refreshCart.isRefreshing = false
+        }, 3000)
+    }
+
+    private fun observeCart() {
+        cartItemViewModel.responseItemCart.observe(viewLifecycleOwner) { response ->
+            when (response) {
+                is NetworkResult.Loading -> {
+                    binding.shimmerCartItem.startShimmer()
+                }
+                is NetworkResult.Success -> {
+                    val data = response.data
+                    if (data != null) {
+                        val listCart = data.data
+                        if (listCart.isNotEmpty()) {
+                            binding.apply {
+                                shimmerCartItem.apply {
+                                    stopShimmer()
+                                    visibility = View.GONE
+                                }
+                                refreshCart.visibility = View.VISIBLE
+                                rvPaymentInfo.apply {
+                                    setHasFixedSize(true)
+                                    setPadding(DPItoPixel(20), 0, DPItoPixel(20), 0)
+                                    clipToPadding = false
+                                    visibility = View.VISIBLE
+
+                                    layoutManager = LinearLayoutManager(
+                                        this@PaymentFragment.context,
+                                        LinearLayoutManager.VERTICAL,
+                                        false
+                                    )
+                                    adapter = CartAdapter(response.data.data, this@PaymentFragment)
+                                }
+                            }
+                        }
+                        binding.apply {
+                            clEmptyCart.visibility = View.GONE
+                            shimmerCartItem.visibility = View.GONE
+                            tvItem.visibility = View.VISIBLE
+                            btnBuy.visibility = View.VISIBLE
+                        }
+                    } else {
+                        binding.apply {
+                            refreshCart.visibility = View.GONE
+                            clEmptyCart.visibility = View.VISIBLE
+                            shimmerCartItem.visibility = View.GONE
+                            tvItem.visibility = View.GONE
+                            btnBuy.visibility = View.GONE
+                        }
+                    }
+                }
+                is NetworkResult.Error -> {
+                    if (dataStoreModel.readIsLogin() == true) {
+                        val data = response.data
+                        if (data != null) {
+                            Snackbar.make(
+                                binding.root,
+                                "Fail get item in cart, swipe to refresh",
+                                Snackbar.LENGTH_SHORT
+                            ).show()
+                            binding.apply {
+                                shimmerCartItem.apply {
+                                    stopShimmer()
+                                    visibility = View.GONE
+                                }
+                                refreshCart.visibility = View.VISIBLE
+                                rvPaymentInfo.apply {
+                                    clipToPadding = false
+                                    visibility = View.GONE
+
+                                }
+                            }
+                        } else {
+                            binding.apply {
+                                refreshCart.visibility = View.GONE
+                                clEmptyCart.visibility = View.VISIBLE
+                                shimmerCartItem.visibility = View.GONE
+                                tvItem.visibility = View.GONE
+                                btnBuy.visibility = View.GONE
+                            }
+
+                        }
+
+                    }
+
+                }
+            }
+        }
+    }
+
+    private fun observeRemoveItemCart() {
+        cartItemViewModel.responseDeleteCartItem.observe(viewLifecycleOwner) { response ->
+            when (response) {
+                is NetworkResult.Loading -> {}
+                is NetworkResult.Success -> {
+                    Snackbar.make(
+                        binding.root,
+                        "Item removed",
+                        Snackbar.LENGTH_SHORT
+                    ).show()
+                }
+                is NetworkResult.Error -> {
+                    Snackbar.make(
+                        binding.root,
+                        "${response.data?.message}",
+                        Snackbar.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+    override fun onChecked(data: ArrayList<CartModel>, size: Int,ids:ArrayList<Int>) {
+        lifecycleScope.launch(Dispatchers.Main){
+            binding.apply {
+                if(size > 0){
+                    // set background color button
+                    btnBuy.setBackgroundColor(resources.getColor(R.color.green))
+                    // set enable button
+                    btnBuy.isEnabled = true
+                    btnBuy.setOnClickListener {
+                        val buy = Intent(binding.root.context, SelectPaymentMethod::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        }
+                        buy.putParcelableArrayListExtra("data_cart", data)
+                        buy.putExtra("ids",ids)
+                        binding.root.context.startActivity(buy)
+                        data.clear()
+                    }
+
+                }else{
+                    // set background color button
+                    btnBuy.setBackgroundColor(resources.getColor(R.color.gray_menu))
+                    // set enable button
+                    btnBuy.isEnabled = false
+                    btnBuy.setOnClickListener { }
+                }
+            }
+        }
+    }
+
+    override fun onDelete(data: CartDto) {
+        cartItemViewModel.deleteCartItem(data.id)
+        observeRemoveItemCart()
+    }
+
+    override fun getCart(data: ArrayList<CartModel>) {
+        lifecycleScope.launch(Dispatchers.Main) {
+            binding.apply {
+                if (data.isEmpty() || data.size == 0) {
+                    // set background color button
+                    btnBuy.setBackgroundColor(resources.getColor(R.color.gray_menu))
+                    // set enable button
+                    btnBuy.isEnabled = false
+                    btnBuy.setOnClickListener {  }
+                }
+            }
+        }
+    }
+
+}

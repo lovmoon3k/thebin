@@ -1,0 +1,149 @@
+package com.mojadiapp.pro.presentation.dashboard.fragment.payment.detail_payment
+
+import android.content.Intent
+import android.os.Bundle
+import android.util.Log
+import android.view.View
+import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.material.snackbar.Snackbar
+import com.mojadiapp.pro.R
+import com.mojadiapp.pro.core.network.NetworkResult
+import com.mojadiapp.pro.databinding.ActivitySelectPaymentMethodBinding
+import com.mojadiapp.pro.databinding.PartHeaderNavigationBinding
+import com.mojadiapp.pro.domain.model.dashboard.cart.BuyCourseModel
+import com.mojadiapp.pro.domain.model.dashboard.cart.CartModel
+import com.mojadiapp.pro.domain.model.dashboard.payment_method.PaymentMethod
+import com.mojadiapp.pro.domain.model.dashboard.payment_method.paymentMethodData
+import com.mojadiapp.pro.external.adapter.payment.CardCourseAdapter
+import com.mojadiapp.pro.external.adapter.payment.PaymentMethodAdapter
+import com.mojadiapp.pro.external.adapter.payment.listener.ItemCoursePayment
+import com.mojadiapp.pro.external.utils.toCurrencyFormat
+import com.mojadiapp.pro.presentation.dashboard.fragment.payment.detail_payment.viewModel.BuyCourseViewModel
+import dagger.hilt.android.AndroidEntryPoint
+
+@AndroidEntryPoint
+class SelectPaymentMethod : AppCompatActivity(), ItemCoursePayment {
+    private lateinit var _binding: ActivitySelectPaymentMethodBinding
+    private val binding get() = _binding
+
+    //view model
+    private val buyCourseViewModel by viewModels<BuyCourseViewModel>()
+
+    // getter and setter
+    private var totalPrice: Int = 0
+        get() = field
+        set(value) {
+            field = value
+        }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        _binding = ActivitySelectPaymentMethodBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        setupUI()
+        getItemCartOnChecked()
+    }
+
+    private fun setupUI() {
+        val header = PartHeaderNavigationBinding.bind(binding.headerPaymentMethod.root)
+        binding.apply {
+            header.tvTitleNavigation.text = getString(R.string.detail_payment)
+            header.arrowBackNavigation.setOnClickListener {
+                onBackPressed()
+            }
+
+            //setup recycle view
+            val mLinearLayoutManager = object : LinearLayoutManager(this@SelectPaymentMethod) {
+                override fun canScrollVertically(): Boolean {
+                    return false
+                }
+            }
+            rvPaymentMethod.apply {
+                layoutManager = mLinearLayoutManager
+                adapter = PaymentMethodAdapter(paymentMethodData(), this@SelectPaymentMethod)
+            }
+        }
+    }
+
+    private fun getItemCartOnChecked() {
+        val data = intent
+        if (data.hasExtra("data_cart")) {
+            val cart = data.getParcelableArrayListExtra<CartModel>("data_cart")
+            binding.apply {
+                val mLinearLayoutManager = object : LinearLayoutManager(this@SelectPaymentMethod) {
+                    override fun canScrollVertically(): Boolean {
+                        return false
+                    }
+                }
+                rvCardCourse.apply {
+                    setHasFixedSize(true)
+                    layoutManager = mLinearLayoutManager
+                    adapter = CardCourseAdapter(cart!!, this@SelectPaymentMethod)
+                }
+            }
+        }
+    }
+
+    override fun totalPrice(price: Int) {
+        this.totalPrice = price
+        binding.tvTotalPayment.text = price.toString().toCurrencyFormat()
+
+    }
+
+    override fun onRadioChecked(data: PaymentMethod) {
+        val getCart = intent
+        if (getCart.hasExtra("ids")) {
+            val hashMap = intent.getSerializableExtra("ids") as ArrayList<*>
+            val idCourse = ArrayList<Int>()
+            for (i in 0 until hashMap.size) {
+                idCourse.add(hashMap[i] as Int)
+            }
+            Log.i("PAYMENT", "$idCourse")
+            binding.apply {
+                btnNextCheckout.setOnClickListener {
+                    buyCourseViewModel.buyCourse(idCourse, data.bank.toString().lowercase())
+                    buyCourseViewModel.responseBuyCourse.observe(this@SelectPaymentMethod) {
+                        when (it) {
+                            is NetworkResult.Loading -> {
+                                loadingBuyCourse.vLoading.visibility = View.VISIBLE
+                                btnNextCheckout.isEnabled = false
+                            }
+                            is NetworkResult.Success -> {
+                                loadingBuyCourse.vLoading.visibility = View.GONE
+                                val response = it.data!!.data
+                                val dataCheckout = BuyCourseModel(
+                                    id_payment = response.paymentId,
+                                    total_price = response.totalPrice,
+                                    payment_number = response.paymentNumber,
+                                    payment_url = response.paymentInstructionsUrl,
+                                    expiredTime = response.expiresAfter
+                                )
+                                val checkout = Intent(
+                                    this@SelectPaymentMethod,
+                                    CheckoutPayment::class.java
+                                )
+                                checkout.putExtra("payment_method", data)
+                                checkout.putExtra("is_buy", true)
+                                checkout.putExtra("data_checkout", dataCheckout)
+                                binding.root.context.startActivity(checkout)
+                                finish()
+                            }
+                            is NetworkResult.Error -> {
+                                loadingBuyCourse.vLoading.visibility = View.GONE
+                                Snackbar.make(
+                                    binding.root,
+                                    "${it.data?.data}",
+                                    Snackbar.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    }
+
+}
