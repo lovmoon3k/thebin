@@ -1,0 +1,92 @@
+local com = require('component')
+local ser = require('serialization') -- фаил конфигурации
+local event = require('event')
+local term = require('term')
+local kasl = require('kasl')
+local gpu = com.gpu
+local w, h = gpu.maxResolution()
+local chest = com.chest
+local trans = com.transposer
+local schest = chest.getInventorySize()
+local michtopay = 5                                -- Цена на 1 игру в эсмиральдах  
+local sideIn = 1                                   -- сторона сундука клиента отностительно транспордера
+local sideOut = 0                                  -- сторона приемника ресурсов из сундука отностительно транспордера
+local items = { --список предметов для извлечения {Id,стоимость}
+    {"tile.blockiron","0.9"},
+    {"ic2.blockmetaltin","0.9"},
+    {"tile.for.resourcestorage.2","0.9"},
+    {"tile.thermalfoundation.storage.tin.name","0.9"},
+    {"ic2.blockmetalcopper","0.9"},
+    {"tile.thermalfoundation.storage.copper.name","0.9"},
+    {"tile.for.resourcestorage.1","0.9"}}
+local lofc = 'conf.txt'
+local List = {} 
+local priz = {}
+
+local function screen()
+    gpu.fill(1, 1, w, h, " ")
+    gpu.setResolution(w/1.5, h/1.5)
+    gpu.setBackground(0x00ced1)--0x454545)
+    gpu.setForeground(0x0000cd)--0xd6d6d6)
+    term.clear()
+end
+
+local function info()                   --сообщение выводимое на экран
+    term.setCursor(1, 1)
+    gpu.set(25,3,'Привествуем тебя в казино /warp xxx')
+    gpu.set(27,5,'Чтобы сиграть положите деньги или ресурсы в сундук справа')
+    gpu.set(23,7,'после этого Вам выпадет случайный приз.')
+    gpu.set(27,9,'Призы указаны на селекторах')
+    gpu.set(28,11,'Цена 1 игры:    Денги: 5') 
+    gpu.set(25,13,'Железные, Медные, Оловянные Блоки: 6')
+    gpu.set(23,15,'По любым вопросам писать   Xxxxxxx#0000')
+    --gpu.set(82,33,'developed by Dimon933')
+    
+end
+
+local function PayForCasino ()
+    for j = 1,schest do
+    data = chest.getAllStacks(0)
+    if data[j] ~= nil then
+        local i2 = 0
+        repeat
+            i2 = i2 + 1
+            if (data[j].raw_name) == (items[i2][1]) then--проверка предмета
+            local summa = math.floor(michtopay/items[i2][2]+0.5)
+                if (data[j].qty>=summa) then
+                    local t = 1
+                    repeat 
+                        local transfers = trans.transferItem(sideIn,sideOut,summa,j,t)
+                        t = t + 1
+                        if transfers == true then
+                                local level_luck = GenerateRandom (List)
+                                dispenspresent(priz[level_luck])
+                        end
+                    until (transfers or t > 9) 
+                end
+            else
+                transfers = false 
+            end
+        until i2 >= #items or transfers
+    end
+end
+end
+
+
+--local cansel = event.timer(1,(PayForCasino), math.huge)
+screen()
+info()
+if loadList(lofc) == nil then 
+    List = addblock(lofc) 
+    saveList(List, lofc) 
+    screen()
+info()
+else 
+    List = loadList(lofc)
+end
+--List = about (lofc)
+for i = 1,5 do priz[i] = com.proxy(com.get(List[i].dispenser)) end
+while true do
+    os.sleep(0.5)
+    PayForCasino()
+end
