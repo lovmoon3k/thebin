@@ -1,0 +1,830 @@
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+// GOOGLE DRIVE: https://drive.google.com/drive/folders/1eNXlQ50LanvYKPj_qr-Qr2qJmPa2o_Ze?usp=sharing //
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+///////////////////////////////////
+//            Graph.h            //
+///////////////////////////////////
+
+#pragma once
+#include <algorithm>
+#include <iostream>
+#include <iomanip>
+#include <fstream>
+#include <utility>
+#include <vector>
+#include <queue>
+#include <map>
+#include <set>
+using namespace std;
+
+const double INF = 1e9 + 7;
+
+/// <summary>
+/// Граф 
+/// </summary>
+/// <typeparam name="Vertice"> тип вершин графа </typeparam>
+/// <typeparam name="Edge"> тип ребер графа (int по умолчанию) </typeparam>
+template <class Vertice, class Edge = int>
+class Graph
+{
+	/// <summary>
+	/// Количество вершин и ребер в графе
+	/// </summary>
+	int _N = 0, _M = 0;
+
+	/// <summary>
+	/// Критерий ориентированности и взвешенности графа 
+	/// </summary>
+	bool IsDirected = false, IsWeighted = false;
+
+	/// <summary>
+	/// Список смежности графа 
+	/// </summary>
+	map <Vertice, map<Vertice, Edge>> graph;
+
+public:
+
+	/// <summary>
+	/// Конструктор по умолчанию
+	/// </summary>
+	Graph() {};
+
+	/// <summary>
+	/// Конструктор, создающий пустой граф, определяющий 
+	/// ориентированность и взвешенность графа 
+	/// </summary>
+	/// <param name="direction"> критерий ориентированности </param>
+	/// <param name="weighting"> критерий взвешенности </param>
+	Graph(string direction, string weighting)
+	{
+		if (direction == "directed") IsDirected = true;
+		if (weighting == "weighted") IsWeighted = true;
+	}
+
+	/// <summary>
+	/// Конструктор, считывающий информацию из файла 
+	/// или из консоли (stdin)
+	/// </summary>
+	/// <param name="filePath"> путь к файлу или ключевое слово stdin </param>
+	Graph(string filePath)
+	{
+		ifstream fin;
+
+		if (filePath == "stdin") fin = ifstream(stdin);
+		else fin = ifstream(filePath);
+
+		string cmd, direction, weighting;
+		fin >> cmd >> direction >> weighting;
+
+		*this = Graph(direction, weighting);
+
+		fin >> cmd >> _N;
+
+		for (int i = 0; i < _N; ++i)
+		{
+			Vertice v; fin >> v;
+			graph.insert(pair<Vertice, map<Vertice, Edge>>(v, map<Vertice, Edge>()));
+		}
+
+		fin >> cmd >> _M;
+
+		for (int i = 0; i < _M; ++i)
+		{
+			Vertice u, v; Edge w; fin >> u >> v;
+
+			if (!IsWeighted) w = 1;
+			else fin >> w;
+
+			graph[u].insert(pair<Vertice, Edge>(v, w));
+			if (!IsDirected) graph[v].insert(pair<Vertice, Edge>(u, w));
+		}
+
+		if (filePath != "stdin") fin.close();
+	}
+
+	/// <summary>
+	/// Количество вершин графа 
+	/// </summary>
+	/// <returns> количество вершин графа </returns>
+	int n() { return _N; }
+
+	/// <summary>
+	/// Количество ребер графа 
+	/// </summary>
+	/// <returns> количество ребер графа </returns>
+	int m() { return _M; }
+
+	/// <summary>
+	/// Метод, выдающий информацию об
+	/// ориентированности графа
+	/// </summary>
+	/// <returns> true, если граф ориентированный, иначе - false </returns>
+	bool isDirected() { return IsDirected; }
+
+	/// <summary>
+	/// Метод, выдающий информацию о
+	/// взвешенности графа 
+	/// </summary>
+	/// <returns> true, если граф взвешенный, иначе - false </returns>
+	bool isWeighted() { return IsWeighted; }
+
+	/// <summary>
+	/// Метод, возращающий список смежности графа
+	/// </summary>
+	/// <returns> список смежности графа </returns>
+	map<Vertice, map<Vertice, Edge>> edges() { return graph; }
+
+	/// <summary>
+	/// Добавление вершины в граф 
+	/// </summary>
+	/// <param name="v"> добавляемая в граф вершина </param>
+	void addVertice(Vertice v)
+	{
+		try
+		{
+			if (graph.find(v) != graph.end()) throw "Добавление вершины: заданная вершина уже есть в графе";
+			else
+			{
+				++_N;
+				graph.insert(pair<Vertice, map<Vertice, Edge>>(v, map<Vertice, Edge>()));
+			}
+		}
+		catch (const char* msg)
+		{
+			cout << msg << "\n";
+		}
+	}
+
+	/// <summary>
+	/// Удаление вершины из графа 
+	/// </summary>
+	/// <param name="v"> удаляемая из графа вершина </param>
+	void removeVertice(Vertice v)
+	{
+		try
+		{
+			if (graph.find(v) == graph.end()) throw "Удаление вершины: в графе отсутствует заданная вершина";
+			else
+			{
+				--_N; _M -= graph[v].size();
+
+				graph.erase(v);
+
+				for (auto p : graph)
+					if (graph[p.first].find(v) != graph[p.first].end())
+					{
+						if (IsDirected) --_M;
+						graph[p.first].erase(v);
+					}
+			}
+		}
+		catch (const char* msg)
+		{
+			cout << msg << "\n";
+		}
+	}
+
+	/// <summary>
+	/// Добавление ребра в граф 
+	/// </summary>
+	/// <param name="u"> первая вершина ребра </param>
+	/// <param name="v"> вторая вершина ребра </param>
+	/// <param name="w"> вес ребра (для невзвешенных графов w = 1) </param>
+	void addEdge(Vertice u, Vertice v, Edge w)
+	{
+		try
+		{
+			if (graph.find(u) == graph.end() || graph.find(v) == graph.end()) throw "Добавление ребра: в графе отсутствует(ют) заданная(ые) вершина(ы)";
+			else if (!IsDirected && u == v) throw "Добавление ребра: невозможно добавить петлю в неориентированный граф";
+			else if (graph[u].find(v) != graph[u].end()) throw "Добавление ребра: заданное ребро уже есть в графе";
+			else
+			{
+				++_M;
+				graph[u][v] = w;
+				if (!IsDirected) graph[v][u] = w;
+			}
+		}
+		catch (const char* msg)
+		{
+			cout << msg << "\n";
+		}
+	}
+
+	/// <summary>
+	/// Удаление ребра из графа 
+	/// </summary>
+	/// <param name="u"> первая вершина ребра </param>
+	/// <param name="v"> вторая вершина ребра </param>
+	void removeEdge(Vertice u, Vertice v)
+	{
+		try
+		{
+			if (graph.find(u) == graph.end() || graph.find(v) == graph.end()) throw "Удаление ребра: в графе отсутствует(ют) заданная(ые) вершина(ы)";
+			else
+			{
+				if (graph[u].find(v) == graph[u].end()) throw "Удаление ребра: в графе отсутствует заданное ребро";
+				else
+				{
+					--_M;
+					graph[u].erase(v);
+					if (!IsDirected) graph[v].erase(u);
+				}
+			}
+		}
+		catch (const char* msg)
+		{
+			cout << msg << "\n";
+		}
+	}
+
+	/// <summary>
+	/// Очищение графа (ориентированность 
+	/// и взвешенность остаются прежними)
+	/// </summary>
+	void clear()
+	{
+		_N = 0; _M = 0;
+		graph.clear();
+	}
+
+	/// <summary>
+	/// Вывод информации о графе в файл или
+	/// на консоль (stdout)
+	/// </summary>
+	/// <param name="filePath"> путь к файлу или ключевое слово stdout </param>
+	void print(string filePath)
+	{
+		ofstream fout;
+
+		if (filePath == "stdout") fout = ofstream(stdout);
+		else fout = ofstream(filePath);
+
+		if (filePath != "stdout")
+		{
+			fout << "GRAPH ";
+
+			if (IsDirected) fout << "directed ";
+			else fout << "undirected ";
+
+			if (IsWeighted) fout << "weighted\n";
+			else fout << "unweighted\n";
+
+			fout << "VERTICES: " << _N << "\n";
+
+			for (auto p : graph)
+				fout << p.first << "\n";
+
+			fout << "EDGES: " << _M << "\n";
+
+			for (auto p1 : graph)
+			{
+				Vertice u = p1.first;
+
+				for (auto p2 : p1.second)
+				{
+					Vertice v = p2.first; Edge w = p2.second;
+
+					if (IsDirected || u < v)
+					{
+						fout << u << " " << v << " ";
+						if (IsWeighted) fout << w;
+						fout << "\n";
+					}
+				}
+			}
+
+			fout.close();
+		}
+		else
+		{
+			fout << "GRAPH ";
+
+			if (IsDirected) fout << "directed ";
+			else fout << "undirected ";
+
+			if (IsWeighted) fout << "weighted\n";
+			else fout << "unweighted\n";
+
+			fout << "VERTICES: " << _N << "\n";
+
+			for (auto p : graph)
+				fout << p.first << "\n";
+
+			fout << "EDGES: " << _M << "\n";
+
+			for (auto p1 : graph)
+			{
+				Vertice u = p1.first;
+
+				fout << u << ": ";
+
+				for (auto p2 : p1.second)
+				{
+					Vertice v = p2.first; Edge w = p2.second;
+
+					if (!IsWeighted) fout << v << " ";
+					else fout << "(" << v << ", " << w << ") ";
+				}
+
+				fout << "\n";
+			}
+		}
+	}
+};
+
+/// <summary>
+/// Алгоритм Дейстры поиска кратчайшего пути
+/// между двумя заданными вершинами
+/// </summary>
+/// <typeparam name="Vertice"> тип вершин графа </typeparam>
+/// <typeparam name="Edge"> тип ребер графа </typeparam>
+/// <param name="edges"> список смежности графа </param>
+/// <param name="s"> начало пути </param>
+/// <param name="t"> конец пути </param>
+/// <param name="parents"> список предков вершин графа </param>
+/// <returns> расстояние между вершинами s и t </returns>
+template <class Vertice, class Edge>
+Edge Dijkstra(map<Vertice, map<Vertice, Edge>> &edges, Vertice s, Vertice t, map<Vertice, set<Vertice>> &parents)
+{
+	map<Vertice, Edge> dist;
+
+	for (auto p : edges)
+	{
+		Vertice u = p.first;
+		dist[u] = INF;
+	}
+
+	priority_queue <pair<Edge, Vertice>, vector<pair<Edge, Vertice>>, greater<pair<Edge, Vertice>>> pq;
+
+	dist[s] = 0;
+	pq.push({ dist[s], s });
+
+	while (!pq.empty())
+	{
+		Vertice u = pq.top().second; Edge d = pq.top().first; pq.pop();
+
+		if (d > dist[u]) continue;
+
+		for (auto p : edges[u])
+		{
+			Vertice v = p.first; Edge w = p.second;
+
+			if (d + w <= dist[v])
+			{
+				if (d + w < dist[v])
+				{
+					parents[v].clear();
+					dist[v] = d + w;
+					pq.push({ dist[v], v });
+				}
+
+				parents[v].insert(u);
+			}
+		}
+	}
+
+	return dist[t];
+}
+
+/// <summary>
+/// Восстановление путей по предкам 
+/// </summary>
+/// <typeparam name="Vertice"> тип вершин графа </typeparam>
+/// <typeparam name="Edge"> тип ребер графа </typeparam>
+/// <param name="edges"> список смежности графа </param>
+/// <param name="parents"> список предков вершин графа </param>
+/// <param name="s"> начало пути </param>
+/// <param name="cur"> текущая вершина пути </param>
+/// <param name="cnt"> порядковый номер пути </param>
+/// <param name="path"> история пути </param>
+template <class Vertice, class Edge>
+void FindPaths(map<Vertice, map<Vertice, Edge>> &edges, map<Vertice, set<Vertice>>& parents, Vertice s, Vertice cur, int& cnt, int k, vector<Vertice> &path)
+{
+	if (cnt == k) return;
+	
+	path.push_back(cur);
+
+	if (cur == s)
+	{
+		cout << ++cnt << ": ";
+
+		for (int i = path.size() - 1; i > 0; --i)
+		{
+			Vertice u = path[i], v = path[i - 1]; Edge w = edges[u][v];
+
+			cout << u << " --(" << w << ")--> ";
+		}
+
+		cout << path[0] << "\n";
+	}
+	else
+	{
+		for (auto p : parents[cur])
+			FindPaths<Vertice, Edge>(edges, parents, s, p, cnt, k, path);
+	}
+
+	path.pop_back();
+}
+
+/// <summary>
+/// Задание IV a: поиск всех кратчайших путей
+/// между заданными вершинами s и t
+/// </summary>
+/// <typeparam name="Vertice"> тип вершин графа </typeparam>
+/// <typeparam name="Edge"> тип ребер графа </typeparam>
+/// <param name="g"> граф </param>
+/// <param name="s"> начальная вершина </param>
+/// <param name="t"> конечная вершина </param>
+template <class Vertice, class Edge>
+void AllShortestPaths(Graph<Vertice, Edge>& g, Vertice s, Vertice t)
+{
+	map<Vertice, map<Vertice, Edge>> edges = g.edges();
+	map<Vertice, set<Vertice>> parents;
+
+	try
+	{
+		if (edges.find(s) == edges.end()) throw "Задание IV a: вершины s нет в графе";
+		else if (edges.find(t) == edges.end()) throw "Задание IV a: вершины t нет в графе";
+		else
+		{
+			Edge length = Dijkstra(edges, s, t, parents);
+
+			if (parents[t].size() == 0) cout << "Вершины s = " << s << " и t = " << t << " находятся в разных компонентах связности\n";
+			else
+			{
+				cout << "Всевозможные пути (длины " << length << ")\n";
+
+				int cnt = 0;
+				vector<Vertice> path;
+				FindPaths<Vertice, Edge>(edges, parents, s, t, cnt, INF, path);
+
+				cout << "Итого: " << cnt << " различных кратчайших путей\n";
+			}
+		}
+	}
+	catch (const char* msg)
+	{
+		cout << msg << "\n";
+	}
+}
+
+/// <summary>
+/// Алгоритм Беллмана-Форда поиска кратчайшего пути
+/// между двумя заданными вершинами
+/// </summary>
+/// <typeparam name="Vertice"> тип вершин графа </typeparam>
+/// <typeparam name="Edge"> тип ребер графа </typeparam>
+/// <param name="edges"> список смежности графа </param>
+/// <param name="s"> начальная вершина </param>
+/// <param name="t"> конечная вершина </param>
+/// <param name="parents"> список предков вершин графа </param>
+/// <returns> расстояние между вершинами s и t </returns>
+template <class Vertice, class Edge>
+Edge Bellman(map<Vertice, map<Vertice, Edge>>& edges, Vertice s, Vertice t, map<Vertice, set<Vertice>> &parents)
+{
+	map<Vertice, Edge> dist;
+
+	for (auto p : edges)
+	{
+		Vertice u = p.first;
+		dist[u] = INF;
+	}
+
+	dist[s] = 0;
+
+	for (int i = 0; i < edges.size() - 1; ++i)
+	{
+		bool flag = false;
+
+		for (auto p1 : edges)
+		{
+			Vertice u = p1.first;
+
+			if (dist[u] == INF) continue;
+
+			for (auto p2 : edges[u])
+			{
+				Vertice v = p2.first; Edge w = p2.second;
+
+				if (dist[v] >= dist[u] + w)
+				{
+					if (dist[v] > dist[u] + w)
+					{
+						parents[v].clear();
+						dist[v] = dist[u] + w;
+						flag = true;
+					}
+
+					parents[v].insert(u);
+				}
+			}
+		}
+
+		if (!flag) break;
+	}
+
+	return dist[t];
+}
+
+/// <summary>
+/// Задание IV b: поиск k кратчайших путей
+/// между заданными вершинами s и t
+/// </summary>
+/// <typeparam name="Vertice"> тип вершин графа </typeparam>
+/// <typeparam name="Edge"> тип ребер графа </typeparam>
+/// <param name="g"> граф </param>
+/// <param name="s"> начальная вершина </param>
+/// <param name="t"> конечная вершина </param>
+/// <param name="k"> количество кратчайших путей </param>
+template <class Vertice, class Edge>
+void KShortestPaths(Graph<Vertice, Edge>& g, Vertice s, Vertice t, int k)
+{
+	map<Vertice, map<Vertice, Edge>> edges = g.edges();
+	map<Vertice, set<Vertice>> parents;
+
+	try
+	{
+		if (edges.find(s) == edges.end()) throw "Задание IV b: вершины s нет в графе";
+		else if (edges.find(t) == edges.end()) throw "Задание IV b: вершины t нет в графе";
+		else if (k < 0) throw "Задание IV b: значение k не может быть отрицательным";
+		else
+		{
+			Edge length = Bellman(edges, s, t, parents);
+
+			if (parents[t].size() == 0) cout << "Вершины s = " << s << " и t = " << t << " находятся в разных компонентах связности\n";
+			else
+			{
+				cout << "Всевозможные пути (длины " << length << ")\n";
+
+				int cnt = 0;
+				vector<Vertice> path;
+				FindPaths<Vertice, Edge>(edges, parents, s, t, cnt, k, path);
+
+				if (cnt < k) cout << "В графе не нашлось k = " << k << " кратчайших путей (всего их " << cnt << ")\n";
+				else cout << "В графе нашлось k = " << k << " кратчайших путей (всего их " << cnt << ")\n";
+			}
+		}
+	}
+	catch (const char* msg)
+	{
+		cout << msg << "\n";
+	}
+}
+
+/// <summary>
+/// Алгоритм Флойда поиска кратчайших путей
+/// между всеми парами вершин
+/// </summary>
+/// <typeparam name="Vertice"> тип вершин графа </typeparam>
+/// <typeparam name="Edge"> тип ребер графа </typeparam>
+/// <param name="mat"> матрица кратчайших расстояний </param>
+/// <param name="vertices"> вершины графа </param>
+template <class Vertice, class Edge>
+void Floyd(map<Vertice, map<Vertice, Edge>>& mat, vector<Vertice>& vertices)
+{
+	for (auto k : vertices)
+	{
+		map<Vertice, map<Vertice, Edge>> res = mat;
+
+		for (auto u : vertices)
+			for (auto v : vertices)
+				if (mat[u][k] != INF && mat[k][v] != INF)
+					res[u][v] = min(mat[u][v], mat[u][k] + mat[k][v]);
+
+		mat = res;
+	}
+}
+
+/// <summary>
+/// Задание IV c: поиск всех пар вершин, длина
+/// пути между которыми может быть сколь угодно малой
+/// </summary>
+/// <typeparam name="Vertice"> тип вершин графа </typeparam>
+/// <typeparam name="Edge"> тип ребер графа </typeparam>
+/// <param name="g"> граф </param>
+template <class Vertice, class Edge>
+void AllPairs(Graph<Vertice, Edge>& g)
+{
+	vector<Vertice> vertices;
+	map<Vertice, map<Vertice, Edge>> mat;
+	map <Vertice, map<Vertice, Vertice>> ans;
+	map <Vertice, map<Vertice, Edge>> edges = g.edges();
+
+	for (auto p : edges)
+	{
+		Vertice v = p.first;
+
+		vertices.push_back(v);
+		mat[v] = map<Vertice, Edge>();
+		ans[v] = map<Vertice, Vertice>();
+	}
+
+	for (auto u : vertices)
+		for (auto v : vertices)
+			mat[u][v] = (u == v || edges[u].count(v) == 0) ? INF : edges[u][v];
+
+	Floyd(mat, vertices);
+
+	cout << "Матрица расстояний:\n";
+
+	for (auto u : vertices)
+	{
+		cout << u << ": ";
+
+		for (auto v : vertices)
+		{
+			cout << "(" << v << ", ";
+
+			if (mat[u][v] == INF) cout << "INF";
+			else cout << mat[u][v];
+
+			cout << ") ";
+		}
+
+		cout << "\n";
+	}
+
+	cout << "\n";
+
+	vector <Vertice> in_cycle;
+	
+	for (auto v : vertices)
+		if (mat[v][v] < 0) in_cycle.push_back(v);
+
+	for (auto u : vertices)
+		for (auto v : vertices)
+			for (auto t : in_cycle)
+				if (mat[u][t] != INF && mat[t][v] != INF) ans[u][v] = t;
+
+	for (auto u : vertices)
+	{
+		cout << u << ": ";
+
+		for (auto p : ans[u])
+		{
+			Vertice v = p.first, t = p.second;
+			cout << "(" << t << ", " << v << ") ";
+		}
+
+		cout << "\n";
+	}
+}
+
+//////////////////////////////////////////////
+//            ConsoleInterface.h            //
+//////////////////////////////////////////////
+
+#pragma once
+#include "Graph.h"
+#include <vector>
+#include <string>
+
+/// <summary>
+/// Консольный интерфейс, работающий с одним графом 
+/// </summary>
+/// <typeparam name="Vertice"> тип вершин графа </typeparam>
+/// <typeparam name="Edge"> тип ребер графа </typeparam>
+template <class Vertice, class Edge = int>
+class ConsoleInterface
+{
+	/// <summary>
+	/// Граф 
+	/// </summary>
+	Graph<Vertice, Edge> g;
+
+	/// <summary>
+	/// Вывод на консоль списка доступных команд
+	/// </summary>
+	void Hint()
+	{
+		cout << "+---------------------------------------+\n";
+		cout << "|             СПИСОК КОМАНД             |\n";
+		cout << "+---------------------------------------+\n";
+		cout << "|  1. CREATE GRAPH direction weighting  |\n";
+		cout << "|  2. CREATE GRAPH filePath             |\n";
+		cout << "|  3. ADD VERTICE v                     |\n";
+		cout << "|  4. REMOVE VERTICE v                  |\n";
+		cout << "|  5. ADD EDGE u v [w]                  |\n";
+		cout << "|  6. REMOVE EDGE u w                   |\n";
+		cout << "|  7. CLEAR GRAPH                       |\n";
+		cout << "|  8. PRINT GRAPH filePath              |\n";
+		cout << "|  9. TASK Kruskal                      |\n";
+		cout << "|  10. TASK Prim                        |\n";
+		cout << "|  11. GET HINT                         |\n";
+		cout << "|  12. EXIT                             |\n";
+		cout << "+---------------------------------------+\n";
+	}
+
+public:
+
+	/// <summary>
+	/// Конструктор по умолчанию
+	/// </summary>
+	ConsoleInterface() {};
+
+	/// <summary>
+	/// Запуск интерфейса
+	/// </summary>
+	void Start()
+	{
+		Hint();
+
+		while (true)
+		{
+			cout << ">> ";
+
+			string w1; cin >> w1;
+
+			if (w1 == "CREATE")
+			{
+				string w2, w3; cin >> w2 >> w3;
+
+				if (w3 == "directed" || w3 == "undirected")
+				{
+					string w4; cin >> w4;
+					g = Graph<Vertice, Edge>(w3, w4);
+				}
+				else g = Graph<Vertice, Edge>(w3);
+			}
+			else if (w1 == "ADD")
+			{
+				string w2; cin >> w2;
+
+				if (w2 == "VERTICE")
+				{
+					Vertice w3; cin >> w3;
+					g.addVertice(w3);
+				}
+				else
+				{
+					Vertice w3, w4; Edge w5; cin >> w3 >> w4;
+
+					if (!g.isWeighted()) w5 = 1;
+					else cin >> w5;
+
+					g.addEdge(w3, w4, w5);
+				}
+			}
+			else if (w1 == "REMOVE")
+			{
+				string w2; cin >> w2;
+
+				if (w2 == "VERTICE")
+				{
+					Vertice w3; cin >> w3;
+					g.removeVertice(w3);
+				}
+				else
+				{
+					Vertice w3, w4; cin >> w3 >> w4;
+					g.removeEdge(w3, w4);
+				}
+			}
+			else if (w1 == "CLEAR")
+			{
+				string w2; cin >> w2;
+				g.clear();
+			}
+			else if (w1 == "PRINT")
+			{
+				string w2, w3; cin >> w2 >> w3;
+				g.print(w3);
+			}
+			else if (w1 == "TASK")
+			{
+				string w2; cin >> w2;
+
+				if (w2 == "Kruskal") MST_Kruskal(g);
+				else if (w2 == "Prim") MST_Prim(g);
+			}
+			else if (w1 == "GET")
+			{
+				string w2; cin >> w2;
+				Hint();
+			}
+			else if (w1 == "EXIT")
+			{
+				break;
+			}
+		}
+	}
+};
+
+/////////////////////////////////////
+//            Graph.cpp            //
+/////////////////////////////////////
+
+#include "ConsoleInterface.h"
+#include <Windows.h>
+
+int main()
+{
+	SetConsoleCP(1251);
+	SetConsoleOutputCP(1251);
+
+	ConsoleInterface<string, int> consoleInterface;
+	consoleInterface.Start();
+
+	return 0;
+}
