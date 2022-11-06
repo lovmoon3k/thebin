@@ -1,0 +1,178 @@
+---@diagnostic disable: undefined-global
+--[[
+    Original Code Pastebin: https://pastebin.com/Mc1CUUQn
+    Git Loader - PasteBin style GitHub Repo Downloader BY: CodingButter#8420
+    Added two functions, one to download with an API key, the other is to reset the API key in settings.
+    MYPASTEBIN: https://pastebin.com/6C6a4E11
+]]
+--#region My Functions
+local function downloadFile(uri, file, headers)
+    if type(uri) ~= "string" and type(file) ~= "string" then
+        error("Both uri and file need to be strings!")
+    end
+    local bool, err = http.checkURL(uri)
+    if not bool then
+        req.close()
+        return false, "Failed to download, err: " .. err
+    end
+    local req, err = http.get(uri, headers)
+    if not req then
+        req.close()
+        return false, "Failed to download, err: " .. err
+    end
+    -- if fs.exists(file) then
+    --     if not fs.delete(file) then
+    --         return false, "Failed to delete file"
+    --     end
+    -- end
+    local file = fs.open(file, "w")
+    if file then
+        file.write(req.readAll())
+        file.close()
+    else
+        req.close()
+        return false, "Failed to open file"
+    end
+    req.close()
+end
+
+local function resetToken()
+    if settings.get("GITHUB_TOKEN") ~= "" then
+        settings.set("GITHUB_TOKEN", "")
+    end
+    settings.save()
+end
+
+--#endregion
+
+local tArgs = { ... }
+local defs = { {
+    name = "username",
+    message = "Github Username:",
+    setting = "GITHUB_USERNAME"
+}, {
+    name = "repo",
+    message = "Github Repository:",
+    setting = "GITHUB_REPO"
+}, {
+    name = "branch",
+    message = "Github Repository Branch:",
+    setting = "GITHUB_BRANCH"
+}, {
+    name = "token",
+    message = "Github API Token(optional):",
+    setting = "GITHUB_TOKEN"
+} }
+local config = {}
+term.clear()
+for i = 1, #defs do
+    local def = defs[i]
+    config[def.name] = tArgs[i] or settings.get(def.setting)
+    if not config[def.name] then
+        term.setCursorPos(1, 1)
+        term.write(def.message)
+        config[def.name] = read()
+        settings.set(def.setting, config[def.name])
+        term.clear()
+    end
+end
+local apiurl = "https://api.github.com/repos/" .. config.username .. "/" .. config.repo .. "/branches/" .. config.branch
+local githubPath = "https://raw.githubusercontent.com/" .. config.username .. "/" .. config.repo .. "/" .. config.branch
+local headers = config.token ~= "" and {
+    Authorization = "token " .. config.token
+} or nil
+
+local getJSON = function(api)
+    local post, err = http.get(api, headers)
+    if err then
+        error(api .. " " .. tostring(err))
+    end
+    local response = post.readAll()
+    return textutils.unserializeJSON(response)
+end
+local WIDTH, HEIGHT = term.getSize()
+local base = getJSON(apiurl)
+if not base.commit then
+    error(base.message)
+end
+settings.save()
+local baseTreeUrl = base.commit.commit.tree.url
+term.setTextColor(colors.white)
+local installText = "--[[ Building File List ]]--"
+term.setCursorPos(WIDTH / 2 - #installText / 2, 1)
+term.write(installText)
+local function buildFiles(url)
+
+    local tree = getJSON(url).tree
+    local tmpTable = {}
+    for k, v in ipairs(tree) do
+        if config.token == "" then
+            sleep(1)
+        end
+        if (v.type == "tree") then
+            tmpTable[v.path] = buildFiles(v.url)
+        else
+            term.setCursorPos(WIDTH / 2 - #v.path / 2, 2)
+            term.clearLine()
+            term.write(v.path)
+            tmpTable[#tmpTable + 1] = v.path
+        end
+    end
+    return tmpTable
+end
+
+local files = buildFiles(baseTreeUrl)
+local totalFiles = 0
+local downloaded = 0
+local function calculateFiles(_tbl)
+    for k, v in pairs(_tbl) do
+        if type(v) == "table" then
+            calculateFiles(v)
+        else
+            totalFiles = totalFiles + 1
+        end
+    end
+end
+
+local fileColors = { colors.white, colors.lightGray, colors.gray }
+local fileNames = {}
+local function downloadFiles(_tbl, dir)
+    local WIDTH, HEIGHT = term.getSize()
+    for k, v in pairs(_tbl) do
+        if type(v) == "table" then
+            downloadFiles(v, dir .. "/" .. k)
+        else
+            local path = dir .. "/" .. v
+            if headers == nil then
+                shell.run("wget", githubPath .. path, path)
+            else
+                print(downloadFile(githubPath .. path, path, headers))
+            end
+            sleep(1)
+            table.insert(fileNames, 1, path)
+            downloaded = downloaded + 1
+            term.clear()
+
+            term.setTextColor(colors.white)
+            local installText = "--[[ Installing BeastCraft ]]--"
+            local progressText =
+            downloaded .. " of " .. totalFiles .. "(" .. math.ceil(100 * (downloaded / totalFiles)) .. "%)"
+            term.setCursorPos(WIDTH / 2 - #installText / 2, 2)
+            term.write(installText)
+            term.setCursorPos(WIDTH / 2 - #progressText / 2, 3)
+            term.write(progressText)
+            for i = 1, 3 do
+                if fileNames[i] then
+                    term.setCursorPos(WIDTH / 2 - #fileNames[i] / 2, i + 3)
+                    term.setTextColor(fileColors[i])
+                    term.write(fileNames[i])
+                end
+            end
+        end
+    end
+    term.setCursorPos(WIDTH / 2 - 3, 7)
+end
+
+calculateFiles(files)
+downloadFiles(files, "")
+resetToken()
