@@ -1,0 +1,84 @@
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),
+    ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+    bool ok;
+    QString text = QInputDialog::getText(this, "Input IP:port",
+                                     "IP:port", QLineEdit::Normal,
+                                     "127.0.0.1:5678", &ok);
+    if (ok && !text.isEmpty()){
+        setWindowTitle(text + QString(" 0 users online"));
+        QRegExp regIpPort("^(((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\b){4})\\:(\\d{1, 5})$");
+        QStringList list = regIpPort.capturedTexts();
+        QStringList::iterator it = list.begin();
+        ++it;
+        ipName = *it;
+        ++it;
+        portNumberName = (*it).toUInt();
+    }
+
+    EVP_PKEY * privKey = generate_key();
+
+    if (privKey == NULL){
+       qDebug() << "NULL PRIVATE KEY";
+       exit(-1);
+    }
+    X509 * certif = generate_x509(privKey);
+    if (certif == NULL){
+       qDebug() << "NULL CERT";
+       exit(-1);
+    }
+    BIO* bio = BIO_new(BIO_s_mem());
+
+    if (!PEM_write_bio_X509(bio, certif)){
+       qDebug() << "NULL RETURNED BY PEM_write_bio_x509";
+        exit(-1);
+    }
+    std::unique_ptr<char[]> buf;
+    BUF_MEM* biostruct;
+    BIO_get_mem_ptr(bio, &biostruct);
+    buf = std::make_unique<char[]>(biostruct->length);
+    if (static_cast<size_t>(BIO_read(bio, buf.get(), biostruct->length)) != biostruct->length){
+       qDebug() << "Huston, we have some problems";
+       exit(-1);
+    }
+
+    size_t lengthOfPrivateKey = 0;
+    EVP_PKEY_get_raw_private_key(privKey, NULL, &lengthOfPrivateKey);
+    if (lengthOfPrivateKey == 0){
+       qDebug() << "Private key is 0";
+       exit(-1);
+    }
+    std::unique_ptr<unsigned char[]> prKey(new unsigned char[lengthOfPrivateKey]);
+    if (!EVP_PKEY_get_raw_private_key(privKey, prKey.get(), &lengthOfPrivateKey)){
+        qDebug() << "Unable to get private key";
+        exit(-1);
+    }
+    size_t lengthOfPublicKey = 0;
+    EVP_PKEY_get_raw_public_key(privKey, NULL, &lengthOfPublicKey);
+    if (lengthOfPublicKey == 0){
+       qDebug() << "Public key is 0";
+       exit(-1);
+    }
+    std::unique_ptr<unsigned char[]> pubKey(new unsigned char[lengthOfPublicKey]);
+    if (!EVP_PKEY_get_raw_public_key(privKey, pubKey.get(), &lengthOfPublicKey)){
+        qDebug() << "Unable to get public key";
+        exit(-1);
+    }
+
+
+
+    QSslCertificate cert(QByteArray(buf.get(), biostruct->length));
+    QSslKey key(QByteArray(reinterpret_cast<char *>(prKey.get()), lengthOfPrivateKey), QSsl::Rsa);
+
+    server = new QSslServer(this);
+    connect(server, SIGNAL(newEncryptedConnection()), this, SLOT(handleConnection()));
+
+    QSslConfiguration config = server->sslConfiguration();
+    config.setLocalCertificate(cert);
+    config.setPrivateKey(key);
+    server->setSslConfiguration(config);
+
+    server->listen(QHostAddress(ipName), portNumberName);
+}
