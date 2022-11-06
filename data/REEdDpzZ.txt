@@ -1,0 +1,166 @@
+@author Nikita Merzlyakov
+
+//// Да да привет драсьте
+//// что делать вы знаете
+
+// если забыли где работаем: docker run -d -it --name ubuntu_osi -p 5600:95 ubuntu:20.04 /bin/bash
+
+apt-get update
+
+//// ставим компилятор
+apt-get install build-essential
+
+//// комиляция 4го таска
+
+gcc prntxt.c -o prntxt   
+
+//// пример запуска 4го таска
+
+./prntxt --number 2 --timeout -- text
+
+//// компиляция 5го таска и проги которая для него нужна
+
+gcc launch.c -o launch
+
+gcc to_run.c -o to_run
+
+//// запуск 5го таска
+
+./launch to_run file
+
+//// И сам код ////
+//// prntxt.c ////
+
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <getopt.h>
+
+void usage() 
+{
+    printf("usage: prntxt -n|--number <N> [-t|--timeout[<T>]] -- <TEXT>\n");
+    exit(1);
+}
+
+int main(int argc, char *argv[]) 
+{
+    int nb = -1;
+    int t = 0;
+    int c;
+    int i = 1;
+    char* text;
+
+    struct option long_options[] = {
+        {"number", required_argument, NULL, 'n'},
+        {"timeout", optional_argument, NULL, 't'}
+    };
+
+    while (1) {
+        c = getopt_long(argc, argv, "n:t::", long_options, NULL);
+        if (c == -1) {
+            break;
+        }
+        switch (c) {
+            case 'n':
+                nb = atoi(optarg);
+                break;
+            case 't':
+                if (optarg) {
+                    t = atoi(optarg);
+                }
+                else {
+                    t = 1;
+                }
+                break;
+            default: 
+                usage();
+                break;
+        }
+    }
+
+    if (nb <= 0) {
+        usage();
+    }
+
+    text = argv[optind];
+    if (text == NULL) {
+        usage();
+    }
+
+    while (i < nb) {
+        printf("%s\n", text);
+        sleep(t);
+        i++;
+    }
+    printf("%s\n", text);
+
+    return 0;
+}
+
+////////
+
+//// launch.c ////
+
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+
+#include <sys/stat.h>
+#include <fcntl.h>
+
+void usage() 
+{
+    printf("launch <prog> <file>\n");
+    exit(1);
+}
+
+int main(int argc, char* argv[]) 
+{
+    if (argc != 3) {
+                printf("ads");
+        usage();
+    }
+
+    if (access(argv[1], F_OK) != 0) {
+
+        usage();
+    }
+
+    pid_t pid = fork();
+    if (pid == 0) { // child 
+        int fd = open(argv[2], O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+        dup2(fd, 1);
+        close(fd);
+
+        execl(argv[1], argv[1], NULL);
+        perror("execl");
+
+        return 0;
+    }
+    else if (pid == -1) {
+        printf("err in fork call\n");
+    }
+
+    int code;
+    pid_t cpid = wait(&code);
+    printf("child %d is done with code %d\n", cpid, code);
+    return 0;
+}
+
+////////
+
+//// to_run.c //// (назвать можете как угодно да и прогу вы можете сделать какую хотите, логично что поменяется параметр для launch.c)
+
+#include <stdio.h>
+
+int main(int argc, char* argv[])
+{
+    for (int i = 0; i < 5; i++) {
+        printf("hello %d\n", i);
+    }
+
+    return 0;
+}
+
+////////
