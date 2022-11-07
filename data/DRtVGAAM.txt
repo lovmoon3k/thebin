@@ -1,0 +1,79 @@
+// Made using Dolphin Autosplitter Template by Buurazu
+// https://github.com/Buurazu/AutoSplitters/blob/main/Dolphin%20Autosplitter%20Template.asl
+
+// Date Modified: 2022/01/16
+
+state("Dolphin") {}
+
+startup {
+    vars.timerModel = new TimerModel { CurrentState = timer };
+    refreshRate = 10;
+    vars.frameRate = 30f/1.001f;
+
+    vars.gameID = "GMSP01";             // GameID used to check top of memory
+    vars.gameName = "SMS";              // for debugging output
+    vars.offsetTimerStop  = 0x017F00B2; // all versions
+    vars.offsetTimerValue = 0x017F00B4; // all versions
+    vars.offsetMapID      = 0x003E10CE; // 0x3E10CE for PAL; 0x3E600E for J; 0x3E970E for E
+    
+    // Big Endian to Little Endian utility
+    Func<int, int> BEtoLE = (beint) => {
+        byte[] bytes = BitConverter.GetBytes(beint);
+        Array.Reverse(bytes, 0, bytes.Length);
+        beint = BitConverter.ToInt32(bytes, 0);
+        return beint;
+    };
+    vars.BEtoLE = BEtoLE;
+}
+
+init {  
+    vars.startLoc = IntPtr.Zero;
+    vars.checkedForGameID = -1;
+	vars.time = 0;
+}
+
+update {
+    // 1. Dolphin sync 1/2: dynamically set Dolphin's memory region every 2s
+    if (vars.startLoc == IntPtr.Zero) {
+        vars.checkedForGameID += 1;
+        
+        if ((int)vars.checkedForGameID % (refreshRate * 2) == 0) {
+            print("Searching for " + vars.gameName + "'s memory header...");
+            foreach (var page in memory.MemoryPages(true))
+            {
+                // print(page.BaseAddress.ToString("X") + " " + page.RegionSize.ToString());
+                if ((int)page.RegionSize < 0x2000000) continue; //checking for 32MB exactly
+                string hopefullyID = memory.ReadString((IntPtr)(page.BaseAddress), 6);
+                if (hopefullyID == vars.gameID) {
+                    print(vars.gameName + " memory found at 0x" + page.BaseAddress.ToString("X"));
+                    vars.startLoc = page.BaseAddress;
+                    break;
+                }
+            }
+        }
+        if (vars.startLoc == IntPtr.Zero) return false;     // require startLoc to have been set
+    }
+
+    // 2. Dolphin sync 2/2: check game is still loaded (base address can change during reload)
+    var isGameStillLoaded = memory.ReadString((IntPtr)(vars.startLoc), 6);
+    if (isGameStillLoaded != vars.gameID) {
+        print(vars.gameName + " unloaded");
+        vars.startLoc = IntPtr.Zero;
+        if (settings.ResetEnabled) { vars.timerModel.Reset(); }
+        return false;
+    }
+    
+    // 3. game update routine
+    current.timerStop  = memory.ReadValue<byte>((IntPtr)(vars.startLoc + vars.offsetTimerStop));
+    current.timerValue = vars.BEtoLE(memory.ReadValue<int>((IntPtr)(vars.startLoc + vars.offsetTimerValue)));
+    current.mapID      = memory.ReadValue<byte>((IntPtr)(vars.startLoc + vars.offsetMapID));
+	if (old.timerStop == 0 && current.timerStop != 0) { vars.time += current.timerValue; }
+	if (old.mapID != 0xF && current.mapID == 0xF) { vars.time = 0; if (settings.ResetEnabled) { vars.timerModel.Reset(); } }
+	// reset routine has to be here because reset{} below isn't called when timer stops at end of run for some reason
+}
+
+isLoading { return true; }                                              	// blocks real-time approximation to game time
+gameTime  { return TimeSpan.FromSeconds(vars.time/(4*vars.frameRate)); }	// qft value
+start     {	return old.mapID == 0xF && current.mapID != 0xF; }				// exiting title screen
+reset     {	return false; }													// entering title screen (moved to update routine)
+split     {	return old.timerStop == 0 && current.timerStop != 0; }			// qft stopped
