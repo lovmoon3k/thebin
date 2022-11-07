@@ -1,0 +1,64 @@
+diff --git a/projects/Amlogic-ce/devices/Amlogic-ne/packages/linux/package.mk b/projects/Amlogic-ce/devices/Amlogic-ne/packages/linux/package.mk
+index 4f7aa2c705..2017a652b8 100644
+--- a/projects/Amlogic-ce/devices/Amlogic-ne/packages/linux/package.mk
++++ b/projects/Amlogic-ce/devices/Amlogic-ne/packages/linux/package.mk
+@@ -16,6 +16,7 @@ PKG_USETOKEN="yes"
+ PKG_DEPENDS_HOST="ccache:host rsync:host openssl:host"
+ PKG_DEPENDS_TARGET="toolchain linux:host kmod:host xz:host keyutils aml-dtbtools:host aml-dtbtools $KERNEL_EXTRA_DEPENDS_TARGET"
+ PKG_NEED_UNPACK="$LINUX_DEPENDS $(get_pkg_directory initramfs) $(get_pkg_variable initramfs PKG_NEED_UNPACK)"
++PKG_DEPENDS_UNPACK="bl30"
+ PKG_LONGDESC="This package contains a precompiled kernel image and the modules."
+ PKG_IS_KERNEL_PKG="yes"
+ PKG_STAMP="$KERNEL_TARGET $KERNEL_MAKE_EXTRACMD $KERNEL_UBOOT_EXTRA_TARGET"
+@@ -140,9 +141,51 @@ makeinstall_host() {
+     cp -R dest/include/* $SYSROOT_PREFIX/usr/include
+ }
+ 
++build_gpio_data() {
++	cat << EOF > drivers/bootloader/gpio_data.h
++typedef struct bl30_gpio {
++    char name[12];
++    uint8_t number;
++} bl30_gpio_t;
++
++typedef struct bl30_gpios_soc {
++    meson_cpuid_type_e cpuid;
++    bl30_gpio_t gpio[256];
++} bl30_gpios_soc_t;
++
++typedef struct bl30_gpios {
++    bl30_gpios_soc_t soc[16];
++} bl30_gpios_t;
++
++bl30_gpios_t bl30_gpios = {
++EOF
++
++# .soc[0].cpuid = MESON_CPU_MAJOR_ID_T7,
++#	.soc[0].gpio[0] = (bl30_gpio_t) {"GPIOM_3", 3},
++#	.soc[0].gpio[1] = (bl30_gpio_t) {"GPIOM_4", 4},
++
++  soc_num=0
++	for soc_type in sc2 t7; do
++		printf "  /* soc ${soc_type} */\n" >>drivers/bootloader/gpio_data.h
++		printf "  .soc[${soc_num}].cpuid = MESON_CPU_MAJOR_ID_${soc_type^^},\n" >>drivers/bootloader/gpio_data.h
++
++		cat $(get_build_dir bl30)/demos/amlogic/n200/include/${soc_type}/gpio-data.h | awk -v soc_num=${soc_num} \
++		  '/^#define\s*GPIO._/ { printf("  .soc[%d].gpio[%d] = (bl30_gpio_t) {\"%s\", %d},\n", soc_num, counter++, $2, $3)}' \
++		  >>drivers/bootloader/gpio_data.h
++    let "soc_num=soc_num+1"
++	done
++
++	printf "};\n" >>drivers/bootloader/gpio_data.h
++
++	echo aaa
++	read
++}
++
+ pre_make_target() {
+   pkg_lock_status "ACTIVE" "linux:target" "build"
+ 
++  build_gpio_data
++
+   if [ "$TARGET_ARCH" = "x86_64" ]; then
+     # copy some extra firmware to linux tree
+     mkdir -p $PKG_BUILD/external-firmware
