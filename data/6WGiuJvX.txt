@@ -1,0 +1,131 @@
+-- partnerID = 0
+justPlaced = false
+layersDown = 0
+extraLayers = 0
+ 
+turtle.select(2)
+turtle.refuel()
+turtle.select(1)
+ 
+function mine()
+    turtle.dig()
+    turtle.digUp()
+    turtle.forward()
+end
+ 
+function turnLeft()
+    turtle.turnLeft()
+    mine()
+    turtle.turnLeft()
+end
+ 
+function turnRight()
+    turtle.turnRight()
+    mine()
+    turtle.turnRight()
+end
+ 
+print("How long?")
+width = tonumber(read())
+print("How wide?")
+length = tonumber(read())
+print("How many layers?")
+layers = tonumber(read())
+ 
+function mineWidth()
+    for i = width - 1, 1, -1 do
+        mine()
+        -- rednet.send(partnerID,"Forward")
+    end
+end
+ 
+turnCount = 1
+function mineTotal()
+    for i = length, 1, -1 do
+        mineWidth()
+        if i ~= 1 then
+            if turnCount == 1 then
+                turnLeft()
+                -- rednet.send(partnerID,"turnLeft")
+                turnCount = turnCount + 1
+            elseif turnCount == 2 then
+                turnRight()
+                -- rednet.send(partnerID,"turnRight")
+                turnCount = turnCount - 1
+            end
+        end
+    end
+end
+ 
+function mineFull()
+    if justPlaced == false then
+        turtle.digUp()
+    end
+    turtle.digDown()
+    turtle.down()
+    justPlaced = false
+    -- rednet.send(partnerID,"Down")
+    mineTotal()
+    turtle.turnLeft()
+    turtle.turnLeft()
+    -- rednet.send(partnerID,"Turn Around")
+end
+ 
+function ivFull()
+    for i = 1, 16 do
+        if turtle.getItemCount(i) == 0 then
+            return false
+        end
+    end
+    return true
+end
+ 
+function layerCount(layersValue)
+    extraLayers = 0
+    for i = layersValue, 1, -1 do
+        if ivFull() == false then
+            if rednet.receive(0.2) then
+                rednet.broadcast("Stopping...")
+                break
+            end
+            mineFull()
+            layersDown = layersDown + 1
+        else
+            turtle.digUp()
+            turtle.placeUp()
+            for i = 2, 16 do
+                turtle.select(i)
+                turtle.dropUp()
+            end
+            turtle.select(1)
+            justPlaced = true
+            extraLayers = extraLayers + 1
+        end
+        select(1)
+        if turtle.getItemCount(1) == 0 then
+            break
+        end
+    end
+ 
+    if extraLayers > 0 then
+        layerCount(extraLayers)
+    end
+end
+ 
+function Task()
+    layerCount(layers)
+ 
+    turtle.forward()
+    for i = layersDown, 1, -1 do
+        -- rednet.send(partnerID,"Up")
+        turtle.up()
+    end
+end
+ 
+rednet.open("left")
+rednet.receive()
+rednet.broadcast("Stopping...")
+-- rednet.send(partnerID,"Begin")
+ 
+Task()
+ 
