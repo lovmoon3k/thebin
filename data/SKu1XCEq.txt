@@ -1,0 +1,89 @@
+pub(super) unsafe fn switch_to(registers: *const Registers) {
+    asm!("// * Сохранить регистры RBX и RBP в стеке ядра.
+        push rbx
+        push rbp
+        // * Сохранить адрес registers в стеке.
+        push rdi",                     
+        in("rdi") registers,);
+    asm!("// * Записать текущее состояние стека ядра. 
+        mov rax, rsp
+        mov rdx, rsp
+        shr rdx, 32
+        mov ecx, 0xc0000100
+        wrmsr",
+        "// * Запретить прерывания инструкцией cli процессора. 
+        cli   
+        // * Переключить стек, то есть регистр RSP, на заданный ему на вход адрес registers.                      
+        mov rsp, rdi                
+        // * Восстановить из стека, то есть на самом деле из структуры Registers, на которую он переключил свой стек, регистры общего назначения с RAX по R15.
+        pop rax
+        pop rbx
+        pop rcx
+        pop rdx
+        pop rdi
+        pop rsi
+        pop rbp
+        pop r8
+        pop r9
+        pop r10
+        pop r11
+        pop r12
+        pop r13
+        pop r14
+        pop r15
+        // * Выполнить инструкцию iretq, чтобы переключиться в процесс пользователя заданный полем Registers::user_context.
+        iretq"                      
+    );
+    asm!("store_user_mode_context:
+        // * Вспомнить состояние стека ядра. Его можно прочитать по логическому адресу FS:0, так как мы ранее настроили базу FS на то место стека, куда сохранили RSP.
+        mov rsp, fs:[0] 
+        // * Восстановить из стека ядра сохранённый адрес registers.            
+        pop rdi                     
+        // * Переключить стек на этот адрес плюс суммарный размер регистров общего назначения user_registers_size = const mem::size_of::<Registers>() - mem::size_of::<ModeContext>().                            
+        add rdi, {user_register_size} 
+        mov rsp, rdi",
+        user_register_size = in(reg) mem::size_of::<Registers>() - mem::size_of::<ModeContext>(),
+    ); 
+    asm!("// * Записать в стек, то есть на самом деле в заданную на вход структуру Registers, регистры общего назначения с R15 по RAX. В обратном порядке, так как инструкции push и pop должны образовывать правильную скобочную последовательность с именами регистров в качестве типов скобок.
+        push r15
+        push r14
+        push r13
+        push r12
+        push r11
+        push r10
+        push r9
+        push r8
+        push rbp
+        push rsi
+        push rdi
+        push rdx
+        push rcx
+        push rbx
+        push rax
+        
+    switch_to_kernel_mode:
+        // * Переключить регистр RSP на стек ядра.
+        mov rsp, fs:[0]  
+        // * Разрешить прерывания инструкцией sti процессора. Мы вернулись на стек ядра и теперь безопасно получить прерывание, что приведёт к записи адреса возврата на стек.           
+        sti  
+        // * Вытолкнуть из стека ядра сохранённый там адрес registers. Неважно куда, он больше не понадобится.                                     
+        add rsp, 8                  
+        // * Восстановить регистры RBX и RBP, помня про правильную скобочную последовательность.
+        pop rbp
+        pop rbx
+        ",
+        lateout("rax") _,
+        lateout("rcx") _,
+        lateout("rdx") _,
+        lateout("rdi") _,
+        lateout("rsi") _,
+        lateout("r8") _,
+        lateout("r9") _,
+        lateout("r10") _,
+        lateout("r11") _,
+        lateout("r12") _,
+        lateout("r13") _,
+        lateout("r14") _,
+        lateout("r15") _,
+    );
+}
