@@ -1,0 +1,162 @@
+version: '3.6'
+services:
+
+  wireguard:
+    container_name: wireguard
+    image: ghcr.io/linuxserver/wireguard
+    restart: unless-stopped
+    environment:
+    - PUID=1000
+    - PGID=1000
+    - TZ=Europe/London
+    - SERVERURL=877dev.duckdns.org
+    - SERVERPORT=51820
+    - PEERS=iPhone_chris,iPad_chris,iPhone_claire,iPhone_tom,iPhone_jack
+    - PEERDNS=auto
+    - ALLOWEDIPS=0.0.0.0/0
+    ports:
+    - "51820:51820/udp"
+    volumes:
+    - ./volumes/wireguard:/config
+    - /lib/modules:/lib/modules:ro
+    cap_add:
+    - NET_ADMIN
+    - SYS_MODULE
+    sysctls:
+    - net.ipv4.conf.all.src_valid_mark=1
+
+  portainer-ce:
+    container_name: portainer-ce
+    image: portainer/portainer-ce
+    restart: unless-stopped
+    ports:
+    - 8000:8000
+    - 9000:9000
+    environment:
+    - TZ=Europe/London
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - ./volumes/portainer-ce/data:/data
+
+  nodered:
+    container_name: nodered
+    build: ./services/nodered/.
+    restart: unless-stopped
+    user: '0'
+    # privileged: true
+    env_file: ./services/nodered/nodered.env
+    environment:
+    - TZ=Europe/London    
+    ports:
+    - 1880:1880
+    volumes:
+    - ./volumes/nodered/data:/data
+    - ./volumes/nodered/ssh:/root/.ssh
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
+    devices:
+    - /dev/ttyAMA0:/dev/ttyAMA0
+    - /dev/vcio:/dev/vcio
+    - /dev/gpiomem:/dev/gpiomem
+
+  influxdb:
+    container_name: influxdb
+    image: influxdb:1.8
+    restart: unless-stopped
+    ports:
+    - 8086:8086
+    - 8083:8083
+    - 2003:2003
+    env_file:
+    - ./services/influxdb/influxdb.env
+    environment:
+    - TZ=Europe/London
+    volumes:
+    - ./volumes/influxdb/data:/var/lib/influxdb
+    - ./backups/influxdb/db:/var/lib/influxdb/backup
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana
+    restart: unless-stopped
+    user: '0'
+    ports:
+    - 3000:3000
+    env_file:
+    - ./services/grafana/grafana.env
+    environment:
+    - TZ=Europe/London
+    volumes:
+    - ./volumes/grafana/data:/var/lib/grafana
+    - ./volumes/grafana/log:/var/log/grafana
+
+  mosquitto:
+    container_name: mosquitto
+    image: eclipse-mosquitto:1.6.12
+    restart: unless-stopped
+    user: '1883'
+    ports:
+    - 1883:1883
+    environment:
+    - TZ=Europe/London
+    volumes:
+    - ./volumes/mosquitto/data:/mosquitto/data
+    - ./volumes/mosquitto/log:/mosquitto/log
+    - ./volumes/mosquitto/pwfile:/mosquitto/pwfile
+    - ./services/mosquitto:/mosquitto/config:ro
+
+  zigbee2mqtt:
+    container_name: zigbee2mqtt
+    image: koenkk/zigbee2mqtt
+    ports:
+    - 8080:8080
+    volumes:
+    - ./volumes/zigbee2mqtt/data:/app/data
+    #- /opt/zigbee-herdsman-converters:/app/node_modules/zigbee-herdsman-converters
+    devices:
+    - /dev/ttyUSB0:/dev/ttyACM0
+    environment:
+    - TZ=Europe/London
+    restart: unless-stopped
+    #network_mode: host
+
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:latest
+    ports:
+    - 53:53/tcp
+    - 53:53/udp
+    - 67:67/udp
+    - 8089:80/tcp
+    env_file:
+    - ./services/pihole/pihole.env
+    environment:
+    - TZ=Europe/London
+    volumes:
+    - ./volumes/pihole/etc-pihole/:/etc/pihole/
+    - ./volumes/pihole/etc-dnsmasq.d/:/etc/dnsmasq.d/
+    dns:
+    - 127.0.0.1
+    - 1.1.1.1
+    cap_add:
+    - NET_ADMIN
+    restart: unless-stopped
+
+  blynk_server:
+   build:
+     context: ./.templates/blynk_server/.
+     args:
+       - BLYNK_SERVER_VERSION=0.41.17
+   container_name: blynk_server
+   restart: unless-stopped
+   environment:
+     - TZ=Etc/UTC
+     - IOTSTACK_UID=1000
+     - IOTSTACK_GID=1000
+   ports:
+     - "8180:8080"
+     - "8440:8440"
+     - "9443:9443"
+   volumes:
+     - ./volumes/blynk_server/data:/data
+     - ./volumes/blynk_server/config:/config
