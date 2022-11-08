@@ -1,0 +1,414 @@
+/*
+
+Usergraph, graphical user interface for pixi.js.
+Copyright (c) 2022 by Keith Weatherby II
+Rights to the source are hereby granted for use to John Szeder and Seismic Studios for any purpose, 
+including, but not limited to, commercial or non-commercial purposes.  John Szeder and Seismic Studios 
+may freely distribute, remix, adapt, and build upon Usergraph as long as this text remains in the source code.
+This text may be modified at any time.
+
+*/
+
+import * as PIXI from "pixi.js";
+
+// TO DO:  The ability to add image/animation assets to buttons
+export class Btn extends PIXI.Container
+{
+    // these are animated sprites because in the future they'll allow animations
+    _aSprHover : PIXI.AnimatedSprite;  // sprite will highlight the button
+    _aSprNormal : PIXI.AnimatedSprite;  // Normal not pressed button state
+    _aSprPressed : PIXI.AnimatedSprite;  // When the button is touch/tapped/clicked
+
+    // button graphics using non image textures
+    _cHover : PIXI.Container;
+    _cNormal : PIXI.Container;
+    _cPressed : PIXI.Container;
+
+    // decided to make these members instead of temp
+    // because I may want to fine tune control of the button later
+    _gBackground : PIXI.Graphics;
+    _gDarkOverlay : PIXI.Graphics;
+    _gLightOverlay : PIXI.Graphics;
+    _tLabelText : PIXI.Text;
+
+    _w : number;
+    public get W() : number
+    {
+        return this._w;
+    }
+    public set W( w : number )
+    {
+        this._w = w;
+    }
+
+    _h : number;
+    public get H() : number
+    {
+        return this._h;
+    }
+    public set H( h : number )
+    {
+        this._h = h;
+    }
+ 
+    _basecolor : number;
+    public get BaseColor() : number
+    {
+        return this._basecolor;
+    }
+    public set BaseColor( h : number )
+    {
+        this._basecolor = h;
+    }
+    
+    _renderer : PIXI.Renderer;
+
+    _state : string;
+    public get State() : string
+    {
+        return this._state;
+    }
+    public set State( state : string )
+    {
+        this._state = state;
+    }
+
+    _label : string;
+    public get Label() : string
+    {
+        return this._label;
+    }
+    public set Label( label : string )
+    {
+        this._label = label;
+    }
+
+    // _id may be used more internally
+    // but figured I would let them still
+    // be publically accessible
+    _id : number;
+    public get ID() : number
+    {
+        return this._id;
+    }
+
+    // 100 button id's is kind of arbitrary in that I figure I might want to
+    // designate different ranges for different types of ui elements, however
+    // this isn't some hard and fast rule and could have virtually unlimited buttons.
+    // So you could tell what kind of control it is just by dividing by 100;
+    // a dialog that contains buttons might be in the range of 100-199 and other
+    // kinds of controls like maybe scrollbar arrows set to 200-299, and so forth
+    public set ID( id : number )
+    {
+        if( id >= 0 && id <= 99 ) this._id = id; 
+        else
+        {
+            this._id = 99;
+            console.error( "Button ID out of range (0-99).  Must be 0 - 99.\nAutomatically set to '99' but behavior undefined." );
+        }
+    }
+
+    _pressed : boolean;
+    public get Pressed() : boolean
+    {
+        //console.log( "pressed field value: " + this._pressed );
+
+        return this._pressed;
+    }
+    
+    // so since pressed is continuous, 
+    // I decided to call clicked when you pressed
+    // and then released the button.
+    _clicked : boolean;
+    public get Clicked() : boolean
+    {
+        // so we want to reset to false each
+        // time this has been clicked, otherwise
+        // it will show up continuously
+        let hasBeenClicked = this._clicked;
+        this._clicked = false;
+
+        return hasBeenClicked;
+    }
+    _clickedCallback : Function;
+
+    // default visuals, creates a background rectangle with text overlayed. 
+    // Will create a dark or light sprite if its "hover" or "pressed"
+    private createVisuals( buttonStyle : string, w_override : boolean, h_override : boolean ) : PIXI.Container //PIXI.AnimatedSprite
+    {
+        // temporary for all the wrangling we're going to do
+        var tmpContainer : PIXI.Container;
+        var tmpGraphics : PIXI.Graphics;
+        var tmpText : PIXI.Text;
+
+        // hover or highlighted
+
+        // let's create the text object first so we can resize the button to allow for the text.
+        // We won't worry about the size of the text, just that it should be a single line.
+        tmpText = new PIXI.Text( this.Label, { fill : 0xcccccc, strokeThickness : 3, padding : 4 } );
+
+        if( w_override )
+        {
+            // if the text width is bigger than the button width, resize the button width
+            // I just decided I would use the text height as padding size
+            if( tmpText.width > this.W ) this.W = tmpText.width + tmpText.height;
+        }
+
+        if( h_override )
+        {
+            // doing something similar for the height of the button, the only padding though
+            // is simply 1/4th the height on each side.
+            if( tmpText.height + ( tmpText.height / 4 ) > this.H ) this.H = tmpText.height + ( tmpText.height / 4 );
+        }
+
+        // let's center the text now.
+        tmpText.x = ( this.W - tmpText.width ) / 2;
+
+        // center y.
+        tmpText.y = ( ( this.H - tmpText.height ) / 2 ) - ( tmpText.height / 8 );
+        
+        // this is the background rectangle
+        tmpGraphics = new PIXI.Graphics();
+        tmpGraphics.beginFill( this.BaseColor );
+        tmpGraphics.drawRect( 0, 0, this.W, this.H );
+        tmpGraphics.endFill();
+
+        tmpContainer = new PIXI.Container();
+        tmpContainer.addChild( tmpGraphics );
+
+        tmpContainer.addChild( tmpText );
+
+        // next we decide to lighten/darken based buttonStyle
+        if( buttonStyle != 'normal' )
+        {
+            tmpGraphics = new PIXI.Graphics();
+
+            // let's put a rectangle over if it's not a normal state
+            if( buttonStyle == 'hover' )
+            {
+                tmpGraphics.blendMode = PIXI.BLEND_MODES.ADD;  // this will make it brighter
+                tmpGraphics.beginFill( 0xffffff, 0.35 );       
+            }
+            else
+            {
+                tmpGraphics.blendMode = PIXI.BLEND_MODES.MULTIPLY;  // this will make it darker
+                tmpGraphics.beginFill( 0x000000, 0.35 );        
+            }
+
+            tmpGraphics.drawRect( 0, 0, this.W, this.H );
+            tmpGraphics.endFill();
+            tmpContainer.addChild( tmpGraphics );
+        }
+
+        return tmpContainer;
+    
+    }
+
+    // default visuals, creates a background rectangle with text overlayed. 
+    // Will create a dark or light sprite if its "hover" or "pressed"
+    private ReMake
+    (
+        w : number, 
+        h : number, 
+        color : number, 
+        label : string, 
+        w_override : boolean,
+        h_override : boolean,
+    )
+    {
+        this.W = w;
+        this.H = h;
+        this.BaseColor = color;
+        this.Label = label;
+
+        //make sure the text object also has the label
+        this._tLabelText.text = label;
+
+        // resize the button based on text size or whether we want to use the size params
+        // w/h override literally means override the width and height params and instead use text size
+        if( w_override )
+        {
+            // if the text width is bigger than the button width, resize the button width
+            // I just decided I would use the text height as padding size
+            if( this._tLabelText.width > this.W ) this.W = this._tLabelText.width + this._tLabelText.height;
+        }
+
+        if( h_override )
+        {
+            // doing something similar for the height of the button, the only padding though
+            // is simply 1/4th the height on each side.
+            if( this._tLabelText.height + ( this._tLabelText.height / 4 ) > this.H ) this.H = this._tLabelText.height + ( this._tLabelText.height / 4 );
+        }
+
+        // let's center the text now.
+        this._tLabelText.x = ( this.W - this._tLabelText.width ) / 2;
+        // center y.
+        this._tLabelText.y = ( ( this.H - this._tLabelText.height ) / 2 ) - ( this._tLabelText.height / 8 );
+
+        // create the background graphics
+        // this is the background rectangle
+        this._gBackground.beginFill( this.BaseColor );
+        this._gBackground.drawRect( 0, 0, this.W, this.H );
+        this._gBackground.endFill();
+
+        // create each overlay.
+        // lighten the "hover" container
+        this._gLightOverlay.blendMode = PIXI.BLEND_MODES.ADD;  // this will make it brighter
+        this._gLightOverlay.beginFill( 0xffffff, 0.35 );       
+        this._gLightOverlay.drawRect( 0, 0, this.W, this.H );
+        this._gLightOverlay.endFill();
+
+        // darken the "pressed" container
+        this._gDarkOverlay.blendMode = PIXI.BLEND_MODES.MULTIPLY;  // this will make it darker
+        this._gDarkOverlay.beginFill( 0x000000, 0.35 );                
+        this._gDarkOverlay.drawRect( 0, 0, this.W, this.H );
+        this._gDarkOverlay.endFill();
+
+        // each button has the same background, each has the same text, and hover and pressed have separate overlays
+        this._cHover.addChild( this._gBackground );
+        this._cHover.addChild( this._tLabelText );
+        this._cHover.addChild( this._gLightOverlay );
+        
+        this._cNormal.addChild( this._gBackground );
+        this._cNormal.addChild( this._tLabelText );
+
+        this._cPressed.addChild( this._gBackground );
+        this._cPressed.addChild( this._tLabelText );
+        this._cPressed.addChild( this._gDarkOverlay );
+
+    }
+
+    constructor
+    ( 
+        r : PIXI.Renderer, 
+        w : number, 
+        h : number, 
+        color : number, 
+        label : string, 
+        w_override : boolean,
+        h_override : boolean,
+        callback? : Function 
+    )
+    {
+        super();
+        this._renderer = r;
+        this.ID = 0;
+ 
+        this._gBackground = new PIXI.Graphics();
+        this._gDarkOverlay = new PIXI.Graphics();
+        this._gLightOverlay = new PIXI.Graphics();
+        this._tLabelText = new PIXI.Text( label, { fill : 0xcccccc, strokeThickness : 3, padding : 4 } );
+
+        ///*
+        this._cHover = new PIXI.Container();
+        this._cNormal = new PIXI.Container();
+        this._cPressed = new PIXI.Container();
+        //*/
+
+        /*
+        this.Label = label;
+        this.W = w;
+        this.H = h;
+        this.BaseColor = color;
+
+        // hover or highlighted
+        this._cHover = this.createVisuals( 'hover', w_override, h_override );
+        this.addChild( this._cHover );
+
+        // normal button state
+        this._cNormal = this.createVisuals( 'normal', w_override, h_override );
+        this.addChild( this._cNormal );
+
+        // button down
+        this._cPressed = this.createVisuals( 'pressed', w_override, h_override );
+        this.addChild( this._cPressed );
+        //*/
+
+        this.ReMake( w, h, color, label, w_override, h_override );
+
+        this.addChild( this._cHover );
+        this.addChild( this._cNormal );
+        this.addChild( this._cPressed );
+        
+        this.interactive = true;
+
+        this.State = "normal";
+        this._cHover.visible = false;
+        this._cNormal.visible = true;
+        this._cPressed.visible = false;
+
+        this._pressed = false;
+
+        // Don't forget to bind this in the constructor of the
+        // calling class if you want to access any fields from it.
+        // this.BtnCallback = this.BtnCallback.bind( this );
+        this._clickedCallback = callback;
+
+        this
+        // Mouse & touch events are normalized into
+        // the pointer* events for handling different
+        // button events.
+            .on('pointerdown', this.onPointerDown)
+            .on('pointerup', this.onPointerUp)
+            .on('pointerupoutside', this.onPointerOut)
+            .on('pointerover', this.onPointerOver)
+            .on('pointerout', this.onPointerOut)
+            .on('pointertap', this.onPointerTap)
+            ;
+    }
+  
+    private onPointerDown() 
+    {
+        this._state = "pressed";
+        this._cHover.visible = false;
+        this._cNormal.visible = false;
+        this._cPressed.visible = true;
+        this._pressed = true;
+        //console.log( "onPointerDown being fired" );
+    }
+    
+    private onPointerUp() 
+    {
+        this._state = "hover";
+        this._cHover.visible = true;
+        this._cNormal.visible = false;
+        this._cPressed.visible = false;
+        this._pressed = false;
+    }
+    
+    private onPointerOver() 
+    {
+        this._state = "hover";
+        this._cHover.visible = true;
+        this._cNormal.visible = false;
+        this._cPressed.visible = false;
+        this._pressed = false;
+    }
+    
+    private onPointerOut() 
+    {
+        this._state = "normal";
+        this._cHover.visible = false;
+        this._cNormal.visible = true;
+        this._cPressed.visible = false;
+        this._pressed = false;
+    }
+
+    private onPointerTap() 
+    {
+        this._clicked = true;
+        if( this._clickedCallback )
+            this._clickedCallback();
+    }
+
+    // amt = percentage you want to darken in the range of 0-1 (eg: 50% darker should be .5)
+    private darken( inColor : number, amt : number ) : number
+    {
+        if( amt > 1 ) amt = 1;
+        let r = PIXI.utils.hex2rgb( inColor )[ 0 ] * amt;
+        let g = PIXI.utils.hex2rgb( inColor )[ 1 ] * amt;
+        let b = PIXI.utils.hex2rgb( inColor )[ 2 ] * amt;
+
+        return( PIXI.utils.rgb2hex( [ r, g, b ] ) );
+    }
+ }
