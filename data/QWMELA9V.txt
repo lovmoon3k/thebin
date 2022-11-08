@@ -1,0 +1,117 @@
+from django.views import generic
+from django.shortcuts import render, redirect
+from django.urls import reverse_lazy
+from vehicle.forms import ProfileCreateForm, CarCreateForm, CarEditForm, CarDeleteForm, DeleteProfileForm, \
+    ProfileEditForm
+from vehicle.web.models import Profile, Car
+
+
+def get_profile():
+    user = Profile.objects.all()
+    if user:
+        return user[0]
+    return None
+
+
+def index(request):
+    profile = get_profile()
+    context = {
+        'profile': profile
+    }
+    return render(request, 'index.html', context)
+
+
+class ProfileCreate(generic.CreateView):
+    template_name = 'profile-create.html'
+    form_class = ProfileCreateForm
+    success_url = reverse_lazy('catalogue')
+
+
+def show_catalogue(request):
+    profile = get_profile()
+    cars = Car.objects.all()
+    total_cars = len(cars)
+    context = {
+        'profile': profile,
+        'cars': cars,
+        'total_cars': total_cars
+    }
+    return render(request, 'catalogue.html', context)
+
+
+class CarCreate(generic.CreateView):
+    template_name = 'car-create.html'
+    form_class = CarCreateForm
+    success_url = reverse_lazy('catalogue')
+
+
+class CarDetails(generic.DetailView):
+    model = Car
+    template_name = 'car-details.html'
+    context_object_name = 'car'
+
+
+class CarEdit(generic.UpdateView):
+    model = Car                                      # Кой Модел да използва
+    form_class = CarEditForm                         # Коя форма да използва
+    template_name = 'car-edit.html'                  # Кой темплейт да използва
+    context_object_name = 'car'                      # Как да се казва обекта. Ако не се зададе по подразбиране е "object" 
+    success_url = reverse_lazy('catalogue')          # Къде да редиректне
+
+
+def car_delete(request, pk):
+    car = Car.objects.filter(pk=pk).get()
+    if request.method == "POST":
+        form = CarDeleteForm(request.POST, instance=car)
+        if form.is_valid():
+            form.save()
+            return redirect('catalogue')
+    else:
+        form = CarDeleteForm(instance=car)
+    context = {
+        'car': car,
+        'form': form
+    }
+    return render(request, 'car-delete.html', context)
+
+
+def profile_details(request):
+    profile = get_profile()
+    cars = Car.objects.all()
+    car_total_price = sum(car.price for car in cars)
+    context = {
+        'profile': profile,
+        'car_total_price': car_total_price
+    }
+    return render(request, 'profile-details.html', context)
+
+
+def profile_edit(request):
+    profile = get_profile()
+    if request.method == 'POST':
+        form = ProfileEditForm(request.POST, instance=profile)
+        if form.is_valid():
+            form.save()
+            return redirect('profile details')
+    else:
+        form = ProfileEditForm(instance=profile)
+    context = {
+        'form': form
+    }
+    return render(request, 'profile-edit.html', context)
+
+
+def profile_delete(request):
+    user_profile = get_profile()
+    cars = Car.objects.all()
+    form = DeleteProfileForm(instance=user_profile)
+
+    if request.method == 'POST':
+        form = DeleteProfileForm(request.POST, instance=user_profile)
+        if form.is_valid():
+            cars.delete()
+            form.save()
+            return redirect('index')
+
+    context = {'form': form}
+    return render(request, 'profile-delete.html', context)
