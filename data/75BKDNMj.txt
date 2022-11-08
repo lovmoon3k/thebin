@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Last.FM Now Playing</title>
+		<meta charset="UTF-8">
+	</head>
+	<body>
+		<div class="info slideout">
+			<img class="logo" id="logo" src="https://www.xaymar.com/wp-content/uploads/2016/08/Avatar.png"><span class="artist" id="artist">Now</span><span class="separator">&nbsp;&ndash;&nbsp;</span><span class="title" id="title">Playing</span>
+		</div>
+		<style>
+			body {
+				background: transparent;
+				color: black;
+				border: 0 transparent;
+				padding: 2pt;
+				margin: 0;
+				text-align: left;
+				overflow: hidden;
+			}
+
+			.info {
+				display: inline-block;
+				width: auto;
+				height: 32pt;
+
+				padding: 4pt 8pt;
+				margin: 0;
+				margin-top: 16pt;
+
+				font-size: 24pt;
+				font-weight: ;bold;
+				font-family: "Roboto", "Open Sans", sans-serif, serif;
+
+				color: white;
+				opacity: 0.0;
+				
+				background: rgba(0, 0, 0, 0.75);
+				box-shadow: 0px 0px 6pt 1pt rgba(0, 0, 0, 1.0);
+				
+				border: 1px solid black;
+				border-radius: 8px;
+			}
+
+			.info .logo {
+				width: 40pt;
+				height: 40pt;
+				margin: 0;
+				margin-top: -10pt;
+				margin-left: -6pt;
+				margin-right: 4pt;
+				padding: 1px;
+				
+				background: rgba(255,255,255, 0.5);
+				box-shadow: 0px 0px 6pt -2pt rgba(255, 255, 255, 1.0);
+				border: 1px solid black;
+				border-radius: 4px;
+			}
+
+			.info .artist,
+			.info .separator,
+			.info .title {
+				vertical-align: top;
+			}
+
+			.slideout {
+				animation-name: slide_out;
+				animation-direction: normal;
+				animation-duration: 500ms;
+				animation-delay: 0s;
+				animation-fill-mode: both;
+				animation-iteration-count: 1;
+				animation-play-state: running;
+				animation-timing-function: ease-in;
+			}
+
+			.slidein {
+				animation-name: slide_in;
+				animation-direction: normal;
+				animation-duration: 500ms;
+				animation-delay: 0s;
+				animation-fill-mode: both;
+				animation-iteration-count: 1;
+				animation-play-state: running;
+				animation-timing-function: ease-out;
+			}
+
+			.flip {
+				animation-name: slide_in, flip;
+				animation-direction: normal;
+				animation-duration: 500ms;
+				animation-delay: 0s;
+				animation-fill-mode: both;
+				animation-iteration-count: 1;
+				animation-play-state: running;
+				animation-timing-function: linear;
+			}
+
+			@keyframes slide_out {
+				from {					
+					margin-top: 16pt;
+					opacity: 1.0;
+				}
+				to {
+					margin-top: 100%;
+					opacity: 0.0;
+				}
+			}
+			
+
+			@keyframes slide_in {
+				from {
+					margin-top: 100%;
+					opacity: 0.0;
+				}
+				to {
+					margin-top: 16pt;
+					opacity: 1.0;
+				}
+			}
+
+			@keyframes flip {
+				0% {
+					transform: rotate3d(0);
+				}
+				40% {
+					transform: rotate3d(1, 0, 0, 0.25turn);
+				}
+				60% {
+					transform: rotate3d(1, 0, 0, 0.25turn);
+				}
+				100% {
+					transform: rotate3d(0);
+				}
+			}
+		</style>
+		<script>
+			let api = {
+				key: "4568a6208da7dc6c123c7f1b89950782",
+			};
+			let params = new URLSearchParams(window.location.search);
+			let playing = false;
+			let imgcache = new Image();
+
+			function requestUpdate(api_key, user) {
+				let url = `https://ws.audioscrobbler.com/2.0/?api_key=${api_key}&method=user.getRecentTracks&user=${user}&extended=1&limit=1&format=json`;
+
+				let request = new Request(url, {
+					"method": "GET",
+				});
+
+				return fetch(request);
+			}
+
+			function slide_out() {
+				let el_info = document.querySelector(".info");
+				el_info.classList.add("slideout");
+				el_info.classList.remove("slidein");
+			}
+
+			function slide_in() {
+				let el_info = document.querySelector(".info");
+				el_info.classList.add("slidein");
+				el_info.classList.remove("slideout");
+			}
+
+			function flip(cb) {
+				let el_info = document.querySelector(".info");
+				el_info.classList.add("flip");
+				setTimeout(cb, 200);
+				setTimeout(function() {el_info.classList.remove("flip");}, 500);
+			}
+
+			function successHandler(value) {
+				value.json().then(data => {
+					//console.log(data);
+					let track = data.recenttracks.track[0];
+					let img = track.image[0]["#text"];
+					for (let imgdata of track.image) {
+						img = imgdata["#text"];
+					}
+					if (img == "") {
+						let art = track.artist;
+						img = art.image[0]["#text"];
+						for (let imgdata of art.image) {
+							img = imgdata["#text"];
+						}
+					}
+					if (img == "https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png") {
+						// Seems to be the default "no image" logo.
+						img = "https://cdn.streamelements.com/uploads/7aff8871-bd64-4366-935b-1d96e5b418f4.png";
+					}
+					imgcache.src = img;
+
+					let el_info = document.querySelector(".info");
+					let el_logo = document.querySelector(".info .logo");
+					let el_artist = document.querySelector(".info .artist");
+					let el_title = document.querySelector(".info .title");
+
+					if (track["@attr"] == undefined) {
+						if (playing) {
+							// Stop Playing
+							console.log("Stopped playing track.");
+							playing = false;
+							slide_out();
+						}
+					} else if (playing == false) {
+						// Start Playing
+						console.log("Started playing track.");
+						playing = true;
+						imgcache.src = img;
+						el_logo.src = img;
+						el_artist.innerText = track.artist.name;
+						el_title.innerText = track.name;
+						slide_in();
+					} else {
+						// Track Change
+						let old_artist = el_artist.innerText;
+						let old_title = el_title.innerText;
+						if ((old_artist != track.artist.name) || (old_title != track.name)) {
+							console.log("Changed track.");
+							flip(function() {
+								el_logo.src = img;
+								el_artist.innerText = track.artist.name;
+								el_title.innerText = track.name;
+							});
+						}
+					}
+				}, reason => {
+					slide_out();
+				})
+				setTimeout(tick, 5000);
+			}
+
+			function failureHandler(reason) {
+				console.log("Last.FM Query failed:", reason);
+				slide_out();
+				setTimeout(tick, 10000);
+			}
+
+			function tick() {
+				let rq = requestUpdate(api.key, params.get("user"));
+				rq.then(successHandler, failureHandler);
+				rq.catch(failureHandler);
+			}
+
+			function zoom() {
+				let width = document.documentElement.clientWidth;
+				let height = document.documentElement.clientHeight;
+				let csize = document.documentElement.getBoundingClientRect();
+				let wscale = width / csize.width;
+				let hscale = height / csize.height;
+				document.body.style.zoom = hscale;
+			}
+			
+			(function() {
+				zoom();
+				tick();
+			})();
+		</script>
+	</body>
+</html>
