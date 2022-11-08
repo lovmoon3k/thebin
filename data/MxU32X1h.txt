@@ -1,0 +1,225 @@
+-- создать процедуру с входным параметром
+-- и в ней выполнить все действия
+CREATE OR REPLACE PROCEDURE add_centroids(k int)
+    LANGUAGE SQL
+AS
+$$
+-- CALL create_temp_table_centroids_now();
+DELETE
+FROM centroids_now;
+INSERT INTO centroids_now (latitude, longitude)
+SELECT latitude, longitude
+FROM cams AS m
+ORDER BY RANDOM()
+LIMIT k;
+$$;
+
+CALL init_temp_tables();
+-- не работает
+CREATE OR REPLACE PROCEDURE init_temp_tables()
+    LANGUAGE SQL
+AS
+$$
+    CREATE TABLE centroids_now
+    (
+        id        serial PRIMARY KEY,
+        latitude  numeric(10, 8),
+        longitude numeric(10, 8)
+    );
+    CREATE TABLE centroids_old
+    (
+        id        serial PRIMARY KEY,
+        latitude  numeric(10, 8),
+        longitude numeric(10, 8)
+    );
+    CREATE TABLE zones
+    (
+        id_c int,
+        id_p int,
+        dist numeric(10, 8)
+    );
+
+    $$;
+
+CREATE OR REPLACE PROCEDURE clear_tables()
+    LANGUAGE SQL
+AS
+$$
+    DELETE FROM centroids_now;
+    DELETE FROM centroids_old;
+    DELETE FROM zones;
+    $$;
+
+-- CREATE OR REPLACE PROCEDURE clear_centroids()
+--     LANGUAGE SQL
+-- AS
+-- $$
+-- DROP TABLE centroids_now;
+-- $$;
+
+-- main call
+CALL init_temp_tables();
+CALL add_centroids(2);
+CALL clear_tables();
+SELECT *
+FROM centroids_now;
+
+
+DROP TABLE centroids_old;
+
+CREATE TABLE temp AS
+SELECT c2.id                                                         AS id_c,
+       c.id                                                          AS id_p,
+       countDist(c.latitude, c.longitude, c2.latitude, c2.longitude) AS dist
+FROM cams c
+         CROSS JOIN centroids_now c2;
+
+CREATE OR REPLACE PROCEDURE countNewTemp()
+    LANGUAGE SQL
+AS
+$$
+DELETE
+FROM temp t;
+INSERT INTO temp
+SELECT c2.id                                                         AS id_c,
+       c.id                                                          AS id_p,
+       countDist(c.latitude, c.longitude, c2.latitude, c2.longitude) AS dist
+FROM cams c
+         CROSS JOIN centroids_now c2;
+$$;
+
+
+
+DROP TABLE temp;
+
+DELETE
+FROM temp;
+
+SELECT *
+FROM temp t;
+
+CREATE OR REPLACE FUNCTION countDist(
+    latitude1 decimal,
+    longitude1 decimal,
+    latitude2 decimal,
+    longitude2 decimal)
+    RETURNS numeric(10, 8)
+AS
+$$
+BEGIN
+    RETURN 6371 *
+           ACOS(COS(RADIANS(latitude1)) * COS(RADIANS(latitude2)) * COS(RADIANS(longitude2) - RADIANS(longitude1)) +
+                SIN(RADIANS(latitude1)) * SIN(RADIANS(latitude2)));
+END;
+$$ LANGUAGE plpgsql;
+
+-- select from temp table
+SELECT c2.id                                                         AS id_c,
+       c.id                                                          AS id_p,
+       countDist(c.latitude, c.longitude, c2.latitude, c2.longitude) AS dist
+FROM cams c
+         CROSS JOIN centroids c2
+;
+
+-- CREATE TEMPORARY TABLE kmins AS
+-- SELECT id_c, id_p, MIN(dist) AS countdist
+-- FROM temp t
+-- GROUP BY id_c, id_p;
+--
+--
+-- SELECT *
+-- FROM kmins
+-- ORDER BY id_p;
+--
+-- DROP TABLE kmins;
+
+-- распределение по кучкам
+CREATE OR REPLACE PROCEDURE countZones()
+    LANGUAGE SQL
+AS
+$$
+DELETE
+FROM zones z;
+INSERT INTO zones
+SELECT *
+FROM temp t
+WHERE t.id_p = (SELECT t2.id_p
+                FROM temp t2
+                WHERE t2.id_p = t.id_p
+                ORDER BY t2.dist
+                LIMIT 1)
+  AND t.id_c = (SELECT t2.id_c
+                FROM temp t2
+                WHERE t2.id_p = t.id_p
+                ORDER BY t2.dist
+                LIMIT 1);
+$$;
+
+DELETE
+FROM zones;
+
+CREATE OR REPLACE PROCEDURE countZones2()
+    LANGUAGE SQL
+AS
+$$
+DELETE
+FROM zones z;
+--     посчитать новые temp
+CALL countNewTemp();
+INSERT INTO zones
+SELECT *
+FROM temp
+WHERE temp.dist IN (SELECT MIN(dist) FROM temp AS dist2 WHERE temp.id_p = dist2.id_p)
+$$;
+
+
+
+SELECT *
+FROM temp t;
+
+
+SELECT *
+FROM zones z;
+-- проверка на то, что с id 2 существует
+
+
+CREATE OR REPLACE PROCEDURE getNewCenters()
+    LANGUAGE SQL
+AS
+$$
+DELETE
+FROM centroids_old;
+INSERT INTO centroids_old
+SELECT *
+FROM centroids_now;
+DELETE
+FROM centroids_now;
+INSERT INTO centroids_now
+SELECT z.id_c, ROUND(AVG(c.latitude), 4), ROUND(AVG(c.longitude), 4)
+FROM zones AS z
+         JOIN cams AS c ON c.id = z.id_p
+GROUP BY id_c
+ORDER BY id_c;
+CALL countZones2();
+$$;
+
+CREATE OR REPLACE PROCEDURE getNewCentersRec()
+    LANGUAGE plpgsql
+AS
+$$
+BEGIN
+    WHILE (SELECT COUNT(*) FROM (SELECT * FROM centroids_now EXCEPT SELECT * FROM centroids_old) AS abc) > 0
+        LOOP
+            CALL getNewCenters();
+        END LOOP;
+END;
+$$;
+
+CALL countZones2();
+CALL getNewCentersRec();
+SELECT *
+FROM zones;
+SELECT *
+FROM centroids_old;
+SELECT *
+FROM temp;

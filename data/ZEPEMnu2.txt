@@ -1,0 +1,90 @@
+/// Загружает [ELF--файл](https://en.wikipedia.org/wiki/Executable_and_Linkable_Format)
+/// `file` в адресное пространство `address_space`.
+///
+/// Вызывающая её функция должна гарантировать,
+/// что `address_space` является текущим адресным пространством.
+pub(super) fn load(address_space: &mut AddressSpace, file: &[u8]) -> Result<Virt> {
+    let elf = xmas_elf::ElfFile::new(file).map_err(Elf)?;
+
+    let mut mapped_end =  Virt::default(); 
+    for current_header in elf.program_iter() {
+        if current_header.get_type().unwrap() == Type::Load {
+            load_program_header(address_space, &current_header, file, & mut mapped_end)?;
+        }
+    }
+
+    let entry_point = elf.header.pt2.entry_point();
+    let virt_address_entry_point = Virt::new_u64(entry_point);
+    return virt_address_entry_point;
+}
+
+
+/// Загружает сегмент `program_header`
+/// [ELF--файла](https://en.wikipedia.org/wiki/Executable_and_Linkable_Format)
+/// в адресное пространство `address_space`.
+/// В аргументе `mapped_end` поддерживает адрес до которого (не включительно)
+/// память для загружаемого процесса уже аллоцирована.
+///
+/// Вызывающая её функция должна гарантировать,
+/// что `address_space` является текущим адресным пространством.
+fn load_program_header(
+    address_space: &mut AddressSpace,
+    program_header: &ProgramHeader,
+    file: &[u8],
+    mapped_end: &mut Virt,
+) -> Result<()> {
+    let mem_block = memory_block(program_header)?;    
+    extend_mapping(address_space, &mem_block, program_header.flags(), mapped_end)?;
+
+    let offset = size::into_usize(program_header.offset());
+    let file_size = size::into_usize(program_header.file_size());
+    let total_size = size::into_usize(program_header.mem_size());
+    let slice:&mut [u8] = unsafe { mem_block.try_into_mut_slice()? };
+
+    let data = &file[offset .. offset + file_size];
+    for i in 0..total_size {
+        if i < file_size {
+            slice[i] = data[i]; 
+        } else {
+            slice[i] = 0;
+        }
+    }
+    return Ok(());
+}
+
+
+/// Расширяет отображение адресного пространства `address_space`,
+/// чтобы гарантировать что `memory_block` отображён в память с доступами,
+/// которые соответствуют флагам из ELF--файла `flags`.
+/// В аргументе `mapped_end` поддерживает адрес до которого (не включительно)
+/// память для загружаемого процесса уже аллоцирована.
+/// Новые страницы отображения заполняет нулями.
+///
+/// Вызывающая её функция должна гарантировать,
+/// что `address_space` является текущим адресным пространством.
+fn extend_mapping(
+    address_space: &mut AddressSpace,
+    memory_block: &Block<Virt>,
+    flags: Flags,
+    mapped_end: &mut Virt,
+) -> Result<()> {
+    let page_table_flags = PageTableFlags::USER_ACCESSIBLE | PageTableFlags::WRITABLE | PageTableFlags::PRESENT;
+    let pages = memory_block.enclosing();
+    let current_end = pages.end_address()?;
+    if *mapped_end == Virt::default() || *mapped_end < current_end {
+        unsafe {address_space.map_block(pages, page_table_flags) }?;
+        *mapped_end = current_end.clone();
+    }
+    return Ok(());
+}
+
+
+/// Для сегмента `program_header`
+/// [ELF--файла](https://en.wikipedia.org/wiki/Executable_and_Linkable_Format)
+/// возвращает соответствующий ему описатель блока памяти.
+fn memory_block(program_header: &ProgramHeader) -> Result<Block<Virt>> {
+    let start = Virt::new_u64(program_header.virtual_addr())?;
+    let end = Virt::new_u64(program_header.virtual_addr() + program_header.mem_size())?;
+    let block = Block::new(start, end);
+    return block;
+}
