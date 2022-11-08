@@ -1,19 +1,9 @@
-[**1STBuM8k**](/data/1STBuM8k.txt) (08/11/22 - 21:57)- 6133 bytes
+[**n939Gayz**](/data/n939Gayz.txt) (08/11/22 - 22:12)- 2871 bytes
 
-[**5UYWFwRW**](/data/5UYWFwRW.txt) (08/11/22 - 21:57)- 1083 bytes
+[**n939Gayz**](/data/n939Gayz.txt) (08/11/22 - 22:12)- 2871 bytes
 
-[**1STBuM8k**](/data/1STBuM8k.txt) (08/11/22 - 21:57)- 6133 bytes
+[**BLa7kgqj**](/data/BLa7kgqj.txt) (08/11/22 - 22:12)- 1098 bytes
 
-[**sezQBQGp**](/data/sezQBQGp.txt) (08/11/22 - 21:57)- 320 bytes
-
-[**sezQBQGp**](/data/sezQBQGp.txt) (08/11/22 - 21:57)- 320 bytes
-
-[**5UYWFwRW**](/data/5UYWFwRW.txt) (08/11/22 - 21:57)- 1083 bytes
-
-[**hhi8kNqZ**](/data/hhi8kNqZ.txt) (08/11/22 - 21:57)- 2690 bytes
-
-[**hhi8kNqZ**](/data/hhi8kNqZ.txt) (08/11/22 - 21:57)- 2690 bytes
-
-**Total Datas**: 2200
+**Total Datas**: 2202
 
 **Total Size**: 12.81 MB / 12.8 MB
