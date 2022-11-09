@@ -1,0 +1,203 @@
+import requests
+from bs4 import BeautifulSoup
+import re
+
+№5
+r = requests.get('https://panorama.pub/')
+page = r.content.decode("utf-8")
+soup = BeautifulSoup(page, 'html.parser') 
+
+root = soup.find('div', {'data-part': 'main'})
+all_news = set()
+for news in root.find_all('a'):
+    if news.get('href') is not None:
+        cur_news = 'https://panorama.pub' + news.get('href')
+        if (cur_news in all_news):
+            continue
+        all_news.add(cur_news)
+        print('https://panorama.pub' + news.get('href'))
+        for div in news.find_all('div'):
+            try:
+                text = div.text.strip().replace('\n', '')
+                if len(text) > 2:
+                    print(re.sub('\d+[" "]+\d+', '', text))
+                    break
+            except:
+                continue
+        print()
+
+№6
+!pip install python-dateutil
+
+import datetime as dt
+from dateutil.parser import parse
+from datetime import date
+from dateutil import rrule
+from datetime import timedelta
+import dateutil
+import pandas as pd
+
+class News:
+    def __init__(self, name='', link='', rating='', comments_cnt='', date=''):
+        self.name = name
+        self.link = link
+        self.rating = rating 
+        self.comments_cnt = comments_cnt
+        self.date = date # в задании не сказано про дату, но я решил добавить
+
+    def __str__(self):
+        return str(self.__dict__)
+
+
+def do_format_date(date):
+    return str(date.day) + '-' + str(date.month) + '-' + str(date.year)
+
+
+def get_news(start_date, end_date):
+    all_news = []
+    format = '%d-%m-%Y'
+    for date in pd.date_range(parse(start_date, dayfirst=True), 
+                              parse(end_date, dayfirst=True), freq='D'):
+        cur_date = do_format_date(date)
+        r = requests.get('https://panorama.pub/news/' + str(cur_date))
+        page = r.content.decode("utf-8")
+        soup = BeautifulSoup(page, 'html.parser') 
+        root = soup.find('div', {'data-part': 'main'})
+
+        for news in root.find_all('a'):
+            cur_news = News()
+            if news.get('href') is not None \
+                and cur_date not in news.get('href') \
+                and do_format_date(date + timedelta(days=1)) not in news.get('href') \
+                and do_format_date(date - timedelta(days=1)) not in news.get('href'):
+                try: # нужно, если end_date в будущем
+                    # print(news, cur_date)
+                    cur_news.link = 'https://panorama.pub' + news.get('href')
+                    cur_news.name = news.find('div',
+                        {'class': 'pt-2 text-xl lg:text-lg xl:text-base text-center font-semibold'}) \
+                        .string.replace('\n', '').strip()
+                    cur_news.date = cur_date
+                    for div in news.find_all('div'):
+                        if div.text is not None and 'Рейтинг:' in div.text:
+                            cur_news.rating = div.text.replace('\n', '') \
+                                                    .replace('Рейтинг:', '') \
+                                                    .strip()
+                        if div.text is not None and ('комментариев' in div.text 
+                                                    or 'комментария' in div.text
+                                                    or 'комментарий' in div.text):
+                            cur_news.comments_cnt = div.text.replace('\n', '') \
+                                                            .replace('комментариев', '') \
+                                                            .replace('комментария', '') \
+                                                            .replace('комментарий', '') \
+                                                            .strip()
+                    all_news.append(cur_news)
+                except:
+                    continue
+    return all_news
+
+for news in get_news('19-10-2022', '10-11-2022'):
+    print(news)
+    
+№7
+
+def do_format_date(date):
+    return str(date.day) + '-' + str(date.month) + '-' + str(date.year)
+
+
+def is_abbreviation(word):
+    return word == word.upper() and all(map(str.isalpha, word)) \
+                                and len(word) > 1
+
+
+def get_abbreviations(rubric, start_date, end_date):
+    abbreviations = dict()
+    format = '%d-%m-%Y'
+    for date in pd.date_range(parse(start_date, dayfirst=True), 
+                              parse(end_date, dayfirst=True), freq='D'):
+        cur_date = do_format_date(date)
+        r = requests.get('https://panorama.pub/' + rubric + '/' + str(cur_date))
+        page = r.content.decode("utf-8")
+        soup = BeautifulSoup(page, 'html.parser') 
+        root = soup.find('div', {'data-part': 'main'})
+
+        for news in root.find_all('a'):
+            cur_news = News()
+            if news.get('href') is not None \
+                and cur_date not in news.get('href') \
+                and do_format_date(date + timedelta(days=1)) not in news.get('href') \
+                and do_format_date(date - timedelta(days=1)) not in news.get('href'):
+                try: # нужно, если end_date в будущем
+                    news_link = 'https://panorama.pub' + news.get('href')
+                    news_r = requests.get(news_link)
+                    news_page = news_r.content.decode("utf-8")
+                    news_soup = BeautifulSoup(news_page, 'html.parser') 
+                    news_root = news_soup.find('div', {'class': 'entry-contents pr-0 md:pr-8'})
+
+                    checked = set()
+
+                    for paragraph in news_root.find_all('p'):
+                        text = re.split(r'\W+', paragraph.string)
+                        for word in text:
+                            if is_abbreviation(word):
+                                checked.add(word)
+                        # print(text)
+                    for word in checked:
+                        if word in abbreviations:
+                            abbreviations[word] += 1
+                        else:
+                            abbreviations[word] = 1
+                except:
+                    continue
+    return abbreviations
+
+
+rubrics = ['politics', 'economics', 'society', 'science']
+print(sorted(get_abbreviations('politics', '15-09-2022', '15-09-2022').items(), key=lambda x: x[1], reverse=True))
+print(sorted(get_abbreviations('politics', '15-09-2022', '20-09-2022').items(), key=lambda x: x[1], reverse=True))
+
+№8
+
+def do_format_date(date):
+    return str(date.day) + '-' + str(date.month) + '-' + str(date.year)
+
+
+def get_commentators(start_date, end_date):
+    commentators = dict()
+    format = '%d-%m-%Y'
+    for date in pd.date_range(parse(start_date, dayfirst=True), 
+                              parse(end_date, dayfirst=True), freq='D'):
+        cur_date = do_format_date(date)
+        r = requests.get('https://panorama.pub/news/' + str(cur_date))
+        page = r.content.decode("utf-8")
+        soup = BeautifulSoup(page, 'html.parser') 
+        root = soup.find('div', {'data-part': 'main'})
+
+        for news in root.find_all('a'):
+            cur_news = News()
+            if news.get('href') is not None \
+                and cur_date not in news.get('href') \
+                and do_format_date(date + timedelta(days=1)) not in news.get('href') \
+                and do_format_date(date - timedelta(days=1)) not in news.get('href'):
+                try: # нужно, если end_date в будущем
+                    # print(news, cur_date)
+                    news_link = 'https://panorama.pub' + news.get('href')
+                    news_r = requests.get(news_link)
+                    news_page = news_r.content.decode("utf-8")
+                    news_soup = BeautifulSoup(news_page, 'html.parser') 
+                    news_root = news_soup.find('div', {'class': 'mt-4 py-4 px-2'})
+
+                    # print(news_root.find_all('strong', attrs = {'itemprop' : 'author'}))
+                    for author in news_root.find_all('strong', attrs = {'itemprop' : 'author'}):
+                        name = author.text.replace('\n', '').strip()
+                        # print(name)
+                        if len(name) <= 2:
+                            continue
+                        if name in commentators:
+                            commentators[name] += 1
+                        else:
+                            commentators[name] = 1
+                except:
+                    continue
+    return commentators
+
+sorted(get_commentators('10-10-2022', '1-11-2022').items(), key=lambda x: x[1], reverse=True)[:5]
