@@ -1,0 +1,66 @@
+###############################################################################################
+# Author: Tony Visconti
+# Date Created: 11-4-22
+# Purpose: Backup existing wwwroot folder, Copy Azure Storage wwwroot zip to Dev VM and unzip
+###############################################################################################
+
+Write-Host -ForegroundColor Yellow "`nRunning Copy Azure Storage wwwroot zip to Dev Server Powershell Script"
+Write-Host -ForegroundColor Yellow "`nInitializing Variables via Setup Code"
+#### Setup ####
+
+# Azure Storage Configuration 
+$storageURL = "https://mystorage.blob.core.windows.net/containername"
+# This key will expire on 11/3/23
+$sharedKey= ""
+
+# Set the location to store wwwroot compressed backups
+# Note: You will need to create the archive folder if it does not already exist
+$archiveFolder = "C:\wwwroot_backups"
+#Default compression value is optimal, this did not significantly increase the size in my testing but was faster by about 1 min compressing 1.5 G 
+$compressionLevel = "Fastest"
+
+$inetpubFolder = "C:\inetpub"
+
+#Year-Month-Day_Hours-Minutes
+$dateFormatted = Get-Date -UFormat "%Y%m%d"
+#ISO-8601 example 2020-08-19T15:04:00Z
+#Get-Date returns local time so we will blank out the time
+$newDBName = "rock-dev-sqldb-prod-copy-$dateFormatted"
+
+################################################################################################
+
+### Main Script ###
+
+Write-Host -ForegroundColor Yellow "`nStarting Main Script"
+
+Write-Host -ForegroundColor Yellow "Stopping Default website and apppool..."
+C:\windows\syswow64\inetsrv\appcmd.exe stop site "Default Web Site"
+C:\windows\syswow64\inetsrv\appcmd.exe stop apppool "DefaultAppPool"
+
+Write-Host -ForegroundColor Yellow "`nCompressing wwwroot"
+Compress-Archive -Path "$inetpubFolder\wwwroot" -DestinationPath "$archiveFolder\wwwroot_$dateformatted.zip" -CompressionLevel $compressionLevel
+
+Write-Host -ForegroundColor Yellow "`nDeleting wwwroot file"
+#-force is needed to delete some files like thumbs.db
+Remove-Item -path "$inetpubFolder\wwwroot\" -Recurse -force
+
+Write-Host -ForegroundColor Yellow "`nDownload wwwroot from Azure, this will only take a few seconds"
+#https://learn.microsoft.com/en-us/azure/storage/common/storage-use-azcopy-files
+azcopy cp "$storageURL/wwwroot_$dateformatted.zip$sharedKey" $inetpubFolder
+
+Write-Host -ForegroundColor Yellow "`nExpanding wwwroot zip"
+#https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.archive/expand-archive?view=powershell-7.2
+Expand-Archive -Path "$inetpubFolder\wwwroot_$dateformatted.zip" -DestinationPath $inetpubFolder
+
+Write-Host -ForegroundColor Yellow "`nRemoving wwwroot zip"
+Remove-Item -path "$inetpubFolder\wwwroot_$dateformatted.zip" -Recurse -force
+
+#If desired you could script the deletion of the zip from azure storage
+
+#Update connection string
+#https://learn.microsoft.com/en-us/powershell/module/webadministration/set-webconfigurationproperty?view=windowsserver2022-ps
+Set-WebConfigurationProperty -pspath "IIS:\sites\Default Web Site"  "connectionStrings/add[@name='RockContext']" -name "connectionString" -value "Server=tcp:sqlservername.database.windows.net,1433;Database=$newDBName;MultipleActiveResultSets=true;User ID=;Password="
+
+Write-Host -ForegroundColor Yellow "`nStarting Default website and apppool..."
+C:\windows\syswow64\inetsrv\appcmd.exe start site "Default Web Site"
+C:\windows\syswow64\inetsrv\appcmd.exe start apppool "DefaultAppPool"

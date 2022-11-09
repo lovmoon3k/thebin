@@ -1,0 +1,78 @@
+###############################################################################################
+# Author: Tony Visconti
+# Date Created: 11-4-22
+# Purpose: Copy compressed wwwroot to azure storage so that it can be downloaded by dev rock server
+#
+###############################################################################################
+
+Write-Host -ForegroundColor Yellow "`nRunning Production wwwroot file to Azure Storage Powershell Script"
+Write-Host -ForegroundColor Yellow "`nInitializing Variables via Setup Code"
+
+#### Setup ####
+
+# Azure Storage Configuration 
+$storageURL = "https://mystrorage.blob.core.windows.net/containername"
+# This key will expire on _______
+$sharedKey= ""
+
+# Set the temp location to store  compressed wwwroot file
+$archiveFolder = "C:\Temp\"
+
+$inetpubFolder = "C:\inetpub"
+
+#Default compression value is optimal, this did not significantly increase the size in my testing but was faster by about 1 min compressing 1.5 G 
+$compressionLevel = "Fastest" 
+
+#Year-Month-Day_Hours-Minutes
+$dateFormatted = Get-Date -UFormat "%Y%m%d"
+#ISO-8601 example 2020-08-19T15:04:00Z
+#Get-Date returns local time so we will blank out the time
+$dateFormattedISO8601 = Get-Date -UFormat "%Y-%m-%dT00:00:00Z"
+
+#if desired we can keep the website up an running when making a copy of the wwwroot folder
+$stopWebsite = $false;
+
+
+################################################################################################
+
+### Main Script ###
+
+Write-Host -ForegroundColor Yellow "`nStarting Main Script"
+
+if ( $stopWebsite )
+{
+Write-Host -ForegroundColor Yellow "`nStopping Default website and apppool..."
+C:\windows\syswow64\inetsrv\appcmd.exe stop site "Default Web Site"
+C:\windows\syswow64\inetsrv\appcmd.exe stop apppool "DefaultAppPool"
+}
+
+#Write-Host -ForegroundColor Yellow "Checking Azcopy Login Status"
+# if you are not logged in it will provide instructions for doing so
+# I have been unable to upload files logging in via azure ad, instead I am using a shared key for now
+#Azcopy login status
+
+#$login = Read-Host "Do you need to login to azcopy Y/N" 
+#if ( $login -eq "Y" )
+#{
+#    Azcopy login
+#}
+
+
+Write-Host -ForegroundColor Yellow "`nCompressing wwwroot"
+Compress-Archive -Path "$inetpubFolder\wwwroot" -DestinationPath "$archiveFolder\wwwroot_$dateformatted.zip" -CompressionLevel $compressionLevel
+
+
+Write-Host -ForegroundColor Yellow "`nUploading to Azure, this will only take a few seconds"
+#https://learn.microsoft.com/en-us/azure/storage/common/storage-use-azcopy-files
+azcopy cp "$archiveFolder\*" "$storageURL/$sharedKey" --include-after "$dateFormattedISO8601" --include-pattern '*.zip' 
+
+Write-Host -ForegroundColor Yellow "`nDeleting compressed wwwroot file"
+Remove-Item -path "$archiveFolder\wwwroot*.zip"
+
+# if we stopped the website we need to restart it
+if ( $stopWebsite )
+{
+Write-Host -ForegroundColor Yellow "`nStarting default website and apppool..."
+C:\windows\syswow64\inetsrv\appcmd.exe start site "Default Web Site"
+C:\windows\syswow64\inetsrv\appcmd.exe start apppool "DefaultAppPool"
+}
