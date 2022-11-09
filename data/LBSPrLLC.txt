@@ -1,0 +1,275 @@
+%imacro function 0-1 end
+	global %00:function (%00.%1 - %00)
+%00:
+%endmacro
+
+%define ext(function) function wrt ..plt
+
+struc plum_image
+	.type:              resw 1
+	.max_palette_index: resb 1
+	.color_format:      resb 1
+	.frames:            resd 1
+	.height:            resd 1
+	.width:             resd 1
+	.allocator:         resq 1
+	.metadata:          resq 1
+	.palette:           resq 1
+	.data:              resq 1
+	.userdata:          resq 1
+endstruc
+
+struc plum_metadata
+	.type: resd 1
+	alignb 8
+	.size: resq 1
+	.data: resq 1
+	.next: resq 1
+endstruc
+
+%assign PLUM_COLOR_64                 1
+%assign PLUM_ERR_IMAGE_TOO_LARGE      7
+%assign PLUM_IMAGE_PNG                3
+%assign PLUM_METADATA_BACKGROUND      2
+%assign PLUM_METADATA_FRAME_DISPOSAL  5
+%assign PLUM_MODE_FILENAME           -1
+
+extern plum_destroy_image:function
+extern plum_find_metadata:function
+extern plum_get_error_text:function
+extern plum_load_image:function
+extern plum_store_image:function
+
+extern calloc:function
+extern fprintf:function
+extern free:function
+extern stderr:data
+
+section .text
+
+main: function
+	; C calling convention! rdi = argc, rsi = argv, return status in rax
+	push qword[rsi]
+	cmp edi, 3
+	je .continue
+	mov rdx, [rsi]
+	lea rsi, [rel .usage]
+	mov rdi, [rel stderr]
+	call ext(fprintf)
+	add rsp, 8
+	mov eax, 2
+	ret
+
+.error:
+	mov edi, [rsp]
+	call ext(plum_get_error_text)
+	mov rcx, rax
+.showerror:
+	mov rdx, [rsp + 16]
+	mov rsi, r13
+	mov rdi, [rel stderr]
+	call ext(fprintf)
+	add rsp, 24
+	mov eax, 1
+	ret
+
+.continue:
+	push qword[rsi + 16]
+	sub rsp, 8
+	mov rdi, [rsi + 8]
+	mov rsi, PLUM_MODE_FILENAME
+	mov edx, PLUM_COLOR_64
+	mov rcx, rsp
+	call ext(plum_load_image)
+	test rax, rax
+	lea r13, [rel .loaderrmsg]
+	jz .error
+
+	; image is loaded: check that height * frames doesn't overflow
+	mov r12, rax
+	mov esi, [rax + plum_image.height]
+	mov ecx, [rax + plum_image.frames]
+	imul rcx, rsi
+	cmp rcx, 0x7fffffff
+	mov ecx, PLUM_ERR_IMAGE_TOO_LARGE
+	ja .showerror
+	; set to PNG, allocate a frame canvas, determine the background color and initialize
+	mov word[rax + plum_image.type], PLUM_IMAGE_PNG
+	mov edi, [rax + plum_image.width]
+	imul rdi, rsi
+	mov r13, rdi
+	mov esi, 8
+	call ext(calloc)
+	; don't care about calloc failure - this is assembly, so we can guarantee a segfault by accessing the buffer
+	mov r14, rax
+	mov esi, PLUM_METADATA_BACKGROUND
+	mov rdi, r12
+	call ext(plum_find_metadata)
+	xor r15, r15
+	test rax, rax
+	jz .no_background
+	mov r15, [rax + plum_metadata.data]
+	mov r15, [r15]
+	mov rdi, r14
+	mov rcx, r13
+	mov rax, r15
+	rep stosq
+.no_background:
+	; find the frame disposal information and initialize local variables (data buffer, metadata pointer, frame number)
+	mov dword[rsp], 0
+	mov esi, PLUM_METADATA_FRAME_DISPOSAL
+	mov rdi, r12
+	call ext(plum_find_metadata)
+	test rax, rax
+	jz .no_disposal_load
+	mov rax, [rax + plum_metadata.data]
+.no_disposal_load:
+	push rax
+	push qword[r12 + plum_image.data]
+	; preload some registers
+	vpxor xmm0, xmm0, xmm0
+	movq xmm8, r15
+	vmovdqa xmm9, [rel .packmask]
+	vmovdqa xmm10, [rel .roundmask]
+	vmovdqa xmm11, [rel .flipmask]
+	vmovdqa xmm12, [rel .shufflemask]
+	vpunpcklwd xmm8, xmm8, xmm0
+	xor eax, eax
+
+.loop:
+	; process each frame
+	mov rdx, [rsp + 8]
+	test rdx, rdx
+	jz .no_disposal
+	movzx edx, byte[rdx + rax]
+.no_disposal:
+	mov r11, [rsp]
+	lea rax, [rel .callback_offsets]
+	add rax, [rax + rdx * 8]
+	call rax
+	lea rsi, [r11 + r13 * 8]
+	mov [rsp], rsi
+	inc dword[rsp + 16]
+	mov eax, [rsp + 16]
+	cmp eax, [r12 + plum_image.frames]
+	jb .loop
+	add rsp, 16
+	mov rdi, r14
+	call ext(free)
+
+	; update the image dimensions (one frame, height *= frames)
+	mov eax, [r12 + plum_image.frames]
+	mov dword[r12 + plum_image.frames], 1
+	imul eax, [r12 + plum_image.height]
+	mov [r12 + plum_image.height], eax
+	; store the image and finish
+	mov rdi, r12
+	mov rsi, [rsp + 8]
+	mov rdx, PLUM_MODE_FILENAME
+	mov rcx, rsp
+	call ext(plum_store_image)
+	mov rdi, r12
+	call ext(plum_destroy_image)
+	cmp dword[rsp], 0
+	lea r13, [rel .storeerrmsg]
+	jnz .error
+	add rsp, 24
+	xor eax, eax
+	ret
+.end:
+
+.loaderrmsg: db `%s: load error: %s\n`, 0
+.storeerrmsg: db `%s: store error: %s\n`, 0
+.usage: db `usage: %s <image> <output.png>\n`, 0
+
+	align 16, db 0
+.packmask: db 2, 3, 6, 7, 10, 11, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+.roundmask: dw 0x8000, 0, 0x8000, 0, 0x8000, 0, 0, 0
+.flipmask: dw -1, 0, -1, 0, -1, 0, 0, 0
+.shufflemask: db 12, 13, -1, -1, 12, 13, -1, -1, 12, 13, -1, -1, -1, -1, -1, -1
+
+.callback_offsets:
+	%rep 2
+		dq render_frame - .callback_offsets
+		dq render_frame_keep_background - .callback_offsets
+		dq render_frame_no_preserve - .callback_offsets
+	%endrep
+
+render_frame: function
+	endbr64
+	xor eax, eax
+.loop:
+	movq xmm1, [r11 + rax * 8]
+	movq xmm2, [r14 + rax * 8]
+	vpunpcklwd xmm1, xmm1, xmm0
+	vpunpcklwd xmm2, xmm2, xmm0
+	vpshufb xmm3, xmm1, xmm12
+	vpmulld xmm5, xmm2, xmm3
+	vpxor xmm4, xmm3, xmm11
+	vpaddd xmm5, xmm5, xmm10
+	vpmulld xmm6, xmm1, xmm4
+	vpaddd xmm3, xmm6, xmm5
+	vpsrld xmm5, xmm3, 16
+	vpaddd xmm3, xmm3, xmm5
+	vpshufb xmm1, xmm3, xmm9
+	movq [r11 + rax * 8], xmm1
+	movq [r14 + rax * 8], xmm1
+	inc rax
+	cmp rax, r13
+	jb .loop
+	ret
+.end:
+
+render_frame_keep_background: function
+	endbr64
+	xor eax, eax
+.loop:
+	movq xmm1, [r11 + rax * 8]
+	movq xmm2, [r14 + rax * 8]
+	vpunpcklwd xmm1, xmm1, xmm0
+	vpunpcklwd xmm2, xmm2, xmm0
+	vpshufb xmm3, xmm1, xmm12
+	vpmulld xmm5, xmm2, xmm3
+	vpxor xmm4, xmm3, xmm11
+	vpaddd xmm5, xmm5, xmm10
+	vpmulld xmm6, xmm1, xmm4
+	vpmulld xmm7, xmm8, xmm4
+	vpaddd xmm3, xmm6, xmm5
+	vpaddd xmm4, xmm7, xmm5
+	vpsrld xmm5, xmm3, 16
+	vpsrld xmm6, xmm4, 16
+	vpaddd xmm3, xmm3, xmm5
+	vpaddd xmm4, xmm4, xmm6
+	vpshufb xmm1, xmm3, xmm9
+	vpshufb xmm2, xmm4, xmm9
+	movq [r11 + rax * 8], xmm1
+	movq [r14 + rax * 8], xmm2
+	inc rax
+	cmp rax, r13
+	jb .loop
+	ret
+.end:
+
+render_frame_no_preserve: function
+	endbr64
+	xor eax, eax
+.loop:
+	movq xmm1, [r11 + rax * 8]
+	movq xmm2, [r14 + rax * 8]
+	vpunpcklwd xmm1, xmm1, xmm0
+	vpunpcklwd xmm2, xmm2, xmm0
+	vpshufb xmm3, xmm1, xmm12
+	vpmulld xmm5, xmm2, xmm3
+	vpxor xmm4, xmm3, xmm11
+	vpaddd xmm5, xmm5, xmm10
+	vpmulld xmm6, xmm1, xmm4
+	vpaddd xmm3, xmm6, xmm5
+	vpsrld xmm5, xmm3, 16
+	vpaddd xmm3, xmm3, xmm5
+	vpshufb xmm1, xmm3, xmm9
+	movq [r11 + rax * 8], xmm1
+	inc rax
+	cmp rax, r13
+	jb .loop
+	ret
+.end:
