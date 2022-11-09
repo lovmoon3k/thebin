@@ -1,0 +1,289 @@
+-- IMPORTANT --
+-- USE THE BELOW SQL TO TAKE A PREVIOUSLY RESTORED SQL DATABASE AND MAKE IT USABLE FOR SANDBOX, DEV, OR TEST USAGE --
+-- IMPORTANT --
+USE [Rock-Dev-SQL-YYMMDD]
+
+DECLARE @Domain AS varchar(250) = 'YOURCHURCHDOMAIN.org'
+DECLARE @DevGAuthID AS varchar(250) = 'YOURGOOGLEAUTHID.apps.googleusercontent.com'
+DECLARE @DevGAuthSecret AS varchar(250) = 'YOURGOOGLEAUTHSECRETKEY'
+DECLARE @DevGAPIKey AS varchar(250) = 'YOURGOOGLEAPIKEY'
+
+DECLARE @PublicDomain AS varchar(250) = @Domain
+DECLARE @RockDomain AS varchar(250) = 'rock.' + @Domain
+DECLARE @CheckInDomain AS varchar(250) = 'checkin.' + @Domain
+
+DECLARE @DevPublicDomain AS varchar(250) = 'publicdev.' + @Domain
+DECLARE @DevRockDomain AS varchar(250) = 'rockdev.' + @Domain
+DECLARE @DevCheckInDomain AS varchar(250) = 'checkindev.' + @Domain
+
+DECLARE @RightNow AS datetime2 = GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'Pacific Standard Time'
+
+PRINT 'Create Remove Non-Alpha Function'
+IF  EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[ufnWell_RemoveNonAlpha]') AND type = 'FN')
+DROP FUNCTION [dbo].[ufnWell_RemoveNonAlpha]
+GO
+CREATE FUNCTION [dbo].[ufnWell_RemoveNonAlpha](@Temp VarChar(1000))
+RETURNS VARCHAR(1000)
+AS
+BEGIN
+    WHILE PATINDEX('%[^a-Z]%', @Temp) > 0
+        SET @Temp = STUFF(@Temp, PATINDEX('%[^a-Z]%', @Temp), 1, '')
+
+    RETURN @Temp
+END
+GO
+
+BEGIN TRY
+    BEGIN TRANSACTION;
+        DECLARE @CRLF varchar(2) = CHAR(13) + CHAR(10)
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Add "Development" notice to Rock header area'
+        UPDATE B 
+        SET [PreHtml] = '<h4 style="position:absolute;left:80px;top:6px;background:#fe2;padding:6px 14px;border:3px solid #600;color:#a00;"><i class="fas fa-exclamation-triangle"></i> You are connected to the <strong>DEVELOPMENT</strong> server <small style="color:#e30">(updated ' + FORMAT(@RightNow, 'M/d/yyyy') + ')</small></h4><script>$(''.navbar-fixed-top, .navbar-brand-corner'').css(''background-color'',''#c10'');</script>', 
+            [ModifiedDateTime] = @RightNow
+        FROM [Block] B INNER JOIN 
+            [BlockType] T ON T.[Id] = B.[BlockTypeId]
+        WHERE T.[Path] = '~/Blocks/Core/SmartSearch.ascx'
+            AND B.[Zone] = 'Header'
+            
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Apend "DEVELOPMENT" to all site names'
+        UPDATE Site SET Name = 'DEVELOPMENT ' + Name
+        WHERE Name NOT LIKE 'DEVELOPMENT%'
+            
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Turn off SSL for all pages'
+        UPDATE [Page] SET [RequiresEncryption] = 0
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Turn off SSL for all sites'
+        UPDATE [Site] SET [RequiresEncryption] = 0
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Deactivate all jobs'
+        UPDATE [ServiceJob] SET [IsActive] = 0
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Replace non-staff emails with dummy @example.org addresses'
+        BEGIN
+        UPDATE [Person]
+        SET [Email] = LOWER(dbo.[ufnWell_RemoveNonAlpha]([NickName])) + LOWER(dbo.[ufnWell_RemoveNonAlpha]([LastName])) + '@example.org'
+        WHERE [Email] IS NOT NULL AND [Email] NOT LIKE '%@' + @Domain and [Email] != '' AND IsSystem != 1
+        END
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Deactivate all communication transports'
+        BEGIN
+        UPDATE [AttributeValue] SET [Value] = 'False' 
+        WHERE AttributeId IN 
+            (SELECT a.id 
+            FROM [EntityType] et INNER JOIN 
+                [Attribute] a ON a.EntityTypeId = et.Id AND a.[Key] = 'Active' 
+            WHERE et.name LIKE '%Communication.Transport%')
+        END
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Update mail settings to use SMTP with localhost:25'
+        DECLARE @SMTPEntityTypeId int = (SELECT TOP 1 [Id] FROM [EntityType] WHERE [Name] = 'Rock.Communication.Transport.SMTP')
+        DECLARE @MailEntityTypeId int = (SELECT TOP 1 [Id] FROM [EntityType] WHERE [Name] = 'Rock.Communication.Medium.Email')
+        
+        PRINT @CRLF + '-SMTP server'
+        DECLARE @SMTPServerAttrID int = (SELECT TOP 1 [Id] FROM [Attribute] WHERE [EntityTypeId] = @SMTPEntityTypeId AND [Key] = 'Server')
+        UPDATE [AttributeValue] SET [Value] = 'localhost' WHERE [AttributeId] = @SMTPServerAttrID
+        
+        PRINT @CRLF + '-SMTP port'
+        DECLARE @SMTPPortAttrID int = (SELECT TOP 1 [Id] FROM [Attribute] WHERE [EntityTypeId] = @SMTPEntityTypeId AND [Key] = 'Port')
+        UPDATE [AttributeValue] SET [Value] = '25' WHERE [AttributeId] = @SMTPPortAttrID
+        
+        PRINT @CRLF + '-SMTP username'
+        DECLARE @SMTPUsernameAttrID int = (SELECT TOP 1 [Id] FROM [Attribute] WHERE [EntityTypeId] = @SMTPEntityTypeId AND [Key] = 'UserName')
+        UPDATE [AttributeValue] SET [Value] = '' WHERE [AttributeId] = @SMTPUsernameAttrID
+        
+        PRINT @CRLF + '-SMTP password'
+        DECLARE @SMTPPasswordAttrID int = (SELECT TOP 1 [Id] FROM [Attribute] WHERE [EntityTypeId] = @SMTPEntityTypeId AND [Key] = 'Password')
+        UPDATE [AttributeValue] SET [Value] = '' WHERE [AttributeId] = @SMTPPasswordAttrID
+        
+        PRINT @CRLF + '-SMTP use SSL'
+        DECLARE @SMTPSSLAttrID int = (SELECT TOP 1 [Id] FROM [Attribute] WHERE [EntityTypeId] = @SMTPEntityTypeId AND [Key] = 'UseSSL')
+        UPDATE [AttributeValue] SET [Value] = 'False' WHERE [AttributeId] = @SMTPSSLAttrID
+        
+        PRINT @CRLF + '-Set Mail Transport'
+        DECLARE @SMTPEntityTypeGuid varchar(50) = (SELECT LOWER(CAST([Guid] as varchar(50))) FROM [EntityType] WHERE [Id] = @SMTPEntityTypeId)
+        DECLARE @TransportAttrID int = (SELECT TOP 1 [Id] FROM [Attribute] WHERE [EntityTypeId] = @MailEntityTypeId AND [Key] = 'TransportContainer')
+        UPDATE [AttributeValue] SET [Value] = @SMTPEntityTypeGuid WHERE [AttributeId] = @TransportAttrID
+
+        --Re-enable SMTP transport??
+        -- UPDATE [AttributeValue] SET [Value] = 'True' 
+        -- WHERE AttributeId IN 
+        --     (SELECT a.id 
+        --     FROM [EntityType] et INNER JOIN 
+        --         [Attribute] a ON a.EntityTypeId = et.Id AND a.[Key] = 'Active' 
+        --     WHERE et.name = 'Rock.Communication.Transport.SMTP')
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Deactivate all financial gateways'
+        UPDATE FinancialGateway SET IsActive = 0
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Reactivate test financial gateway'
+        DECLARE @TestGatewayEntityTypeID AS int = (SELECT TOP 1 ID FROM EntityType WHERE Name = 'Rock.Financial.TestGateway')
+        UPDATE FinancialGateway SET IsActive = 1 WHERE EntityTypeID = @TestGatewayEntityTypeID
+        
+        -- PRINT @CRLF + '---------------------------------------------------------------'
+        -- PRINT 'Deactivate PushPay account'
+        -- UPDATE _com_pushPay_RockRMS_Account 
+        -- SET IsActive = 0, AccessToken = NULL, RefreshToken = NULL
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Update Google auth service keys'
+        DECLARE @GAuthEntityTypeID AS int = (SELECT TOP 1 ID FROM EntityType WHERE Name = 'Rock.Security.ExternalAuthentication.Google')
+        DECLARE @GAuthIDAttrID AS int = (SELECT TOP 1 ID FROM Attribute WHERE EntityTypeID = @GAuthEntityTypeID AND [Key] = 'ClientID')
+        DECLARE @GAuthSecretAttrID AS int = (SELECT TOP 1 ID FROM Attribute WHERE EntityTypeID = @GAuthEntityTypeID AND [Key] = 'ClientSecret')
+        UPDATE AttributeValue SET [Value] = @DevGAuthID WHERE AttributeID = @GAuthIDAttrID
+        UPDATE AttributeValue SET [Value] = @DevGAuthSecret WHERE AttributeID = @GAuthSecretAttrID
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Update Azure blob storage key'
+        DECLARE @AzureBlobEntityTypeID AS int = (SELECT TOP 1 ID FROM EntityType WHERE Name = 'rocks.pillars.AzureStorageProvider.AzureBlobStorage')
+        DECLARE @AzureBlobKeyAttrID AS int = (SELECT TOP 1 ID FROM Attribute WHERE EntityTypeID = @AzureBlobEntityTypeID AND [Key] = 'AccountKey')
+        UPDATE AttributeValue SET [Value] = 'DISABLED' WHERE AttributeID = @AzureBlobKeyAttrID
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Upgate Azure storage provider key'
+        DECLARE @AzureStoreEntityTypeID AS int = (SELECT TOP 1 ID FROM EntityType WHERE Name = 'Rock.Model.AssetStorageProvider')
+        DECLARE @AzureStoreKeyAttrID AS int = (SELECT TOP 1 ID FROM Attribute WHERE EntityTypeID = @AzureStoreEntityTypeID AND [Key] = 'AccountAccessKey')
+        UPDATE AttributeValue SET [Value] = 'DISABLED' WHERE AttributeID = @AzureStoreKeyAttrID
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Update global attributes'
+        
+        PRINT @CRLF + '-Google API Key'
+        DECLARE @GAPIAttrID AS int = (SELECT TOP 1 ID FROM Attribute WHERE EntityTypeID IS NULL AND [Key] = 'GoogleAPIKey')
+        UPDATE AttributeValue SET [Value] = @DevGAPIKey WHERE AttributeID = @GAPIAttrID AND EntityID IS NULL
+        
+        -- PRINT @CRLF + '-Managed Missions Account'
+        -- DECLARE @MMAccountAttrID AS int = (SELECT TOP 1 ID FROM Attribute WHERE EntityTypeID IS NULL AND [Key] = 'MMAccount')
+        -- UPDATE AttributeValue SET [Value] = 'DISABLED' WHERE AttributeID = @MMAccountAttrID AND EntityID IS NULL
+        
+        -- PRINT @CRLF + '-Managed Missions API ID'
+        -- DECLARE @MMAPIIDAttrID AS int = (SELECT TOP 1 ID FROM Attribute WHERE EntityTypeID IS NULL AND [Key] = 'MMAPI')
+        -- UPDATE AttributeValue SET [Value] = 'DISABLED' WHERE AttributeID = @MMAPIIDAttrID AND EntityID IS NULL
+        
+        -- PRINT @CRLF + '-Managed Missions API Code'
+        -- DECLARE @MMAPICodeAttrID AS int = (SELECT TOP 1 ID FROM Attribute WHERE EntityTypeID IS NULL AND [Key] = 'MMAPICODE')
+        -- UPDATE AttributeValue SET [Value] = 'DISABLED' WHERE AttributeID = @MMAPICodeAttrID AND EntityID IS NULL
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Update ACME SSL domains'
+        DECLARE @GroupEntityTypeID AS int = (SELECT TOP 1 ID FROM EntityType WHERE Name = 'Rock.Model.Group')
+        DECLARE @ACMEGroupTypeID AS int = (SELECT TOP 1 ID FROM GroupType WHERE Name = 'Acme Certificates')
+        DECLARE @ACMEDomainsAttrID AS int = (SELECT TOP 1 ID FROM Attribute WHERE EntityTypeID = @GroupEntityTypeID AND EntityTypeQualifierColumn = 'GroupTypeId' AND EntityTypeQualifierValue = @ACMEGroupTypeID AND [Key] = 'Domains')
+        UPDATE AttributeValue SET [Value] = REPLACE(REPLACE([Value],'.' + @Domain,'dev.' + @Domain),'|' + @Domain,'|publicdev.' + @Domain) WHERE AttributeID = @ACMEDomainsAttrID AND [Value] NOT LIKE '%dev.' + @Domain + '%'
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Update domain references'
+        
+        PRINT @CRLF + '-Attribute values'
+        UPDATE AttributeValue SET [Value] = REPLACE([Value],'/' + @PublicDomain, '/' + @DevPublicDomain) WHERE [Value] LIKE '%/' + @PublicDomain + '%'
+        UPDATE AttributeValue SET [Value] = REPLACE([Value],'/' + @RockDomain, '/' + @DevRockDomain) WHERE [Value] LIKE '%/' + @RockDomain + '%'    
+        UPDATE AttributeValue SET [Value] = REPLACE([Value],'/' + @CheckInDomain, '/' + @DevCheckInDomain) WHERE [Value] LIKE '%/' + @CheckInDomain + '%'    
+        
+        PRINT @CRLF + '-HTML content'
+        UPDATE HtmlContent SET Content = REPLACE(Content,'/' + @PublicDomain, '/' + @DevPublicDomain) WHERE Content LIKE '%/' + @PublicDomain + '%'
+        UPDATE HtmlContent SET Content = REPLACE(Content,'/' + @RockDomain, '/' + @DevRockDomain) WHERE Content LIKE '%/' + @RockDomain + '%'
+        UPDATE HtmlContent SET Content = REPLACE(Content,'/' + @CheckInDomain, '/' + @DevCheckInDomain) WHERE Content LIKE '%/' + @CheckInDomain + '%'
+        
+        PRINT @CRLF + '-Content channel items'
+        UPDATE ContentChannelItem SET Content = REPLACE(Content,'/' + @PublicDomain, '/' + @DevPublicDomain) WHERE Content LIKE '%/' + @PublicDomain + '%'
+        UPDATE ContentChannelItem SET Content = REPLACE(Content,'/' + @RockDomain, '/' + @DevRockDomain) WHERE Content LIKE '%/' + @RockDomain + '%'
+        UPDATE ContentChannelItem SET Content = REPLACE(Content,'/' + @CheckInDomain, '/' + @DevCheckInDomain) WHERE Content LIKE '%/' + @CheckInDomain + '%'
+        
+        PRINT @CRLF + '-Lava shortcodes'
+        UPDATE LavaShortcode SET Markup = REPLACE(Markup,'/' + @PublicDomain, '/' + @DevPublicDomain) WHERE Markup LIKE '%/' + @PublicDomain + '%'
+        UPDATE LavaShortcode SET Markup = REPLACE(Markup,'/' + @RockDomain, '/' + @DevRockDomain) WHERE Markup LIKE '%/' + @RockDomain + '%'
+        UPDATE LavaShortcode SET Markup = REPLACE(Markup,'/' + @CheckInDomain, '/' + @DevCheckInDomain) WHERE Markup LIKE '%/' + @CheckInDomain + '%'
+        
+        PRINT @CRLF + '-Report fields'
+        UPDATE ReportField SET Selection = REPLACE(Selection,'/' + @PublicDomain, '/' + @DevPublicDomain) WHERE Selection LIKE '%/' + @PublicDomain + '%'
+        UPDATE ReportField SET Selection = REPLACE(Selection,'/' + @RockDomain, '/' + @DevRockDomain) WHERE Selection LIKE '%/' + @RockDomain + '%'
+        UPDATE ReportField SET Selection = REPLACE(Selection,'/' + @CheckInDomain, '/' + @DevCheckInDomain) WHERE Selection LIKE '%/' + @CheckInDomain + '%'
+        
+        PRINT @CRLF + '-Metrics'
+        UPDATE Metric SET SourceLava = REPLACE(SourceLava,'/' + @PublicDomain, '/' + @DevPublicDomain) WHERE SourceLava LIKE '%/' + @PublicDomain + '%'
+        UPDATE Metric SET SourceLava = REPLACE(SourceLava,'/' + @RockDomain, '/' + @DevRockDomain) WHERE SourceLava LIKE '%/' + @RockDomain + '%'
+        UPDATE Metric SET SourceLava = REPLACE(SourceLava,'/' + @CheckInDomain, '/' + @DevCheckInDomain) WHERE SourceLava LIKE '%/' + @CheckInDomain + '%'
+        
+        PRINT @CRLF + '-Communication templates'
+        UPDATE CommunicationTemplate 
+        SET [Message] = REPLACE([Message],'/' + @PublicDomain, '/' + @DevPublicDomain),
+            PushMessage = REPLACE(PushMessage,'/' + @PublicDomain, '/' + @DevPublicDomain),
+            SMSMessage = REPLACE(SMSMessage,'/' + @PublicDomain, '/' + @DevPublicDomain)
+        WHERE [Message] LIKE '%/' + @PublicDomain + '%' OR PushMessage LIKE '%/' + @PublicDomain + '%' OR SMSMessage LIKE '%/' + @PublicDomain + '%'
+        UPDATE CommunicationTemplate 
+        SET [Message] = REPLACE([Message],'/' + @RockDomain, '/' + @DevRockDomain),
+            PushMessage = REPLACE(PushMessage,'/' + @RockDomain, '/' + @DevRockDomain),
+            SMSMessage = REPLACE(SMSMessage,'/' + @RockDomain, '/' + @DevRockDomain)
+        WHERE [Message] LIKE '%/' + @RockDomain + '%' OR PushMessage LIKE '%/' + @RockDomain + '%' OR SMSMessage LIKE '%/' + @RockDomain + '%'
+        UPDATE CommunicationTemplate 
+        SET [Message] = REPLACE([Message],'/' + @CheckInDomain, '/' + @DevCheckInDomain),
+            PushMessage = REPLACE(PushMessage,'/' + @CheckInDomain, '/' + @DevCheckInDomain),
+            SMSMessage = REPLACE(SMSMessage,'/' + @CheckInDomain, '/' + @DevCheckInDomain)
+        WHERE [Message] LIKE '%/' + @CheckInDomain + '%' OR PushMessage LIKE '%/' + @CheckInDomain + '%' OR SMSMessage LIKE '%/' + @CheckInDomain + '%'
+        
+        PRINT @CRLF + '-System communications'
+        UPDATE SystemCommunication 
+        SET Body = REPLACE(Body,'/' + @PublicDomain, '/' + @DevPublicDomain),
+            PushMessage = REPLACE(PushMessage,'/' + @PublicDomain, '/' + @DevPublicDomain),
+            SMSMessage = REPLACE(SMSMessage,'/' + @PublicDomain, '/' + @DevPublicDomain)
+        WHERE Body LIKE '%/' + @PublicDomain + '%' OR PushMessage LIKE '%/' + @PublicDomain + '%' OR SMSMessage LIKE '%/' + @PublicDomain + '%'
+        UPDATE SystemCommunication 
+        SET Body = REPLACE(Body,'/' + @RockDomain, '/' + @DevRockDomain),
+            PushMessage = REPLACE(PushMessage,'/' + @RockDomain, '/' + @DevRockDomain),
+            SMSMessage = REPLACE(SMSMessage,'/' + @RockDomain, '/' + @DevRockDomain)
+        WHERE Body LIKE '%/' + @RockDomain + '%' OR PushMessage LIKE '%/' + @RockDomain + '%' OR SMSMessage LIKE '%/' + @RockDomain + '%'
+        UPDATE SystemCommunication 
+        SET Body = REPLACE(Body,'/' + @CheckInDomain, '/' + @DevCheckInDomain),
+            PushMessage = REPLACE(PushMessage,'/' + @CheckInDomain, '/' + @DevCheckInDomain),
+            SMSMessage = REPLACE(SMSMessage,'/' + @CheckInDomain, '/' + @DevCheckInDomain)
+        WHERE Body LIKE '%/' + @CheckInDomain + '%' OR PushMessage LIKE '%/' + @CheckInDomain + '%' OR SMSMessage LIKE '%/' + @CheckInDomain + '%'
+        
+        PRINT @CRLF + '-System email'
+        UPDATE SystemEmail SET Body = REPLACE(Body,'/' + @PublicDomain, '/' + @DevPublicDomain) WHERE Body LIKE '%/' + @PublicDomain + '%'
+        UPDATE SystemEmail SET Body = REPLACE(Body,'/' + @RockDomain, '/' + @DevRockDomain) WHERE Body LIKE '%/' + @RockDomain + '%'
+        UPDATE SystemEmail SET Body = REPLACE(Body,'/' + @CheckInDomain, '/' + @DevCheckInDomain) WHERE Body LIKE '%/' + @CheckInDomain + '%'
+
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Update personal link domains'
+        UPDATE PersonalLink SET [URL] = REPLACE(REPLACE([URL], '.' + @Domain, 'dev.' + @Domain), '/' + @Domain, '/publicdev.' + @Domain) WHERE [URL] LIKE '%' + @Domain + '%' AND [URL] NOT LIKE '%dev.' + @Domain + '%'
+        
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Update site domains'
+        DECLARE @PublicDomainGUID AS uniqueidentifier = (SELECT TOP 1 GUID FROM SiteDomain WHERE Domain = @Domain)
+        UPDATE SiteDomain SET Domain = @DevPublicDomain WHERE GUID = @PublicDomainGUID
+        UPDATE SiteDomain SET Domain = REPLACE(Domain,'.' + @Domain,'dev.' + @Domain) WHERE GUID <> @PublicDomainGUID AND Domain NOT LIKE '%dev.' + @Domain + '%'
+        UPDATE Site SET AllowedFrameDomains = REPLACE(REPLACE(REPLACE(AllowedFrameDomains, @Domain, '|' + @Domain), '.|' + @Domain, 'dev.' + @Domain), '|' + @Domain, @DevPublicDomain) WHERE AllowedFrameDomains NOT LIKE '%dev.' + @Domain + '%'
+        UPDATE Site SET IndexStartingLocation = REPLACE(REPLACE(REPLACE(IndexStartingLocation, @Domain, '|' + @Domain), '.|' + @Domain, 'dev.' + @Domain), '|' + @Domain, @DevPublicDomain) WHERE IndexStartingLocation NOT LIKE '%dev.' + @Domain + '%'
+
+        PRINT @CRLF + '---------------------------------------------------------------'
+        PRINT 'Enable database login for internal site'
+        DECLARE @BlockEntityTypeID AS int = (SELECT TOP 1 ID FROM EntityType WHERE Name = 'Rock.Model.Block')
+        DECLARE @InternalLoginAttrID AS int = (SELECT TOP 1 ID FROM Attribute WHERE EntityTypeID = @BlockEntityTypeID AND [Key] = 'ShowInternalLogin')
+        DECLARE @BlockTypeID AS int = (SELECT TOP 1 ID FROM BlockType WHERE [GUID] = '7B83D513-1178-429E-93FF-E76430E038E4')
+        DECLARE @BlockID AS int = (SELECT TOP 1 B.ID FROM [Block] B INNER JOIN [Page] P ON P.ID = B.PageID INNER JOIN Layout L ON L.ID = P.LayoutID AND L.SiteID = 1 WHERE B.BlockTypeID = @BlockTypeID)
+        UPDATE AttributeValue SET [Value] = 'True' WHERE AttributeID = @InternalLoginAttrID AND EntityID = @BlockID
+        
+    COMMIT TRANSACTION;
+    
+    PRINT @CRLF + '========================================================='
+    PRINT 'Updates Completed'
+END TRY
+BEGIN CATCH
+    IF (@@TRANCOUNT > 0)
+        ROLLBACK TRANSACTION;
+
+    THROW;
+    
+    PRINT @CRLF + '========================================================='
+    PRINT 'No Changes Made'
+END CATCH
