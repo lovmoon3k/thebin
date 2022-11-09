@@ -1,0 +1,91 @@
+clear all
+close all
+clc
+
+%% MAIN
+% Data
+K = 3;
+MULT = 4;
+N = K * MULT;
+H = 30;
+
+x_UAV = 25;
+y_UAV = 0;
+positions = [0 0; 10 0; 20 0]';
+P_max = 1;
+P_noise = 10^(-8);
+rho_1m = 10^(-4);
+B = 10^6;
+disp("K = " + num2str(K) + " aggregators");
+disp("N = " + num2str(N) + " timeslots");
+display(' ');
+
+
+%% Iteration 0 - No RIS case
+iter = 0;
+P = P_max/2 * ones(K, N);
+Q = [x_UAV*ones(1, N); y_UAV*ones(1, N)];
+plot(positions(1, :), positions(2, :), 'bo', 'MarkerSize', 7);
+hold on
+plot(Q(1, 1), Q(2, 1), 'rx', 'MarkerSize', 12);
+legend("Aggregators", "UAV Hovering");
+display(' ');
+
+
+%% CVX
+iter = iter + 1;
+display('CVX');
+cvx_begin quiet
+    variable A(K, N);
+    maximize(find_DF(A, P, Q, K, N, positions, H, rho_1m, B, P_noise));
+    subject to
+        for k = 1 : K
+            for n = 1 : N
+                0 <= A(k, n) <= 1;
+            end
+        end
+        for n = 1 : N
+            column = A(:, n);
+            sum(column) == 1;
+        end
+cvx_end
+
+A
+cvx_optval
+
+% A_new = A;
+% A_new(1, 1) = 0;
+% A_new(3, 1) = 1;
+% find_DF(A_new, P, Q, K, N, positions, H, rho_1m, B, P_noise)
+display(' ');
+
+
+
+
+%% FUNCTIONS
+function d = distance(agg, UAV, H)
+    d = sqrt((agg(1)-UAV(1))^2 + (agg(2)-UAV(2))^2 + H^2);
+end
+
+function h = loss(rho_1m, d)
+    h = rho_1m / d^2;
+end
+
+function DF = find_DF(A, P, Q, K, N, positions, H, rho_1m, B, P_noise)
+    
+    SUM = 0;
+    for n = 1 : N
+        for k = 1 : K
+            a = A(k, n);
+            p = P(k, n);
+            agg = positions(:, k);
+            UAV = Q(:, n);
+            d = distance(agg, UAV, H);
+            h = rho_1m / d^2;
+            SUM = SUM + a*B*log2(1 + p/P_noise * abs(h)^2);
+        end
+    end
+    R_avg = SUM / (N*K);
+    DF = R_avg * N;
+
+end
