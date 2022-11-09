@@ -1,0 +1,418 @@
+import { ThirdwebSDK } from "@thirdweb-dev/sdk";
+import { providers } from "ethers";
+import React, { FormEvent, useContext, useRef, useState } from "react";
+import toast from "react-hot-toast";
+import axios from "axios";
+import { v4 as uuidv4 } from "uuid";
+import dateFormat from "dateformat";
+
+import {
+  Box,
+  Button,
+  Divider,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
+
+import { useRouter } from "next/router";
+import Image from "next/image";
+import { ReceiptContext } from "../context";
+
+const Mint = ({
+  isConnected,
+  disconnectWallet,
+  handleConnectWallet,
+}: {
+  isConnected: boolean;
+  disconnectWallet: () => void;
+  handleConnectWallet: () => void;
+}) => {
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
+  const { query } = useRouter();
+  const { setReceipt } = useContext(ReceiptContext);
+
+  const { id } = query;
+
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [description, setDescription] = useState("");
+
+  const fileRef: any = useRef<any>(null);
+  const [fileName, setFileName] = useState("Select File");
+  const [productCost, setProductCost] = useState<string>("0");
+  const [isDragging, setIsDragging] = useState(false);
+  const [imgData, setImgData] = useState("/0");
+
+  const getProviderOrSigner = async (needSigner = false) => {
+    const provider = new providers.Web3Provider(window.ethereum);
+
+    if (needSigner) {
+      await provider.send("eth_requestAccounts", []);
+      const signer = provider.getSigner();
+      if (signer) {
+        return signer;
+      }
+      toast.error("You need to allow MetaMask.");
+      return null;
+    }
+
+    return provider;
+  };
+
+  const handleMint = async (e: FormEvent) => {
+    e.preventDefault();
+
+    if (!name || !description) {
+      toast.error("Please fill all the fields");
+      return;
+    }
+    setIsLoading(true);
+    if (fileRef.current?.files?.length) {
+      const file = fileRef.current.files[0];
+      const fileType = file.type;
+      if (
+        fileType === "image/jpeg" ||
+        fileType === "image/png" ||
+        fileType === "image/gif" ||
+        fileType === "image/jpg" ||
+        fileType === "image/webp" ||
+        fileType === "video/mp4"
+      ) {
+        if (file.size < 104857600) {
+          try {
+            // upload file to ipfs
+            const uri = await _uploadToIPFS(file);
+
+            const metadata = {
+              name,
+              description,
+              properties: [
+                {
+                  trait_type: "price",
+                  value: productCost,
+                },
+              ],
+              image: uri,
+            };
+            toast.promise(
+              new Promise(async (resolve, reject) => {
+                try {
+                  const signer = (await getProviderOrSigner(
+                    true
+                  )) as providers.JsonRpcSigner;
+                  const sdk = new ThirdwebSDK(signer);
+                  const contract = sdk.getNFTCollection(
+                    process.env.NEXT_PUBLIC_NFT_COLLECTION_ADDRESS || ""
+                  );
+                  let walletAddress = await signer.getAddress();
+                  // Make a request to /api/server
+                  const signedPayloadReq = await fetch(`/api/server`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      recipient: walletAddress, // Address of the current user
+                      metadata,
+                    }),
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                  });
+
+                  // Grab the JSON from the response
+                  const json = await signedPayloadReq.json();
+                  // If the request failed, we'll show an error.
+                  if (!signedPayloadReq.ok) {
+                    alert(json.error);
+                    return;
+                  }
+                  const signedPayload = json.signedPayload;
+                  let tx: any = await contract.signature.mint(signedPayload);
+
+                  let { receipt } = tx[0] || tx;
+                  let hash = receipt.transactionHash;
+                  toast("tx hash: " + hash);
+
+                  const unique_id = uuidv4().toString();
+                  try {
+                    await axios({
+                      method: "POST",
+                      url: `https://6z4togfqhl.execute-api.us-east-1.amazonaws.com/dev/mintrinkebynft`,
+                      data: JSON.stringify({
+                        nft_id: unique_id,
+                        nft_name: name,
+                        nft_hash: hash,
+                        nft_description: description,
+                        nft_value: parseFloat(productCost),
+                        nft_user_email: email,
+                        nft_image_name: uri,
+                        nft_created_date: dateFormat(
+                          new Date(),
+                          "mm/dd/yyyy HH:MM TT"
+                        ),
+                        // transaction_hash: hash,
+                        // user_id: id,
+                        // minted_date: ,
+                        // pinata_url: uri,
+                        // description_text: description,
+                        // unique_id,
+                        // name,
+                        // price: parseFloat(productCost.toString()),
+                      }),
+                      headers: {
+                        "Content-Type": "application/json",
+                      },
+                    });
+                  } catch (error: any) {
+                    toast.error(error.message || error);
+                  }
+
+                  setReceipt({
+                    description,
+                    mintedAt: new Date(),
+                    image: uri,
+                    mintedBy: walletAddress,
+                    title: name,
+                    hash: hash,
+                  });
+                  localStorage.setItem(
+                    "receipt",
+                    JSON.stringify({
+                      description,
+                      mintedAt: new Date(),
+                      image: uri,
+                      mintedBy: walletAddress,
+                      title: name,
+                      hash: hash,
+                    })
+                  );
+                  router.push("/receipt");
+
+                  resolve(`Successfully minted 1 NFT`);
+                  setIsLoading(false);
+                } catch (error: any) {
+                  console.log(error);
+                  reject(
+                    `Error: ${error?.data?.message || error?.message || error}`
+                  );
+                  setIsLoading(false);
+                }
+              }),
+              {
+                loading: "Minting...",
+                success: (msg) => `${String(msg)}`,
+                error: (msg) => `${String(msg)}`,
+              }
+            );
+          } catch (error: any) {
+            toast.error(
+              `Error: ${error?.data?.message || error?.message || error}`
+            );
+            setIsLoading(false);
+            return;
+          }
+        } else {
+          toast.error("File size must be less than 100MB!");
+          setIsLoading(false);
+        }
+      } else {
+        toast.error("Please upload a valid image!");
+        setIsLoading(false);
+      }
+    } else {
+      toast.error("No files added!");
+      setIsLoading(false);
+    }
+  };
+
+  const _uploadToIPFS = async (_file: File) => {
+    try {
+      const formData = new FormData();
+      formData.append("file", _file);
+      const resFile = await axios({
+        method: "post",
+        url: "https://api.pinata.cloud/pinning/pinFileToIPFS",
+        data: formData,
+        headers: {
+          pinata_api_key: `${process.env.NEXT_PUBLIC_PINATA_API_KEY}`,
+          pinata_secret_api_key: `${process.env.NEXT_PUBLIC_PINATA_API_SECRET}`,
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      const ImgHash = `ipfs://${resFile.data.IpfsHash}`;
+
+      return ImgHash;
+    } catch (error: any) {
+      throw new Error("Error: " + error?.message || error);
+    }
+  };
+
+  const handleDrop = (e: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (fileRef.current) {
+      fileRef.current.files = e.dataTransfer.files;
+      setFileName(
+        fileRef.current.files && fileRef.current.files.length
+          ? fileRef.current.files[0].name
+          : "Select File"
+      );
+      fileRef.current.files?.length && addPreview(fileRef.current.files[0]);
+    }
+  };
+
+  const addPreview = (file: File | null) => {
+    const reader = new FileReader();
+    if (file) {
+      reader.addEventListener("load", () => {
+        setImgData(String(reader.result));
+      });
+      reader.readAsDataURL(file);
+    }
+  };
+
+  return (
+    <Stack spacing={1} width="100%">
+      <Box textAlign="center" mb={2}>
+        <Button
+          variant="outlined"
+          className="fontStyle"
+          color="error"
+          onClick={isConnected ? disconnectWallet : handleConnectWallet}
+          sx={{ fontSize: "1.6rem", fontWeight: "bold", cursor: "pointer" }}
+        >
+          {isConnected ? "Disconnect Wallet" : "Connect Wallet"}
+        </Button>
+      </Box>
+
+      <Stack
+        component="form"
+        sx={{
+          opacity: isLoading ? 0.5 : 1,
+          pointerEvents: isLoading ? "none" : "auto",
+        }}
+        spacing={1.5}
+      >
+        <Typography variant="h5" fontFamily="Geizer" fontWeight="bold">
+          Mint Your NFT
+        </Typography>
+        <Divider
+          sx={{
+            width: "10%",
+            marginTop: "1rem",
+            border: "2px solid #e0e0e0",
+          }}
+        />
+        <Typography className="fontStyle">Name of Your NFT</Typography>
+        <TextField
+          className="fontStyle"
+          fullWidth
+          placeholder="NFT Name"
+          value={name}
+          onChange={(e) => setName(e.target.value.trim())}
+          required
+        />
+        <Typography className="fontStyle">
+          Tell the world about your NFT
+        </Typography>
+        <TextField
+          className="fontStyle"
+          fullWidth
+          multiline
+          minRows={5}
+          placeholder="Tell the world about your nft"
+          value={description}
+          onChange={(e) => setDescription(e.target.value.trim())}
+          required
+        />
+        <Typography className="fontStyle">
+          How much is your NFT worth?
+        </Typography>
+        <TextField
+          className="fontStyle"
+          fullWidth
+          placeholder="The minimum price of listed product"
+          value={productCost}
+          type="number"
+          required
+          onChange={(e) => setProductCost(e.target.value.trim())}
+        />
+        <Typography className="fontStyle">Your Email Address</Typography>
+        <TextField
+          className="fontStyle"
+          fullWidth
+          placeholder="Your Email Address"
+          value={email}
+          type="email"
+          required
+          onChange={(e) => setEmail(e.target.value.trim())}
+        />
+        <Typography className="fontStyle" mt={1}>
+          Upload your NFT image
+        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center" }}>
+          <Button
+            variant="contained"
+            sx={{
+              bgcolor: "#E9E9E9",
+              fontFamily: "Geizer",
+              fontSize: "0.8rem",
+              color: "#000",
+              boxShadow: "none",
+            }}
+            component="label"
+          >
+            Select file
+            <input
+              type="file"
+              ref={fileRef}
+              onChange={(e) => {
+                setFileName(
+                  e.target.files && e.target.files.length > 0
+                    ? e.target.files[0].name
+                    : "Select File"
+                );
+                e.target.files && addPreview(e?.target?.files[0]);
+              }}
+              required
+              hidden
+            />
+          </Button>
+          <Typography fontFamily="Geizer" ml={2}>
+            {fileName || "No File Chosen"}
+          </Typography>
+        </Box>
+        {fileName != "Select File" && (
+          <Box>
+            <div
+              className="preview"
+              onDrop={(e) => {
+                handleDrop(e);
+                setIsDragging(false);
+              }}
+              onDragOver={() => setIsDragging(true)}
+              onDragLeave={() => setIsDragging(false)}
+            >
+              <Image src={imgData} alt="Image info" height={300} width={300} />
+            </div>
+          </Box>
+        )}
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            mt: "2%",
+          }}
+        >
+          <span> </span>
+          <Button variant="contained" color="success" onClick={handleMint}>
+            MINT NFT
+          </Button>
+        </Box>
+      </Stack>
+    </Stack>
+  );
+};
+
+export default Mint;
