@@ -1,0 +1,611 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <AccelStepper.h>
+
+#include <Button.h>
+
+LiquidCrystal_I2C LCD = LiquidCrystal_I2C(0x27, 16, 2);
+
+
+#define DEBUG true  //set to true for debug output, false for no debug output
+#define DEBUG_SERIAL if(DEBUG)Serial
+#define DEBUG_PAUSE if(DEBUG)millisdelay
+#define DEBUG_LCD if(DEBUG)displayLCD
+
+volatile int debug_heading_counter=0;
+volatile int change_check;
+volatile int previous_change_check;
+volatile int thechange;
+
+
+
+// MACHINE switch inputs
+#define PRODUCT_IN_PLACE_INPUT 2
+#define HORIZONTAL_LIMIT 19
+#define HORIZONTAL_HOME 9
+#define PRODUCT_SHELF_HOME 10
+#define PRODUCT_SHELF_LIMIT 18
+
+// OPERATOR SWITCHES
+#define OPERATOR_START_SWITCH  35
+#define OPERATOR_HOME_SWITCH  37
+#define OPERATOR_EMERGENCY_STOP_INPUT 3
+
+
+// Vertical Stepper
+#define PRODUCT_SHELF_STEPPER_CONT_EN 23
+#define PRODUCT_SHELF_STEPPER_CONT_STEP 27
+#define PRODUCT_SHELF_STEPPER_CONT_DIR 25
+
+
+// Horizonal Stepper
+#define HORIZONTAL_STEPPER_CONT_EN 29
+#define HORIZONTAL_STEPPER_CONT_STEP 31
+#define HORIZONTAL_STEPPER_CONT_DIR 33
+
+// Misc  outputs
+#define  EMERGENCY_STOP_LED 12
+
+// Stepper constants
+const int stepsPerRevolution = 200 ;              // set for steppers
+int initial_present_position;                     // general position variable
+int stepper_delay = 50  ;                          // ms for move of 1
+
+
+// Boolean flags for status product_in_place sensor
+volatile boolean stock_in_place                    = false;
+volatile boolean previous_stock_in_place           = false;
+
+// Boolean flags for status product_shelf
+volatile boolean product_shelf_home_calibrated     = false;   
+volatile boolean product_shelf_home                = false;
+volatile boolean product_shelf_limit               = false;
+volatile boolean previous_product_shelf_home       = false;
+volatile boolean previous_product_shelf_limit      = false;
+
+// Boolean flags for status horizonal
+volatile boolean horizonal_home_calibrated         = false;
+volatile boolean horizonal_home                    = false;
+volatile boolean horizonal_limit                   = false;
+volatile boolean previous_horizonal_limit          = false;
+volatile boolean previous_horizonal_home           = false;
+
+// operator buttons
+volatile boolean emergency_stop                    = false;
+volatile boolean start_pushed                      = false;
+volatile boolean home_pushed                       = false;
+
+// stepper position variables
+volatile int shelf_stepper_position = 0  ;                 // shelf position
+volatile int horizontal_stepper_position = 0  ;            //  horizontal position
+
+
+//testing
+volatile boolean completed_tests = false;
+Button startButton(35);
+
+
+
+// Setup steppers
+AccelStepper HORIZONTAL(1, HORIZONTAL_STEPPER_CONT_STEP, HORIZONTAL_STEPPER_CONT_DIR);
+AccelStepper PRODUCT_SHELF(1, PRODUCT_SHELF_STEPPER_CONT_STEP, PRODUCT_SHELF_STEPPER_CONT_DIR);
+
+
+
+void setup() {
+
+  Serial.begin(9600);
+   // testing only
+   startButton.begin();
+
+  // Stepper Horizonal
+  HORIZONTAL.setEnablePin(HORIZONTAL_STEPPER_CONT_EN);
+  HORIZONTAL.setPinsInverted(false, false, true);
+  HORIZONTAL.enableOutputs();
+  HORIZONTAL.setMaxSpeed(200);
+  HORIZONTAL.setSpeed(20);
+
+  // Stepper Vertical
+  PRODUCT_SHELF.setEnablePin(PRODUCT_SHELF_STEPPER_CONT_EN);
+  PRODUCT_SHELF.setPinsInverted(false, false, true);
+  PRODUCT_SHELF.enableOutputs();
+  PRODUCT_SHELF.setMaxSpeed(200);
+  PRODUCT_SHELF.setSpeed(20);
+
+
+  // set pin modes - switches have pull down resistors - product_in_place switch active HIGH/LOW
+  pinMode(PRODUCT_IN_PLACE_INPUT, INPUT);     // High normally - low on switched - 
+                                              // we use inverted value to get logic levels right way around
+
+  pinMode(HORIZONTAL_LIMIT, INPUT);           // low normally - high on switched
+  pinMode(HORIZONTAL_HOME, INPUT);            // low normally - high on switched
+
+  pinMode(PRODUCT_SHELF_HOME, INPUT);         // low normally - high on switched
+  pinMode(PRODUCT_SHELF_LIMIT, INPUT);        // low normally - high on switched
+
+  pinMode(OPERATOR_START_SWITCH, INPUT);      // low normally - high on switched
+  pinMode(OPERATOR_HOME_SWITCH, INPUT);       // low normally - high on switched
+
+  pinMode(EMERGENCY_STOP_LED , OUTPUT);       // LED or LIGHT for emergency stop condition
+
+  // pin mode on the stepper enables - most likely not required
+  pinMode(HORIZONTAL_STEPPER_CONT_EN , OUTPUT);
+  pinMode(PRODUCT_SHELF_STEPPER_CONT_EN , OUTPUT);
+
+  /* -------------------------------------------
+   real startup sequence for safety
+    -------------------------------------------
+  */
+
+
+  // ENSURE STEPPERS ARE NOT RUNNING
+  HORIZONTAL.stop();
+  PRODUCT_SHELF.stop();
+
+  // read the EMERGENCY STOP switch - high means its still on
+  emergency_stop = digitalRead(OPERATOR_EMERGENCY_STOP_INPUT);
+
+  // START THE SCREEN
+  LCD.init();
+  LCD.backlight();
+  LCD.setCursor(0, 0);
+
+
+  // CHECK TO MAKE SURE the switch is off
+  if (emergency_stop)
+  {
+    LCD.setCursor(0, 0);
+    LCD.print(" EMERGENCY STOP     ");
+    LCD.setCursor(0, 1);
+    LCD.print(" RESET             ");
+    digitalWrite(EMERGENCY_STOP_LED,HIGH);
+    while (1);
+  }
+
+
+  // SET THE SWITCH INTERUPTS
+  attachInterrupt(digitalPinToInterrupt(PRODUCT_IN_PLACE_INPUT), proxInterrupt, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(OPERATOR_EMERGENCY_STOP_INPUT), EMERGENCY_STOP_Interrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(PRODUCT_SHELF_LIMIT), SHELF_LIMIT_Interrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(HORIZONTAL_LIMIT), HORIZONTAL_LIMIT_Interrupt, RISING);
+  
+ // we have reached here, so we wait for the operator to hit the start button
+  LCD.clear();
+  LCD.setCursor(0, 0);
+  LCD.print("READY TO TEST     ");
+  LCD.setCursor(0, 1);
+  LCD.print("Push Start  ");
+  
+  while (!startButton.pressed())
+  {
+
+
+  }
+
+
+
+
+
+
+}
+
+void loop() {
+ 
+if ( !completed_tests)
+{
+
+  LCD.clear();
+  LCD.setCursor(0, 0);
+  LCD.print("PUSH START      ");
+  LCD.setCursor(0, 1);
+  LCD.print("H HOME TEST     ");
+  
+  
+  while (!startButton.released())
+  {
+  
+
+  }
+  
+  move_horizontal_home(); 
+  LCD.clear();
+  LCD.setCursor(0, 0);
+  LCD.print("H HOMED               ");
+  LCD.setCursor(0, 1);
+  LCD.print("                      ");
+
+  millisdelay(2000);
+  LCD.clear();
+  LCD.setCursor(0, 0);
+  LCD.print("PUSH START      ");
+  LCD.setCursor(0, 1);
+  LCD.print("H LIMIT TEST     ");
+
+
+
+while (!startButton.released())
+  {
+  
+
+  }
+  move_horizontal_forward(); 
+  LCD.setCursor(0, 1);
+  LCD.print("Push Start  ");
+  while (!startButton.released())
+  {
+  
+
+  }
+  move_product_shelf_home(); 
+  LCD.setCursor(0, 1);
+  LCD.print("Push Start                  ");
+   while (!startButton.released())
+  {
+  
+
+  }
+  move_product_shelf_limit(); 
+   
+
+   completed_tests=true;
+}
+else
+{
+  LCD.setCursor(0, 1);
+  LCD.print("FINISHED                  ");
+  while(1);
+}
+}
+
+void SHELF_LIMIT_Interrupt()
+{
+// stop moving
+PRODUCT_SHELF.stop();
+shelf_stepper_position= PRODUCT_SHELF.currentPosition();
+product_shelf_limit=true;
+}
+
+void HORIZONTAL_LIMIT_Interrupt()
+{
+//stop moving
+HORIZONTAL.stop();
+horizontal_stepper_position=HORIZONTAL.currentPosition() ;
+horizonal_limit=true;
+}
+
+
+void EMERGENCY_STOP_Interrupt()
+{
+  // with systems - the interupt stops coms with LCD
+  digitalWrite(EMERGENCY_STOP_LED,HIGH);
+  emergency_stop = true;
+  HORIZONTAL.stop();
+  PRODUCT_SHELF.stop();
+  detachInterrupt(digitalPinToInterrupt(OPERATOR_EMERGENCY_STOP_INPUT));
+  while(1);
+ }
+
+void proxInterrupt() {
+     stock_in_place = !digitalRead(PRODUCT_IN_PLACE_INPUT);   // HIGH for no so invert it
+}
+
+void startup()
+{
+  /* on start, we require these conditions
+     
+     product_in_place switch must be HIGH - no items
+
+     product_shelf_HOME should be on
+     product_shelf_LIMIT should be off
+
+     HORIZONTAL_LIMIT should be off
+     HORIZONTAL_HOME should be on
+  */
+ 
+  // read the switches
+  stock_in_place   = !digitalRead(PRODUCT_IN_PLACE_INPUT);          // low for stock in place
+                                                                    // inverted for logic levels
+  product_shelf_home    = digitalRead(PRODUCT_SHELF_HOME);          // high for switched
+  product_shelf_limit   = digitalRead(PRODUCT_SHELF_LIMIT);         // high for switched
+  horizonal_limit  = digitalRead(HORIZONTAL_LIMIT);                 // high for switched
+  horizonal_home   = digitalRead(HORIZONTAL_HOME);                  // high for switched
+  debug_switches("Startup Called");
+
+ 
+  // checks for impossible
+  if (horizonal_home &&  horizonal_limit)
+  {
+   debug_switches("HOME ON and LIMIT ON HORIZONAL");
+  
+    // if the home positions are not home after homing then something is wrong
+    LCD.clear();
+    LCD.setCursor(0, 0);
+    LCD.print(" EMERGENCY STOP     ");
+    LCD.setCursor(0, 1);
+    LCD.print("H HOME & LIMIT ON    ");
+    EMERGENCY_STOP_Interrupt(); 
+  }
+
+ if (product_shelf_home &&  product_shelf_limit)
+  {
+   debug_switches("HOME ON and LIMIT ON SHELF");
+  
+    // if the home positions are not home after homing then something is wrong
+    LCD.clear();
+    LCD.setCursor(0, 0);
+    LCD.print(" EMERGENCY STOP     ");
+    LCD.setCursor(0, 1);
+    LCD.print("SHELF HOME & LIMIT ON    ");
+    EMERGENCY_STOP_Interrupt(); 
+  }
+
+
+
+
+
+  if (!horizonal_home || !product_shelf_home)   // the steppers are not in home position
+  {
+    debug_switches("Steppers not in home position");
+ 
+    if (!horizonal_home) move_horizontal_home();
+    if (!product_shelf_home)  move_product_shelf_home();
+  }
+
+ 
+  // read the switches
+  horizonal_limit  = digitalRead(HORIZONTAL_LIMIT); // high for switched
+  horizonal_home  = digitalRead(HORIZONTAL_HOME);     // high for switched
+  debug_switches("AFTER HOME");
+
+  if (!horizonal_home && !product_shelf_home)
+  {
+    debug_switches("Steppers not in home position after home");
+  
+    // if the home positions are not home after homing then something is wrong
+    LCD.clear();
+    LCD.setCursor(0, 0);
+    LCD.print(" EMERGENCY STOP     ");
+    LCD.setCursor(0, 1);
+    LCD.print("ERROR CANT HOME    ");
+    millisdelay(2000);
+    EMERGENCY_STOP_Interrupt();
+  }
+
+  // getting here means the homing worked
+  // now check the prox sensor - if we are home, 
+  // then it should not have any stock there
+
+  if (stock_in_place )
+  {
+    debug_switches("INCORRECT stock in place");
+    LCD.clear();
+    LCD.setCursor(0, 0);
+    LCD.print(" EMERGENCY STOP     ");
+    LCD.setCursor(0, 1);
+    LCD.print("CLEAR ITEMS     ");
+    EMERGENCY_STOP_Interrupt();
+  }
+ 
+ //  get here and the system should be in home positions, calibrated and no stock near sensor
+}
+
+
+
+void move_horizontal_forward()
+{
+  thechange=1;
+  initial_present_position = 1;
+   LCD.setCursor(0, 3);
+  LCD.print("                    ");
+  LCD.setCursor(0, 3);
+  LCD.print("MOVE H --> ");
+  DEBUG_PAUSE(1000);
+  //horizonal_limit  = digitalRead(HORIZONTAL_LIMIT);
+   // horizonal_limit boolean set by interupt
+  // stock_in_place  boolean set by interupt
+ 
+  while (!stock_in_place && !horizonal_limit && !product_shelf_limit && !emergency_stop ) {  
+    // Make the Stepper move  until the switch is activated (LOW)
+    // stop if we reach horizonal limit with no stock
+    // horizonal_limit  = digitalRead(HORIZONTAL_LIMIT);
+   
+    //NOTE:  stock_in_place  boolean set by interupt
+    // horizonal_limit boolean set by interupt
+    
+    HORIZONTAL.moveTo(initial_present_position);  // Set the position to move to
+    LCD.setCursor(0, 1);
+    LCD.print("Move to ");
+    LCD.print(initial_present_position);
+    initial_present_position=initial_present_position + thechange;  // increase by thechange for next move if needed
+    HORIZONTAL.run();  // Start moving the stepper
+    debug_switches("Moving horizontal to limit or stock_in_place ");
+    millisdelay(stepper_delay);
+  }
+   HORIZONTAL.stop();
+}
+
+void move_horizontal_home()
+{
+  initial_present_position = -1;  // reverse
+  LCD.setCursor(0, 3);
+  LCD.print("                    ");
+  LCD.setCursor(0, 3);
+  LCD.print("MOVE H <---");
+  DEBUG_PAUSE(2000);
+
+  horizonal_home  = digitalRead(HORIZONTAL_HOME);
+  if ( horizonal_home_calibrated) 
+  {
+    DEBUG_LCD(3,"H --> Calib home");
+   while (!horizonal_home && !emergency_stop && HORIZONTAL.distanceToGo() > 0)
+      HORIZONTAL.moveTo(0);  // Set the position to move to
+  }
+  else
+  {
+     DEBUG_LCD(3,"H --> XX home");
+  while (!horizonal_home && !emergency_stop) {  // Make the Stepper move  until the switch is activated
+    // read the switch
+    horizonal_home  = digitalRead(HORIZONTAL_HOME);
+    HORIZONTAL.moveTo(initial_present_position);  // Set the position to move to
+    LCD.setCursor(0, 1);
+    LCD.print("Move to ");
+    LCD.print(initial_present_position);
+    initial_present_position--;  // increase by 1 for next move if needed
+    HORIZONTAL.run();  // Start moving the stepper
+    millisdelay(stepper_delay);
+    debug_switches("Moving horizontal home");
+   }
+  HORIZONTAL.stop();
+  HORIZONTAL.setCurrentPosition(0); // at home - set position to zero
+  horizonal_home_calibrated=true;
+  }
+
+}
+
+
+void move_product_shelf_home()
+{
+  initial_present_position = -1;
+  LCD.setCursor(0, 3);
+  LCD.print("                    ");
+  LCD.setCursor(0, 3);
+  LCD.print("MOVE S \/ ");
+  DEBUG_PAUSE(1000);
+
+  product_shelf_home = digitalRead(PRODUCT_SHELF_HOME);
+
+
+  if ( product_shelf_home_calibrated) 
+  {
+   DEBUG_LCD(3,"S --> Calib home");
+   while (!product_shelf_home && !emergency_stop && PRODUCT_SHELF.distanceToGo() > 0)
+      PRODUCT_SHELF.moveTo(0);  // Set the position to move to
+  }
+  else
+  {
+       DEBUG_LCD(3,"S --> XX home");
+  while (!product_shelf_home && !emergency_stop) {  // Make the Stepper move  until the switch is activated
+    product_shelf_home = digitalRead(PRODUCT_SHELF_HOME);
+    PRODUCT_SHELF.moveTo(initial_present_position);  // Set the position to move to
+    LCD.setCursor(0, 1);
+    LCD.print("Move to ");
+    LCD.print(initial_present_position);
+    initial_present_position--;  // increase by 1 for next move if needed
+    PRODUCT_SHELF.run();  // Start moving the stepper
+    debug_switches("Moving product shelf home");
+    millisdelay(stepper_delay);
+    }
+    PRODUCT_SHELF.stop();
+    PRODUCT_SHELF.setCurrentPosition(0);   // at home - set position to zero
+    product_shelf_home_calibrated=true;
+
+  }
+  
+
+}
+
+void move_product_shelf_limit()
+{
+  initial_present_position = -1;
+  LCD.setCursor(0, 2);
+  LCD.print("                    ");
+  LCD.setCursor(0, 2);
+  LCD.print("Shelf up");
+  DEBUG_PAUSE(1000);
+
+    // product_shelf_limit = digitalRead(PRODUCT_SHELF_LIMIT);
+     //NOTE:  stock_in_place  boolean set by interupt
+    // product_shelf_limit boolean set by interupt
+  while (!product_shelf_limit && !emergency_stop) {  // Make the Stepper move  until the switch is activated
+    // product_shelf_limit = digitalRead(PRODUCT_SHELF_LIMIT);
+    PRODUCT_SHELF.moveTo(initial_present_position);  // Set the position to move to
+    LCD.setCursor(0, 1);
+    LCD.print("MOVE TO ");
+    LCD.print(initial_present_position);
+    initial_present_position++;  // increase by 1 for next move if needed
+    PRODUCT_SHELF.run();  // Start moving the stepper
+    millisdelay(stepper_delay);
+    debug_switches("Moving to product shelf limit");
+  }
+  PRODUCT_SHELF.stop();
+
+}
+
+
+
+
+
+void millisdelay(long delaywanted)
+{
+  long time_now = millis();
+  while (millis() - time_now < delaywanted )
+  {
+    // incase something happened while we are waiting
+    if (emergency_stop)
+    {
+    delaywanted=0;
+    EMERGENCY_STOP_Interrupt();  
+    }
+  }
+}
+
+void debug_switches(String notes)
+{
+
+
+  String notice = "";
+
+  
+
+ change_check = stock_in_place * 100000
+              + product_shelf_home  *10000
+              + product_shelf_limit * 1000
+              + horizonal_home * 100
+              + horizonal_limit * 10
+              + emergency_stop;
+
+
+ if ( change_check != previous_change_check)
+ {
+  if ( debug_heading_counter % 5 == 0)
+  {
+   DEBUG_SERIAL.println( "STOCK\tV HOME\tV-LIMIT\tH-HOME\tH-LIMIT\tEMERG\tVH_CAL\tHH_CAL");
+  }
+  debug_heading_counter++;
+  
+  
+  (stock_in_place ? notice="yes " : notice="no"   );
+  DEBUG_SERIAL.print(notice);
+
+  (product_shelf_home ? notice="\tyes" :  notice="\tno ");
+  DEBUG_SERIAL.print(notice);
+  (product_shelf_limit ? notice="\tyes" :  notice="\tno ");
+  DEBUG_SERIAL.print(notice);
+  (horizonal_home ? notice="\tyes" :  notice="\tno ");
+  DEBUG_SERIAL.print(notice);
+  (horizonal_limit ? notice="\tyes" :  notice="\tno ");
+  DEBUG_SERIAL.print(notice);
+
+ (emergency_stop ? notice="\tyes" :  notice="\tno ");
+
+  DEBUG_SERIAL.print(notice);
+
+ (product_shelf_home_calibrated ? notice="\tyes" :  notice="\tno ");
+  DEBUG_SERIAL.print(notice);
+
+ (horizonal_home_calibrated ? notice="\tyes" :  notice="\tno ");
+  DEBUG_SERIAL.print(notice);
+  DEBUG_SERIAL.print("\t");
+   DEBUG_SERIAL.print(notes);
+  DEBUG_SERIAL.println();
+  previous_change_check = change_check;
+ }
+}
+
+void displayLCD(int linenumber, String thecomment)
+{
+  LCD.setCursor(0, linenumber);
+  LCD.print("                    ");
+  LCD.setCursor(0, linenumber);
+  LCD.print(thecomment);
+}

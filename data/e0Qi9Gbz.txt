@@ -1,0 +1,319 @@
+// ==UserScript==
+// @name        💡 pcbeta.com
+// @namespace   pcbeta Scripts
+// @version     0.6.0
+// @author      ngbanyan
+// @description 远景论坛美化
+// @downloadURL https://pastebin.com/raw/VcMuuDAQ
+// @updateURL   https://pastebin.com/raw/VcMuuDAQ
+// @require     https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js
+// @require     https://cdn.jsdelivr.net/npm/stickUp@2.3.1/src/stickUp.min.js
+// @match       *://bbs.pcbeta.com/*
+// @match       *://i.pcbeta.com/*
+// @exclude     *://bbs.pcbeta.com/forum.php?mod=post*
+// @grant       GM_addStyle
+// @grant       GM_getResourceText
+// @run-at      document-idle
+// ==/UserScript==
+
+(function($, __css) {
+	// 防止跳出防广告提示
+	//localStorage.setItem('adblock-detector-dialog', (Date.now() + 8640000).toString(36));
+	// 520
+	if ($('title').text().search(/520: Web server is returning an unknown error|504 Bad Gateway|服务器维护中/) > -1) {
+		//setTimeout(() => { location.href = location.href; }, 5000);
+		return;
+	}
+
+	// 检测当前网址
+	const urlHas = (r) => location.href.search(r) > -1;
+	let nextDiv;
+
+	// 访问个人设置
+	if (urlHas(/i\.pcbeta\.com/)) {
+		nextDiv = $('#pt');
+		if ($('#messagetext').length) nextDiv = $('#ct');
+		let scbarAfter = nextDiv.nextAll().addBack().clone();
+		let wwp = $('<div id="wwp" class="wp cl"></div>').append(scbarAfter);
+		$('#wp').after(wwp).remove();
+	}
+
+	// 访问任务页自动打卡
+	if (urlHas(/i\.pcbeta\.com\/home\.php\?mod\=task$/)) {
+		setTimeout(() => { $.get('https://i.pcbeta.com/home.php?mod=task&do=apply&id=149'); }, 1000);
+		return;
+	}
+
+	// 不处理以下页面
+	if (!urlHas(/bbs\.pcbeta\.com/) ||
+		urlHas(/mod=(?:post|mpdcp|attachment|logging|register|misc)/) ||
+		urlHas(/(?:search)\.php/)
+	) { return; }
+
+	// 广告过滤提醒
+	const cssClean = {'height': '0', 'line-height': '0', 'padding': '0', 'margin': '0'};
+	$('.ad, .a_pt, .a_pb').css(cssClean).remove();
+
+	// 标签页
+	if (urlHas(/misc\.php/)) {
+		$('.bm_c table tr:odd').css('background-color', 'var(--odd-bg)');
+		return;
+	}
+
+	//$(function() {
+		//setTimeout(function() {
+			// 全部删除
+			//$('#wp > div:first').nextUntil('div#scbar').empty().css('height', '0').remove('iframe');
+			nextDiv = $('#scbar');
+			// 防止提示页面出错
+			if (urlHas(/viewthread/) && $('#messagetext').length > 0) nextDiv = $('#ct');
+			let scbarAfter = nextDiv.nextAll().addBack().clone();
+			let wwp = $('<div id="wwp" class="wp cl"></div>').append(scbarAfter);
+			$('#wp').after(wwp).remove();
+			// 仅删除广告部分，注释下面两行
+			//$('#wp > div:first').nextUntil('#scbar').not($('.pb_tan').css({'width': 'calc(var(--w)/3  - 30px)'}).parent().css({'width': 'var(--w)', 'height': '77px', 'border': '1px solid #ccc', 'background': '#fff'}));
+		//}, 2200)
+	//});
+
+	// 版块信息条
+	$('h1.xs2').parent().parent().css({'padding': '0 0 0 20px', 'max-width': 'calc(var(--w) - 20px)', 'border-radius': '4px', 'border': '1px solid #ccc'});
+	$('h1.xs2 span.xi2').css({'padding-right': '20px'});
+
+	// 列表偶数行背景色
+	$('tbody[id^="normalthread"] tr:odd, tbody[id^="stickthread"] tr').css({'background-color': 'var(--odd-bg)'});
+
+	// 回到顶部
+	$('#scrolltop').css({'right': '10px'});
+
+	// 浏览页
+	if (urlHas(/viewthread/)) {
+		// 广告占位
+		$('.adsbygoogle, .google-auto-placed *, .google-auto-placed').css(cssClean).remove();
+		// 上方添加编辑按钮
+		if ($('a.editp') && $('a#replynotice')) {
+			$('a#replynotice').after($('a.editp').eq(0).clone()).after('<span class="pipe">|</span>');
+		}
+		// 展开全文
+		$('button.btn-explanate:visible').click();
+
+		// 帖子内容
+		$('td[id^="postmessage"]').each(function() {
+			// 提取校验码、Key
+			let _checksum = [];
+			let _keys = [];
+			$(this).text()
+				.replace(/&nbsp;/g, ' ')
+				.replace(/(?<=(?:MD5|SHA-?1|CRC32|SHA-?256)[  :：]*)\b([0-9a-zA-Z]{8}|[0-9a-zA-Z]{32}|[0-9a-zA-Z]{40}|[0-9a-zA-Z]{64})\b/g, function(m, m1) {
+					_checksum.push(m1);
+				})
+				.replace(/\b(?:[0-9A-Z]{5}(?:\-[0-9A-Z]{5}){4})\b/g, function(m) {
+					_keys.push(m);
+				});
+			// 修复帖子内容
+			let _html = $(this).html()
+				// 修复 Unicode 显示
+				.replace(/(?:&|&amp;)#(\d+);?/g, function(m, m1) {
+					return ~~m1 > 65535 ? String.fromCodePoint(m1) : String.fromCharCode(m1);
+				})
+				// 本论坛链接
+				//.replace(/(?<=[^>"])https:\/\/bbs\.pcbeta\.com\/(?:forum\.php\?mod=viewthread&amp;tid=\d+(?:&amp;highlight=.+)?|viewthread\-\d+\-\d+\-\d+\.html)(?=[^<"])/g, function(m) {
+				.replace(/https?:\/\/bbs\.pcbeta\.com\/(?:forum\.php\?mod=viewthread&amp;tid=\d+(?:&amp;highlight=.+)?|viewthread\-\d+\-\d+\-\d+\.html)(?=<\/(?:font|br)| |&nbsp;)/g, function(m) {
+					return `<a href="${m}" target="_blank">${m}</a>`;
+				})
+				// data:image
+				.replace(/img file="https?:\/\/data:image/g, function(m) {
+					return `img src="data:image`;
+				})
+				// Music
+				.replace(/\[music\](.+)\[\/music\]/g, function(m, m1) {
+					return `<audio src="${m1}" controls />`;
+				})
+				// Video
+				.replace(/\[video\](.+)\[\/video\]/g, function(m, m1) {
+					return `<video src="${m1}" controls />`;
+				});
+			// 修复校验码
+			if (_checksum.length > 0) {
+				_html = _html.replace(new RegExp(`\\b(?:${_checksum.join('|')})\\b`, 'g'), function(m) {
+					return `<abbr title="点击复制到剪贴板" class="copy-clipboard" data-clipboard-text="${m}">${m}</abbr>`;
+				})
+			}
+			// Key 隐藏
+			if (_keys.length > 0) {
+				_html = _html.replace(new RegExp(`\\b(?:${_keys.join('|')})\\b`, 'g'), function(m) {
+					return `<abbr title="点击复制到剪贴板" class="copy-clipboard key-hide" data-clipboard-text="${m}">${m}</abbr>`;
+				})
+			}
+			$(this).html(_html);
+		});
+        // 点评
+        $('.psti').each(function() {
+			let _html = $(this).html()
+				// 修复 Unicode 显示
+				.replace(/(?:&|&amp;)#(\d+);?/g, function(m, m1) {
+					return ~~m1 > 65535 ? String.fromCodePoint(m1) : String.fromCharCode(m1);
+				})
+			$(this).html(_html);
+        })
+		// 复制到剪贴板
+		let clipboard = new ClipboardJS('abbr.copy-clipboard');
+		clipboard.on('success', function(e) {
+			alert(e.text + ' 已复制!');
+		});
+		/** 网速较快时，可使用论坛自带函数
+		$('abbr.copy-clipboard').click(function() {
+			let _c = $(this).data('clipboard-text');
+			setCopy(_c, _c + ' 复制成功');
+			return false;
+		});
+		**/
+	}
+	// 顶部用户导航悬停
+	$("#toptb").stickUp();
+	// 美化开始
+	//GM_addStyle(__css);
+	$('head').append(`<style id="diy_style">${__css}</style>`);
+}(jQuery, `
+:root {
+  /* 背景阴影 */
+  --shadow: 0 0 20px -5px rgba(51, 51, 51, .5);
+  /* 整体宽度 */
+  --w: 1400px;
+  /* 圆角宽度 */
+  --br: 4px;
+  /* 背景色 */
+  --bg: #E1E2E8;
+  /* 分隔栏背景色 */
+  --sep-bg: #DAE7F6;
+  /* 偶数行背景色 */
+  --odd-bg: #f8f8f8;
+}
+/* 小屏幕 */
+@media screen and (max-width: 960px) {
+  :root {
+    --w: 900px;
+  }
+  .x_l > img, .x_m > img, .x_r > img { display: none; }
+}
+/* 跟随系统的 Dark 模式 */
+@media (prefers-color-scheme: dark1) {
+  :root {
+    /* 背景阴影 */
+    --shadow: 0 0 10px -5px #fff;
+    /* 圆角宽度 */
+    --br: 4px;
+    /* 背景色 */
+    --bg: #222529;
+    /* 分隔栏背景色 */
+    --sep-bg: #DAE7F6;
+    /* 偶数行背景色 */
+    --odd-bg: #f8f8f8;
+  }
+  #nv ul li a,
+  #pt .z a {
+    color: #fff;
+  }
+}
+body {
+  background: var(--bg);
+  /*
+  font-family: Microsoft YaHei UI Semibold;
+  -webkit-text-stroke: 0.04px;
+  */
+  text-shadow: transparent 0px 0px 0px, rgba(0,0,0,0.68) 0px 0px 0px !important;
+}
+/* 字体 */
+.common a.xst,
+.new a.xst,
+.lock a.xst {
+  font-size: 1rem;
+}
+/* 主体加宽 */
+#scbar,
+.wp > div,
+.wp {
+  width: var(--w);
+}
+#scbar,
+#thread_types li a,
+#newspecial,
+#newspecialtmp,
+#fastpostsubmit,
+#post_reply {
+  border-radius: var(--br);
+  box-shadow: var(--shadow);
+}
+h1.mt + .bm,
+#ct .flg,
+#skill-list,
+#f_pst,
+#postlist,
+#threadlist {
+  box-shadow: var(--shadow);
+}
+/* 置顶和帖子列表分隔区样式 */
+#separatorline tr td,
+#separatorline tr th {
+  background-color: var(--sep-bg);
+  line-height: 30px;
+}
+/* 顶部用户快捷样式 */
+#um > div {
+  box-shadow: var(--shadow);
+  /* box-shadow: 0 1px 0.1em black inset; */
+  border-radius:0 0 6px 6px;
+  height: 35px;
+  line-height: 33px;
+}
+#um {
+  max-width: calc(var(--w) - 6px);
+}
+/* 搜索加宽后的背景填充 */
+#scbar {
+  background:url('https://www.pcbeta.com//static/image/pcbeta/search_df__.png') 0 -258px repeat-x;
+}
+/* 楼层分隔线 */
+div#postlist table[id^="pid"] {
+  border-bottom: 1px solid #85B2EF;
+}
+/* 列表行高，字体
+tbody[id^="normalthread"] tr td,
+tbody[id^="stickthread"] tr td {
+  padding: 8px;
+}
+tbody[id^="normalthread"],
+tbody[id^="stickthread"] {
+  font-size: 16px;
+}
+*/
+/* 浏览页悬停信息样式 */
+.tip { max-width: 200px; }
+.p_pop { opacity: 0.85; }
+/* 浏览页帖子标题样式 */
+td.pbn > * {
+  border-bottom: 1px solid #ECF1F7;
+  padding-bottom: 10px;
+  font-family: none; /* Microsoft Yahei */
+}
+h1.ts > a {
+  font-weight: 500;
+  font-size: 22px;
+}
+/* abbr 样式 */
+abbr[title] {
+  cursor: help;
+  font-family: Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+abbr[title].key-hide {
+  color: #228B22;
+  font-weight: 600;
+  padding: 2px 2px;
+}
+/* video 限宽 */
+video {
+  max-width: calc((var(--w)/2) + 200px);
+}
+.t_f {
+  line-height: 1.8;
+}
+`));

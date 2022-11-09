@@ -1,0 +1,248 @@
+; Created by Najeeb Shah Khan
+; Created 01-09-2022
+; Update 11-09-2022 Correct initial use issues and move data to appdata folder.
+
+#include <String.au3>
+#include <Crypt.au3>
+#include <GUIConstantsEx.au3>
+#include <GuiListView.au3>
+#include <MsgBoxConstants.au3>
+#include <EditConstants.au3>
+
+
+Opt("GUIOnEventMode", 1)
+
+Global $List, $Status = 0, $MainGui, $EditGui
+Global $DecryptKey, $UsernameInput, $PasswordInput, $KeyInput, $FirstEntry = 0, $Permission = 0
+
+$CheckForKey = IniRead(@AppDataDir & "/Cred_Data/Credentials.ini", "Key", "Key", "NA")
+If $CheckForKey = "NA" Then
+    $GetNewKey = InputBox("Encryption Key", "You appear to not have created an encryption key to use with this software. Please do so before using the software!")
+    If $GetNewKey = "" Then
+        MsgBox(48, "Error", "No key input, please run the program again. You must use an encryption key for this program to work!")
+        Exit
+    EndIf
+    $CheckInformation = MsgBox(4, "Encryption Key", "Do you wish to use this as your encryption key: " & $GetNewKey)
+    If $CheckInformation = 6 Then
+        $EncryptNewKey = _Crypt_EncryptData($GetNewKey, $GetNewKey, $CALG_RC4)
+        ; create directory if it does not exist
+		$DataDir = @AppDataDir & "/Cred_Data"
+		If DirGetSize($DataDir)  -1 Then
+			DirCreate($DataDir)
+		EndIf
+		IniWrite(@AppDataDir & "/Cred_Data/Credentials.ini", "Key", "Key", $EncryptNewKey)
+        MsgBox(0, "Encryption Key", "Encryption key has been saved!" )
+    Else
+        MsgBox(48, "Encryption Key", "Encryption key creation has been cancelled! Please run the program again if you wish to!")
+        Exit
+    EndIf
+EndIf
+
+_CreateMainGui()
+
+Func _CreateMainGui()
+    $MainGui = GUICreate("Najeeb Password Store", 400, 480)
+    GUISetOnEvent($GUI_EVENT_CLOSE, "_Exit")
+
+    GUICtrlCreateLabel("Username", 153, 110, 200, 40)
+    GUICtrlSetFont(-1, 16)
+
+    $UsernameInput = GUICtrlCreateInput("", 10, 140, 380, 30, $ES_CENTER)
+    GUICtrlSetColor(-1, 0xe50000)
+    GUICtrlSetFont(-1, 16)
+
+    GUICtrlCreateLabel("Password", 153, 210, 200, 40)
+    GUICtrlSetFont(-1, 16)
+
+    $PasswordInput = GUICtrlCreateInput("", 10, 240, 380, 30, $ES_CENTER)
+    GUICtrlSetColor(-1, 0xe50000)
+    GUICtrlSetFont(-1, 16)
+
+    GUICtrlCreateLabel("Encryption Key", 130, 310, 200, 40)
+    GUICtrlSetFont(-1, 16)
+
+    $KeyInput = GUICtrlCreateInput("", 10, 340, 380, 30, $ES_CENTER)
+    GUICtrlSetColor(-1, 0xe50000)
+    GUICtrlSetFont(-1, 16)
+
+    $AddCredential = GUICtrlCreateButton("Add Credentials", 10, 390, 185, 70)
+    GUICtrlSetOnEvent(-1, "_AddCredentials")
+    GUICtrlSetFont(-1, 12)
+
+    $EditCredentials = GUICtrlCreateButton("Edit/Remove Credentials", 205, 390, 185, 70)
+    GUICtrlSetOnEvent(-1, "_CreateEditGui")
+    GUICtrlSetFont(-1, 12)
+
+    GUISetState()
+EndFunc   ;==>_CreateMainGui
+
+Func _AddCredentials()
+    $ReadUsername = GUICtrlRead($UsernameInput)
+    $ReadPassword = GUICtrlRead($PasswordInput)
+    $ReadEncryptionKey = GUICtrlRead($KeyInput)
+    $ReadKey = IniRead(@AppDataDir & "/Cred_Data/Credentials.ini", "Key", "Key", "NA")
+    $DecryptKey = _Crypt_DecryptData($ReadKey, $ReadEncryptionKey, $CALG_RC4)
+    $TranslateKey = BinaryToString($DecryptKey)
+    If $ReadEncryptionKey = $TranslateKey Then
+        $CheckInformation = MsgBox(4, "Add Credentials", "Are you sure you wish to add the credentials for: " & $ReadUsername)
+        If $CheckInformation = 6 Then
+            $ReadIni = IniReadSection(@AppDataDir & "/Cred_Data/Credentials.ini", "Credentials")
+			; Check for section initialized, if not assume it is now and set counter to 1
+			If @error Then
+				$NextKey = 1
+			Else
+				$NextKey = $ReadIni[0][0] + 1
+			EndIf
+            ; Gives current count add 1 to add to INI
+            $EncryptNewUsername = _Crypt_EncryptData($ReadUsername, $ReadEncryptionKey, $CALG_RC4)
+            $EncryptNewPassword = _Crypt_EncryptData($ReadPassword, $ReadEncryptionKey, $CALG_RC4)
+            IniWrite(@AppDataDir & "/Cred_Data/Credentials.ini", "Credentials", $NextKey , $EncryptNewUsername & "|" & $EncryptNewPassword)
+            GUICtrlSetData($UsernameInput, "")
+            GUICtrlSetData($PasswordInput, "")
+            MsgBox(0, "Add Credentials", "Addition of credential " & $ReadUsername & " is complete!")
+			;Exit
+        Else
+            MsgBox(0, "Add Credentials", "Cancelling the addition of the credentials!")
+        EndIf
+    Else
+        MsgBox(48, "Error", "Encryption key is invalid. Please try again!")
+    EndIf
+EndFunc   ;==>_AddCredentials
+
+
+Func _CreateEditGui()
+    GUISetState(@SW_DISABLE, $MainGui)
+    If $FirstEntry = 0 Then
+        MsgBox(48, "Edit Credentials", "Please note, to remove a credential from the database select the credential you wish to remove and click 'Edit Credentials'" & _
+                " then type in 'Blank' (without the quotation marks) as the new username and it will remove the credentials!")
+        $GetEncryptionKey = InputBox("Security Check", "Please input the correct encryption key!")
+        $ReadKey = IniRead(@AppDataDir & "/Cred_Data/Credentials.ini", "Key", "Key", "NA")
+        $DecryptKey = _Crypt_DecryptData($ReadKey, $GetEncryptionKey, $CALG_RC4)
+        If $DecryptKey = $GetEncryptionKey Then
+            MsgBox(0, "Security Check", "Decryption successful, welcome, " & @UserName)
+        Else
+            MsgBox(48, "Error", "Encryption key is invalid please try again!")
+            $Permission = 1
+        EndIf
+        $FirstEntry = 1
+    EndIf
+    If $Permission = 0 Then
+        $EditGui = GUICreate("Credential Editor", 400, 480)
+        GUISetOnEvent($GUI_EVENT_CLOSE, "_CloseGui")
+        $List = GUICtrlCreateListView("Username|Password", 10, 10, 380, 380)
+        _GUICtrlListView_SetColumnWidth($List, 0, 190)
+        _GUICtrlListView_SetColumnWidth($List, 1, 190)
+
+        $EditButton = GUICtrlCreateButton("Edit Credentials", 10, 405, 180, 60)
+        GUICtrlSetOnEvent(-1, "_Edit")
+        GUICtrlSetFont(-1, 16)
+
+        $CloseButton = GUICtrlCreateButton("Close", 210, 405, 180, 60)
+        GUICtrlSetOnEvent(-1, "_CloseGUi")
+        GUICtrlSetFont(-1, 16)
+
+        $ReadCredentialCount = IniReadSection(@AppDataDir & "/Cred_Data/Credentials.ini", "Credentials")
+        If @error Then
+            MsgBox(48, "Error", "No credentials are present. Disabling editting permission. Please rerun the program once you have added credentials to the database!")
+            GUICtrlSetState($EditButton, $GUI_DISABLE)
+        Else
+            For $i = 1 To $ReadCredentialCount[0][0]
+                $SplitData = StringSplit($ReadCredentialCount[$i][1], "|")
+                $DecryptUserName = _Crypt_DecryptData($SplitData[1], $DecryptKey, $CALG_RC4)
+                $DecryptPassword = _Crypt_DecryptData($SplitData[2], $DecryptKey, $CALG_RC4)
+                $DecryptedUserName = BinaryToString($DecryptUserName)
+                $DecryptedPassword = BinaryToString($DecryptPassword)
+                $ListViewData = $DecryptedUserName & "|" & $DecryptedPassword
+                GUICtrlCreateListViewItem($ListViewData, $List)
+            Next
+        EndIf
+
+        GUISetState()
+    Else
+        GUISetState(@SW_ENABLE, $MainGui)
+        Sleep(100)
+        WinActivate($MainGui)
+        $Permission = 0
+        $FirstEntry = 0
+    EndIf
+EndFunc   ;==>_CreateEditGui
+
+Func _Edit()
+    $Status = 0
+    $GetSelected = ControlListView($EditGui, "", $List, "GetSelected")
+    $GetUserName = ControlListView($EditGui, "", $List, "GetText", $GetSelected)
+    $GetPassword = ControlListView($EditGui, "", $List, "GetText", $GetSelected, 1)
+    While $Status = 0
+        $NewUsername = InputBox("Edit Credentials", "Please input the new username you wish to apply!", $GetUserName)
+        $NewPassword = InputBox("Edit Credentials", "Please input the new password you wish to apply!", $GetPassword)
+        If $NewUsername = "" Or $NewPassword = "" Then
+            MsgBox(48, "Error", "Username or password was not input. If you wish to remove the credentials remember to type 'Blank' in the boxes without the quoataions.")
+            $Status = 0
+        EndIf
+        If $NewUsername > "" And $NewPassword > "" Then
+            $CheckInformation = MsgBox(4, "Edit Credentials", "Is this the information you wish to save?" & @CRLF & @CRLF & "Username: " & $NewUsername & @CRLF & _
+                    "Password: " & $NewPassword)
+            If $CheckInformation = 6 Then
+                If $NewUsername = "Blank" Then
+
+                    $ReadIni = IniReadSection(@AppDataDir & "/Cred_Data/Credentials.ini", "Credentials")
+                    For $i = 1 To $ReadIni[0][0]
+                        $SplitData = StringSplit($ReadIni[$i][1], "|")
+                        $DecryptUserName = _Crypt_DecryptData($SplitData[1], $DecryptKey, $CALG_RC4)
+                        $DecryptedUserName = BinaryToString($DecryptUserName)
+                        If $DecryptedUserName = $GetUserName Then
+                            IniDelete(@AppDataDir & "/Cred_Data/Credentials.ini", "Credentials", $i)
+                        EndIf
+                    Next
+
+                    $ReadIni = IniReadSection(@AppDataDir & "/Cred_Data/Credentials.ini", "Credentials")
+                    IniDelete(@AppDataDir & "/Cred_Data/Credentials.ini", "Credentials")
+                    For $i = 1 To $ReadIni[0][0]
+                        IniWrite(@AppDataDir & "/Cred_Data/Credentials.ini", "Credentials", $i, $ReadIni[$i][1])
+                    Next
+                Else
+
+                    $EncryptNewUsername = _Crypt_EncryptData($NewUsername, $DecryptKey, $CALG_RC4)
+                    $EncryptNewPassword = _Crypt_EncryptData($NewPassword, $DecryptKey, $CALG_RC4)
+                    $ReadIni = IniReadSection(@AppDataDir & "/Cred_Data/Credentials.ini", "Credentials")
+                    For $i = 1 To $ReadIni[0][0]
+                        $SplitData = StringSplit($ReadIni[$i][1], "|")
+                        $DecryptUserName = _Crypt_DecryptData($SplitData[1], $DecryptKey, $CALG_RC4)
+                        $DecryptedUserName = BinaryToString($DecryptUserName)
+                        If $DecryptedUserName = $GetUserName Then
+
+                            IniWrite(@AppDataDir & "/Cred_Data/Credentials.ini", "Credentials", $i, $EncryptNewUsername & "|" & $EncryptNewPassword)
+                            ExitLoop
+                        EndIf
+
+                    Next
+                EndIf
+
+                MsgBox(0, "Edit Credentials", "Credentials have been changed!")
+                GUIDelete($EditGui)
+                _CreateEditGui()
+                $Status = 1
+            Else
+                $Status = 0
+            EndIf
+        EndIf
+    WEnd
+EndFunc   ;==>_Edit
+
+Func _CloseGui()
+    $FirstEntry = 0
+    GUIDelete($EditGui)
+    GUISetState(@SW_ENABLE, $MainGui)
+    Sleep(100)
+    WinActivate($MainGui)
+EndFunc   ;==>_CloseGui
+
+
+Func _Exit()
+    Exit
+EndFunc   ;==>_Exit
+
+
+While 1
+    Sleep(10)
+WEnd
