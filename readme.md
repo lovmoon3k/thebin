@@ -1,11 +1,7 @@
-[**7nd3FsY0**](/data/7nd3FsY0.txt) (10/11/22 - 06:58)- 2462 bytes
+[**Fzaq6CNe**](/data/Fzaq6CNe.txt) (10/11/22 - 07:15)- 2273 bytes
 
-[**7nd3FsY0**](/data/7nd3FsY0.txt) (10/11/22 - 06:58)- 2462 bytes
+[**Fzaq6CNe**](/data/Fzaq6CNe.txt) (10/11/22 - 07:15)- 2273 bytes
 
-[**zpQV4pXh**](/data/zpQV4pXh.txt) (10/11/22 - 06:58)- 2486 bytes
-
-[**zpQV4pXh**](/data/zpQV4pXh.txt) (10/11/22 - 06:58)- 2486 bytes
-
-**Total Datas**: 2423
+**Total Datas**: 2424
 
 **Total Size**: 13.78 MB / 13.8 MB
