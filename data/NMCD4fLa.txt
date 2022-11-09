@@ -1,0 +1,92 @@
+----------------------------------------------------------------------------------------
+-- Author: Tony Visconti
+-- Customized by Date: 11-4-22
+-- Purpose: Take a copy of a rock production database and prepare it for use in a test environment
+-- This is a derivation and aggregation of work from several members in the rock community
+-- The original script this came from is hosted here: https://raw.githubusercontent.com/SparkDevNetwork/Rock/develop/Dev%20Tools/Sql/Tool_PostDeployTestDatabase.sql
+----------------------------------------------------------------------------------------
+
+-- IMPORTANT --
+-- USE THE BELOW SQL TO TAKE A PREVIOUSLY RESTORED SQL DATABASE AND MAKE IT USABLE FOR SANDBOX, DEV, OR TEST USAGE --
+-- IMPORTANT --
+
+--
+-- Deactivate all Service Jobs except: Job Pulse
+--
+
+DECLARE @CheckIsDev INT = (Select CASE WHEN DB_NAME() Like 'rock-dev%' THEN 1 ELSE 0 END)
+
+IF @CheckIsDev = 1
+BEGIN
+
+UPDATE [ServiceJob] SET [IsActive] = 0
+
+UPDATE [ServiceJob] SET [IsActive] = 'True' WHERE [Name] IN ('Job Pulse', 'Calculate Metrics', 'Group Sync', 'Spark Link',
+ 'Rock Cleanup', 'Calculate Group Requirements', 'Check for New Plugins', 'Update Persisted DataViews', 'Database Maintenance', 'Renew Certificates')
+
+-- Append .test to Email ADDRESSES that are NON-SYSTEM, NON-CALVARY, NOT BLANK, NOT NULL EMAIL ADDRESSES --
+-- LIKE is case-insensitive
+BEGIN
+    UPDATE [Person]
+set [Email] = CONCAT([Email],'.test')
+WHERE [Email] IS NOT NULL AND [Email] NOT LIKE '%@example.com' and [Email] != '' AND IsSystem != 1
+END
+
+--
+-- Update OrganizationWebSite 
+--
+DECLARE @OrganizationWebSiteId int = (SELECT Id
+from [Attribute]
+WHERE [Key] = 'OrganizationWebSite')
+UPDATE [AttributeValue]
+SET [Value] = 'dev.example.com'
+WHERE [AttributeId] = @OrganizationWebSiteId
+
+--
+-- Update PublicationApplicationRoot to Test
+--
+DECLARE @PublicApplicationRootId int = (select Id
+from
+    [Attribute]
+WHERE [Key] = 'PublicApplicationRoot')
+UPDATE [AttributeValue]
+SET [Value] = 'dev.example.com'
+WHERE [AttributeId] = @PublicApplicationRootId
+
+--
+-- Update PublicationApplicationRoot to Test
+--
+DECLARE @InternalApplicationRoot int = (select Id
+from
+    [Attribute]
+WHERE [Key] = 'InternalApplicationRoot')
+UPDATE [AttributeValue]
+SET [Value] = 'https://rockdev.example.com'
+WHERE [AttributeId] = @InternalApplicationRoot
+
+--
+-- Update SiteDomains
+--
+UPDATE [SiteDomain]
+SET [Domain] = 'dev.example.com'
+WHERE [Domain] = 'example.com'
+
+-- Other scripts I reviewed include the following I choose to not include
+-- Recreate RockUser so it points to the current server's Logins
+-- With our azure database setup this is not required
+
+-- a ufnUtility_RemoveNonAlphaCharacters function
+-- this is used to update email addresses to nickname+lastname@safety.netz
+-- I choose to simply append .test to most email addresses instead and did not need the utility function
+
+-- ADD 'TEST' BANNER - 
+-- We have a test banner whose code exists in our production database. This code produces the banner on both the internal and external site 
+--  when the PublicApplicationRoot global attribute contains the word dev
+
+-- TURN OFF SSL FOR ALL PAGES & Sites --
+-- We use SSL in our dev environment
+
+-- DEACTIVATE ALL MAIL TRANSPORTS --
+-- Our Rock transport for mail has a mode called When in Development mode
+-- Development mode: outgoing & incoming mail will be held and only visible in the web interface and will not be sent to any recipients or HTTP endpoints.
+-- We use this feature to prevent unwanted mail from being delivered by our dev environment
