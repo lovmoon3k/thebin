@@ -1,0 +1,300 @@
+import csv
+import datetime
+import re
+
+from prettytable import PrettyTable, ALL
+
+
+class Vacancy:
+    experience_translator = \
+        {
+            'noExperience': 'Нет опыта',
+            "between1And3": 'От 1 года до 3 лет',
+            'between3And6': 'От 3 до 6 лет',
+            'moreThan6': 'Более 6 лет',
+        }
+
+    experience_values = \
+        {
+            'Нет опыта': 0,
+            'От 1 года до 3 лет': 1,
+            'От 3 до 6 лет': 2,
+            'Более 6 лет': 3
+        }
+
+    def __init__(self, object_vacancy) -> None:
+        self.name = object_vacancy['name'][0]
+        self.description = object_vacancy['description'][0]
+        self.key_skills = object_vacancy['key_skills']
+        self.experience_id = self.experience_translator[object_vacancy['experience_id'][0]]
+        self.premium = 'Да' if object_vacancy['premium'][0].lower() == 'true' else 'Нет'
+        self.employer_name = object_vacancy['employer_name'][0]
+        self.salary = Salary(object_vacancy['salary_from'][0], object_vacancy['salary_to'][0],
+                             object_vacancy['salary_gross'][0], object_vacancy['salary_currency'][0])
+        self.area_name = object_vacancy['area_name'][0]
+        self.published_at = datetime.datetime.strptime(object_vacancy['published_at'][0], '%Y-%m-%dT%H:%M:%S%z')
+
+    def get_experience_for_comparing(self) -> int:
+        return self.experience_values[self.experience_id]
+
+
+class Salary:
+    salary_currency = \
+        {
+            'AZN': 'Манаты',
+            'BYR': 'Белорусские рубли',
+            'EUR': 'Евро',
+            'GEL': 'Грузинский лари',
+            'KGS': 'Киргизский сом',
+            'KZT': 'Тенге',
+            'RUR': 'Рубли',
+            'UAH': "Гривны",
+            'USD': 'Доллары',
+            'UZS': 'Узбекский сум'
+        }
+
+    currency_ratio = \
+        {
+            'Манаты': 35.68,
+            'Белорусские рубли': 23.91,
+            'Евро': 59.90,
+            'Грузинский лари': 21.74,
+            'Киргизский сом': 0.76,
+            'Тенге': 0.13,
+            'Рубли': 1,
+            'Гривны': 1.64,
+            'Доллары': 60.66,
+            'Узбекский сум': 0.0055
+        }
+
+    def __init__(self,
+                 salary_from: str,
+                 salary_to: str,
+                 salary_gross: str,
+                 salary_currency: str) -> None:
+        self.salary_from = salary_from
+        self.salary_to = salary_to
+        self.salary_gross = salary_gross
+        self.salary_currency = self.salary_currency[salary_currency]
+
+    def get_value_for_comparing(self) -> float:
+        min_salary = int((float((''.join(self.salary_from.split())))))
+        max_salary = int((float((''.join(self.salary_to.split())))))
+        return ((min_salary + max_salary) // 2) * self.currency_ratio[self.salary_currency]
+
+    def get_salary_string_with_right_form(self) -> str:
+        tax = 'Без вычета' if self.salary_gross.lower() == 'true' else 'С вычетом'
+        salary_from = '{0:,}'.format(int(float(self.salary_from))).replace(',', ' ')
+        salary_to = '{0:,}'.format(int(float(self.salary_to))).replace(',', ' ')
+        return f'{salary_from} - {salary_to} ({self.salary_currency}) ({tax} налогов)'
+
+
+class DataSet:
+    def __init__(self,
+                 file_name: str,
+                 vacancies_objects: list) -> None:
+        self.file_name = file_name
+        self.vacancies_objects = vacancies_objects
+
+    @staticmethod
+    def __clean_html_tags(raw_html: str) -> str:
+        clean_text = re.sub(re.compile('<.*?>'), '', raw_html)
+        return clean_text
+
+    def __csv_reader(self) -> tuple:
+        headlines, vacancies = list(), list()
+        with open(self.file_name, encoding='utf-8-sig') as file:
+            vacancies_list, counter = csv.reader(file, delimiter=','), 0
+            for line in vacancies_list:
+                if counter == 0:
+                    counter += 1
+                    headlines = line
+                else:
+                    if '' in line or len(line) != len(headlines):
+                        continue
+                    vacancies.append(line)
+        if len(headlines) == 0:
+            print('Пустой файл')
+            exit()
+        if len(vacancies) == 0:
+            print('Нет данных')
+            exit()
+        return vacancies, headlines
+
+    def __csv_filer(self, reader: tuple, headlines: list) -> list:
+        vacancies_list = list()
+        for line in reader:
+            current_dictionary = dict()
+            for i in range(len(line)):
+                current_dictionary[headlines[i]] = line[i].split('\n')
+                for j in range(len(current_dictionary[headlines[i]])):
+                    current_dictionary[headlines[i]][j] = \
+                        ' '.join(self.__clean_html_tags(current_dictionary[headlines[i]][j]).split())
+            vacancies_list.append(Vacancy(current_dictionary))
+        return vacancies_list
+
+    def put_vacancies(self) -> None:
+        (vacancies, headlines) = self.__csv_reader()
+        self.vacancies_objects = self.__csv_filer(vacancies, headlines)
+
+
+class InputConnect:
+    headlines_translator = \
+        {
+            '№': '№',
+            'name': 'Название',
+            'description': 'Описание',
+            'key_skills': 'Навыки',
+            'experience_id': 'Опыт работы',
+            'premium': 'Премиум-вакансия',
+            'employer_name': 'Компания',
+            'salary': 'Оклад',
+            'area_name': 'Название региона',
+            'published_at': 'Дата публикации вакансии',
+            't': 'Идентификатор валюты оклада'
+        }
+
+    def __init__(self) -> None:
+        self.file_name = input('Введите название файла: ')
+        self.filter_parameter = input('Введите параметр фильтрации: ')
+        self.sort_parameter = input('Введите параметр сортировки: ')
+        self.sort_descending = input('Обратный порядок сортировки (Да / Нет): ')
+        self.tableRange = input('Введите диапазон вывода: ')
+        self.inserted_columns = input('Введите требуемые столбцы: ')
+        self.table = PrettyTable()
+        self.table.field_names = list(self.headlines_translator.values())[0:10]
+
+    def start_checking(self) -> None:
+        if self.filter_parameter != '':
+            if ': ' not in self.filter_parameter:
+                print('Формат ввода некорректен')
+                exit()
+            if self.filter_parameter.split(': ')[0] \
+                    not in self.headlines_translator.values():
+                print('Параметр поиска некорректен')
+                exit()
+        if self.sort_parameter != '' and self.sort_parameter \
+                not in self.headlines_translator.values():
+            print('Параметр сортировки некорректен')
+            exit()
+        if self.sort_descending != '' and self.sort_descending != 'Нет' and self.sort_descending != 'Да':
+            print('Порядок сортировки задан некорректно')
+            exit()
+
+    def get_filtered_vacancies(self, vacancies_list: list) -> list:
+        final_list = list()
+        for vacancy in vacancies_list:
+            is_correct_vacancy = False
+            if self.filter_parameter == '':
+                is_correct_vacancy = True
+            else:
+                field_name = self.filter_parameter.split(': ')[0]
+                value = self.filter_parameter.split(': ')[1]
+                if field_name == 'Название':
+                    if value != vacancy.name:
+                        continue
+                    is_correct_vacancy = True
+                elif field_name == 'Оклад':
+                    value = int(value)
+                    salary_from = int(''.join(vacancy.salary.salary_from.split()))
+                    salary_to = int(''.join(vacancy.salary.salary_to.split()))
+                    if value < salary_from or value > salary_to:
+                        continue
+                    is_correct_vacancy = True
+                elif field_name == 'Идентификатор валюты оклада':
+                    if vacancy.salary.salary_currency != value:
+                        continue
+                    is_correct_vacancy = True
+                elif field_name == "Дата публикации вакансии":
+                    if value != (".".join(
+                            reversed(str(vacancy.published_at.date()).split('-')))):
+                        continue
+                    is_correct_vacancy = True
+                else:
+                    flag_by_field = False
+                    values = value.strip().split(', ')
+                    for v in values:
+                        field_name_translated = list(self.headlines_translator.keys())[
+                            list(self.headlines_translator.values()).index(field_name)]
+                        if v not in getattr(vacancy, field_name_translated):
+                            flag_by_field = True
+                            break
+                    if not flag_by_field:
+                        is_correct_vacancy = True
+            if is_correct_vacancy:
+                final_list.append(vacancy)
+        return final_list
+
+    def get_sorted_vacancies(self, vacancies: list) -> list:
+        self.sort_descending = True if self.sort_descending == 'Да' else False
+        if self.sort_parameter == '':
+            return vacancies
+        if self.sort_parameter == 'Навыки':
+            return sorted(vacancies, key=lambda x: len(x.key_skills),
+                          reverse=self.sort_descending)
+        elif self.sort_parameter == 'Оклад':
+            return sorted(vacancies, key=lambda x: x.salary.get_value_for_comparing(),
+                          reverse=self.sort_descending)
+        elif self.sort_parameter == 'Дата публикации вакансии':
+            return sorted(vacancies, key=lambda x: x.published_at,
+                          reverse=self.sort_descending)
+        elif self.sort_parameter == 'Опыт работы':
+            return sorted(vacancies, key=lambda x: x.get_experience_for_comparing(),
+                          reverse=self.sort_descending)
+        else:
+            key = list(self.headlines_translator.keys())[
+                list(self.headlines_translator.values()).index(self.sort_parameter)]
+            return sorted(vacancies, key=lambda x: getattr(x, key),
+                          reverse=self.sort_descending)
+
+    def add_vacancies_to_table(self, vacancies: list) -> None:
+        counter = 1
+        for vacancy in vacancies:
+            current_vacancies_list = list()
+            for key in list(self.headlines_translator.keys())[1:10]:
+                value = getattr(vacancy, key)
+                adding = value
+                if type(value) == datetime.datetime:
+                    adding = ('.'.join(reversed(str(value.date()).split('-'))))
+                elif type(value) == list:
+                    adding = ('\n'.join(value))
+                elif type(value) == Salary:
+                    adding = value.get_salary_string_with_right_form()
+                if type(value) != Salary and len(adding) > 100:
+                    adding = adding[0:100] + '...'
+                current_vacancies_list.append(adding)
+            self.table.add_row([counter] + current_vacancies_list)
+            counter += 1
+
+    def print_table(self) -> None:
+        range_table = self.tableRange.split()
+        columns_list = [line for line in self.inserted_columns.split(', ') if line.strip() != '']
+        columns = ['№'] + columns_list
+
+        start_index = int(range_table[0]) - 1 if len(range_table) >= 1 else 0
+        end_index = int(range_table[1]) - 1 if len(range_table) > 1 else len(self.table.rows)
+        columns = self.table.field_names if len(columns) == 1 else columns
+
+        self.table.max_width = 20
+        self.table.hrules = ALL
+        self.table.align = 'l'
+
+        if len(self.table.get_string().split('\n')) > 3:
+            print(self.table.get_string(
+                start=start_index,
+                end=end_index,
+                fields=columns
+            ))
+        else:
+            print('Ничего не найдено')
+
+
+inserted_data = InputConnect()
+inserted_data.start_checking()
+current_dataset = DataSet(inserted_data.file_name, list())
+current_dataset.put_vacancies()
+inserted_data.add_vacancies_to_table(
+    inserted_data.get_sorted_vacancies(
+        inserted_data.get_filtered_vacancies(
+            current_dataset.vacancies_objects)))
+inserted_data.print_table()

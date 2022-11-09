@@ -1,0 +1,839 @@
+DATOS_BASICOS_CUENTA =  """
+    select 
+        cac.id_cuenta_ahorro as idCuenta, 
+        cac.id_cliente as idCliente, 
+        cac.id_producto_ahorro_empresa as idPAE,
+        pae.nombre_producto,
+        pa.id_producto_ahorro as idProducto,
+        pa.nombre as tipoProducto,
+        -- id_producto_ahorro,
+        case cac.tipo_persona
+            when 0 then 'Física'
+            when 1 then 'Moral'
+        end as persona, -- 0: fisica, 1:moral
+        cac.saldo_ahorro,
+        date(cac.fecha_alta) as fechaAlta,
+        case cac.activo
+            when 0 then 'Activa'
+            when 1 then 'Inactiva'
+            when 2 then 'Autorizar retiro parcial'
+            when 3 then 'Autorizar retiro total'
+            when 10 then 'Eliminada'
+        end as estatus,
+        cac.alias,
+        cac.distribuidor,
+        cac.grupo_trabajo,
+        cac.no_cuenta as cuentaEje,
+        cac.id_cuenta_ahorro_padre as cuentaMadre
+    from
+        alquimia_vitae.cuenta_ahorro_cliente cac
+        join producto_ahorro_empresa pae
+            on pae.id_producto_ahorro_empresa = cac.id_producto_ahorro_empresa
+        join producto_ahorro pa on pae.id_producto_ahorro = pa.id_producto_ahorro 
+    where id_cuenta_ahorro = ?;     
+    """
+SALDO_DE_CUENTA = """
+    SELECT
+        cac.saldo_ahorro
+    FROM
+        alquimia_vitae.cuenta_ahorro_cliente cac
+    WHERE id_cuenta_ahorro = ?;
+"""
+DETERMINA_CUENTA_POR_EJE = """
+    select
+        id_cuenta_ahorro
+    from
+        cuenta_ahorro_cliente
+    where
+        no_cuenta =?;
+    """
+
+DETERMINA_CUENTA_POR_CLABE = """
+    select
+        id_cuenta_ahorro
+    from
+        cuenta_ahorro_medio_pago
+    where
+        no_cuenta_medio_pago =?;
+    """
+DATOS_CLIENTE_MORAL="""
+    select
+        id_empresa,
+        nombre,
+        rfc,
+        fecha_alta
+    from
+        empresa
+    where
+        id_empresa=?;    
+"""
+DATOS_CLIENTE_FISICA = """
+    select
+        id_cliente,
+        apellido_paterno,
+        apellido_materno,
+        nombre,
+        rfc,
+        curp,
+        email,
+        fecha_alta,
+        id_hsm
+    from
+        cliente
+    where
+        id_cliente=?;  
+"""
+CLABES_POR_CUENTA="""
+    select
+        id_cuenta_ahorro,
+        no_cuenta_medio_pago as CLABE,
+        nombre_cobranza
+    from cuenta_ahorro_medio_pago
+    where id_cuenta_ahorro=?
+    group by no_cuenta_medio_pago;
+"""
+
+USUARIOS_POR_CUENTA="""
+    SELECT
+	mf.id_cuenta_ahorro as idCuenta,
+	mf.id_cliente as idUsuario,
+	aa.item_name as rol,
+	c.email ,
+	c.apellido_paterno as paterno,
+	c.apellido_materno as materno,
+	c.nombre
+    from 
+        moral_fisica_roles mf join empresa e on e.id_empresa=mf.id_empresa 
+        join cliente c on c.id_cliente = mf.id_cliente
+        join auth_assignment aa on aa.user_id = c.id_cliente
+    where
+        mf.activo = 0
+        and mf.id_cuenta_ahorro = ?;
+"""
+MOVIMIENTOS_DE_CUENTA="""
+    select 
+        tac.id_transaccion as idTx,
+        case tac.tipo_movimiento
+            when 30 then 'Abono'
+            when 31 then 'Cargo'
+            when 34 then 'Comisión'
+        end as tipoTx,        
+        tac.fecha_alta, 
+        tac.valor_real,
+        tac.clave_rastreo,
+        case tac.id_medio_pago
+            when 2 then 'Cuenta eje'
+            when 3 then 'SPEI STP'
+            WHEN 4 then 'SPEI ASP'
+            WHEN 5 then 'Visa'
+            WHEN 6 then 'Gestopago'
+            when 7 then 'ATM Santander'
+            when 9 then 'PayCash'
+            when 10 then 'ASP Directo'
+        end as medioPago,
+        tac.concepto
+    from alquimia_vitae.transacciones_ahorro_cliente tac 
+    where
+        id_cuenta_ahorro = ?
+        and tac.fecha_alta BETWEEN ? and ?
+    order by fecha_alta desc;
+"""
+
+ULTIMOS_N_MOVIMIENTOS_DE_CUENTA="""
+    select 
+        tac.id_transaccion as idTx,
+        case tac.tipo_movimiento
+            when 30 then 'Abono'
+            when 31 then 'Cargo'
+            when 34 then 'Comisión'
+        end as tipoTx,        
+        tac.fecha_alta, 
+        tac.valor_real,
+        tac.clave_rastreo,
+        case tac.id_medio_pago
+            when 2 then 'Cuenta eje'
+            when 3 then 'SPEI STP'
+            WHEN 4 then 'SPEI ASP'
+            WHEN 5 then 'Visa'
+            WHEN 6 then 'Gestopago'
+            when 7 then 'ATM Santander'
+            when 9 then 'PayCash'
+            when 10 then 'ASP Directo'
+        end as medioPago,
+        tac.concepto
+    from alquimia_vitae.transacciones_ahorro_cliente tac 
+    where
+        id_cuenta_ahorro = ?
+    order by fecha_alta desc LIMIT ?;
+"""
+CONFIGURACION_MEDIOS_PAGO_DE_CUENTA="""
+    select 
+            case id_medio_pago
+                when 2 then 'Cuenta eje'
+                when 3 then 'SPEI STP'
+                WHEN 4 then 'SPEI ASP'
+                WHEN 5 then 'Visa'
+                WHEN 6 then 'Gestopago'
+                when 7 then 'ATM Santander'
+                when 9 then 'PayCash'
+                when 10 then 'ASP Directo'
+            end as medioPago,
+            case tipo_cash
+                    when 0 then 'in'
+                    when 1 then 'out'
+            end as cash,
+            case tipo_comision
+                    when 1 then 'fija ($)'
+                    when 2 then 'porcentual'
+            end as comision,
+            valor_comision
+    from cuenta_ahorro_medio_pago camp 
+    where id_cuenta_ahorro =?
+    GROUP BY id_medio_pago , tipo_cash ;
+"""
+
+CONFIGURACION_PRODUCTO_AHORRO="""
+    select 
+        case id_medio_pago
+            when 2 then 'Cuenta eje'
+            when 3 then 'SPEI STP'
+            WHEN 4 then 'SPEI ASP'
+            WHEN 5 then 'Visa'
+            WHEN 6 then 'Gestopago'
+            when 7 then 'ATM Santander'
+            when 9 then 'PayCash'
+            when 10 then 'ASP Directo'
+        end as medioPago,
+        case tipo_cash
+                when 0 then 'in'
+                when 1 then 'out'
+        end as cash,
+        case tipo_comision
+                when 1 then 'fija ($)'
+                when 2 then 'porcentual' 
+        end as comision,
+        valor_comision,
+        saldo_basado_medio_pago as predeterminado,
+        calendario_transaccion as calendario,
+        hora_inicio as horaInicio,
+        hora_fin as horaFin
+    from transaccion_producto_configuracion tpc where producto_id  =?;  
+"""
+REGISTRO_TRANSACCION_EN_TAC_POR_CLAVE_RASTREO="""
+    select
+        tac.id_cuenta_ahorro as idCuenta,
+        tac.id_transaccion as idTx,
+        case tac.tipo_movimiento
+            when 30 then 'Abono'
+            when 31 then 'Cargo'
+            when 34 then 'Comisión'
+        end as tipoTx,
+        case tac.id_medio_pago
+            when 2 then '2 - Cuenta AlquimiaPay (cuenta eje)'
+            when 3 then '3 - SPEI STP'
+            WHEN 4 then '4 - SPEI ASP'
+            WHEN 5 then '5 - Visa AlquimiaPay'
+            when 6 then '6 - Gestopago'
+            when 7 then '7 - Retiro ATM Santander'
+            when 9 then '9 - PayCash'
+        end as medioPago,
+        tac.fecha_alta, 
+        tac.valor_real,
+        tac.clave_rastreo,
+        tac.concepto
+    from alquimia_vitae.transacciones_ahorro_cliente tac 
+    where
+        tac.clave_rastreo LIKE ?
+        and tac.tipo_movimiento <> 34;
+"""
+REGISTRO_TRANSACCION_EN_TAC_POR_ID_TX="""
+    select 
+        tac.id_cuenta_ahorro as idCuenta,
+        tac.id_transaccion as idTx,
+        case tac.tipo_movimiento
+            when 30 then 'Abono'
+            when 31 then 'Cargo'
+            when 34 then 'Comisión'
+        end as tipoTx,
+        case tac.id_medio_pago
+            when 2 then '2 - Cuenta AlquimiaPay (cuenta eje)'
+            when 3 then '3 - SPEI STP'
+            WHEN 4 then '4 - SPEI ASP'
+            WHEN 5 then '5 - Visa AlquimiaPay'
+            when 6 then '6 - Gestopago'
+            when 7 then '7 - Retiro ATM Santander'
+            when 9 then '9 - PayCash'
+            when 6 then 'GestoPago'
+        end as medioPago,        
+        tac.fecha_alta, 
+        tac.valor_real,
+        tac.clave_rastreo,
+        tac.concepto
+    from alquimia_vitae.transacciones_ahorro_cliente tac 
+    where
+        tac.id_transaccion = ?
+        and tac.tipo_movimiento <> 34;
+"""
+DATOS_TRANSACCION_POR_CLAVE_RASTREO_SALIENTE="""
+    select 
+            toi.id as idTx, 
+            toi.id_transaccion_ahorro_cliente, 
+            toi.id_transaccion_spei, 
+            toi.folio_orden,
+            toi.datos, 
+            toi.detalle_error,
+            ts.json_respuesta, --
+            toi.fecha_autorizacion,
+            ts.fecha_actualizacion as timestamp_confirmacion_proveedor,
+            (ts.fecha_actualizacion - toi.fecha_autorizacion) as tiempo_total_transaccion,
+            toi.estatus,
+            toi.fecha_alta,	toi.fecha_instruccion, toi.fecha_actualizacion, 
+            toi.usuario_autorizador, 
+            toi.usuario_instructor 
+    from 
+            temp_ordenes_importador toi 
+            left JOIN transacciones_spei ts on toi.id_transaccion_spei = ts.id
+    where
+        ts.json_respuesta LIKE ?;
+"""
+
+DATOS_TRANSACCION_POR_ID_TRANSACCION="""
+    select 
+            toi.id as idTx, 
+            toi.id_transaccion_ahorro_cliente, 
+            toi.id_transaccion_spei, 
+            toi.folio_orden,
+            toi.datos, 
+            toi.detalle_error,
+            ts.json_respuesta, --
+            toi.fecha_autorizacion,
+            ts.fecha_actualizacion as timestamp_confirmacion_proveedor,
+            (ts.fecha_actualizacion - toi.fecha_autorizacion) as tiempo_total_transaccion,
+            toi.estatus,
+            toi.fecha_alta,	toi.fecha_instruccion, toi.fecha_actualizacion, 
+            toi.usuario_autorizador, 
+            toi.usuario_instructor 
+    from 
+            temp_ordenes_importador toi 
+            left JOIN transacciones_spei ts on toi.id_transaccion_spei = ts.id
+    where
+        toi.id = ?;
+"""
+DATOS_TRANSACCION_POR_CLAVE_RASTREO_ENTRANTE="""
+    select
+        claveRastreo,
+        cuentaOrdenante,
+        nombreOrdenante,
+        rfcCurpOrdenante,        
+        cuentaBeneficiario,
+        nombreBeneficiario,
+        rfcCurpBeneficiario,
+        conceptoPago,
+        monto,
+        referenciaNumerica,
+        fecha_actualizacion,
+        fecha_alta,
+        institucionContraparte
+    from
+        stp
+    where
+        claveRastreo LIKE ?;        
+"""
+EMPRESA_POR_NOMBRE="""
+    select
+        id_empresa as idEmpresa,
+        rfc,
+        nombre 
+    from
+        empresa
+    where
+        nombre LIKE ?
+        and rfc is not null
+    order by rfc asc; 
+"""
+EMPRESA_POR_ID="""
+    select
+        id_empresa as idEmpresa,
+        rfc,
+        nombre,
+        fecha_alta,
+        calle,
+        no_ext,
+        no_int,
+        entre_calle_primera,
+        entre_calle_segunda,
+        colonia,
+        alcaldia_municipio,
+        estado,
+        codigo_postal
+    from
+        empresa
+    where
+        id_empresa=?; 
+"""
+EMPRESA_POR_RFC="""
+    select
+        id_empresa,
+        rfc,
+        nombre 
+    from
+        empresa
+    where
+        rfc LIKE ?; 
+"""
+ADMIN_EMPRESA_POR_ID_EMPRESA="""
+    select
+    	c.id_cliente as idUsuario,
+    	c.email,
+    	concat(c.apellido_paterno," ",c.apellido_materno," ",c.nombre) as nombreUsuario    
+    from 
+    	moral_fisica_roles mfr join empresa e 
+    		on e.id_empresa = mfr.id_empresa 
+    	join cliente c on c.id_cliente = mfr.id_cliente 
+    where
+        mfr.id_empresa = ?
+        and mfr.rol = "admin_empresa"
+    limit 1;
+"""
+CUENTAS_DE_EMPRESA_POR_ID_EMPRESA="""
+    select
+    	cac.id_cuenta_ahorro as idCuenta,
+    	cac.id_producto_ahorro_empresa as pae,
+    	pae.nombre_producto as nombreProducto,
+    	cac.distribuidor,
+    	cac.grupo_trabajo,
+    	cac.alias,
+    	cac.saldo_ahorro as saldo
+    	,count(tac.id_transaccion) as totalTx
+    	,date(cac.fecha_alta) as fechaAlta
+    from
+    	cuenta_ahorro_cliente cac join producto_ahorro_empresa pae 
+    		on cac.id_producto_ahorro_empresa = pae.id_producto_ahorro_empresa 
+    	left join transacciones_ahorro_cliente tac on tac.id_cuenta_ahorro = cac.id_cuenta_ahorro 
+    where
+    	cac.id_cliente = ?
+    	group by cac.id_cuenta_ahorro;
+"""
+CUENTAS_MORAL_USUARIO="""
+    SELECT    	
+        mf.id_cuenta_ahorro as idCuenta,
+        e.nombre,
+        cac.alias,
+        mf.rol
+    from 
+        moral_fisica_roles mf 
+        join empresa e on e.id_empresa=mf.id_empresa 
+        join cliente c on c.id_cliente = mf.id_cliente
+        join cuenta_ahorro_cliente cac on cac.id_cliente = mf.id_empresa 
+    where
+        c.id_cliente = ?
+        and mf.activo = 0
+    group by mf.id_cuenta_ahorro, mf.rol;
+"""
+CUENTAS_FISICA_USUARIO="""
+   SELECT
+        cac.id_cuenta_ahorro as idCuenta,
+        pae.id_producto_ahorro_empresa as idPAE,
+        pae.nombre_producto as nombreProducto
+   FROM 
+      cuenta_ahorro_cliente cac 
+      join producto_ahorro_empresa pae 
+            on cac.id_producto_ahorro_empresa = pae.id_producto_ahorro_empresa 
+   WHERE 
+   		cac.id_cliente = ?;
+"""
+ROLES_USUARIO="""
+   SELECT
+        user_id as idUsuario,
+        item_name as rol
+   FROM 
+   		auth_assignment
+       
+   WHERE 
+   		user_id= ?;
+"""
+EMPRESA_USUARIO="""
+    SELECT
+            ce.id_cliente as idUsuario,
+            ce.id_empresa as idEmpresa,            
+            e.nombre as empresa
+    FROM 
+            cliente_empresa ce
+            join empresa e on e.id_empresa = ce.id_empresa 
+    WHERE
+            ce.id_cliente = ?;
+"""
+
+USUARIO_POR_NOMBRE="""
+    select
+    	c.id_cliente as idUsuario
+    	,aa.item_name as rol
+    	,c.apellido_paterno
+    	,c.apellido_materno
+    	,c.nombre    
+    	,c.email
+    	,c.id_hsm
+    from 
+    	cliente c  left join auth_assignment aa on aa.user_id = c.id_cliente 
+    where
+        c.apellido_paterno like ?
+        and c.apellido_materno like ?
+        and c.nombre like ?;
+    -- group by c.id_cliente
+"""
+USUARIO_POR_ID="""
+    select
+    	c.id_cliente as idUsuario
+    	,aa.item_name as rol
+    	,c.apellido_paterno
+    	,c.apellido_materno
+    	,c.nombre    
+    	,c.email
+    	,date(c.fecha_alta) as fechaAlta
+    	,c.id_hsm
+    from 
+    	cliente c  left join auth_assignment aa on aa.user_id = c.id_cliente 
+    where
+        c.id_cliente = ?;
+    -- group by c.id_cliente
+"""
+USUARIO_POR_EMAIL="""
+    select
+    	c.id_cliente as idUsuario
+    	,aa.item_name as rol
+    	,c.apellido_paterno
+    	,c.apellido_materno
+    	,c.nombre    
+    	,c.email
+    	,c.id_hsm
+    from 
+    	cliente c  left join auth_assignment aa on aa.user_id = c.id_cliente 
+    where
+        c.email like ?;
+"""
+TARJETA_POR_NUMERO = """
+    SELECT 
+            camp.id_cuenta_ahorro as idCuenta,
+            lt.no_tarjeta as numeroTarjeta,
+            lt.numero_interno_procesador as proxyNumber
+    FROM
+            lote_tarjetas lt 
+            join cuenta_ahorro_medio_pago camp on camp.no_cuenta_medio_pago = lt.no_tarjeta
+    WHERE 
+            lt.no_tarjeta = ?;
+"""
+
+TARJETA_POR_PROXY = """
+    SELECT 
+            camp.id_cuenta_ahorro as idCuenta,
+            lt.no_tarjeta as numeroTarjeta,
+            lt.numero_interno_procesador as proxyNumber
+    FROM
+            lote_tarjetas lt 
+            join cuenta_ahorro_medio_pago camp on camp.no_cuenta_medio_pago = lt.no_tarjeta
+    WHERE 
+            lt.numero_interno_procesador = ?;
+"""
+TARJETA_SIN_ASIGNAR_POR_PROXY="""
+    SELECT 
+            lt.id,
+            lt.no_tarjeta as numeroTarjeta,
+            lt.numero_interno_procesador as proxyNumber
+    FROM
+            lote_tarjetas lt 
+            
+    WHERE 
+            lt.numero_interno_procesador = ?;
+"""
+SALDOS_GLOBALES_FINANCIERAS="""
+    select	temp.institucion ,sum(temp.saldo_ahorro) as saldo from(
+            SELECT
+            c.id_cuenta_ahorro
+            ,c.saldo_ahorro 
+            ,c.nombre_centro_costos
+            ,camp.no_cuenta_medio_pago as clabe
+            ,e.nombre
+            ,c.distribuidor
+            ,c.grupo_trabajo
+            ,case camp.id_medio_pago  
+                when 3 then 'STP'
+                when 4 then 'ASP Integra'
+            end as institucion
+        FROM
+            cuenta_ahorro_cliente c 
+            join producto_ahorro_empresa pae on c.id_producto_ahorro_empresa = pae.id_producto_ahorro_empresa
+            join empresa e on e.id_empresa = pae.id_empresa
+            join cuenta_ahorro_medio_pago camp on camp.id_cuenta_ahorro = c.id_cuenta_ahorro 
+        WHERE 
+            e.id_empresa NOT IN (11,377,464,208)
+            and c.id_cuenta_ahorro NOT IN (2101,3128,1561,3122,1610,4488,1652)
+                    and camp.id_medio_pago in (3,4)
+                    and c.saldo_ahorro > 0.01
+        GROUP BY 
+            c.id_cuenta_ahorro
+    ) as temp group by temp.institucion
+"""
+TRANSACCION_BLU_POR_CLAVE_RASTREO="""
+select
+	t.id,
+	t.cuenta_origen,
+	t.concepto,
+	t.cuenta_destino,
+	tr.fecha_alta,
+	t.monto,
+	case t.estatus
+                    when 10 then '10 - Esperando a ser enviada'
+                    when 20 then '20 - Recibida por BLU'
+                    when 30 then '30 - Liquidada en ASP'
+                    when 40 then '40 - Devuelta'
+        end as estatus,
+	tr.clave_rastreo
+from
+	transferencia t
+	left join transferencia_rastreo tr on t.id = tr.id_transferencia 
+where
+	tr.clave_rastreo = ?;
+"""	
+RETIROATM_POR_CLAVE_RASTREO="""
+	SELECT 
+		aop.clave_rastreo,
+		ad.orden_pago_id,
+		aop.fecha_alta,
+		CASE aop.estatus
+			when 10 then '10 - Problema al sembrar en Santander'
+			when 20 then '20 - OK, SMS enviado'
+			when 30 then '30 - Devuelta'
+		END as estatus,
+		ad.importe, 
+		ad.nombre_beneficiario,
+		ad.rfc_curp_beneficiario,
+		ad.numero_celular,
+		ad.email,
+		ad.clave_aceptacion_devolucion_rechazo
+		,cm.mensaje_h2h 
+		,ad.referencia_atm 
+		,ad.pin_atm
+	FROM 
+		atm_orden_pago aop join atm_detalle ad on aop.id = ad.orden_pago_id 
+		join catalogo_mensaje cm on cm.codigo_ccbn = ad.clave_aceptacion_devolucion_rechazo COLLATE utf8_general_ci
+	WHERE 
+		aop.clave_rastreo = ?;
+"""
+LISTA_TARJETAS_VISA = """
+	select
+		cac.id_cuenta_ahorro as idCuenta,
+		cac.id_cuenta_ahorro_padre as idCuentaMadre,
+		e.nombre as empresa,
+		lt.no_tarjeta as numeroTarjeta,
+		lt.numero_interno_procesador as proxyNumber,
+		cac.saldo_ahorro as saldo
+	from 
+		cuenta_ahorro_cliente cac	
+		join cuenta_ahorro_medio_pago camp on camp.id_cuenta_ahorro = cac.id_cuenta_ahorro
+		join lote_tarjetas lt on lt.no_tarjeta = camp.no_cuenta_medio_pago
+		join producto_ahorro_empresa pae on pae.id_producto_ahorro_empresa = cac.id_producto_ahorro_empresa 
+		join empresa e on e.id_empresa = pae.id_empresa 
+	where cac.id_producto_ahorro = 10
+	order by empresa 
+"""
+
+TX_EN_COLA_IMPORTADOR = """
+    select      
+            json_extract(toi.datos, '$.cuenta_origen') as idCuenta,
+            toi.folio_orden,
+            count(*) as cantidad ,            
+            toi.fecha_autorizacion,
+            toi.fecha_alta,
+            toi.usuario_autorizador as usr_autorizador, 
+            toi.usuario_instructor as usr_instructor
+    from 
+            temp_ordenes_importador toi 
+    where
+            DATE(toi.fecha_alta) = ? 
+            and toi.estatus = 0	-- pendientes
+            group by folio_orden 
+            order by toi.id asc;
+"""
+TOKEN_USUARIO_ALQUIMIA = """
+    SELECT id_cliente, id_hsm FROM cliente 
+    WHERE id_cliente = ?;
+"""
+ACTUALIZA_TOKEN_USUARIO_ALQUIMIA = """
+    UPDATE cliente
+	SET id_hsm=NULL
+	WHERE id_cliente=?;
+"""
+TOKEN_USUARIO_HSM = """
+    SELECT x.* FROM hsm_usuario x
+    WHERE id_usuario = ?; 
+"""
+ELIMINA_TOKEN_USUARIO_HSM = """
+    DELETE FROM hsm_usuario
+	WHERE id_usuario=?;
+"""
+TRANSACCION_BLU_RECHAZO = """
+    SELECT * from devolucion
+    WHERE clave_rastreo = ?;
+"""
+LOG_AUTORIZADOR = """
+    Select 
+            -- ac.idTx,
+            -- ac.MTI,
+            -- nc.codigoRespuesta,
+            lt.dato_envio,
+            lt.dato_respuesta,
+            lt.fecha_hora
+    from 
+            autorizacion_compra ac 
+            join notificacion_compra nc on nc.idTx = ac.idTx 
+            join log_transaccion lt on lt.idTx = ac.idTx
+    where ac.idTx =?;
+"""
+
+REPORTE_DIFERENCIAS_MOVIMIENTOS="""
+SELECT
+    cac.distribuidor,
+    cac.grupo_trabajo as grupoTrabajo,
+    cac.id_cuenta_ahorro as idCuenta,
+    DATE(cac.fecha_alta) as fechaAlta,
+    e.nombre as razonSocial,
+    tac.id_medio_pago AS idMP,
+    CASE tac.id_medio_pago
+        WHEN 2 then 'Cuenta eje'
+        WHEN 3 then 'SPEI STP'
+        WHEN 4 then 'SPEI ASP'
+        WHEN 5 then 'Visa'
+        WHEN 6 then 'Gestopago'
+        WHEN 7 then 'ATM Santander'
+        WHEN 9 then 'PayCash'
+        WHEN 10 then 'ASP Directo'
+    END AS medioPago,	
+    tipo_movimiento AS idMovimiento,
+    case tac.tipo_movimiento
+        when 30 then 'Abono'
+        when 31 then 'Cargo'
+        when 34 then 'Comision'
+    END AS tipoMovimiento,
+    SUM(monto) as monto
+FROM
+    cuenta_ahorro_cliente cac 
+    JOIN transacciones_ahorro_cliente tac on tac.id_cuenta_ahorro = cac.id_cuenta_ahorro 
+    JOIN producto_ahorro_empresa pae on pae.id_producto_ahorro_empresa = cac.id_producto_ahorro_empresa 
+    JOIN empresa e on e.id_empresa = pae.id_empresa 
+WHERE
+    cac.id_cuenta_ahorro_padre IS NULL
+    AND cac.tipo_persona= 1
+    AND cac.estatus = 0
+    AND DATE(tac.fecha_alta) BETWEEN ? and ?
+    AND cac.distribuidor = ?
+GROUP BY
+    cac.id_cuenta_ahorro,
+    YEAR (tac.fecha_alta),
+    MONTH(tac.fecha_alta),
+    tac.id_medio_pago,
+    tac.tipo_movimiento
+;
+"""
+LISTA_DISTRIBUIDORES_UNICOS = """
+    SELECT
+        DISTINCT distribuidor
+    FROM cuenta_ahorro_cliente cac 
+        JOIN transacciones_ahorro_cliente tac on tac.id_cuenta_ahorro = cac.id_cuenta_ahorro 
+        JOIN producto_ahorro_empresa pae on pae.id_producto_ahorro_empresa = cac.id_producto_ahorro_empresa 
+        JOIN empresa e on e.id_empresa = pae.id_empresa 
+    WHERE
+        cac.id_cuenta_ahorro_padre IS NULL
+        AND cac.tipo_persona = ?
+        AND cac.estatus = 0
+        AND cac.distribuidor IS NOT NULL
+        AND cac.distribuidor <> '';
+"""
+
+
+COMPARATIVO_CONFIGURACION_PAE = """
+    SELECT *
+        FROM transaccion_producto_configuracion
+    ORDER BY producto_id DESC
+"""
+
+COMPARATIVO_CONFIGURACION_PAE_REFERENCIA = """
+    SELECT *
+        FROM transaccion_producto_configuracion_referencia;
+"""
+
+COMPARATIVO_CONFIGURACION_PAE_NOMBRE_PAE = """
+    SELECT id_producto_ahorro_empresa, id_empresa, nombre_producto
+        FROM producto_ahorro_empresa pae
+        WHERE 
+            pae.id_producto_ahorro_empresa = ?;
+"""
+
+COMPARATIVO_CONFIGURACION_PAE_NOMBRE_EMPRESA_ASOCIADA = """
+    SELECT nombre
+        FROM empresa e
+        WHERE 
+            e.id_empresa = ?;
+"""
+
+COMPARATIVO_CONFIGURACION_PAE_INSERTAR_REGISTRO_TABLA_REFERENCIA = """
+INSERT 
+    INTO 
+        transaccion_producto_configuracion_referencia (
+            id
+            ,tipo_producto
+            ,producto_id
+            ,tipo_comision
+            ,valor_comision
+            ,numero_maximo_transacciones
+            ,monto_maximo_transacciones
+            ,tipo_reseteo
+            ,horas_reseteo
+            ,hora_inicio
+            ,hora_fin
+            ,calendario_transaccion
+            ,fecha_alta
+            ,fecha_actualizacion
+            ,id_medio_pago
+            ,tipo_cash
+            ,activo
+            ,saldo_basado_medio_pago
+            ,nombre_centro_costos_stp
+            ,no_cuenta_medio_pago) 
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);"""
+
+COMPARATIVO_CONFIGURACION_PAE_ACTUALIZAR_REGISTRO_TABLA_REFERENCIA = """
+    UPDATE
+        transaccion_producto_configuracion_referencia
+    SET
+        tipo_producto = ?
+        ,producto_id = ?
+        ,tipo_comision = ?
+        ,valor_comision = ?
+        ,numero_maximo_transacciones = ?
+        ,monto_maximo_transacciones = ?
+        ,tipo_reseteo = ?
+        ,horas_reseteo = ?
+        ,hora_inicio = ?
+        ,hora_fin = ?
+        ,calendario_transaccion = ?
+        ,fecha_alta = ?
+        ,fecha_actualizacion = ?
+        ,id_medio_pago = ?
+        ,tipo_cash = ?
+        ,activo = ?
+        ,saldo_basado_medio_pago = ?
+        ,nombre_centro_costos_stp = ?
+        ,no_cuenta_medio_pago = ?
+    WHERE
+        id = ?;
+"""
+
+COMPARATIVO_CONFIGURACION_PAE_ID_CUENTAS_PAE = """
+SELECT 
+    id_cuenta_ahorro 
+FROM 
+    cuenta_ahorro_cliente cac 
+WHERE 
+    id_producto_ahorro_empresa = ?
+LIMIT
+    100;"""
