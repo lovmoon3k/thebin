@@ -1,0 +1,333 @@
+import pygame
+import random
+from pygame.sprite import Group, Sprite
+
+class State:
+    def __init__(self, engine):
+        self.engine = engine
+
+    def on_draw(self, surface): pass
+    def on_event(self, event): pass
+    def on_update(self, delta, ticks): pass
+
+class DisplayStateMachine:
+    def __init__(self, caption, width, height, fps=60, flags=0):
+        pygame.display.set_caption(caption)
+        self.surface = pygame.display.set_mode((width, height), flags)
+        self.rect = self.surface.get_rect()
+        self.clock = pygame.time.Clock()
+        self.running = False
+        self.delta = 0
+        self.fps = fps
+
+        self._state = State(self)
+        self.next_state = None
+
+    def loop(self):
+        self.running = True
+
+        while self.running:
+            if self.next_state is not None:
+                self._state = self.next_state
+                self.next_state = None
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.running = False
+                else:
+                    self._state.on_event(event)
+
+            ticks = pygame.time.get_ticks()
+            self._state.on_draw(self.surface)
+            self._state.on_update(self.delta, ticks)
+            pygame.display.flip()
+            self.delta = self.clock.tick(self.fps) * 0.001
+
+class TickTimer:
+    def __init__(self, tick, interval):
+        self.tick = tick + interval
+        self.interval = interval
+
+    def elapsed(self, ticks):
+        if ticks > self.tick:
+            self.tick = ticks + self.interval
+            return True
+
+        return False
+
+class RectPosition:
+    def __init__(self, position, anchor="topleft"):
+        self.position = position
+        self.anchor = anchor
+
+    def set(self, rect):
+        setattr(rect, self.anchor, self.position)
+
+class PenText(Sprite):
+    def __init__(self, pen, text, rect_pos):
+        super().__init__()
+        self.rect_pos = rect_pos
+        self.pen = pen
+        self.render(text)
+
+    def render(self, text):
+        self.image = self.pen.render(text)
+        self.rect = self.image.get_rect()
+        self.rect_pos.set(self.rect)
+
+class Pen:
+    def __init__(self, font, color):
+        self.font = font
+        self.color = color
+
+    def render(self, text):
+        return self.font.render(text, 1, self.color)
+
+    def write(self, text, rposition):
+        return PenText(self, text, rposition)
+
+class Point:
+    @classmethod
+    def from_tuple(cls, tup):
+        return cls(tup[0], tup[1])
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+class Camera:
+    def __init__(self, speed, rect, area):
+        self.speed = speed
+        self.rect = rect
+        self.area = area
+        self.position = pygame.Vector2(self.rect.topleft)
+
+    def clamp(self):
+        clamp = self.rect.clamp(self.area)
+        if clamp.x != self.rect.x:
+            self.rect.x = clamp.x
+            self.position.x = clamp.x
+
+        if clamp.y != self.rect.y:
+            self.rect.y = clamp.y
+            self.position.y = clamp.y
+
+    def get_position(self):
+        return self.rect.topleft
+
+    def move(self, vector, delta):
+        self.position += vector * self.speed * delta
+        self.rect.topleft = self.position
+        self.clamp()
+
+class EdgeScroll:
+    def __init__(self, camera, distance, speed):
+        self.speed = 1 / speed
+        self.camera = camera
+        self.distance = distance
+
+    def scroll(self, delta):
+        mpos = Point.from_tuple(pygame.mouse.get_pos())
+        width, height = self.camera.rect.size
+        direction = pygame.Vector2()
+
+        if mpos.x < self.distance:
+            direction.x = mpos.x - self.distance
+        elif mpos.x > width - self.distance:
+            direction.x = mpos.x - (width - self.distance)
+
+        if mpos.y < self.distance:
+            direction.y = mpos.y - self.distance
+        elif mpos.y > height - self.distance:
+            direction.y = mpos.y - (height - self.distance)
+
+        if direction != pygame.Vector2():
+            direction *= self.speed
+            dir = abs(direction.x), abs(direction.y)
+            direction = direction.normalize().elementwise() * dir
+            self.camera.move(direction, delta)
+
+class TileEngine:
+    def __init__(self, map_size, tile_size):
+        self.msize = Point.from_tuple(map_size)
+        self.tsize = Point.from_tuple(tile_size)
+
+        row, col = map_size[0], map_size[1]
+        self.tiles = [[None for w in range(row)] for h in range(col)]
+
+    def draw(self, surface, position):
+        rect = surface.get_rect()
+        width = rect.width // self.tsize.x
+        height = rect.height // self.tsize.y
+        tpos = Point.from_tuple(position)
+        tpos.x //= self.tsize.x
+        tpos.y //= self.tsize.y
+        offset = Point(position[0] - tpos.x * self.tsize.x,
+                       position[1] - tpos.y * self.tsize.y)
+
+        for y in range(tpos.y, max(tpos.y + height, self.msize.y)):
+            for x in range(tpos.x, max(tpos.x + width, self.msize.x)):
+                if self.tiles[y][x] is not None:
+                    pos = ((x - tpos.x) * self.tsize.x - offset.x,
+                           (y - tpos.y) * self.tsize.y - offset.y)
+
+                    surface.blit(self.tiles[y][x], pos)
+
+    def set_at(self, image, position):
+        x, y = position
+        self.tiles[y][x] = image
+
+    def step(self):
+        for y in range(self.msize.y):
+            for x in range(self.msize.x):
+                yield x, y
+
+class TileImages:
+    def __init__(self):
+        self.tile_size = 50, 50
+        self.tiles = [
+            self.create_tile("firebrick", 30),
+            self.create_tile("blue", 20),
+            self.create_tile("lawngreen", 40),
+            self.create_tile("purple", 10)
+        ]
+
+    def create_tile(self, color, dots):
+        surface = pygame.Surface(self.tile_size)
+        surface.fill(color)
+        dotcolor = pygame.Color(color).lerp("black", 0.4)
+        for r in range(dots):
+            w = random.randint(0, self.tile_size[0])
+            h = random.randint(0, self.tile_size[1])
+            surface.set_at((w, h), dotcolor)
+
+        return surface
+
+class Images:
+    def __init__(self):
+        self.triangle = self.create_triangle("orange", (30, 20))
+
+    def create_triangle(self, color, size):
+        transparent = (0, 0, 0, 0)
+        surface = pygame.Surface(size, pygame.SRCALPHA)
+        surface.fill(transparent)
+        rect = surface.get_rect()
+        points = rect.topleft, rect.midright, rect.bottomleft
+        pygame.draw.polygon(surface, color, points)
+        return surface
+
+class Entity(Sprite):
+    def __init__(self, image, position, anchor):
+        super().__init__()
+        self.image = image
+        self.rect = image.get_rect()
+        setattr(self.rect, anchor, position)
+        self.center = pygame.Vector2(self.rect.center)
+
+    def move(self, vector):
+        self.center += vector
+        self.rect.center = self.center
+
+# This need more work. You get the idea
+class Wander:
+    def __init__(self, sprite, area, speed):
+        self.oimage = sprite.image
+        self.sprite = sprite
+        self.speed = speed
+        self.area = area
+        self.area.center = sprite.rect.center
+        self.vector = pygame.Vector2()
+        self.angle = random.randint(0, 360)
+        self.vector.from_polar((1, self.angle))
+        self.wander_count = 0
+        self.random_wander()
+        self.timer = TickTimer(pygame.time.get_ticks(), 1000)
+        self.update_rotation()
+
+    def random_wander(self):
+        self.wander = random.randint(30, 100)
+
+    def change_movement(self):
+        if self.wander_count >= self.wander:
+            self.random_wander()
+            self.wander_count = 0
+            if self.angle <= 90 or self.angle >= 270:
+                left = (self.angle + 90) % 360
+                right = (self.angle - 90) % 360
+                self.angle = random.randint(left, right)
+            else:
+                left = (self.angle - 90) % 360
+                right = (self.angle + 90) % 360
+                choices = random.randint(0, left), random.randint(right, 360)
+                self.angle = random.choice(choices)
+
+            self.vector.from_polar((1, self.angle))
+            self.update_rotation()
+
+    def update(self, delta, ticks):
+        vector = self.vector * self.speed * delta
+        rect = self.sprite.move(vector)
+        if ticks > self.timer.elapsed(ticks):
+            self.wander_count += 1
+            self.change_movement()
+
+    def update_rotation(self):
+        self.sprite.image = pygame.transform.rotate(self.oimage, -self.angle)
+
+class GameWorld(State):
+    def __init__(self, engine):
+        super().__init__(engine)
+        self.t_images = TileImages()
+        tpoint = Point.from_tuple(self.t_images.tile_size)
+        wpoint = Point(40, 40)
+        area = pygame.Rect(0, 0, tpoint.x * wpoint.x, tpoint.y * wpoint.y)
+        self.camera = Camera(40, engine.rect.copy(), area)
+        self.edge = EdgeScroll(self.camera, 40, 8)
+        self.tile_engine = TileEngine((wpoint.x, wpoint.y), self.t_images.tile_size)
+
+        for pos in self.tile_engine.step():
+            self.tile_engine.set_at(random.choice(self.t_images.tiles), pos)
+
+        pen = Pen(pygame.font.Font(None, 36), "snow")
+        self.text = pen.write("Pos :", RectPosition((10, 10), "topleft"))
+        self.text_timer = TickTimer(pygame.time.get_ticks(), 100)
+        self.text_group = Group(self.text)
+
+        self.images = Images()
+        self.wanders = []
+        self.sprites = Group()
+        items = (
+            ((320, 320), pygame.Rect(0, 0, 100, 200)),
+            ((1200, 500), pygame.Rect(0, 0, 300, 200)),
+        )
+
+        for pos, area in items:
+            entity = Entity(self.images.triangle, pos, "center")
+            self.sprites.add(entity)
+            self.wanders.append(Wander(entity, area, 30))
+
+    def on_draw(self, surface):
+        surface.fill('black')
+        self.tile_engine.draw(surface, self.camera.get_position())
+        self.text_group.draw(surface)
+        for sprite in self.sprites:
+            if sprite.rect.colliderect(self.camera.rect):
+                x = sprite.rect.x - self.camera.rect.x
+                y = sprite.rect.y - self.camera.rect.y
+                surface.blit(sprite.image, (x, y))
+
+    def on_update(self, delta, ticks):
+        self.edge.scroll(delta)
+        if self.text_timer.elapsed(ticks):
+            self.text.render("Pos : " + str(self.camera.get_position()))
+
+        for wander in self.wanders:
+            wander.update(delta, ticks)
+
+if __name__ == "__main__":
+    pygame.init()
+    engine = DisplayStateMachine("Scrolling", 800, 600)
+    game = GameWorld(engine)
+    engine.next_state = game
+    engine.loop()
+    pygame.quit()
