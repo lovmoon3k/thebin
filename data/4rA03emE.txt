@@ -1,0 +1,31 @@
+version: '2.1'
+
+services:
+    nginx-mailcow:
+      networks:
+        web:
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.moo.rule=Host(`${MAILCOW_HOSTNAME}`)
+        - traefik.http.routers.moo.tls=true
+        - traefik.http.routers.moo.tls.certresolver=letsencrypt
+        - traefik.http.services.moo.loadbalancer.server.port=${HTTP_PORT}
+        - traefik.http.routers.moo.entrypoints=websecure
+        - "traefik.docker.network=web"
+
+    certdumper:
+        image: humenius/traefik-certs-dumper
+        command: --restart-containers ${COMPOSE_PROJECT_NAME}-postfix-mailcow-1,${COMPOSE_PROJECT_NAME}-nginx-mailcow-1,${COMPOSE_PROJECT_NAME}-dovecot-mailcow-1
+        network_mode: none
+        volumes:
+          - /home/mggk/docker/proxy/letsencrypt:/traefik:ro
+          - ./data/assets/ssl/:/output:rw
+          - /var/run/docker.sock:/var/run/docker.sock:ro
+        restart: always
+        environment:
+          - DOMAIN=${MAILCOW_HOSTNAME}
+
+networks:
+  web:
+    external: true
+    name: traefik_internal
