@@ -1,0 +1,71 @@
+import bpy
+
+class MmdGenerator:
+    def __init__(self, root_name, mmd_prefix):
+        self.mmd_root = bpy.data.objects[root_name]
+        self.mmd_prefix = mmd_prefix
+
+    def generate_mmd_raw(self, scene_name, scale, pmx_path):
+        bpy.context.window.scene = bpy.data.scenes[scene_name]
+        self.mmd_root.select_set(True)
+        bpy.context.view_layer.objects.active = self.mmd_root
+        bpy.ops.mmd_tools.export_pmx(filepath=pmx_path, scale=scale,
+                                     visible_meshes_only=True)
+
+    def generate_mmd(self, scene_name, scale):
+        pmx_path = f"{self.mmd_prefix}{scene_name}.pmx"
+        self.generate_mmd_raw(scene_name, scale, pmx_path)
+
+    def create_empty(self, name):
+        obj = bpy.data.objects.get(name)
+        if obj == None:
+            bpy.ops.object.empty_add()
+            obj = bpy.context.object
+            obj.name = name
+            obj.parent = self.mmd_root
+        return obj
+
+    def prepare_physics(self):
+        self.rigidbodies   = self.create_empty('rigidbodies')
+        self.rigidbodies_d = self.create_empty('rigidbodies_disabled')
+        self.joints        = self.create_empty('joints')
+        self.joints_d      = self.create_empty('joints_disabled')
+
+    def move_children(self, src, dest, pattern):
+        for obj in src.children:
+            if obj.name.startswith(pattern):
+                obj.parent = dest
+
+    def enable_physics(self, name):
+        self.prepare_physics()
+        self.move_children(self.rigidbodies_d, self.rigidbodies, 'Coll.' + name)
+        self.move_children(self.joints_d, self.joints, 'J.Coll.' + name)
+        self.move_children(self.joints_d, self.joints, 'J.H.Coll.' + name)
+
+    def disable_physics(self, name):
+        self.prepare_physics()
+        self.move_children(self.rigidbodies, self.rigidbodies_d, 'Coll.' + name)
+        self.move_children(self.joints, self.joints_d, 'J.Coll.' + name)
+        self.move_children(self.joints, self.joints_d, 'J.H.Coll.' + name)
+
+###
+
+g = MmdGenerator('Reisa', 'reisa_')
+scale = 0.9;
+
+g.disable_physics('Idol_Skirt_Phys')
+g.enable_physics('Skirt_Phys')
+for name in ['Full', 'Default']:
+    g.generate_mmd(name, scale)
+
+g.disable_physics('Skirt_Phys')
+for name in ['Bunny_Girl',
+             'SwimSuit_Cow', 'SwimSuit_Hifumi',
+             'SwimSuit_Trinity', 'SwimSuit_Gehenna']:
+    g.generate_mmd(name, scale)
+
+g.enable_physics('Idol_Skirt_Phys')
+for name in ['Full_Idol', 'Idol']:
+    g.generate_mmd(name, scale)
+
+g.enable_physics('Skirt_Phys')
