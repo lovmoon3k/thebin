@@ -1,0 +1,264 @@
+-----------------------------------------------------------------------------------------
+---------------------------------4.7.2. OFFSET и FETCH ----------------------------------
+-----------------------------------------------------------------------------------------
+    -- Пример 4-21.
+    -- Петимата служители, започвайки от 10-ти ред, подредени по дата на постъпване.
+	SELECT * 
+	FROM EMPLOYEES
+	ORDER BY HIRE_DATE
+	OFFSET 9 ROWS
+	FETCH NEXT 5 ROWS ONLY 
+ 
+    -- Задача 4-12. 
+    -- вторите 10 най-добре платени служители (подредени по заплата низходящо).
+	SELECT *
+	FROM EMPLOYEES
+	ORDER BY SALARY DESC
+	OFFSET 10 ROWS 
+	FETCH NEXT 10 ROWS ONLY 
+ 
+    --#0
+    --В кой град се намира отделът, чийто служители получават най-голяма средна работна заплата.
+	SELECT TOP 1 D.CITY, E.DEPARTMENT_ID , AVG(SALARY)
+	FROM DEPARTMENTS D JOIN EMPLOYEES E
+	ON D.DEPARTMENT_ID = E.DEPARTMENT_ID
+	GROUP BY D.CITY, E.DEPARTMENT_ID
+	ORDER BY 3 DESC
+
+	SELECT D.CITY, E.DEPARTMENT_ID , AVG(SALARY)
+	FROM DEPARTMENTS D JOIN EMPLOYEES E
+	ON D.DEPARTMENT_ID = E.DEPARTMENT_ID
+	GROUP BY D.CITY, E.DEPARTMENT_ID
+	ORDER BY 3 DESC
+	OFFSET 0 ROW
+	FETCH NEXT 1 ROW ONLY 
+ 
+-----------------------------------------------------------------------------------------
+--------------------------------Изгледи = Views------------------------------------------
+-----------------------------Създаване на изгледи----------------------------------------
+-----------------------------Промяна на изгледи------------------------------------------
+ 
+    --Пример 5-1. 
+    --Да се създаде изглед, който съдържа име и фамилия на клиентите, както и
+    --номер и дата на поръчките, които те са направили.
+	CREATE VIEW CUSTOMER_ORDER_DATE
+	AS
+	SELECT  FNAME, LNAME, ORDER_ID, ORDER_DATE 
+	FROM CUSTOMERS C JOIN ORDERS O
+	ON C.CUSTOMER_ID = O.CUSTOMER_ID
+ 
+	 SELECT * FROM CUSTOMER_ORDER_DATE
+
+    --Пример 5-2. 
+    --Да се модифицира горният изглед така, че да съдържа и колона с името на
+    --съответния служител, обработил поръчката.
+	ALTER VIEW CUSTOMER_ORDER_DATE
+	AS
+	SELECT  C.FNAME + ' '+ C.LNAME AS CUSTOMER, 
+	        E.FNAME + ' ' + E.LNAME AS EMPLOYEE,
+	         ORDER_ID, ORDER_DATE 
+	FROM CUSTOMERS C JOIN ORDERS O ON C.CUSTOMER_ID = O.CUSTOMER_ID
+	                 JOIN EMPLOYEES E ON E.EMPLOYEE_ID = O.EMPLOYEE_ID
+
+    --Пример 5-3
+    --Да се модифицира горния изглед така, че да съдържа само поръчките,
+    --обработени от служител с идентификатор = 167.
+	ALTER VIEW CUSTOMER_ORDER_DATE
+	AS
+	SELECT  C.FNAME + ' '+ C.LNAME AS CUSTOMER, 
+	        E.FNAME + ' ' + E.LNAME AS EMPLOYEE,
+	         ORDER_ID, ORDER_DATE 
+	FROM CUSTOMERS C JOIN ORDERS O ON C.CUSTOMER_ID = O.CUSTOMER_ID
+	                 JOIN EMPLOYEES E ON E.EMPLOYEE_ID = O.EMPLOYEE_ID
+	WHERE E.EMPLOYEE_ID = 167
+	ORDER BY ORDER_ID
+	OFFSET 0 ROWS 
+
+	SELECT * 
+	FROM CUSTOMER_ORDER_DATE
+	ORDER BY ORDER_ID DESC
+
+    --Пример 5-4. 
+    --Да се създаде изглед, съдържащ име и фамилия на служител и общата сума на
+    --поръчките, които той е обработил.
+	CREATE VIEW TOTAL_SUM_EMPL
+	AS
+	SELECT E.FNAME, E.LNAME, SUM(UNIT_PRICE*QUANTITY) TOTAL
+	FROM EMPLOYEES E JOIN ORDERS O ON O.EMPLOYEE_ID = E.EMPLOYEE_ID
+	                  JOIN ORDER_ITEMS OI ON OI.ORDER_ID = O.ORDER_ID
+	GROUP BY E.FNAME, E.LNAME, E.EMPLOYEE_ID
+
+	SELECT * 
+	FROM TOTAL_SUM_EMPL
+	--WHERE LNAME = 'ИВАНОВ'
+	ORDER BY TOTAL ASC
+
+    --Пример 5-5. 
+    --Да се създаде изглед, който съдържа имена, отдел и заплата на 5-мата
+    --служители с най-висока заплата. 
+	CREATE VIEW TOP5_SALARIES
+	AS
+	SELECT TOP 5 FNAME, LNAME, DEPARTMENT_ID, SALARY 
+	FROM EMPLOYEES
+	ORDER BY SALARY DESC
+
+	--CREATE VIEW TOP5_SALARIES
+	--AS
+	--SELECT FNAME, LNAME, DEPARTMENT_ID, SALARY 
+	--FROM EMPLOYEES
+	--ORDER BY SALARY DESC
+	--OFFSET 0 ROWS
+	--FETCH NEXT 5 ROWS ONLY
+
+	SELECT * FROM TOP5_SALARIES
+ 
+    ------------------------------------------------------------------------------------------
+    --#1
+    --Да се създаде изглед, съдържащ имената на служителите и имената на 
+	--техните преки началници,
+    --нека в резултата участват и служителите, които нямат преки началници.
+	CREATE VIEW EMP_BOSS
+	AS
+	SELECT E.FNAME + ' ' + E.LNAME AS EMPLOYEE_NAME,
+	       M.FNAME + ' ' + M.LNAME AS BOSS,
+		   M.MANAGER_ID
+	FROM EMPLOYEES E LEFT JOIN EMPLOYEES M
+	ON E.MANAGER_ID = M.EMPLOYEE_ID
+	ORDER BY 2
+	OFFSET 0 ROWS
+
+	SELECT * FROM EMP_BOSS
+       
+	--#2
+    --Да се създаде изглед, съдържащ информация за отделите, в които не работят 
+    --никакви служители.
+	CREATE VIEW NULL_EMPL_DEPT
+	AS 
+	SELECT D.* , E.EMPLOYEE_ID
+	FROM DEPARTMENTS D LEFT JOIN EMPLOYEES E
+	ON D.DEPARTMENT_ID = E.DEPARTMENT_ID 
+	WHERE E.EMPLOYEE_ID IS NULL
+
+	SELECT * FROM NULL_EMPL_DEPT
+
+    --#3
+    --Създайте изглед с име, фамилия, телефон и име на длъжност на служителите, 
+    --които работят в отдел 100.
+	CREATE VIEW DEPT_100_EMPL
+	AS
+	SELECT E.FNAME, E.LNAME, PHONE, J.JOB_TITLE, E.DEPARTMENT_ID
+	FROM EMPLOYEES E  JOIN JOBS J
+	ON  E.JOB_ID = J.JOB_ID
+	WHERE E.DEPARTMENT_ID = 100
+
+	SELECT * FROM DEPT_100_EMPL
+ 
+    --#4
+    --Модифицирайте горния изглед като конкатенирате в една колона 
+	--име и фамилия на служител,
+    --и добавите колони заплата на служителя и идентификатора
+	--на неговия пряк ръководител (мениджър).
+	ALTER VIEW DEPT_100_EMPL
+	AS
+	SELECT E.FNAME + ' ' + E.LNAME AS EMPLOYEE, 
+	       PHONE, 
+		   SALARY,
+		   J.JOB_TITLE,
+		   E.DEPARTMENT_ID,
+		   E.MANAGER_ID
+	FROM EMPLOYEES E  JOIN JOBS J
+	ON  E.JOB_ID = J.JOB_ID
+	WHERE E.DEPARTMENT_ID = 100
+
+	SELECT * FROM DEPT_100_EMPL
+
+    --#5
+    --Създайте изглед върху изгледа от предходната задача като
+	--в резултатния набор включите само колони: 
+    --имена на служител и идентификатор на мениджър.
+	
+	CREATE VIEW VIEW_FROM_VIEW
+	AS
+	SELECT EMPLOYEE, MANAGER_ID
+	FROM DEPT_100_EMPL
+
+	SELECT * FROM VIEW_FROM_VIEW
+ 
+    --#6
+    --Да се създаде изглед, който съдържа десетимата клиенти с най-голям брой
+    --поръчки. Ако последният клиент има равен брой поръчки с други клиенти, 
+    --те също да участват в изгледа.
+	CREATE VIEW TOP10_BY_ORDERS
+	AS
+	SELECT TOP 10 WITH TIES C.FNAME, C.LNAME , COUNT(O.ORDER_ID) COUNT_ORDERS
+	FROM CUSTOMERS C JOIN ORDERS O
+	ON O.CUSTOMER_ID = C.CUSTOMER_ID
+	GROUP BY C.FNAME, C.LNAME, C.CUSTOMER_ID
+	ORDER BY COUNT_ORDERS DESC
+
+	SELECT * FROM TOP10_BY_ORDERS
+
+    --#7
+    --Да се създаде изглед с имената на държавите с повече от 5 клиента от тях.
+	CREATE VIEW CUSTOMERS_BY_COUNTRY_MORE_5
+	AS
+	SELECT CO.NAME, COUNT(CUSTOMER_ID) CUSTOMER_COUNT
+	FROM COUNTRIES CO JOIN CUSTOMERS CU
+	ON CO.COUNTRY_ID = CU.COUNTRY_ID
+	GROUP BY  CO.NAME
+	HAVING COUNT(CUSTOMER_ID) > 5
+
+	SELECT * FROM CUSTOMERS_BY_COUNTRY_MORE_5 
+
+ ------------------------------------------------------------------------------------------
+ 
+    --Задача 5-1. 
+    --Да се създаде изглед, който съдържа имената на продуктите и общо поръчано
+    --количество от продукт. Сортирайте спрямо количество низходящо.
+	CREATE VIEW TOTAL_QUANTITY_PRODUCTS
+	AS
+	SELECT P.NAME, SUM(QUANTITY) TOTAL_QUANTITY
+	FROM PRODUCTS  P JOIN ORDER_ITEMS OI
+	ON P.PRODUCT_ID = OI.PRODUCT_ID
+	GROUP BY P.NAME, P.PRODUCT_ID
+	ORDER BY  TOTAL_QUANTITY DESC
+	OFFSET 0 ROWS
+
+	SELECT * FROM TOTAL_QUANTITY_PRODUCTS 
+
+    --------------------------------------------------------------------------
+    ------------------5.4.Манипулиране на данни чрез изглед ------------------
+    --------------------------------------------------------------------------
+    --Пример 5-6.1
+    --Създай изглед базиран на JOIN между таблиците COUNTRIES и CUSTOMERS
+	 CREATE VIEW EXAMPLE
+	 AS
+	 SELECT CO.NAME, 
+	        CO.COUNTRY_ID AS CO_COUNTRY, 
+			CU.COUNTRY_ID  AS CU_COUNTRY,
+			CU.CUSTOMER_ID,
+			CU.FNAME, 
+			CU.LNAME,
+			CU.GENDER,
+			CU.EMAIL
+	 FROM CUSTOMERS CU JOIN COUNTRIES CO
+	 ON CO.COUNTRY_ID = CU.COUNTRY_ID
+
+	 SELECT * FROM EXAMPLE
+
+    --Пример 5-6.2 
+    --Да се добави нов запис в таблицата CUSTOMERS през изгледа от Пр. 5-6.1.
+    INSERT INTO EXAMPLE (CUSTOMER_ID, FNAME, LNAME, GENDER, EMAIL, CU_COUNTRY)
+	VALUES (10, 'Лорен', 'Гарнър', 'F', 'loreng@icloud.com', 'IT')
+
+	SELECT * FROM EXAMPLE
+	SELECT * FROM CUSTOMERS
+
+    ---Пример 5-7.
+    -- Да се промени фамилията на клиент с идентификатор 10.
+	UPDATE EXAMPLE
+	SET LNAME = LNAME + '-Пауъл'
+	WHERE CUSTOMER_ID = 10
+	
+	SELECT * FROM EXAMPLE
+	SELECT * FROM CUSTOMERS
