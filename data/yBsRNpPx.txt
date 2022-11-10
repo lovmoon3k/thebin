@@ -1,0 +1,55 @@
+Write-Host -ForegroundColor "Yellow" -Object "`n`r - Checking if $STSPool IIS pool exists ..."
+    if($null -eq (Get-IISAppPool $STSPool -WarningAction SilentlyContinue)) {
+        New-WebAppPool -Name $STSPool | Out-Null
+        Write-Host -ForegroundColor "Green" -Object " - Created new application pool: $STSPool."
+
+        Set-ItemProperty "IIS:\AppPools\$STSPool" -Name "processModel.loadUserProfile" -Value "True"
+
+        Write-Host -ForegroundColor "Yellow" -Object "`n`r - Checking if application $STSAppName exists ..."
+        
+        if($null -eq (Get-WebApplication -Name $STSAppName)){
+            New-WebApplication -Name "$STSAppName" -Site $iisWebsite -PhysicalPath $STSFolder -ApplicationPool $STSPool | Out-Null
+            Write-Host -ForegroundColor "Green" -Object " - Created new web application: $STSAppName."
+        } else { 
+            Write-Host -ForegroundColor "Green" -Object " - Web application: $STSAppName already exists."
+        }
+
+        Write-Host -ForegroundColor "Yellow" -Object "`n`r - Modifying `"$STSFolder\web.config`"...`n`r"
+        (Get-Content -Path "$STSFolder\web.config" -Encoding "UTF8") | Foreach-Object {
+            $_ -replace 'connectionString="Application Name=\?\?\?;', "connectionString=`"Application Name=NBNSts;" `
+           -replace ' Data source=\?\?\?;', " Data source=$SQLInstance;" `
+           -replace 'Initial Catalog=\?\?\?;', "Initial Catalog=$DBName;" `
+           -replace 'User Id=\?\?\?; ', "User Id=$DBUser; " `
+           -replace 'Password=\?\?\?; ', "Password=$DBPassword; " `
+           -replace '<HostApplicationUrl url="\?\?\?"></HostApplicationUrl>',"<HostApplicationUrl url=`"https://$VPPUrl/$HostAppname/`"></HostApplicationUrl>" `
+           -replace '<add key="IssuerName" value="\?\?\?" />',"<add key=`"IssuerName`" value=`"PassiveSigningSTS`" />" `
+           -replace '<add key="SigningCertificateName" value="\?\?\?" />', "<add key=`"SigningCertificateName`" value=`"$($cert.Subject)`" />" `
+           -replace '<add key="CertificateThumbprint" value="\?\?\?" />', "<add key=`"CertificateThumbprint`" value=`"$($cert.Thumbprint)`" />"
+        } | Set-Content -Path "$STSFolder\Web.config" -Encoding "UTF8"
+
+        Write-Host -ForegroundColor "Green" -Object " - $STSAppName Web.config file successfully modified."
+
+    } else { 
+        Write-Host -ForegroundColor "Green" -Object " - Application pool: $STSPool already exists." 
+    }
+
+    Write-Host "`n`r"
+}
+
+$confirmation = Read-Host " Do you want to continue? (y/n)"
+switch ($confirmation) `
+    {
+    'y' {
+        install
+    }
+
+    'n' {
+        Write-Host "`n`r"
+        break
+    }
+
+    default {
+        Write-Host "`n`r"
+        break
+    }
+}
