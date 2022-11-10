@@ -1,0 +1,244 @@
+// lab2
+// hello.c
+
+#include <unistd.h>
+
+int main() {
+	write(1, "Hello world\n", 13);
+}
+
+// mycp.c
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+
+int main(int argc, char **argv) {
+	// struct stat *buff;
+	// stat(argv[1], buff);
+	// long int size = buff->st_size;
+	
+	int sursa = open(argv[1], O_RDONLY);
+	char continut;
+	
+	int dest = open(argv[2], O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR); 
+	
+	while (read(sursa, &continut, 1)) {
+		write(dest, &continut, 1);
+	}
+	
+	close(sursa);	
+	close(dest);
+}
+
+// lab3
+
+// forkls.c
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/wait.h>
+
+int main() {
+    pid_t pid = fork();
+    if (pid < 0)
+        return errno;
+    else if (pid == 0) {
+        printf("My PID=%d, child PID=%d\n", getppid(), getpid());
+
+        char *argv[] = {"ls", NULL};
+        execve("/usr/bin/ls", argv, NULL);
+        perror(NULL);
+    }
+    else {
+        pid_t childPid = wait(NULL);
+        printf("Child %d finished\n", childPid);
+    }
+}
+
+// collatz.c
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/wait.h>
+
+int main(int argc, char *argv[]) {
+    pid_t pid = fork();
+    if (pid < 0)
+        return errno;
+    else if (pid == 0) {
+        int n = atoi(argv[1]);
+        printf("%d: %d ", n, n);
+
+        while (n != 1) {
+            if (n % 2 == 0) 
+                n = n / 2;
+            else 
+                n = 3 * n + 1;
+
+            printf("%d ", n);
+        }
+
+    }
+    else {
+        pid_t childPid = wait(NULL);
+        printf("\nChild %d finished\n", childPid);
+    }
+}
+
+// ncollatz.c
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/wait.h>
+
+int main(int argc, char *argv[]) {
+    pid_t parent = getpid();
+    printf("Starting parent %d\n", parent);
+
+    for (int i = 1; i < argc; i++) {
+        pid_t child = fork();
+        
+        if (child < 0) 
+            return errno;
+        else if (child == 0) {
+            int n = atoi(argv[i]);
+            printf("%d: %d ", n, n);
+
+            while (n != 1) {
+                if (n % 2 == 0) 
+                    n = n / 2;
+                else 
+                    n = 3 * n + 1;
+
+                printf("%d ", n);
+            }
+            printf("\n");
+            return 0;
+        }
+    }
+
+    for (int i = 1; i < argc; i++) {
+        pid_t childf = wait(0);
+        printf("Done Parent %d, Me %d\n", getpid(), childf);
+    }
+    printf("Done Parent %d, Me %d\n", getppid(), getpid());
+}
+
+
+// lab5
+// shmcollatz.c
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/wait.h>
+#include <sys/mman.h>
+#include <sys/stat.h>        
+#include <fcntl.h>
+
+int main(int argc, char *argv[]) {
+    pid_t parent = getpid();
+    printf("Starting parent %d\n", parent);
+
+    char shm_name[] = "myshm";
+    int shm_fd = shm_open(shm_name, O_CREAT|O_RDWR, S_IRUSR|S_IWUSR);
+    if (shm_fd < 0) {
+        perror(NULL);
+        return errno;
+    }
+
+    int child_size = getpagesize();
+    size_t shm_size = child_size * (argc - 1);
+
+    if (ftruncate(shm_fd, shm_size) == -1) {
+        perror(NULL);
+        shm_unlink(shm_name);
+        return errno;
+    }
+
+    for (int i = 1; i < argc; i++) {
+        pid_t child = fork();
+
+        int *shm_ptr = mmap(0, child_size, PROT_WRITE, MAP_SHARED, shm_fd, child_size * (i - 1));
+        if (shm_ptr == MAP_FAILED) {
+            perror(NULL);
+            shm_unlink(shm_name);
+            return errno;
+        }
+
+        if (child < 0) 
+            return errno;
+        else if (child == 0) {
+            int n = atoi(argv[i]);
+            // printf("%d: %d ", n, n);
+            
+            int j = 0;
+            while (n != 1) {
+                if (n % 2 == 0) 
+                    n = n / 2;
+                else 
+                    n = 3 * n + 1;
+
+                // printf("%d ", n);
+                *(shm_ptr + j) = n;
+                j++;
+                // i += sizeof(int);
+            }
+            // printf("\n");
+            return 0;
+        }
+    }
+
+    for (int i = 1; i < argc; i++) {
+        pid_t childf = wait(0);
+        printf("Done Parent %d, Me %d\n", getpid(), childf);
+    }
+
+    // int *shm_ptr = mmap(0, shm_size, PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    
+    for (int i = 0; i < argc - 1; i++) {
+        int *shm_ptr = mmap(0, child_size, PROT_WRITE, MAP_SHARED, shm_fd, child_size * i);
+
+        int n = atoi(argv[i + 1]);
+        printf("%d: ", n);
+        int j = 0;
+        while (shm_ptr[j] != 1) {
+            printf("%d ", shm_ptr[j]);
+            j++;
+        }   
+        printf("\n");
+    }
+    
+    
+    printf("Done Parent %d, Me %d\n", getppid(), getpid());
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
