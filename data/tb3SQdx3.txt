@@ -1,0 +1,79 @@
+package main
+
+import (
+	"fmt"
+	"math/rand"
+	"sync"
+	"time"
+)
+
+type storage struct {
+	count int
+	store map[string]string
+	lock  *sync.RWMutex
+}
+
+func (s *storage) Read(k string) string {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	return s.store[k]
+}
+
+func (s *storage) Write(k, v string) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.store[k] = v
+	s.count += 1
+}
+
+func NewStorage() *storage {
+	return &storage{
+		count: 0,
+		store: make(map[string]string),
+		lock:  new(sync.RWMutex),
+	}
+}
+
+func main() {
+	noOfRequests := 10000
+	noOfWorkers := 5
+
+	queueChan := make(chan int, noOfRequests)
+	done := make(chan bool)
+
+	store := NewStorage()
+
+	s1 := rand.NewSource(time.Now().UnixNano())
+	for i := 0; i < noOfRequests; i++ {
+		r1 := rand.New(s1)
+
+		value := r1.Intn(100)
+		queueChan <- value
+	}
+
+	close(queueChan)
+
+	for i := 0; i < noOfWorkers; i++ {
+		go func(name string) {
+			for v := range queueChan {
+				key := fmt.Sprintf("%d", v)
+				if visitedValue := store.Read(key); visitedValue != "" {
+					continue
+				}
+				crawl(name, v)
+				store.Write(key, key)
+			}
+			done <- true
+		}(fmt.Sprintf("%d", i))
+	}
+
+	for i := 0; i < noOfWorkers; i++ {
+		<-done
+	}
+}
+
+func crawl(name string, v int) {
+	time.Sleep(time.Microsecond * 1)
+	fmt.Println("Worker", name, "is crawling:", v)
+}
