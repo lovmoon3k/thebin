@@ -1,0 +1,177 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+using System.Diagnostics;
+
+namespace Guldkortet
+{
+    public partial class ServerForm : Form
+    {
+        // Skapar lyssnare och klient
+        TcpListener listener;
+        TcpClient client;
+        int port = 12345;
+
+        // Skapar listor för programmet, användare och kort
+        public static List<User> loadedUsers;
+        public static List<Card> loadedCards;
+
+        public ServerForm()
+        {
+            InitializeComponent();
+        }
+        private void btnStart_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                listener = new TcpListener(IPAddress.Any, port);
+                listener.Start();
+            }
+            // Fångar Exception errors, visar en MessageBox med felmeddelande om det skulle uppstå
+            catch (Exception error) { MessageBox.Show(error.Message, Text); return; }
+
+            btnStart.Enabled = false;
+            StartReceiving();
+        }
+
+        public async void StartReceiving()
+        {
+            try
+            {
+                client = await listener.AcceptTcpClientAsync();
+            }
+            catch (Exception error) { MessageBox.Show(error.Message, Text); return; }
+            StartReading(client);
+        }
+        // Skapar en metod som läser bytes från nätverksströmmen
+        public async void StartReading(TcpClient c)
+        {
+            byte[] buffer = new byte[1024];
+
+            int n = 0;
+            try
+            {
+                n = await c.GetStream().ReadAsync(buffer, 0, buffer.Length);
+            }
+            catch (Exception error) { MessageBox.Show(error.Message, Text); return; }
+
+            // Läser våra bytes till en string, tar datan vi får och testar den mot våra listor med användare och kort
+            string s = (Encoding.Unicode.GetString(buffer, 0, n));
+            string[] input = s.Split('-');
+            string userData = input[0];
+            string cardData = input[1];
+
+            // Kollar om datan vi fått av klienten finns i våra listor
+            var userOutput = loadedUsers.Find(x => x.Id == userData);
+            var cardOutput = loadedCards.Find(x => x.Number == cardData);
+
+            // Om både användare och kort finns, skickar ett meddelande till klienten och kongratulerar dem
+            if (loadedUsers.Exists(x => x.Id == userData) && loadedCards.Exists(x => x.Number == cardData))
+            {
+                StartSending("Grattis!\n" + userOutput.Name + " har vunnit: " + cardOutput.Type + "!\nKortnummer: " + cardOutput.Number);
+            }
+            // Annars visar vi en MessageBox med ett felmeddelande
+            else
+            {
+                StartSending("Fel användare eller kortnummer, försök igen!");
+            }
+            StartReading(c);
+        }
+        
+        public async void StartSending(string message)
+        {
+            byte[] outPut = Encoding.Unicode.GetBytes(message);
+            try
+            {
+                await client.GetStream().WriteAsync(outPut, 0, outPut.Length);
+            }
+            catch (Exception error) { MessageBox.Show(error.Message, Text); return; }
+        }
+        class FileLoader
+        {
+
+            // Skapar listor för FileLoadern att använda
+            List<User> users = new List<User>();
+            List<Card> cards = new List<Card>();
+            public FileLoader()
+            {
+                if (File.Exists("kundlista.txt"))
+                {
+                    StreamReader reader = new StreamReader("kundlista.txt", Encoding.Default, true); // Skapar en ny StreamReader som läser igenom texter.txt
+                    for (string item = reader.ReadLine(); item != null; item = reader.ReadLine()) // Sparar raderna av texten till en sträng och kollar att det finns någonting kvar att läsa
+                    {
+                        string[] vektor = item.Split(new string[] { "###" }, StringSplitOptions.None); // Går igenom alla rader och plockar bort seperatorn
+
+                        User newUser = new User(); // Skapar en ny Book, sätter klassens värden från raderna i vår sparade sträng
+                        users.Add(newUser);
+                        newUser.Id = vektor[0];
+                        newUser.Name = vektor[1];
+                        newUser.Location = vektor[2];
+                    }
+                    loadedUsers = users;
+                }
+                if (File.Exists("kortlista.txt"))
+                {
+                    StreamReader reader = new StreamReader("kortlista.txt", Encoding.Default, true);
+                    for (string item = reader.ReadLine(); item != null; item = reader.ReadLine())
+                    {
+                        string[] vektor = item.Split(new string[] { "###" }, StringSplitOptions.None);
+
+                        Card newCard = new Card();
+                        cards.Add(newCard);
+                        newCard.Number = vektor[0];
+                        newCard.Type = vektor[1];
+                    }
+                    loadedCards = cards;
+                }
+                else
+                {
+                    MessageBox.Show("No file found.");
+                    Environment.Exit(1);
+                }
+            }
+        }
+        public class User
+        {
+            public string Name { get; set; }
+            public string Id { get; set; }
+            public string Location { get; set; }
+
+            public override string ToString()
+            {
+                return "Namn: " + Name + " | Kundnummer: " + Id + " | Plats: " + Location + "\n";
+            }
+        }
+
+        public class Card
+        {
+            public string Number { get; set; }
+            public string Type { get; set; }
+
+            public override string ToString()
+            {
+                return "Kortnummer: " + Number + " | Typ: " + Type + "\n";
+            }
+        }
+
+        private void rTbx_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void ServerForm_Load(object sender, EventArgs e)
+        {
+            FileLoader loadUsers = new FileLoader();
+        }
+    }
+}
