@@ -1,0 +1,227 @@
+clear all
+close all
+clc
+
+
+
+
+%% 1. kmeans clustering - Define aggregators positions
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+
+% Define the number of sensors and their positions
+LEN_X = 100;
+LEN_Y = 60;
+N_sens = 100;
+x_sens = -LEN_X/2 + rand(1, N_sens) * LEN_X;
+y_sens = -LEN_Y/2 + rand(1, N_sens) * LEN_Y;
+% My kmeans - Split sensors into clusters and define aggregators
+K = 3;
+epsilon_thr = 0.005;
+points = [x_sens; y_sens];
+colors1 = ["red", "green", "blue", "yellow", "cyan", "magenta", "black"];
+colors2 = zeros(K, 3);
+for k = 1 : K
+    colors2(k, :) = [rand, rand, rand];
+end
+
+colors = [];
+if K <= length(colors1)
+    colors = colors1;
+else
+    colors = colors2;
+end
+[aggregators, groups] = my_kmeans(x_sens, y_sens, N_sens, K, epsilon_thr, colors, colors1, colors2);
+aggregators = [20 -20 25; 10 0 -15];
+
+
+
+
+%% 2. Fixed data about position and frequency
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+
+% BS's location
+xb = (1+60/100) * LEN_X / 2;    yb = 0;    h = 15;    qb = [xb, yb];
+% CP's location
+x_cp = LEN_X / 2;    y_cp = 0;    q_cp = [x_cp, y_cp];
+
+% Data EM waves
+f = 5.8 * 10^9;    c = 3 * 10^8;    lambda = c / f;    B = 10^6;
+Gt = 1;    Gr = 1;
+Gt_dB = natural_to_dB(Gt);    Gr_dB = natural_to_dB(Gr);
+P_aggr_max = 0.01;                       % 0.1 W = 20 dBm
+
+% Formulas for noise
+sigma_dBm = -174 + 10 * log10(B);
+sigma_dB = sigma_dBm - 30;
+P_noise = dB_to_natural(sigma_dB);
+
+% Calculations
+Gt_dB = natural_to_dB(Gt);    Gr_dB = natural_to_dB(Gr);
+% FSPL
+d0 = 1;
+rho_1m_dB = - (20 * log10(d0 * f) + 20 * log10(4*pi/c) - Gt_dB - Gr_dB);
+rho_1m = dB_to_natural(rho_1m_dB);
+
+% Data of UAV-RIS
+H = 30;
+d = lambda / 2;
+delta_t = 2;
+v_max_kmh = 62;
+v_max = v_max_kmh / 3.6;                          % 16.67 m/s                 
+a_max = 8.2;                                      % 8.2 m/s^2
+
+% SNR Threshold
+SNR_thr = 1;
+rate_thr = B * log2(1 + SNR_thr);
+
+
+
+
+%% M LIST
+
+M_list = 50 : 50 : 1000;
+SNR_av_optimized_dB_list = zeros(1, length(M_list));
+DF_list = zeros(1, length(M_list));
+Lt_minutes = zeros(1, length(M_list));
+weight_list = zeros(1, length(M_list));
+
+for ii = 1 : length(M_list)
+    
+    
+    
+    M = M_list(ii);
+    
+    %% 3. UAV Components - Find flight time
+    % *************************************************************************
+    % *************************************************************************
+    % *************************************************************************
+    % *************************************************************************
+
+    M_max = 600;
+    m_list = 1 : M;
+
+    name = "Tattu 30.000 mAh";
+    B_c = 666 * 3600;               % Wh  ---> W * s = Joule
+    B_w = 4.67;                     % kgr
+    UAV_w = 3.25;                   % kgr
+    E_w = 7.76 / 1000;              % kgr
+    T_max = 20;                     % kgr
+
+    rho_air = 1.225;                % kgr/m^3
+    v_a = 2.5;                      % 2.5 m/s
+    C_d = 0.005;
+    g = 9.81;                       % m/s^2
+    v_max = 62 / 3.6;               % m/s
+
+
+    % This Case Scenario  (M)
+    display('**********************************************************');
+    display('This case scenario, when M != M_max');
+    display(' ');
+    logos_max = 0.4;                % (v / vmax)_max
+    [Lt_minutes, P_tot] = find_Lt_minutes(M, logos_max, lambda, UAV_w, E_w, T_max, rho_air, v_a, C_d, g, v_max, B_w, B_c);
+    Lt_sec = floor(Lt_minutes * 60);
+    N = floor(Lt_sec / delta_t);
+    pretty_Lt(M, logos_max, P_tot, Lt_minutes, N);
+    display('**********************************************************');
+    display(' ');
+
+
+
+
+
+
+
+    %% 4. Technical RIS Stats - Weights and Dimensions
+    display('**********************************************************');
+    W = technical_RIS_stats(f, B, M, logos_max, lambda, UAV_w, E_w, T_max, rho_air, v_a, C_d, g, v_max, B_w, B_c);
+    display('**********************************************************');
+    display(' ');
+
+
+
+
+
+
+    %% 5. Initialize A, P, Q, Theta
+    % *************************************************************************
+    % *************************************************************************
+    % *************************************************************************
+    % *************************************************************************
+
+    display('**********************************************************');
+    n_list = 1 : N;
+
+    iter = 0;
+    TDMA = randi(K, 1, N);
+    POWER = P_aggr_max/2 * ones(1, N);
+    Q = benchmark_ellipsis(q_cp, LEN_X, LEN_Y, N);
+    A = TDMA_to_A(TDMA, K, N);
+    P = POWER_to_P(POWER, K, N, TDMA);
+    [Theta, total_gain_optimized, SNR, SNR_av_optimized_dB] = ...
+    optimize_phase_shifts2(N, M, TDMA, POWER, Q, aggregators, H, h, qb, ...
+    lambda, d, rho_1m, P_noise);
+
+    DF = find_DF(A, P, Q, Theta, total_gain_optimized, N, Lt_sec, K, B, ...
+    P_noise, delta_t, SNR_thr, rate_thr);
+    pretty_bits(DF, iter, N, Lt_sec);
+    
+    SNR_av_optimized_dB_list(ii) = SNR_av_optimized_dB;
+    DF_list(ii) = DF;
+    Lt_minutes_list(ii) = Lt_minutes;
+    weight_list(ii) = W;
+    display('**********************************************************');
+    display(' ');
+
+
+
+
+
+end
+
+close all
+M_list
+SNR_av_optimized_dB_list
+DF_list_MB = DF_list / (8*10^6)
+Lt_minutes_list
+weight_list
+
+figure();
+plot(M_list, SNR_av_optimized_dB_list);
+xlabel("M")
+ylabel("SNR_av_optimized [dB]");
+title("M vs SNR average optimized");
+
+figure();
+plot(M_list, DF_list_MB);
+xlabel("M")
+ylabel("Average DF");
+title("M vs average DF");
+
+figure();
+plot(M_list, Lt_minutes_list);
+xlabel("M")
+ylabel("Lifetime [minutes]");
+title("M vs lifetime");
+
+figure();
+plot(M_list, weight_list);
+xlabel("M")
+ylabel("Total Weight [kgr]");
+title("M vs total weight");
+
+
+
+
+
+
+
+
+
+

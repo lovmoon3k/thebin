@@ -1,0 +1,248 @@
+clear all
+close all
+clc
+
+
+
+
+%% 1. kmeans clustering - Define aggregators positions
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+
+% Define the number of sensors and their positions
+LEN_X = 100;
+LEN_Y = 60;
+N_sens = 100;
+x_sens = -LEN_X/2 + rand(1, N_sens) * LEN_X;
+y_sens = -LEN_Y/2 + rand(1, N_sens) * LEN_Y;
+% My kmeans - Split sensors into clusters and define aggregators
+K = 3;
+epsilon_thr = 0.005;
+points = [x_sens; y_sens];
+colors1 = ["red", "green", "blue", "yellow", "cyan", "magenta", "black"];
+colors2 = zeros(K, 3);
+for k = 1 : K
+    colors2(k, :) = [rand, rand, rand];
+end
+
+colors = [];
+if K <= length(colors1)
+    colors = colors1;
+else
+    colors = colors2;
+end
+[aggregators, groups] = my_kmeans(x_sens, y_sens, N_sens, K, epsilon_thr, colors, colors1, colors2);
+aggregators = [20 -20 25; 10 0 -15];
+
+
+
+%% 2. Fixed data about position and frequency
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+
+% BS's location
+xb = (1+60/100) * LEN_X / 2;    yb = 0;    h = 15;    qb = [xb, yb];
+% CP's location
+x_cp = LEN_X / 2;    y_cp = 0;    q_cp = [x_cp, y_cp];
+
+% Data EM waves
+f = 5.8 * 10^9;    c = 3 * 10^8;    lambda = c / f;    B = 10^6;
+Gt = 1;    Gr = 1;
+Gt_dB = natural_to_dB(Gt);    Gr_dB = natural_to_dB(Gr);
+P_aggr_max = 0.01;                       % 0.1 W = 20 dBm
+
+% Formulas for noise
+sigma_dBm = -174 + 10 * log10(B);
+sigma_dB = sigma_dBm - 30;
+P_noise = dB_to_natural(sigma_dB);
+
+% Calculations
+Gt_dB = natural_to_dB(Gt);    Gr_dB = natural_to_dB(Gr);
+% FSPL
+d0 = 1;
+rho_1m_dB = - (20 * log10(d0 * f) + 20 * log10(4*pi/c) - Gt_dB - Gr_dB);
+rho_1m = dB_to_natural(rho_1m_dB);
+
+% Data of UAV-RIS
+H = 30;
+d = lambda / 2;
+delta_t = 2;
+v_max_kmh = 62;
+v_max = v_max_kmh / 3.6;                          % 16.67 m/s                 
+a_max = 8.2;                                      % 8.2 m/s^2
+
+% SNR Threshold
+SNR_thr = 1;
+rate_thr = B * log2(1 + SNR_thr);
+
+
+
+
+%% 3. UAV Components - Find flight time
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+
+M_max = 600;
+M = 500;
+m_list = 1 : M;
+
+name = "Tattu 30.000 mAh";
+B_c = 666 * 3600;               % Wh  ---> W * s = Joule
+B_w = 4.67;                     % kgr
+UAV_w = 3.25;                   % kgr
+E_w = 7.76 / 1000;              % kgr
+T_max = 20;                     % kgr
+
+rho_air = 1.225;                % kgr/m^3
+v_a = 2.5;                      % 2.5 m/s
+C_d = 0.005;
+g = 9.81;                       % m/s^2
+v_max = 62 / 3.6;               % m/s
+
+% Worst Case Scenario (M_max)
+display('**********************************************************');
+display('Worst case scenario, when M = M_max');
+display(' ');
+logos_max = 0.4;                % (v / vmax)_max
+[Ltmin_minutes, P_tot_max] = find_Lt_minutes(M_max, logos_max, lambda, UAV_w, E_w, T_max, rho_air, v_a, C_d, g, v_max, B_w, B_c);
+Ltmin_sec = floor(Ltmin_minutes * 60);
+N_min = floor(Ltmin_sec / delta_t);
+pretty_Lt(M_max, logos_max, P_tot_max, Ltmin_minutes, N_min);
+display('**********************************************************');
+display(' ');
+
+% This Case Scenario  (M)
+display('**********************************************************');
+display('This case scenario, when M != M_max');
+display(' ');
+logos_max = 0.4;                % (v / vmax)_max
+[Lt_minutes, P_tot] = find_Lt_minutes(M, logos_max, lambda, UAV_w, E_w, T_max, rho_air, v_a, C_d, g, v_max, B_w, B_c);
+Lt_sec = floor(Lt_minutes * 60);
+N = floor(Lt_sec / delta_t);
+pretty_Lt(M, logos_max, P_tot, Lt_minutes, N);
+display('**********************************************************');
+display(' ');
+
+
+
+
+
+
+
+%% 4. Technical RIS Stats - Weights and Dimensions
+display('**********************************************************');
+W = technical_RIS_stats(f, B, M, logos_max, lambda, UAV_w, E_w, T_max, rho_air, v_a, C_d, g, v_max, B_w, B_c);
+display('**********************************************************');
+display(' ');
+
+
+
+
+
+
+%% 5. Initialize A, P, Q, Theta
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+
+display('**********************************************************');
+n_list = 1 : N;
+
+% -------- VARIABLES ---------
+% TDMA  = 1 x N ----> A = K x N
+% POWER = 1 x N ----> P = K x N
+% Q = 2 x N
+% Theta = M x N, total_gain_optimized = 1 x N
+% SNR = 1 x N, SNR_av_optimized = scalar
+
+% -------- OTHER BENCHMARKS --------
+% Q = benchmark_straight(q_cp, LEN_X, LEN_Y, N);
+% Q = benchmark_straight_lines(q_cp, N, aggregators, K);
+% TDMA = benchmark_TDMA_straight(N, K, Q, aggregators)
+
+iter = 0;
+TDMA = randi(K, 1, N);
+POWER = P_aggr_max/2 * ones(1, N);
+Q = benchmark_ellipsis(q_cp, LEN_X, LEN_Y, N);
+A = TDMA_to_A(TDMA, K, N);
+P = POWER_to_P(POWER, K, N, TDMA);
+[Theta, total_gain_optimized, SNR, SNR_av_optimized_dB] = ...
+optimize_phase_shifts2(N, M, TDMA, POWER, Q, aggregators, H, h, qb, ...
+lambda, d, rho_1m, P_noise);
+
+DF = find_DF(A, P, Q, Theta, total_gain_optimized, N, Lt_sec, K, B, ...
+P_noise, delta_t, SNR_thr, rate_thr);
+pretty_bits(DF, iter, N, Lt_sec);
+display('**********************************************************');
+display(' ');
+
+
+
+
+
+
+%% 6. Plots, velocity, acceleration
+x = Q(1, :);
+y = Q(2, :);
+v = calculate_velocity(Q, delta_t, N);
+a = calculate_acceleration(v, delta_t, N);
+
+% Plot
+figure();
+x_border = [-LEN_X, -LEN_X, LEN_X, LEN_X, -LEN_X, -LEN_X] / 2;
+y_border = [-LEN_Y, LEN_Y, LEN_Y, -LEN_Y, -LEN_Y, -LEN_Y] / 2;
+plot(x_border, y_border, 'blue');
+hold on
+plot(aggregators(1, :), aggregators(2, :),  'blackX', 'MarkerSize', 9);
+hold on
+plot(x, y, 'green');
+hold on
+plot(x_cp, y_cp, "green*", 'MarkerSize', 12);
+hold on
+plot(xb, yb, 'redo', 'MarkerSize', 15);
+legend("Field", "Aggregators", "Benchmark", "CP", "BS");
+
+
+
+
+
+%% 7. Alternate Algorithm
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+
+max_iter = 1;
+improve_perc = Inf;
+improve_perc_thr = 1/100;
+
+while iter <= max_iter && improve_perc > improve_perc_thr
+    
+    initial_A = A;
+    initial_P = P;
+    initial_Q = Q;
+    initial_Theta = Theta;
+    initial_total_gain_optimized = total_gain_optimized;
+    initial_DF = DF;
+
+    [A_new, DF_new] = optimal_A(A, initial_P, initial_Q, total_gain_optimized, K, N, B, P_noise, Lt_sec, delta_t, SNR_thr, rate_thr);
+    DF_new
+%     P = optimal_P(A, initial_Q, initial_Theta, ...);
+%     Q = optimal_Q(A, P, initial_Theta, ...);
+%     Theta = optimal_Theta(A, P, Q, ...);
+%     DF = calculate_DF(A, P, Q, total_gain_optimized, K, N, B, P_noise, Lt_sec, delta_t);
+
+    improve_perc = (DF - initial_DF) / initial_DF;
+    iter = iter + 1;
+    
+end
+
+
+
