@@ -1,0 +1,54 @@
+//todo this is garbage.
+
+use bevy::prelude::*;
+use crossbeam_channel::{unbounded, Sender, Receiver};
+use opgd_gd_api::{client::GdClient, level::GdLevel};
+
+enum Request {
+  PleaseDie,
+  DownloadLevel(i32)
+}
+
+enum Response {
+  DownloadLevel(anyhow::Result<GdLevel>)
+}
+
+struct GdClientTaskManager {
+  pub req: Sender<Request>,
+  pub res: Receiver<Response>
+}
+impl Drop for GdClientTaskManager {
+  fn drop(&mut self) {
+    info!("gd client task manager dropped, shutting down");
+    self.req.send(Request::PleaseDie).unwrap();
+  }
+}
+
+fn setup(
+  mut commands: Commands
+) {
+  let (req_tx, req_rx) = unbounded::<Request>();
+  let (res_tx, res_rx) = unbounded::<Response>();
+  tokio::spawn(async move {
+    let client = GdClient::new();
+    loop {
+      if let Some(response) = match req_rx.recv().unwrap() {
+        Request::PleaseDie => break,
+        Request::DownloadLevel(id) => Some(Response::DownloadLevel(client.download_level(id).await))
+      } {
+        res_tx.send(response).expect("Failed to send the response");
+      }
+    }
+  });
+  commands.insert_resource(GdClientTaskManager {
+    req: req_tx,
+    res: res_rx,
+  });
+}
+
+pub struct GdClientPlugin;
+impl Plugin for GdClientPlugin {
+  fn build(&self, app: &mut App) {
+    app.add_startup_system(setup);
+  }
+}
