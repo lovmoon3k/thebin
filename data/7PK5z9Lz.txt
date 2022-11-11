@@ -1,0 +1,66 @@
+static IAsyncPolicy<HttpResponseMessage> GetPolicy(
+        TimeSpan maxWaitTime,
+        int maxRetryCount = 3,
+        string headerName = "X-RateLimit-Reset",
+        bool headerContainsTimestamp = true)
+    {
+        const string waitLimitContextKey = "waitLimit";
+        const string currentRetryCountContextKey = "retryCount";
+        const string retryTimeSpanContextKey = "retryTimeSpan";
+
+        return Policy
+            .HandleResult<HttpResponseMessage>(rm =>
+            {
+                if (rm.StatusCode != (HttpStatusCode)429)
+                {
+                    return false;
+                }
+
+                var context = rm.RequestMessage.GetPolicyExecutionContext();
+
+                context.TryGetValue(waitLimitContextKey, out var w);
+                var waitLimit = w == null ? DateTimeOffset.UtcNow.AddSeconds(maxWaitTime.Seconds) : (DateTimeOffset)w;
+                context[waitLimitContextKey] = waitLimit;
+
+                context.TryGetValue(currentRetryCountContextKey, out var r);
+                var currentRetryCount = r == null ? 0 : (int)r;
+
+                var delayUntilReset = GetHeaderRateLimitResetDelay(rm);
+                var retryTimeSpan = delayUntilReset ?? TimeSpan.FromSeconds(Math.Pow(2, currentRetryCount));
+                retryTimeSpan = retryTimeSpan.Add(TimeSpan.FromSeconds(1));
+                context[retryTimeSpanContextKey] = retryTimeSpan;
+
+                return DateTimeOffset.UtcNow.AddSeconds(retryTimeSpan.Seconds) < waitLimit;
+            })
+            .WaitAndRetryAsync(
+                retryCount: maxRetryCount,
+                sleepDurationProvider: (attempt, response, context) => (TimeSpan)context[retryTimeSpanContextKey],
+                onRetryAsync: (response, timespan, attempt, context) =>
+                {
+                    context[currentRetryCountContextKey] = attempt;
+                    return Task.CompletedTask;
+                });
+
+        TimeSpan? GetHeaderRateLimitResetDelay(HttpResponseMessage rm)
+        {
+            // TODO: change to rm.Headers.GetValues(headerName).FirstOrDefault() ?? string.Empty;
+            rm.Content.Headers.TryGetValues(headerName, out var headerValues);
+            var headerValue = headerValues?.FirstOrDefault() ?? string.Empty;
+
+            if (!int.TryParse(headerValue, out var parsedHeaderValue))
+            {
+                return null;
+            }
+
+            if (!headerContainsTimestamp)
+            {
+                // Assume that header contains the delay in seconds until the rate limit reset.
+                return TimeSpan.FromSeconds(parsedHeaderValue);
+            }
+
+            // Calculate the delay.
+            var currentUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            return TimeSpan.FromSeconds(Math.Max(parsedHeaderValue - currentUnixTime, 0));
+        }
+    }
+    
