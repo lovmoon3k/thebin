@@ -1,0 +1,188 @@
+#!/bin/sh
+##
+##-========================================================================-##
+##
+##  This program is free software; you can redistribute it and/or modify
+##  it under the terms of the GNU General Public License as published by
+##  the Free Software Foundation; either version 2 of the License, or
+##  (at your option) any later version.
+##  
+##  This program is distributed in the hope that it will be useful,
+##  but WITHOUT ANY WARRANTY; without even the implied warranty of
+##  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+##  GNU General Public License for more details.
+##  
+##  You should have received a copy of the GNU General Public License
+##  along with this program; if not, write to the Free Software
+##  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+##  MA 02110-1301, USA.
+##
+##-========================================================================-##
+##
+##-========================================================================-##
+## ------------------------------------------------------------------------ ##
+##   [+] Available on my gitlab page: https://gitlab.com/xe1phix
+## ------------------------------------------------------------------------ ##
+##-========================================================================-##
+
+
+echo "##-===========================================================-##"
+echo "    [+] Associate The Empty Space With The sda3 Partition:"
+echo "##-===========================================================-##"
+gparted &                                    ## format sdc3 to ext4
+
+
+echo "##-===================================-##"
+echo "    [+] Format The sdc3 Partition:"
+echo "##-===================================-##"
+mkfs.ext4 /dev/sdc3
+
+
+echo "##-=======================================================================-##"
+echo "    [+]  Encrypt The Newly-Created Partition With LUKS Encryption:"
+echo "##-=======================================================================-##"
+cryptsetup --verbose --verify-passphrase luksFormat /dev/sdc3
+
+
+echo "##-===================================================-##"
+echo "    [+]  Initialize The LUKS Encrypted Partition:"
+echo "##-===================================================-##"
+cryptsetup luksOpen /dev/sdc3 parrot_usb
+
+
+echo "##-==============================================================-##"
+echo "    [+]  Create The Ext4 Filesystem, And Label It parrot_usb:"
+echo "##-==============================================================-##"
+mkfs.ext4 -L persistence /dev/mapper/parrot_usb
+e2label /dev/mapper/parrot_usb persistence
+
+
+echo "##-=======================================================================-##"
+echo "    [+]  Create A Mount Point, Mount Our New Encrypted Partition There"
+echo "    [+]  Set Up The Persistence.conf File, And Unmount The Partition. "
+echo "##-=======================================================================-##"
+mkdir -p /mnt/parrot_usb
+mount /dev/mapper/parrot_usb /mnt/parrot_usb
+echo "/ union" > /mnt/parrot_usb/persistence.conf
+
+
+
+echo "##-===========================================-##"
+echo "    [+] Status of The Mapping (parrot_usb) "
+echo "##-===========================================-##"
+cryptsetup status /dev/mapper/parrot_usb
+
+
+echo "##-=======================================================-##"
+echo "    [+]  Dump The Header Information of A LUKS Device."
+echo "##-=======================================================-##"
+cryptsetup luksDump /dev/sdc3
+
+
+echo "##-===============================================================-##"
+echo "    [+] Show All The Logical Volumes Currently on The System         "
+echo "                   And Their Device Names.                           "
+echo "##-===============================================================-##"
+lvs -o devices
+
+
+echo "##-===================================================================-##"
+echo "    [+] The Encrypted Logical Volumes Are Mounted At Boot Time        "
+echo "          Using The Information From The /etc/crypttab File.          "
+echo "##-===================================================================-##"
+cat /etc/crypttab
+
+
+echo "##-=======================================-##"
+echo "    [+] Print the UUID of a LUKS device.       "
+echo "##-=======================================-##"
+cryptsetup luksUUID /dev/sdc3
+
+
+echo "##-=====================================-##"
+echo "    [+] Add a Nuke Slot to /dev/sdc3: "
+echo "##-=====================================-##"
+cryptsetup luksAddNuke /dev/sdc3
+
+
+echo "##-==============================================-##"
+echo "    [+] Check if the Nuke Slot has been added:"
+echo "##-==============================================-##"
+cryptsetup luksDump /dev/sdc3
+
+
+echo "##-=====================================-##"
+echo "    [+] Check If It's A LUKS Device:"
+echo "##-=====================================-##"
+cryptsetup isLuks /dev/sdc3
+
+
+echo "##-=====================================================================-##"
+echo "    [+] Stores a binary backup of the LUKS header and keyslot area."
+echo "##-=====================================================================-##"
+cryptsetup luksHeaderBackup --header-backup-file luksheader.back /dev/sdc3
+
+
+echo "##-=================================================-##"
+echo "    [+] Print LUKS Header File Type & Attributes: "
+echo "##-=================================================-##"
+file luksheader.back
+
+
+
+echo "##-====================================================-##"
+echo "    [+] Encrypt The LUKS Header Backup With OpenSSL:"
+echo "##-====================================================-##"
+openssl enc -aes-256-cbc -salt -in luksheader.back -out luksheader.back.enc				## openssl enc -aes-256-cbc -e -salt -in $key -out $1
+
+
+
+echo "##-==========================================-##"
+echo "    [+] List Both The Header Backup Files: "
+echo "##-==========================================-##"
+ls -lh luksheader.back*
+
+
+
+echo "##-===================================================================-##"
+echo "    [+] Cross Examine The Unencrypted Header Vs The Encrypted One:      "
+echo "##-===================================================================-##"
+file luksheader.back*
+
+
+
+echo "##-==================================================-##"
+echo "    [+] Decrypt The OpenSSL Encrypted LUKS Header:"
+echo "##-==================================================-##"
+openssl enc -d -aes-256-cbc -in luksheader.back.enc -out luksheader.back
+
+
+
+echo "##-======================================================================-##"
+echo "    [+] Copy This Script To The Persistent Partition For Future Use:"
+echo "##-======================================================================-##"
+cp -v ParrotSecPersistance.sh /mnt/parrot_usb/
+
+
+echo "##-=================================================================-##"
+echo "    [+] Close The Encrypted Channel To Our Persistent Partition.       "  
+echo "    [+]                And Unmount The Partition.                      "
+echo "##-=================================================================-##"
+umount /dev/mapper/parrot_usb
+cryptsetup luksClose /dev/mapper/parrot_usb
+
+
+
+echo "##-======================================================-##"
+echo "     [+] Restores A Binary Backup of The LUKS Header "
+echo "     [+] And Keyslot Area From The Specified File."
+echo "##-======================================================-##"
+cryptsetup luksHeaderRestore /dev/sdc3 --header-backup-file luksheader.back
+
+
+
+
+echo "##-===============================================================-##"
+echo "   [+] "
+echo "##-===============================================================-##"
+
