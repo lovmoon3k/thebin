@@ -1,0 +1,112 @@
+local commands = {}
+print('loaded')
+function setCommand(commandName, ...)
+	--lowerString, helpText, Function
+	local otherSettings = {...}
+	local Function = otherSettings[#otherSettings]
+	otherSettings[#otherSettings] = nil
+	local lowerString = otherSettings[1]
+	local description = otherSettings[2] or ''
+	local helpText = otherSettings[3] or description
+	if type(commandName) == 'string' and type(Function) == 'function' then
+		if commandName ~= '' then
+			commands[commandName] = {Function = Function, lowerString = lowerString, description = description, helpText = helpText}
+			return commands[commandName]
+		end
+	end
+	return error
+end
+function getCommand(commandName)
+	if commandName and commandName ~= '' then
+		if commands[commandName] then
+			return commands[commandName]
+		end
+		for cmdName, settings in pairs(commands) do
+			if string.lower(cmdName) == string.lower(commandName) and settings.lowerString then
+				return commands[cmdName]
+			end
+		end
+	end
+	return nil
+end
+
+function systemMessage(msg)
+	game.StarterGui:SetCore("ChatMakeSystemMessage", {
+		Text = "[CC] "..tostring(msg),
+		Color = Color3.fromRGB(255,255,255),
+		Font = Enum.Font.Cartoon,
+		FontSize = Enum.FontSize.Size24,
+	})
+end
+
+function start() do
+	returnList.started = true
+	returnList.start = function() systemMessage('Alredy started') end
+	commands[''] = {Function = function() systemMessage('Chat Commands by RomashkaHEHE') end}
+	setCommand('list', true, 'print all commands', function()
+		print()
+		for cmdName, settings in pairs(commands) do
+			if cmdName ~= '' then
+				print(cmdName, settings.description ~= '' and '- '..settings.description or '')
+			end
+		end
+		print()
+	end)
+	setCommand('help', true, 'saying helpText', function(command)
+		local command = getCommand(command)
+		if command then
+			systemMessage(command.description ~= '' and command.description or "There's no helpText :(")
+		else
+			systemMessage('Wrong command name :( U can use list for more information')
+		end
+	end)
+
+	systemMessage('Command symbole: '..returnList.cmdSym)
+	systemMessage('Use the "list" to print all commands in DEV console (F9)')
+	systemMessage('Use the "help Command_Name" to get a description of the command')
+
+	_G.chatHookFunc = function(self, ...)
+		local arguments = {...}
+		if returnList.enabled and self.Name == 'SayMessageRequest' and string.lower(getnamecallmethod()) == 'fireserver' and type(returnList.cmdSym) == 'string' and arguments[1] then
+			local message = arguments[1]
+			if string.sub(message, 1, #returnList.cmdSym) == returnList.cmdSym then
+				message = string.sub(message, #returnList.cmdSym+1, #message)
+				local gmatch = string.gmatch(message, '%S+')
+				local command = gmatch() or ''
+				local commandArguments = {}
+				for word in gmatch do
+					table.insert(commandArguments, word)
+				end
+				local command = getCommand(command)
+				if command then
+					command.Function(unpack(commandArguments))
+				end
+				return nil
+			end
+		end
+		return _G.chatHook(self, ...)
+	end
+	if not _G.chatHook then
+		_G.chatHook = hookmetamethod(game, '__namecall', function(self, ...)
+			if _G.chatHookFunc then
+				return _G.chatHookFunc(self, ...)
+			end
+			return _G.chatHook(self, ...)
+		end)
+	end
+end
+
+_G.CCSession = (_G.CCSession or 0) + 1
+returnList = {
+	session = _G.CCSession,
+	commandSymbol = _G.command_symbole or ';',
+	setCommand = setCommand,
+	getCommand = getCommand,
+	systemMessage = systemMessage,
+	commandsList = commands,
+	start = start,
+	started = false,
+	enabled = true
+}
+
+return returnList
