@@ -1,0 +1,157 @@
+// exe
+
+#include <Windows.h>
+#include <TlHelp32.h>
+#include <string.h>
+#include<iostream>
+
+
+#include <fstream>
+#include "stdio.h"
+
+#include <thread>
+#include <chrono>
+#include <winuser.h>
+#include <io.h>
+using namespace std;
+
+
+HHOOK MouseHook;
+BOOL WINAPI HandlerRoutine(_In_ DWORD dwCtrlType) {
+	if (dwCtrlType == CTRL_CLOSE_EVENT) { UnhookWindowsHookEx(MouseHook); }
+	return 1;
+}
+
+
+LRESULT __stdcall MousedProc(int nCode, WPARAM wParam, LPARAM lParam) {	// код hook-точки	// идентификатор сообщения	// координаты мыши
+	if (nCode >= 0) {
+		switch (wParam) {
+		case WM_RBUTTONDOWN: {		return -1;		}
+		case WM_RBUTTONUP: {	return CallNextHookEx(MouseHook, nCode, wParam, lParam);		}
+		}
+	}
+	return CallNextHookEx(MouseHook, nCode, wParam, lParam);
+};
+
+int SetHook() {
+	static HINSTANCE hinstDLL;
+
+	hinstDLL = LoadLibrary(TEXT("c:\\Windows\\user32.dll"));
+	if ((MouseHook = SetWindowsHookEx(WH_MOUSE_LL, MousedProc, hinstDLL, 0))) {
+		return 0;
+	}
+}
+DWORD GetProcessByName(char* process_name)
+{
+	HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	PROCESSENTRY32 process;
+	DWORD proc_id = 0;
+	if (Process32First(snapshot, &process))
+	{
+		while (Process32Next(snapshot, &process))
+		{
+			if (_stricmp(process.szExeFile, process_name) == 0)
+			{
+				proc_id = process.th32ProcessID;
+				break;
+			}
+		}
+	}
+	CloseHandle(snapshot);
+	return proc_id;
+}
+
+bool FileExist(char* name)
+{
+	return _access(name, 0) != -1;
+}
+
+bool Inject(DWORD pID, char* path){
+	HANDLE proc_handle;
+	LPVOID RemoteString;
+	LPCVOID LoadLibAddy;
+	if (pID == 0)
+		return false;
+	proc_handle = OpenProcess(PROCESS_ALL_ACCESS, false, pID);
+	if (proc_handle == 0)
+		return false;
+
+	printf("DLL found!\n\n");
+
+	HMODULE hDLL = LoadLibrary("Dllmain.dll");
+	
+	LoadLibAddy = GetProcAddress(GetModuleHandle("kernel32.dll"), "LoadLibrary");
+	RemoteString = VirtualAllocEx(proc_handle, NULL, strlen(path), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	WriteProcessMemory(proc_handle, RemoteString, path, strlen(path), NULL);
+	CreateRemoteThread(proc_handle, NULL, NULL, (LPTHREAD_START_ROUTINE)LoadLibAddy, RemoteString, NULL, NULL);
+	CloseHandle(proc_handle);
+	FreeLibrary(hDLL);
+
+	return true;
+}
+int main() {char path[256];	char process_name[32] = "notepad.exe";
+     DWORD pID; char dll_name[32]="Dllmain.dll";
+	do{
+		pID = GetProcessByName(process_name);
+   		GetFullPathName(dll_name, sizeof(path), path, NULL);
+		Inject(pID, path);
+	}    while (pID == 0);
+
+	return 0;
+};
+
+
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+/////////////////////////////////////////////////
+// dll
+
+#include <Windows.h>
+HHOOK MouseHook;
+BOOL WINAPI HandlerRoutine(_In_ DWORD dwCtrlType) {
+	if (dwCtrlType == CTRL_CLOSE_EVENT) { UnhookWindowsHookEx(MouseHook); }
+	return  1;
+}
+
+LRESULT __stdcall MousedProc(int nCode, WPARAM wParam, LPARAM lParam) { // код hook-точки // идентификатор сообщения // координаты мыши
+	if (nCode >= 0) {
+	switch	(wParam) {
+	case WM_RBUTTONDOWN: {
+		MessageBox(NULL, "Succers", "RIGHT BUTTON PRESSED", MB_OK); return 0;     }
+	case WM_RBUTTONUP: {   return 0; //CallNextHookEx(MouseHook, nCode, wParam, lParam);
+	   //break;
+   }
+		}
+	}
+	return 0;
+};
+int SetHook(DWORD  ul_reason_for_call) {
+	if (MouseHook = SetWindowsHookEx(WH_MOUSE_LL, MousedProc, NULL, ul_reason_for_call)) {
+	return 0;};
+};
+
+BOOL APIENTRY DllMain(HMODULE hModule,
+	DWORD  ul_reason_for_call,	LPVOID lpReserved){
+
+	switch (ul_reason_for_call)
+	{
+	case DLL_PROCESS_ATTACH:
+		
+		SetConsoleCtrlHandler(HandlerRoutine, 1);
+		SetHook(ul_reason_for_call);
+
+		MSG msg;
+		while (GetMessage(&msg, NULL, 0, 0))
+		{
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+		}
+		break;
+	case DLL_THREAD_ATTACH:
+	case DLL_THREAD_DETACH:
+	case DLL_PROCESS_DETACH:
+		break;
+	}
+	return TRUE;
+};
+

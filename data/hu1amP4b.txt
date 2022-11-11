@@ -1,0 +1,117 @@
+# Especially for those who just happened to drop by. This script is nothing more than a solution to one
+# of my university assignments, published for my classmates. Nothing much to see here.
+
+import sqlite3
+import os
+
+alphabet = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"
+
+choice = str(input('Вы хотите самостоятельно ввести ключевую фразу и текст для шифрования? '
+                   'Введите "да" или "нет". \nВ случае, если вы введете "нет", будут использованы '
+                   'данные согласно варианту написавшего \nданный скрипт студента (вариант №3): '))
+if choice == 'да':
+    print('Внимание! ctrl+c и ctrl+v МОГУТ работать некорректно (а могут и корректно), рекомендуется\n '
+          'вводить фразу самостоятельно!')
+    key_phrase = str(input('Введите ключевую фразу: '))
+    main_text = str(input('Введите текст для шифрования: '))
+elif choice == 'нет':
+    key_phrase = "С больным сидеть и день и ночь, Не отходя ни шагу прочь!"
+    main_text = "Те же стены, выкрашенные масляной краской, потемневшие вверху от трубочного дыма и " \
+                "залосненные снизу спинами разных проезжающих., а еще более туземными купеческими, " \
+                "ибо купцы по торговым дням приходили сюда сам-шест и сам-сём испивать свою известную " \
+                "пару чаю; тот же закопченный потолок; та же копченая люстра со множеством висящих стеклышек. "
+elif choice != 'да' or choice != 'нет':
+    print('Вы ввели некорректный ответ. Перезапустите скрипт и введите "да" или "нет"')
+    quit()
+
+
+# Проверка на наличие уже созданных БД в данном каталоге. Если есть - удаляется (Во избежание ошибок).
+files = os.listdir()
+for file in files:
+    if file.endswith('.db'):
+        os.remove(file)
+
+# Часть 1. Приводим к правильному формату ключевую фразу
+# Убираю все лишние символы, пробелы и перевожу в верхний регистр
+key_phrase = "".join(symbols for symbols in key_phrase if symbols.isalpha()).upper()
+# Убираю все повторяющиеся символы
+key_phrase_2 = ''
+for i in key_phrase:
+    if i not in key_phrase_2 and i != ' ':
+        key_phrase_2 += i
+
+# Формирую строку, в которой подряд идут получившаяся на прошлом шаге фраза и все буквы алфавита
+key_phrase_3 = key_phrase_2 + alphabet
+# Снова убираю все повторяющиеся символы и получаю финальную версию ключевой фразы
+final_key_phrase = ''
+for i_1 in key_phrase_3:
+    if i_1 not in final_key_phrase and i_1 != ' ':
+        final_key_phrase += i_1
+
+# Часть 2. Записываю в БД соотношение буквы в словаре с её порядковым номером, что бы позже можно было
+# сопоставить их с порядковыми номерами букв в обычном алфавите
+conn = sqlite3.connect('alphabet.db')
+cur = conn.cursor()
+cur.execute('CREATE TABLE IF NOT EXISTS dictionary (letter_number, normal_alphabet, letter_from_phrase )')
+conn.commit()
+
+
+for i, item in enumerate(final_key_phrase):
+    if i % 1 == 0:
+        cur.execute(f"INSERT INTO dictionary (letter_from_phrase, letter_number) VALUES ('{item}', '{i}')")
+        conn.commit()
+
+
+# Часть 3. Добавляю в таблицу обычный алфавит в правильном порядке букв
+for number, letter in enumerate(alphabet):
+    cur.execute(f"UPDATE dictionary SET normal_alphabet = '{letter}' WHERE letter_number = '{number}'")
+    conn.commit()
+
+
+# Часть 4. Перевожу к правильному формату текст, который нужно зашифровать (по аналогии с форматированием
+# ключевой фразы)
+main_text = "".join(symbols for symbols in main_text if symbols.isalpha()).upper()
+
+# Часть 5. Шифрую получившийся текст. Как это работает: каждая из букв в тексте обрабатывается по отдельности.
+# Так как в БД каждая из букв "правильного" алфавита соотносится (сттоит в одной строчке) с каждой из букв
+# подстановочного алфавита, то можно смело находить "правильную" букву и брать её соседку из "неправильных" букв,
+# после чего просто менять их местами.
+big_main_text = ''
+final_main_text = ''
+for letter in main_text:
+    changed_letter = cur.execute(
+        f"SELECT letter_from_phrase FROM dictionary WHERE normal_alphabet = '{letter}'"
+    ).fetchone()
+    changed_letter = f"{changed_letter[0]}"
+    big_main_text += changed_letter
+
+# Добавляю пробелы после каждых пять символов
+for i, item in enumerate(big_main_text):
+    if i % 1 == 0:
+        final_main_text += item
+    if i % 5 == 0 and i != 0:
+        final_main_text += ' '
+
+# Часть 6. Дешифрование текста.
+# Процесс дешифровки мало чем будет отличаться от процесса шифрования. Все что нам нужно - пойти от обратного:
+# соединить текст в одну строку, соотнести буквы из таблицы в бд и заменить их. Единственная проблема в том, что
+# в расшифрованном тексте не будет пробелов, но это уже другая история.
+encrypted_text = "".join(symbols for symbols in final_main_text if symbols.isalpha()).upper()
+decrypted_text = ''
+for letter in encrypted_text:
+    changed_letter = cur.execute(
+        f"SELECT normal_alphabet FROM dictionary WHERE letter_from_phrase = '{letter}'"
+    ).fetchone()
+    changed_letter = f"{changed_letter[0]}"
+    decrypted_text += changed_letter
+# Для удобства записываю готовые зашифрованный и расшифрованный текст в файлы
+with open('encrypted.txt', 'w', encoding='utf-8') as w:
+    w.write(f"Зашифрованная фраза:\n{final_main_text}")
+with open('decrypted.txt', 'w', encoding='utf-8') as w:
+    w.write(f"Расшифрованная фраза:\n{decrypted_text}")
+with open('summary.txt', 'w', encoding='utf-8') as w:
+    w.write(f"Ключевая фраза:\n{key_phrase}\n\nИзначальная фраза:\n{main_text}\n\n"
+            f"Зашифрованная фраза:\n{final_main_text}\n\nРасшифрованная фраза:\n{decrypted_text}")
+
+print(f"Зашифрованная фраза:\n{final_main_text}\n\nРасшифрованная фраза:\n{decrypted_text}")
+conn.close()
