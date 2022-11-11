@@ -1,0 +1,95 @@
+-- ©2022 by Aleksey Manin
+-- Таблица расчета доходности синтетической облигации
+-- Какие инструменты(тикеры) отслеживаем. Таблица пар тикер - площадка
+tickers = {GAZP = {GAZP = "TQBR", GZZ2 = "SPBFUT"},
+           --SBER = {SBER = "TQBR", SRZ2 = "SPBFUT"},
+           --PLZL = {PLZL = "TQBR", PZZ2 = "SPBFUT"},
+           --GMKN = {GMKN = "TQBR", GKZ2 = "SPBFUT"},
+           --LKOH = {LKOH = "TQBR", LKZ2 = "SPBFUT"},
+           --AFLT = {AFLT = "TQBR", AFZ2 = "SPBFUT"},
+           --NVTK = {NVTK = "TQBR", NKZ2 = "SPBFUT"},
+           --YNDX = {YNDX = "TQBR", YNZ2 = "SPBFUT"},
+           --ALRS = {ALRS = "TQBR", ALZ2 = "SPBFUT"},
+           --VTBR = {VTBR = "TQBR", VBZ2 = "SPBFUT"},
+           --SNGS = {SNGS = "TQBR", SNZ2 = "SPBFUT"},
+           --MGNT = {MGNT = "TQBR", MNZ2 = "SPBFUT"},
+           --NLMK = {NLMK = "TQBR", NMZ2 = "SPBFUT"},
+           --MTSS = {MTSS = "TQBR", MTZ2 = "SPBFUT"},
+           --ROSN = {ROSN = "TQBR", RNZ2 = "SPBFUT"},
+           USDRUBF = {USDRUBF = "SPBFUT", SiZ2 = "SPBFUT"},
+           EURRUBF = {EURRUBF = "SPBFUT", EuZ2 = "SPBFUT"},
+           USDRUB_TOM = {USDRUB_TOM = "CETS", SiZ2 = "SPBFUT"}
+          }
+rows = {} 
+oblig_t = AllocTable() -- 
+stopped = false -- 
+
+-- Функция вызывается перед вызовом main
+function OnInit(path)
+  AddColumn(oblig_t, 0, "Ticker_BA", true, QTABLE_STRING_TYPE, 8) -- "Ticker"- 
+  AddColumn(oblig_t, 1, "Lot_BA", true, QTABLE_INT_TYPE, 8) -- 
+  AddColumn(oblig_t, 2, "Ask_BA", true, QTABLE_DOUBLE_TYPE, 10) -- 
+  AddColumn(oblig_t, 3, "Ticker_F", true, QTABLE_STRING_TYPE, 10) -- 
+  AddColumn(oblig_t, 4, "Lot_F", true, QTABLE_INT_TYPE, 8) -- 
+  AddColumn(oblig_t, 5, "Bid_F", true, QTABLE_DOUBLE_TYPE, 10) -- 
+  AddColumn(oblig_t, 6, "Day_EXP", true, QTABLE_INT_TYPE, 10) -- 
+  AddColumn(oblig_t, 7, "Date_EXP", true, QTABLE_DATE_TYPE, 15) -- 
+  AddColumn(oblig_t, 8, "Dohod%", true, QTABLE_DOUBLE_TYPE, 10) -- 
+  AddColumn(oblig_t, 9, "Dohod", true, QTABLE_DOUBLE_TYPE, 10) -- 
+
+  CreateWindow(oblig_t) -- 
+  SetWindowCaption(oblig_t, "Синтетическая облигация") -- 
+
+  for ticker, two in pairs(tickers) do -- 
+    rows[ticker] = InsertRow(oblig_t, -1) -- 
+  end
+end
+
+function Run()
+  for ticker, two in pairs(tickers) do -- 
+    ask_ba = 0.0
+    bid_f = 0.0
+    lot_f = 0
+    for ticker_two, board in pairs(two) do -- 
+      if ticker == ticker_two then -- 
+        SetCell(oblig_t, rows[ticker], 0, ticker_two) -- 
+        SetCell(oblig_t, rows[ticker], 1, -- 
+                string.format("%u", getParamEx (board, ticker_two, "LOTSIZE").param_value))
+        ask_ba = getParamEx (board, ticker_two, "OFFER").param_value
+        SetCell(oblig_t, rows[ticker], 2, string.format("%.2f", ask_ba)) -- 
+      else -- 
+        SetCell(oblig_t, rows[ticker], 3, ticker_two) -- 
+        lot_f = getParamEx (board, ticker_two, "LOTSIZE").param_value
+        SetCell(oblig_t, rows[ticker], 4, string.format("%u", lot_f))
+        bid_f = getParamEx (board, ticker_two, "BID").param_value
+        SetCell(oblig_t, rows[ticker], 5, string.format("%u", bid_f))
+        day_exp = getParamEx (board, ticker_two, "DAYS_TO_MAT_DATE").param_value
+        SetCell(oblig_t, rows[ticker], 6, string.format("%u", day_exp))
+        SetCell(oblig_t, rows[ticker], 7, 
+                string.format("%u", getParamEx (board, ticker_two, "MAT_DATE").param_value))
+        --message('пїЅпїЅпїЅпїЅ:'..getParamEx (board, ticker_two, "MAT_DATE").param_type)
+      end
+    end
+    sum_ba = ask_ba * lot_f
+    --message('пїЅпїЅпїЅпїЅпїЅ:'..ticker..' lot_f:'..lot_f..' sum_ba:'..sum_ba)
+    sum_year = (bid_f - sum_ba) / day_exp * 365
+    percent = sum_year * 100 / sum_ba
+    SetCell(oblig_t, rows[ticker], 8, string.format("%.2f", percent))
+    SetCell(oblig_t, rows[ticker], 9, string.format("%.2f", bid_f - sum_ba))
+  end
+end
+
+-- 
+function OnStop(signal) stopped = true end
+
+-- 
+function OnClose() stopped = true end;
+
+-- 
+function main()
+  while not stopped do 
+    Run()
+    collectgarbage()
+    sleep(3000) 
+  end
+end
