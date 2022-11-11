@@ -1,0 +1,119 @@
+import asyncio
+import logging
+from aiogram import Bot, Dispatcher, types
+import requests
+import pyowm
+from pyowm.utils.config import get_default_config
+from aiogram.dispatcher.filters import Command
+
+# функция перевода градусов угла в понятные человеку направления сторон света
+def deg_to_text(deg):
+    return ["С", "С-З", "З", "Ю-З", "Ю", "Ю-В", "В", "С-В"][round(deg / 45) % 16]
+
+
+# Включаем логирование, чтобы не пропустить важные сообщения
+logging.basicConfig(level=logging.INFO)
+# Объект бота
+bot = Bot(token="ВСТАВИТЬ СВОЙ ТОКЕН ИЗ BOT FATHER") # !!!
+# Диспетчер управляет хэндлерами.
+# Диспетчер регистрирует функции-обработчики, дополнительно ограничивая перечень вызывающих их событий через фильтры.
+# После получения очередного апдейта (события от Telegram), диспетчер выберет нужную функцию обработки, подходящую по всем фильтрам.
+dp = Dispatcher(bot)
+
+# Хэндлер на команду /start
+@dp.message_handler(commands=["start"])
+async def cmd_start(message: types.Message):
+    await message.answer("Привет, пользователь!")
+
+
+# Хэндлер на команду /help
+@dp.message_handler(commands=["help"])
+async def help(message: types.Message):
+    await message.reply("Напиши мне что-нибудь, и я отпрпавлю этот текст тебе в ответ!")
+
+
+# Хэндлер на команду /weather
+# пример использования - /weather Калининград
+@dp.message_handler(commands=["weather"])
+async def weather(message: types.Message, command: Command):
+    if command.args:  # проверяем, есть ли аргументы
+        place = command.args  # получаем наш город
+        config_dict = get_default_config()  # задаем конфиг
+        config_dict["language"] = "ru"  # указываем русский язык
+        owm = pyowm.OWM(
+            "84061a2a5ff54b490d63bd38d557b06d", config_dict
+        )  # создаем объект OWM
+        mgr = owm.weather_manager()  # создаем менеджер погоды
+        observation = mgr.weather_at_place(place)  # находим наш город
+        w = observation.weather  # и получаем из него погоду
+        temp = w.temperature("celsius")["temp"]  # температура
+        wind = w.wind()
+        wind_dir = deg_to_text(wind["deg"])  # направление ветра
+        wind_speed = wind["speed"]  # скорость ветра
+        await message.reply(
+            "В городе "
+            + place
+            + " сейчас "
+            + w.detailed_status
+            + "\n"
+            + "Температура: "
+            + str(temp)
+            + "°C"
+            + "\n"
+            + "Ветер: "
+            + str(wind_speed)
+            + " м/с "
+            + wind_dir
+        )  # отправляем сообщение ответом
+    else:  # если аргументов нет
+        await message.reply("После команды необходимо ввести город!")
+
+
+# Хэндлер на команду /fox
+@dp.message_handler(commands=["fox"])
+async def fox(message: types.Message):
+    image = requests.get("https://randomfox.ca/floof/").json()[
+        "image"
+    ]  # получаем картинку с сайта
+    await message.answer_photo(
+        photo=image, caption="Держи фотографию лисы!"
+    )  # отправляем картинку с подписью пользователю
+
+
+# Хэндлер на команду /cat
+@dp.message_handler(commands=["cat"])
+async def cat(message: types.Message):
+    image = requests.get("https://api.thecatapi.com/v1/images/search").json()[0][
+        "url"
+    ]  # получаем картинку с сайта
+    await message.answer_photo(
+        photo=image, caption="Держи фотографию кота!"
+    )  # отправляем картинку с подписью пользователю
+
+
+# Хэндлер на команду /gif
+@dp.message_handler(commands=["gif"])
+async def gif(message: types.Message):
+    animation = requests.get(
+        "https://api.giphy.com/v1/gifs/random?api_key=DVrb5yloSRThdNjJxahPjoqQiIcQQTzX&tag=dog"
+    ).json()["data"]["images"]["original_mp4"][
+        "mp4"
+    ]  # получаем GIF с сайта
+    await message.answer_animation(
+        animation=animation, caption="Держи гифку собаки!"
+    )  # отправляем GIF с подписью пользователю
+
+
+# Эхо хендлер (возвращает любое сообщение назад пользователю)
+@dp.message_handler()
+async def echo_message(message: types.Message):
+    await message.answer(message.text)  # возвращаем текст сообщения пользователя
+
+
+# Запуск процесса поллинга (механизм получения) новых апдейтов
+async def main():
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
