@@ -1,0 +1,79 @@
+class DNDButton(wx.Panel):
+    """wxPython Drag & Drop file loader panel
+
+    Simple DND button with a title bar.
+    Drop files on the button or click the button to load files.
+    The button also displays the first loaded file's name with file count.
+    """
+
+    def __init__(self, parent, title, listener=lambda _: True, wildcard='All files|*.*'):
+        """Default initializer.
+
+        parent: wx.Window
+        title: str
+        listener: (files: list[str] -> Boolean) (True: Keep files, False: Clear files)
+        wildcard: str
+        """
+        wx.Panel.__init__(self, parent)
+        self.SetMinSize((0, 0)) # override minsize for text wrapping
+
+        self.list = []
+        self.listener = listener
+        self.wildcard = wildcard
+        
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        self.SetSizer(sizer)
+
+        self.label = wx.StaticText(self, label=title)
+        sizer.Add(self.label, flag=wx.CENTER)
+
+        self.button = wx.Button(self, label='Drop files here\nor click to select files')
+        sizer.Add(self.button, flag=wx.UP|wx.EXPAND, border=5, proportion=1)
+        self.button.Bind(wx.EVT_BUTTON, self.onOpenFiles)
+        self.button.SetDropTarget(self.FileDrop(self))
+
+        self.Layout()
+    
+    def onOpenFiles(self, evt):
+        with wx.FileDialog(self, 'Open files', wildcard=self.wildcard, style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE) as fileDialog:
+            if fileDialog.ShowModal() == wx.ID_CANCEL:
+                return
+            
+            files = fileDialog.GetPaths()
+            self.onFilesAdded(files)
+    
+    def onFilesAdded(self, files):
+        # set list
+        self.list = files
+
+        # check if empty
+        if len(self.list) == 0:
+            self.button.SetLabel('Drop files here\nor click to select files')
+            return
+        
+        # set button label
+        first_filename = Path(self.list[0]).name
+
+        if len(self.list) == 1:
+            self.button.SetLabel(f' \n{first_filename}\n ') # inserting linebreaks enables the button to wrap the text
+        else:
+            self.button.SetLabel(f'{first_filename}\nTotal {len(self.list)} files')
+
+        # check listener
+        valid = self.listener(self.list)
+        if not valid:
+            self.clearFiles()
+    
+    def clearFiles(self):
+        """Clear all files
+        """
+        self.onFilesAdded([])
+    
+    class FileDrop(wx.FileDropTarget):
+        def __init__(self, parent):
+            wx.FileDropTarget.__init__(self)
+            self.parent = parent
+     
+        def OnDropFiles(self, x, y, filenames):
+            self.parent.onFilesAdded(filenames)
+            return True
