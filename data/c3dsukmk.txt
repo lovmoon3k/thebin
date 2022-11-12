@@ -1,0 +1,97 @@
+# YouTube url -> .mp3 with tags downloader
+# require FFmpeg in PATH or in the same folder
+# no support for private or premium videos
+
+import music_tag
+from pytube import YouTube
+import requests
+from dataclasses import dataclass
+import subprocess
+import os
+from pathvalidate import sanitize_filename
+
+@dataclass
+class AudioSpec:
+    subtype: str
+    bitrate: str
+
+audio_precedence = (
+    AudioSpec('webm', '160kbps'),
+    AudioSpec('mp4', '128kbps'),
+    AudioSpec('webm', '70kbps'),
+    AudioSpec('webm', '50kbps'),
+    AudioSpec('mp4', '48kbps'),
+)
+
+
+def main(url, output_path='.'):
+    # set-up dict
+    video_info = {'url':url}
+
+    # get YouTube instance
+    tube = YouTube(video_info['url'])
+
+    # get infos
+    video_info['author'] = tube.author
+    video_info['title'] = tube.title
+    print('Title:', video_info['title'])
+
+    thumbnail_response = requests.get(tube.thumbnail_url)
+    video_info['thumbnail'] = thumbnail_response.content
+
+    # get audio stream -- try according to the precedence
+    audio_streams = tube.streams.filter(only_audio=True)
+    audio_stream = None # Stream instance
+    audio_type = None # webm or mp4
+
+    for spec in audio_precedence:
+        filtered = audio_streams.filter(subtype=spec.subtype, bitrate=spec.bitrate)
+        if len(filtered) != 0:
+            audio_stream = filtered[0]
+            audio_type = spec.subtype
+            print('Stream: ', audio_stream)
+            break
+    else:
+        raise Exception('Error: No usable audio found')
+
+    # prepare output dir
+    if not os.path.isdir(output_path):
+        os.mkdir(output_path)
+
+    # download into mp3 file
+    sanitized_title = sanitize_filename(video_info['title']) # external library to make the pain to go away
+    audio_temp = sanitized_title + '.' + audio_type
+    audio_final = None
+
+    if audio_type != 'mp3':
+        audio_final = output_path + '/' + sanitized_title + '.mp3'
+
+        # convert to mp3
+        audio_stream.download(filename=audio_temp)
+        subprocess.run(['ffmpeg', '-y', '-i', audio_temp, '-b:a', '192k', '-vn', audio_final])
+
+        # delete old file
+        os.remove(audio_temp)
+
+    else:
+        audio_final = output_path+'/'+audio_temp
+        audio_stream.download(filename=audio_final)
+
+    # set tags
+    tag = music_tag.load_file(audio_final)
+    
+    tag['artwork'] = video_info['thumbnail']
+    tag['title'] = video_info['title']
+    tag['artist'] = video_info['url']
+    tag['album'] = video_info['author'] # same album = same channel
+    
+    tag.save()
+
+
+if __name__ == '__main__':
+    url = input('Enter a YouTube URL: ')
+    try:
+        main(url, 'downloaded')
+    except Exception as e:
+        print('Error:', e)
+        input('Press enter to exit..')
