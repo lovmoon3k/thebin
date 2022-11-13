@@ -1,0 +1,421 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <stdlib.h>
+#include <ctype.h>
+#include <math.h>
+#include <stdexcept>
+#include <iomanip>
+#define Size 100
+
+using namespace std;
+
+class polinom{
+    private:
+        double data[Size];
+        int n;
+        friend const polinom mult(const polinom&, const double, const int);
+        friend void div(polinom&, polinom&, const polinom&);
+        void parse(string s);
+    public:
+        polinom();
+        polinom(const double);
+        polinom(const string);
+        polinom(const polinom&);
+        
+        void fread(fstream&);
+        void fwrite(ofstream&) const;
+        void read();
+        void write() const;
+        
+        const polinom& operator = (const polinom&);
+        friend const polinom operator + (const polinom&, const polinom&);
+        friend const polinom operator - (const polinom&, const polinom&);
+        friend const polinom operator * (const polinom&, const polinom&);
+        friend const polinom operator / (const polinom&, const polinom&);
+        friend const polinom operator % (const polinom&, const polinom&);
+        friend const polinom operator * (const polinom&, const double);
+        friend const polinom operator / (const polinom&, const double);
+        
+        friend bool operator == (const polinom&, const polinom&);
+        friend bool operator != (const polinom&, const polinom&);
+        
+        friend const polinom power(const polinom&, int);
+        friend const polinom sqrt(const polinom&);
+        const double value(double);
+            
+        void zero();
+        bool issquare();
+        friend void fprint_div(ofstream&, const polinom&, const polinom&);
+};
+
+int maxof(int a, int b){
+    return (a>b)?a:b;
+}
+
+bool polinom::issquare(){
+    int min=0,i;
+    if(n&1) return false;
+    while(data[min]==0) min++;
+    if(min==n) return !(min&1);
+    if(min&1) return false;
+    for(i=0;i<n;i++)
+        if(i!=min && i!=(n+min)/2) 
+            if(data[i]!=0) return false;
+    return (fabs(data[(n+min)/2])!=2*sqrt(data[min]*data[n]));
+}
+
+void polinom::zero(){
+    for(int i=0;i<=n;i++) data[i]=0;
+    n=0;
+}
+
+const polinom sqrt(const polinom& arg){
+    int min,max;
+    polinom tmp=arg,res;
+    if(!tmp.issquare()) return tmp;
+    max=tmp.n;
+    min=0;
+    while(tmp.data[min]==0) min++;
+    res.data[max/2]=sqrt(tmp.data[max]);
+    res.data[min/2]=sqrt(tmp.data[min/2]);
+    res.n=max/2;
+    return res;
+}
+
+const double polinom::value(double d){
+    int i;
+    double m=1,res=0;
+    
+    for(i=0;i<=n;i++){
+        res+=data[i]*m;
+        m*=d;
+    }
+    return res;
+}
+
+const polinom power(const polinom& arg, int t){
+    int n=t;
+    polinom res(1),tmp=arg;
+    while(n){
+        if(n&1) res=res*tmp;
+        tmp=tmp*tmp;
+        n>>=1;
+    }
+    return res;
+}
+
+void polinom::parse(string s){
+    int i,sign,t;
+    double d;
+    
+    for(i=0;i<(int)s.length();i++)
+        while(s[i]==' ')
+            s.erase(i,1);
+    while(s.length()>0){
+        i=0;
+        sign=1;
+        if(s[0]=='-')
+            sign=-1;
+        if(s[0]=='-' || s[0]=='+') s.erase(0,1);
+        while(i<(int)s.length() && (isdigit(s[i]) || s[i]=='.')) i++;
+        if(i==s.length() || (s[i]!='*' && i!=0)){ 
+            d=atof(s.substr(0,i).c_str());
+            s.erase(0,i);
+            data[0]=d*sign;
+            continue;
+        }
+        if(s[i]=='*'){
+            d=atof(s.substr(0,i).c_str());
+            s.erase(0,i+2);
+        }
+        else{
+            d=1;
+            s.erase(0,1);
+        }
+        if(s.length()>0 && s[0]=='^'){
+            s.erase(0,1);
+            i=0;
+            while(i<(int)s.length() && isdigit(s[i])) i++;
+            t=atoi(s.substr(0,i).c_str());
+            s.erase(0,i);
+        }
+        else
+            t=1;
+        data[t]=d*sign;
+        if(t>n) n=t;
+    }
+}
+
+polinom::polinom(){
+    n=0;
+    for(int i=0;i<Size;i++)
+        data[i]=0;
+}
+
+polinom::polinom(const double d){
+    n=0;
+    for(int i=0;i<Size;i++)
+        data[i]=0;
+    data[0]=d;
+}
+
+polinom::polinom(const string s){
+    string tmp=s;
+    n=0;
+    for(int i=0;i<Size;i++)
+        data[i]=0;
+    parse(tmp);
+}
+
+polinom::polinom(const polinom& arg){
+    for(int i=0;i<=n;i++)
+        data[i]=0;
+    n=arg.n;
+    for(int i=0;i<=n;i++)
+        data[i]=arg.data[i];
+}
+
+const polinom mult(const polinom& arg, const double d, const int t){
+    int i;
+    polinom p;
+    p.n+=arg.n+t;
+    for(i=0;i<=arg.n;i++)
+        p.data[i+t]=arg.data[i]*d;
+    return p;
+}
+
+void div(polinom& res, polinom& tmp, const polinom& right){
+    int t;
+    double d;
+    while(tmp.n>=right.n){
+        d=tmp.data[tmp.n]/right.data[right.n];
+        t=tmp.n-right.n;
+        res.data[t]=d;
+        if(t>res.n) res.n=t;
+        tmp=tmp-mult(right,d,t);
+        tmp.n--;
+    }
+}
+
+const polinom operator * (const polinom& arg, const double d){
+    int i;
+    polinom p;
+    for(i=0;i<=arg.n;i++)
+        p.data[i]=arg.data[i]*d;
+    return p;
+}
+
+const polinom operator / (const polinom& arg, const double d){
+    if(d==0){
+        throw invalid_argument("dividing by zero");
+        exit(0);
+    }
+    int i;
+    polinom p;
+    for(i=0;i<=arg.n;i++)
+        p.data[i]=arg.data[i]/d;
+    return p;
+}
+
+const polinom operator / (const polinom& left, const polinom& right){
+    polinom res,tmp=left;
+    if(right.n==0 && right.data[0]==0){
+        throw invalid_argument("dividing by zero");
+        exit(0);
+    }
+    div(res,tmp,right);
+    return res;
+}
+
+const polinom operator % (const polinom& left, const polinom& right){
+    polinom res,tmp=left;
+    
+    div(res,tmp,right);
+    return tmp;
+}
+
+const polinom operator * (const polinom& left, const polinom& right){
+    polinom res;
+    res.n=left.n+right.n;
+    for(int i=0;i<=left.n;i++)
+        res=res+mult(right,left.data[i],i);
+    return res;
+}
+
+const polinom operator - (const polinom& left, const polinom& right){
+    int i=0;
+    polinom p=left;
+    p.n=maxof(left.n,right.n);
+    for(i=0;i<=p.n;i++)
+        p.data[i]=left.data[i]-right.data[i];
+    return p;
+}
+
+const polinom operator + (const polinom& left, const polinom& right){
+    int i=0;
+    polinom p=left;
+    p.n=maxof(left.n,right.n);
+    for(i=0;i<=p.n;i++)
+        p.data[i]=left.data[i]+right.data[i];
+    return p;
+}
+
+const polinom& polinom::operator = (const polinom& arg){
+    for(int i=0;i<=n;i++)
+        data[i]=0;
+    n=arg.n;
+    for(int i=0;i<=n;i++)
+        data[i]=arg.data[i];
+    return *this;
+}
+
+bool operator == (const polinom& left, const polinom& right){
+    if(left.n!=right.n) return false;
+    
+    for(int i=0;i<=left.n;i++)
+        if(left.data[i]!=right.data[i])
+            return false;
+    return true;
+}
+
+bool operator != (const polinom& left, const polinom& right){
+    return !(left==right);
+}
+
+void polinom::write() const{
+    for(int i=n;i>=0;i--){
+        if(data[i]>=0) cout << "+";
+        if(data[i]<0) cout << "-";
+        cout << setw(3) << fabs(data[i]);
+        cout << "*x";
+        cout << "^" <<  setw(2) << i << " ";
+    }
+}
+
+void polinom::fwrite(ofstream& out) const{
+    for(int i=n;i>=0;i--){
+        if(data[i]>=0) out << "+";
+        if(data[i]<0) out << "-";
+        out << setw(3) << fabs(data[i]);
+        out << "*x";
+        out << "^" <<  setw(2) << i << " ";
+    }
+}
+
+void polinom::fread(fstream& in){
+    string s;
+    
+    n=0;
+    for(int i=0;i<Size;i++)
+        data[i]=0;
+    in >> s;
+    parse(s);
+}
+
+void polinom::read(){
+    string s;
+    
+    n=0;
+    for(int i=0;i<Size;i++)
+        data[i]=0;
+    cin >> s;
+    parse(s);
+}
+
+void fprint_div(ofstream& out, const polinom& left, const polinom& right){
+    polinom tmod=left,tdiv,r=left,q,tmp;
+    double d;
+    int t,i,n=1;
+    string tab="          ",line="----------";//length depends of setw() argument in fwrite() function
+    
+    left.fwrite(out);
+    out << " | ";
+    right.fwrite(out);
+    out << endl;
+    div(q,r,right);
+    if(tmod.n>=right.n){
+        d=tmod.data[tmod.n]/right.data[right.n];
+        t=tmod.n-right.n;
+        tmp=mult(right,d,t);
+        tmp.fwrite(out);
+        tmod=tmod-tmp;
+        tmod.n--;
+        out << " |";
+        for(i=0;i<=maxof(right.n,q.n);i++) out << line;
+        out << endl;
+        for(i=0;i<=left.n;i++) out << line;
+        out << " | ";
+        q.fwrite(out);
+        out << endl;
+        out << tab;
+        tmod.fwrite(out);
+        out << endl;
+    }
+    else{
+        for(i=0;i<left.n;i++) out << tab;
+        out << "      0  |";
+        for(i=0;i<=maxof(right.n,q.n);i++) out << line;
+        out << endl;
+        for(i=0;i<=left.n;i++) out << line;	
+        out << " | 0" << endl;
+        left.fwrite(out); 
+    }
+    while(tmod.n>=right.n || tmod.n==-1){
+        d=tmod.data[tmod.n]/right.data[right.n];
+        t=tmod.n-right.n;
+        tmp=mult(right,d,t);
+        for(i=0;i<n;i++) out << tab;
+        tmp.fwrite(out);
+        out << endl;
+        if(tmod.n==-1){
+            out << endl << endl;
+            out << "div=";
+            q.fwrite(out);
+            out << endl;
+            out << "mod=";
+            r.fwrite(out);
+            out << endl;
+            return;
+        }
+        for(i=0;i<n;i++) out << tab;
+        for(i=0;i<=tmod.n;i++) out << line;
+        n++;
+        tmod=tmod-tmp;
+        tmod.n--;
+        while(tmod.n>=0 && tmod.data[tmod.n]==0) 
+            tmod.n--,n++;
+        if(tmod.n==-1){ 
+            tmod.n=0;
+            out << endl;
+            for(i=0;i<n-1;i++) out << tab;
+            tmod.fwrite(out);
+            out << endl;
+            tmod.n=-1;
+        }
+        else{
+            out << endl;
+            for(i=0;i<n;i++) out << tab;
+            tmod.fwrite(out);
+            out << endl;
+        }
+    }
+    out << endl << endl;
+    out << "div=";
+    q.fwrite(out);
+    out << endl;
+    out << "mod=";
+    r.fwrite(out);
+    out << endl;
+}
+
+int main (int argc, char *argv[]){
+    //fstream in("in.txt");
+    ofstream fout("out.txt");
+    polinom a("3*x^5+4*x^4-x^2+2*x-1"),b("x^2-3*x+2"),c;
+    //a.fread(in);
+    //b.fread(in);
+    fprint_div(fout,a,b);
+    fout.close();
+    return 0;
+}
