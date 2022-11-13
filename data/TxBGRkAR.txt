@@ -1,0 +1,125 @@
+/**
+ *  To można czytać z pliku CSV, JSON albo XML i być generowane z Confluence (o ile jest możliwe), bo można dodawać pliki do skryptu
+ */ 
+const itSystemList = new Map ([
+  ["portal klienta",["access-accounts","android cinkciarz.pl / conotoxia","big data", "bik-mock"]],
+  ["cntx",["access-accounts","accessaccounts-empl", "caf", "call-reports"]],
+  ["portal informacyjny",["caf","cryptoquotes", "design-system"]],
+  ["big data app", ["bc-mautic-forex", "bd-airflow", "bd-airflow-dags"]]
+]);
+
+// Funkcja sprawdzająca czy rootFolder o nazwie ASVS istnieje, jeżeli nie to go tworzy
+  const rootFolder = () => {
+  var folder = DriveApp.searchFolders("name = 'ASVS'")
+  if (folder === 0){
+    Logger.log("Creating ASVS Folder");
+    rootFolder = DriveApp.createFolder("ASVS");
+    return rootFolder;
+  }
+    else 
+    {
+      Logger.log("Folder already exists");
+      rootFolder = folder;
+      return rootFolder;
+    }
+
+  }
+
+
+/**
+ * Funkcja wykonuje obecnego arkusza, zmienia jego nazwę i wrzuca do folderu ASVS
+ */
+function prepreAsvsTemaplateWithName(serviceName,rootFolder) {
+  Logger.log("Creating spreedsheet: " + serviceName);
+  const spreedsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const serviceSpreadsheet = spreedsheet.copy(serviceName + " ASVS App");
+  const file = DriveApp.getFileById(serviceSpreadsheet.getId());
+  file.moveTo(rootFolder);
+  return serviceSpreadsheet;
+}
+
+//Funkcja do templatów systemowych
+
+function prepreAsvsSystemTemplate(serviceDependenciesList, rootFolder) {
+  Logger.log("Creating spreedsheet: " + serviceDependenciesList);
+  const spreedsheet = SpreadsheetApp.openByUrl("https://docs.google.com/spreadsheets/d/1n_RB3YHOgGv8sul_tW2avrL6TLG10eHqK1kz0KG6F7k/edit#gid=0");
+  const systemSpreadsheet = spreedsheet.copy(serviceDependenciesList + "ASVS IT System");
+  const file = DriveApp.getFileById(systemSpreadsheet.getId());
+  file.moveTo(rootFolder);
+  return systemSpreadsheet;
+}
+
+
+/**
+ * Funkcja szuka czy w folderze ASVS istnieje plik dla danego systemu, jak nie to tworzy nowy arkusz
+ */
+function findOrCreateAsvsApplicationTemplate(applicationName,rootFolder) {
+  const files = rootFolder.getFiles();
+  while (files.hasNext()) {
+    var file = files.next();
+    if (file.getName().startsWith(applicationName)) {
+      return SpreadsheetApp.open(file);
+    }
+  }
+
+  return prepreAsvsTemaplateWithName(applicationName);
+}
+
+function findOrCreateAsvsSystemTemplate(systemName) {
+  const files = rootFolder.getFiles();
+  while (files.hasNext()) {
+    var file = files.next();
+    if (file.getName().startsWith(systemName)) {
+      return SpreadsheetApp.open(file);
+    }
+  }
+
+  return prepreAsvsSystemTemplate(
+    
+  );
+}
+
+function addSystemUrlToApplicationSpreadsheet(spreadsheet, system, url, index) {
+  // pobranie kolejno wszystkich arkuszy ze spreadsheet
+  // dla każdego arkusza znaleziony będzie offset komórek w które należy wstawić nazwę systemu i url
+
+  spreadsheet.getSheets().forEach((sheet) => {
+    range = sheet.getRange(1, 6+index, 2);
+    values = [[system],[url]];
+    range.setValues(values);
+    range.setBackground("#b7b7b7");
+     // sheetapp.autoResizeColumn(currentRange.getColumn());
+  });
+}
+
+
+/**
+ * Główna funkcja
+ */
+function prepareAsvsSheets() {
+
+  itSystemList.forEach((systemDependenciesList, application) => {
+    const applicationSpreadsheet = findOrCreateAsvsApplicationTemplate(application);
+    const systemSpreadsheet = findOrCreateAsvsSystemTemplate(application);
+    const sheetapp = applicationSpreadsheet.getSheetByName("V2");
+    const sheetsystem = systemSpreadsheet.getSheetByName("V4");
+
+   // })
+    // var currentRange = sheetapp.getRange(1, 6, 2);
+    //var currentRangeSys = sheetsystem.getRange(1, 6, 2);
+    systemDependenciesList.forEach((system, indexOfSystem) => {
+      // Skoro system zależny pojawi się jako ASVS to mogę mieć przygotowaną jego kopie już do wypełnienia
+      const systemSpreadsheet = findOrCreateAsvsSystemTemplate(system);
+      // const linkedAsvsSpreadsheet = findOrCreateAsvsTemplate(serviceDependenciesList);
+      // var values = currentRange.getValues();
+      // values[0][0] = system;
+      // values[1][0] = systemSpreadsheet.getUrl();
+      // currentRange.setValues(values);
+       //Range.setBackground("#b7b7b7");
+      // sheetapp.autoResizeColumn(currentRange.getColumn());
+      // currentRange = currentRange.offset(0, 1, 2);
+
+      addSystemUrlToApplicationSpreadsheet(applicationSpreadsheet, system, systemSpreadsheet.getUrl(), indexOfSystem);
+    });
+  })
+}
