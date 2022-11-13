@@ -1,0 +1,99 @@
+package com.arsenicclient.config;
+
+import com.arsenicclient.Arsenic;
+import com.arsenicclient.module.Module;
+import com.arsenicclient.settings.Setting;
+import com.arsenicclient.settings.impl.BooleanSetting;
+import com.arsenicclient.settings.impl.ColorSetting;
+import com.arsenicclient.settings.impl.ModeSetting;
+import com.arsenicclient.settings.impl.NumberSetting;
+import com.arsenicclient.utils.io.FileIOUtils;
+import com.arsenicclient.utils.io.JsonUtils;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+
+import java.awt.*;
+import java.io.File;
+import java.util.List;
+import java.util.Objects;
+
+public class ConfigLoader {
+
+    private final File rootFolder = new File(Arsenic.name);
+    private final File moduleFolder = new File(rootFolder, "modules");
+
+    private final File clickGui = new File(rootFolder, "clickgui.json");
+
+
+    public void load() {
+        for (File file : Objects.requireNonNull(moduleFolder.listFiles())) {
+            load(file);
+        }
+    }
+
+    private void load(File file) {
+        String contents = FileIOUtils.readFile(file.getAbsolutePath());
+
+        JsonObject json = JsonUtils.stringToJsonObject(contents);
+        Module module = Arsenic.getModuleManager().getModule(json.get("name").getAsString());
+        boolean enabled = json.get("enabled").getAsBoolean();
+        module.setToggled(enabled);
+
+        JsonArray settings = json.get("settings").getAsJsonArray();
+        for (JsonElement _elm : settings) {
+            JsonObject elm = _elm.getAsJsonObject();
+
+            String type = elm.get("type").getAsString();
+            String value = elm.get("value").getAsString();
+
+            switch (type) {
+                case "key":
+                    module.setKey(Integer.parseInt(value));
+                    break;
+                case "mode": {
+                    Setting setting = getSetting(module.getSettings(), elm.get("name").getAsString());
+                    assert setting != null;
+                    ((ModeSetting) setting).setMode(value);
+                    break;
+                }
+                case "slider": {
+                    Setting setting = getSetting(module.getSettings(), elm.get("name").getAsString());
+                    assert setting != null;
+                    ((NumberSetting) setting).setValue(Float.parseFloat(value));
+                    break;
+                }
+                case "bool": {
+                    Setting setting = getSetting(module.getSettings(), elm.get("name").getAsString());
+                    assert setting != null;
+                    ((BooleanSetting) setting).setToggled(Boolean.parseBoolean(value));
+                    break;
+                }
+                case "color": {
+                    Setting setting = getSetting(module.getSettings(), elm.get("name").getAsString());
+                    JsonObject col_values = elm.get("value").getAsJsonObject();
+                    int r = col_values.get("red").getAsInt();
+                    int g = col_values.get("green").getAsInt();
+                    int b = col_values.get("blue").getAsInt();
+                    int a = col_values.get("alpha").getAsInt();
+
+                    Color color = new Color(r, g, b, a);
+                    assert setting != null;
+                    ((ColorSetting) setting).setColor(color);
+                    break;
+                }
+                default:
+                    System.err.println("Unknown setting type: " + module.getName() + ".json/" + type);
+                    break;
+            }
+        }
+    }
+
+    private Setting getSetting(List<Setting> settings, String name) {
+        for (Setting setting : settings) {
+            if (setting.name.equals(name))
+                return setting;
+        }
+        return null;
+    }
+}
