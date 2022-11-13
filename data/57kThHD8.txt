@@ -1,0 +1,72 @@
+class ConfigLoader : Config<ConfigLoader>(ConfigType.LOAD) {
+
+    val seperator = "/"
+    val basepath = ".${seperator}NoWay"
+
+
+    private fun getSettingType(setting: Setting): SettingType? {
+        if (setting.isCheck) return SettingType.CHECK
+        if (setting.isColor) return SettingType.COLOR
+        if (setting.isCombo) return SettingType.COMBO
+        if (setting.isSlider) return SettingType.SLIDER
+        return null
+    }
+
+    fun load(baseModulePath: String, module: Module) {
+        if (!File("$baseModulePath$seperator${module.name}.json").exists())
+            return
+
+        val jsonIn = FileIOUtils.readFile("$baseModulePath$seperator${module.name}.json")
+        val jsonObj = JsonUtils.convertStringToJsonObject(jsonIn)
+
+        module.key = jsonObj["key"].asInt
+        module.isToggled = jsonObj["toggled"].asBoolean
+        if (module.name == "SaveConfig") module.isToggled = false
+
+        if (module.isToggled) module.onEnable()
+        if (!module.isToggled) module.onDisable()
+
+        val json_settings: JsonObject = jsonObj["settings"].asJsonObject ?: return
+        val module_settings = NoWay.settingsManager.getSettingsByMod(module) ?: return
+
+        for (setting: Setting in module_settings) {
+            val settingType = getSettingType(setting) ?: continue
+            val json_setting_value = json_settings[setting.name].asJsonObject["value"]
+
+
+            if (settingType == SettingType.CHECK) {
+                setting.valBoolean = json_setting_value.asBoolean
+            }
+            if (settingType == SettingType.COLOR) {
+
+                setting.color = Color(
+                    json_setting_value.asJsonObject["red"].asInt,
+                    json_setting_value.asJsonObject["green"].asInt,
+                    json_setting_value.asJsonObject["blue"].asInt,
+                    json_setting_value.asJsonObject["alpha"].asInt
+                )
+            }
+            if (settingType == SettingType.COMBO) {
+                setting.valString = json_setting_value.asString
+            }
+            if (settingType == SettingType.SLIDER) {
+                setting.valDouble = json_setting_value.asDouble
+            }
+        }
+
+    }
+
+    override fun call(modules: ArrayList<Module>) {
+        println("Loading Module Configs")
+
+        val baseModulePath = "$basepath${seperator}modules${seperator}"
+        if (!Files.exists(Paths.get(baseModulePath))) {
+            Files.createDirectory(Paths.get(baseModulePath))
+        }
+
+        for (module: Module in modules) {
+            load(baseModulePath, module)
+        }
+    }
+
+}

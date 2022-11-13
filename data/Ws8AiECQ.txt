@@ -1,0 +1,86 @@
+
+class ConfigSaver : Config<ConfigSaver>(ConfigType.SAVE) {
+
+    val seperator = "/"
+    val basepath: String = ".${seperator}NoWay" // %appdata%/.minecraft/NoWay/
+
+
+    private fun getSettingType(setting: Setting): SettingType? {
+        if (setting.isCheck) return SettingType.CHECK
+        if (setting.isColor) return SettingType.COLOR
+        if (setting.isCombo) return SettingType.COMBO
+        if (setting.isSlider) return SettingType.SLIDER
+        return null
+    }
+
+    private fun settingToJson(setting: Setting): JsonObject {
+        val jsonObj = JsonObject()
+        val settingType = getSettingType(setting)
+
+        jsonObj.addProperty("name", setting.name)
+        jsonObj.addProperty("type", settingType?.name)
+
+        if (settingType?.equals(SettingType.CHECK) == true) {
+            jsonObj.addProperty("value", setting.valBoolean)
+        }
+        if (settingType?.equals(SettingType.COLOR) == true) {
+            val colorValues = JsonObject()
+            colorValues.addProperty("red", setting.color.red)
+            colorValues.addProperty("green", setting.color.green)
+            colorValues.addProperty("blue", setting.color.blue)
+            colorValues.addProperty("alpha", setting.color.alpha)
+
+            jsonObj.add("value", colorValues)
+        }
+        if (settingType?.equals(SettingType.COMBO) == true) {
+            jsonObj.addProperty("value", setting.valString)
+        }
+        if (settingType?.equals(SettingType.SLIDER) == true) {
+            jsonObj.addProperty("value", setting.valDouble)
+        }
+
+        return jsonObj
+    }
+
+
+    fun save(baseModulePath: String, module: Module) {
+        val finalSettingJson = JsonObject()
+        val moduleJson = JsonObject()
+        val moduleSettings = NoWay.settingsManager.getSettingsByMod(module)
+
+
+        if (moduleSettings != null) {
+            for (setting: Setting in moduleSettings) {
+
+                val settingJson: String = JsonUtils.formatJsonObjectToString(settingToJson(setting))
+
+                finalSettingJson.add(setting.name, JsonUtils.convertStringToJsonObject(settingJson))
+            }
+        }
+
+
+        moduleJson.addProperty("name", module.name)
+        moduleJson.addProperty("key", module.key)
+        moduleJson.addProperty("toggled", module.isToggled)
+        moduleJson.add("settings", finalSettingJson)
+
+        FileIOUtils.writeFile("$baseModulePath${module.name}.json", JsonUtils.formatJsonObjectToString(moduleJson))
+    }
+
+
+    override fun call(modules: ArrayList<Module>) {
+        println("Saving Modules Configs")
+
+        val baseModulePath = "$basepath${seperator}modules$seperator"
+        if (!Files.exists(Paths.get(baseModulePath))) {
+            Files.createDirectory(Paths.get(baseModulePath))
+        }
+
+        for (module: Module in modules) {
+            save(baseModulePath, module)
+        }
+
+
+    }
+
+}
