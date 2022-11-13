@@ -1,0 +1,37 @@
+		// GpuMappedBuffer approach
+		bool matused = false;
+		int batchBound = -1;
+		for (const Engine::RenderNode& node : nodes)
+		{
+			bool hasMaterial = false;
+			int batch = node.mID / 16;
+
+			if (node.mObject->Has<Engine::MaterialComponent>())
+			{
+				context->GetCommandList()->Get()->SetGraphicsRootDescriptorTable(1, node.mObject->Get<Engine::MaterialComponent>()->GetDiffuseMap()->GetSRV().mGpuHandle);
+				context->GetCommandList()->Get()->SetGraphicsRootDescriptorTable(2, node.mObject->Get<Engine::MaterialComponent>()->GetNormalsMap()->GetSRV().mGpuHandle);
+				context->GetCommandList()->Get()->SetGraphicsRootDescriptorTable(3, node.mObject->Get<Engine::MaterialComponent>()->GetMetallicMap()->GetSRV().mGpuHandle);
+				context->GetCommandList()->Get()->SetGraphicsRootDescriptorTable(4, node.mObject->Get<Engine::MaterialComponent>()->GetRoughnessMap()->GetSRV().mGpuHandle);
+				context->GetCommandList()->Get()->SetGraphicsRootDescriptorTable(5, node.mObject->Get<Engine::MaterialComponent>()->GetHeightMap()->GetSRV().mGpuHandle);
+				hasMaterial = true;
+				matused = true;
+			}
+
+			if (node.mObject->Has<Engine::MeshComponent>() && hasMaterial)
+			{
+				if (batchBound != batch)
+				{
+					batchBound = batch;
+					context->SetConstantBuffer(6, matrices->GetGpuVirtualAddress(batch * 16 * sizeof(float) * 16 * 2));
+				}
+				context->SetConstants(7, Engine::DWParam(node.mID % 16));
+
+				node.mObject->Get<Engine::MeshComponent>()->GetMesh()->Render(context);
+			}
+		}
+
+		// StructuredBuffer approach
+		for (const Engine::RenderNode& node : nodes)
+		{
+			node.mObject->Get<Engine::MeshComponent>()->GetMesh()->Render(context);
+		}
