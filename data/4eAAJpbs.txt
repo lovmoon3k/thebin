@@ -1,0 +1,39 @@
+    public static CustomGame createGame(Main main, Guild guild, int gameNumber,
+                                        List<Member> team1User, List<Member> team2User, List<LeaguePlayer> leaguePlayers,
+                                        List<LeaguePlayer> teamOne, List<LeaguePlayer> teamTwo, int lpDiff) {
+        Category category = guild.getCategoryById(1041010337656356995L);
+        var wrapper = new Object() {
+            long v1, v2;
+        };
+        long textChannelId = 0L;
+        category.createVoiceChannel("Game - " + gameNumber + " - Vocal 1")
+                .addPermissionOverride(guild.getRoles().get(guild.getRoles().size() - 1), null, Arrays.asList(Permission.VIEW_CHANNEL))
+                .queue(voiceChannel -> {
+                    wrapper.v1 = voiceChannel.getIdLong();
+                    for (Member m : team1User) {
+                        voiceChannel.createPermissionOverride(m)
+                                .grant(Permission.VIEW_CHANNEL, Permission.VOICE_CONNECT).queue();
+                    }
+                    team1User.forEach(member1 -> guild.moveVoiceMember(member1, voiceChannel).queue());
+                });
+        category.createVoiceChannel("Game - " + gameNumber + " - Vocal 2")
+                .addPermissionOverride(guild.getRoles().get(guild.getRoles().size() - 1), null, List.of(Permission.VIEW_CHANNEL))
+                .queue(voiceChannel -> {
+                    wrapper.v1 = voiceChannel.getIdLong();
+                    for (Member m : team2User) {
+                        voiceChannel.createPermissionOverride(m)
+                                .grant(Permission.VIEW_CHANNEL, Permission.VOICE_CONNECT).queue();
+                    }
+                    team2User.forEach(member1 -> guild.moveVoiceMember(member1, voiceChannel).queue());
+                });
+        TextChannel textChannel = category.createTextChannel("game-" + gameNumber).complete();
+        textChannelId = textChannel.getIdLong();
+        textChannel.createPermissionOverride(guild.getRoles().get(guild.getRoles().size() - 1)).deny(List.of(Permission.VIEW_CHANNEL)).queue();
+        for (LeaguePlayer leaguePlayer : leaguePlayers) {
+            textChannel.createPermissionOverride(guild.getMemberById(leaguePlayer.getDiscordId())).grant(Permission.VIEW_CHANNEL, Permission.MESSAGE_WRITE).queue();
+        }
+        String gameCode = main.getRiotAPI().getTournamentManager().createCodes(1, Secret.TOURNAMENT_ID,
+                HttpHeadParameter.createListFromString("mapType;SUMMONERS_RIFT,pickType;TOURNAMENT_DRAFT,spectatorType;ALL,teamSize;5"))[0];
+        GameData gameData = new GameData(lpDiff, guild.getIdLong(), textChannelId, gameCode);
+        return new CustomGame(main, wrapper.v1, wrapper.v2, gameData, leaguePlayers, teamOne, teamTwo);
+    }

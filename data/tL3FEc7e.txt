@@ -1,0 +1,418 @@
+local TS = game:GetService("TweenService")
+local MS = game:GetService("MarketplaceService")
+local RS = game.ReplicatedStorage
+local Library = RS.Pets
+local Eggs = require(Library:WaitForChild("Eggs"))
+local RemoteEvents = RS.RemoteEvents
+local EggModels = workspace.Eggs
+local MSG = game.ReplicatedStorage:WaitForChild("Hatch")
+local DataStore = game:GetService("DataStoreService")
+local StockDataStore = DataStore:GetDataStore("StockData2")
+local MaxStock = 50
+local StockLeft = 50
+
+local PlayerDebounce = {}
+
+function ChoosePet(Egg)
+	local Data = Eggs[Egg]
+	local Pets = Data["Pets"]
+	local TotalWeight = 0
+	for i,v in pairs(Pets) do
+		TotalWeight = TotalWeight + v.Rarity*100000
+	end
+	local Chance = math.random(1,TotalWeight)
+	local Counter = 0
+	for i,v in pairs(Pets) do
+		Counter = Counter+v.Rarity*100000
+		if Counter >= Chance then
+			return v.Name
+		end
+	end
+end
+
+function totalPets(Player)
+	local Pets = 0
+	for i,v in pairs(Player.Pets:GetChildren()) do
+		Pets = Pets + 1
+	end
+	return Pets
+end
+
+function GetNextType(TypeName)
+	local CurrentValue
+	for i,v in pairs(game.ReplicatedStorage.Pets.CraftingTiers:GetChildren()) do
+		if v.Name == TypeName then
+			CurrentValue = v.Value
+		end
+	end
+	for i,v in pairs(game.ReplicatedStorage.Pets.CraftingTiers:GetChildren()) do
+		if v.Value == CurrentValue + 1 then
+			return v.Name, CurrentValue + 1
+		end
+	end
+end
+
+function RandomID(Player)
+	local Rand = math.random(2,1000000)
+	for i,v in pairs(Player:WaitForChild("Pets"):GetChildren()) do
+		if v.PetID.Value == Rand then
+			return RandomID()
+		end
+	end
+	return Rand
+end
+
+local function UpdateStock(value)
+	StockDataStore:SetAsync("1PetStock", value)
+end
+
+local function GetStock()
+	return StockDataStore:GetAsync("1PetStock")
+end
+
+StockLeft = GetStock()
+
+local function UpdateUi()
+	workspace.StockPet.Stock.BillboardGui.StockLeft.Text = StockLeft.."/"..MaxStock.. " stock"
+end
+
+function singleEgg(Player, Egg)
+	local Data = Eggs[Egg]
+	local Cost = Data["Cost"]
+	local Stat = Data["Stat"]
+	local Currency = Data["Currency"]
+	local Pets = Data["Pets"]
+	local PetChosen = ChoosePet(Egg)
+	local Settings = RS.Pets.Models:FindFirstChild(PetChosen).Settings
+	if Currency ~= "R$" then
+		Player:FindFirstChild(Stat):FindFirstChild(Currency).Value = Player:FindFirstChild(Stat):FindFirstChild(Currency).Value - Cost
+	end
+	for i,v in pairs(PlayerDebounce) do
+		if v[1] == Player.Name then
+			v[2] = true
+		end
+	end
+	spawn(function()
+		wait(3.5)
+		for i,v in pairs(PlayerDebounce) do
+			if v[1] == Player.Name then
+				v[2] = false
+			end
+		end
+	end)
+	for i,v in pairs(Pets) do
+		if v.Name == PetChosen then
+		if Player.AutoDelete[Settings.Rarity.Value].Value == false then
+		local Clone = RS.Pets.PetFolderTemplate:Clone()
+		Clone.PetID.Value = RandomID(Player)
+		Clone.Multiplier1.Value = Settings.Multiplier1.Value
+		Clone.Multiplier2.Value = Settings.Multiplier2.Value
+		Clone.Type.Value = v.Type
+		Clone.Parent = Player.Pets
+		Clone.Name = PetChosen
+		MSG:FireAllClients(Player.Name,PetChosen)
+		end
+		end
+		end
+	return PetChosen
+end
+
+function tripleEgg(Player, Egg)
+	local Data = Eggs[Egg]
+	local Cost = Data["Cost"]
+	local Stat = Data["Stat"]
+	local Currency = Data["Currency"]
+	local Pets = Data["Pets"]
+	local PetsChosen = {}
+	Player:FindFirstChild(Stat):FindFirstChild(Currency).Value = Player:FindFirstChild(Stat):FindFirstChild(Currency).Value - Cost * 3
+	Player:FindFirstChild("Stats"):FindFirstChild("Hatched").Value = Player:FindFirstChild("Stats"):FindFirstChild("Hatched").Value +3
+	for i,v in pairs(PlayerDebounce) do
+		if v[1] == Player.Name then
+			v[2] = true
+		end
+	end
+	spawn(function()
+		wait(3.5)
+		for i,v in pairs(PlayerDebounce) do
+			if v[1] == Player.Name then
+				v[2] = false
+			end
+		end
+	end)
+	for i = 1,3 do
+		local PetChosen = ChoosePet(Egg)
+		local Settings = RS.Pets.Models:FindFirstChild(PetChosen).Settings
+		for i,v in pairs(Pets) do
+			if v.Name == PetChosen then
+				if Player.AutoDelete[Settings.Rarity.Value].Value == false then
+				local Clone = RS.Pets.PetFolderTemplate:Clone()
+				Clone.PetID.Value = RandomID(Player)
+				Clone.Multiplier1.Value = Settings.Multiplier1.Value
+				Clone.Multiplier2.Value = Settings.Multiplier2.Value
+				Clone.Type.Value = v.Type
+				Clone.Parent = Player.Pets
+				Clone.Name = PetChosen
+				MSG:FireAllClients(Player.Name,PetChosen)
+				end
+				PetsChosen[#PetsChosen + 1] = PetChosen
+			end
+		end
+	end
+	return PetsChosen
+end
+
+function UnboxEgg(Player, Egg, Type)
+	if Eggs[Egg] ~= nil then
+		local Data = Eggs[Egg]
+		local Cost = Data["Cost"]
+		local Stat = Data["Stat"]
+		local Currency = Data["Currency"]
+		local Pets = Data["Pets"]
+		local Model = EggModels:FindFirstChild(Egg)
+		local Debounce = false
+		for i,v in pairs(PlayerDebounce) do
+			if v[1] == Player.Name then
+				Debounce = v[2]
+			end
+		end
+		if (Player.Character.HumanoidRootPart.Position - Model.UIanchor.Position).Magnitude <= 10 then
+			if not Debounce then
+				if Currency ~= "R$" then
+					if Type == "Single" then
+						if Player:FindFirstChild(Stat):FindFirstChild(Currency).Value >= Cost then
+							if totalPets(Player) < Player.Data.MaxStorage.Value then
+								local PetChosen = singleEgg(Player, Egg)
+								return PetChosen
+							else
+							if not Player.PlayerGui.Main:FindFirstChild("ErrorPopup") then
+								local Popup = Player.PlayerGui.UIelements.ErrorPopup
+								local Clone = Popup:Clone()
+								Clone.Parent = Player.PlayerGui.Main
+								Clone.ErrorPopup.Text = "Not enough inventory room"
+								wait(1.5)
+								Clone:Destroy()
+								return "Error", "Not Enough Inventory Room"
+								end
+								end
+						else
+						if not Player.PlayerGui.Main:FindFirstChild("ErrorPopup") then
+							local Popup = Player.PlayerGui.UIelements.ErrorPopup
+							local Clone = Popup:Clone()
+							Clone.Parent = Player.PlayerGui.Main
+							Clone.ErrorPopup.Text = "Insufficient Currency"
+							wait(1.5)
+							Clone:Destroy()
+							return "Error", "Insufficient Currency"
+							end
+							end
+					elseif Type == "Triple" then
+						if Player:FindFirstChild(Stat):FindFirstChild(Currency).Value >= Cost * 3 then
+							if totalPets(Player) < Player.Data.MaxStorage.Value - 2 then
+								if Player.Data.TripleEggOwned.Value == true then
+									local PetsChosen = tripleEgg(Player, Egg)
+									return PetsChosen
+								else
+									return "Error", "Player Doesn't Own Gamepass"
+								end
+							else
+							if not Player.PlayerGui.Main:FindFirstChild("ErrorPopup") then
+								local Popup = Player.PlayerGui.UIelements.ErrorPopup
+								local Clone = Popup:Clone()
+								Clone.Parent = Player.PlayerGui.Main
+								Clone.ErrorPopup.Text = "Not Enough Inventory Room"
+								wait(1.5)
+								Clone:Destroy()
+								return "Error", "Not Enough Inventory Room"
+								end
+								end
+						else
+							if not Player.PlayerGui.Main:FindFirstChild("ErrorPopup") then
+							local Popup = Player.PlayerGui.UIelements.ErrorPopup
+							local Clone = Popup:Clone()
+							Clone.Parent = Player.PlayerGui.Main
+							Clone.ErrorPopup.Text = "Insufficient Currency"
+							wait(1.5)
+							Clone:Destroy()
+							return "Error", "Insufficient Currency"
+							end
+							end
+					elseif Type == "Auto" then	
+						if Player.Data.AutoEggOwned.Value == true then
+							if Player.Data.TripleEggOwned.Value == true then
+								if Player:FindFirstChild(Stat):FindFirstChild(Currency).Value >= Cost * 3 then
+									if totalPets(Player) < Player.Data.MaxStorage.Value - 2 then
+										if Player.Data.TripleEggOwned.Value == true then
+											local PetsChosen = tripleEgg(Player, Egg)
+											return PetsChosen
+										else
+											return "Error", "Player Doesn't Own Gamepass"
+										end
+									else
+										if not Player.PlayerGui.Main:FindFirstChild("ErrorPopup") then
+										local Popup = Player.PlayerGui.UIelements.ErrorPopup
+										local Clone = Popup:Clone()
+										Clone.Parent = Player.PlayerGui.Main
+										Clone.ErrorPopup.Text = "Not Enough Inventory Room"
+										wait(1.5)
+										Clone:Destroy()
+										return "Error", "Not Enough Inventory Room"
+										end
+										end
+								else
+									if not Player.PlayerGui.Main:FindFirstChild("ErrorPopup") then
+									local Popup = Player.PlayerGui.UIelements.ErrorPopup
+									local Clone = Popup:Clone()
+									Clone.Parent = Player.PlayerGui.Main
+									Clone.ErrorPopup.Text = "Insufficient Currency"
+									wait(1.5)
+									Clone:Destroy()
+									return "Error", "Insufficient Currency"
+									end
+									end
+							else
+								if Player:FindFirstChild(Stat):FindFirstChild(Currency).Value >= Cost then
+									if totalPets(Player) < Player.Data.MaxStorage.Value then
+										local PetChosen = singleEgg(Player, Egg)
+										return PetChosen
+									else
+										if not Player.PlayerGui.Main:FindFirstChild("ErrorPopup") then
+										local Popup = Player.PlayerGui.UIelements.ErrorPopup
+										local Clone = Popup:Clone()
+										Clone.Parent = Player.PlayerGui.Main
+										Clone.ErrorPopup.Text = "Not Enough Inventory Room"
+										wait(1.5)
+										Clone:Destroy()
+										return "Error", "Not Enough Inventory Room"
+										end
+										end
+								else
+									if not Player.PlayerGui.Main:FindFirstChild("ErrorPopup") then
+									local Popup = Player.PlayerGui.UIelements.ErrorPopup
+									local Clone = Popup:Clone()
+									Clone.Parent = Player.PlayerGui.Main
+									Clone.ErrorPopup.Text = "Insufficient Currency"
+									wait(1.5)
+									Clone:Destroy()
+									return "Error", "Insufficient Currency"
+								end
+								end
+								end
+						else
+							return "Error", "Player Doesn't Own Gamepass"
+						end
+					end
+				else
+					if totalPets(Player) < Player.Data.MaxStorage.Value then
+						return "Error", "Robux Purchase"
+					else
+						if not Player.PlayerGui.Main:FindFirstChild("ErrorPopup") then
+						local Popup = Player.PlayerGui.UIelements.ErrorPopup
+						local Clone = Popup:Clone()
+						Clone.Parent = Player.PlayerGui.Main
+						Clone.ErrorPopup.Text = "Not Enough Inventory Room"
+						wait(1.5)
+						Clone:Destroy()
+						return "Error", "Not Enough Inventory Room"
+						end
+						end
+				end
+			end
+		else
+			return "Error", "Too far away"
+		end
+	end
+end
+
+game.Players.PlayerAdded:Connect(function(plr)
+	PlayerDebounce[#PlayerDebounce + 1] = {plr.Name, false}
+end)
+
+game.Players.PlayerRemoving:Connect(function(plr)
+	for i,v in pairs(PlayerDebounce) do
+		if v[1] == plr.Name then
+			v = nil
+		end
+	end
+end)
+
+MS.ProcessReceipt = function(ReceiptInfo)
+	local Player = game:GetService("Players"):GetPlayerByUserId(ReceiptInfo.PlayerId)
+	for i, v in pairs(Eggs) do
+		local ProductID = v["ProductID"]
+		if ProductID ~= nil then
+			if ReceiptInfo.ProductId == ProductID then
+				spawn(function()
+					local Result = singleEgg(Player, i)
+					RS.RemoteEvents.EggOpened:InvokeClient(Player, 2, Result, i, 1, 1)
+					Player.SideStats.Spent.Value = Player.SideStats.Spent.Value +299
+				end)
+			end
+		end
+	end
+	if ReceiptInfo.ProductId == 1236604602 then
+		Player.Boosts.CoinsUse.Value = Player.Boosts.CoinsUse.Value +1
+	end
+	if ReceiptInfo.ProductId == 1236605056 then
+		Player.Boosts.DamageUse.Value = Player.Boosts.DamageUse.Value + 1
+	end
+	if ReceiptInfo.ProductId == 1236605403 then
+		Player.Boosts.LuckUse.Value = Player.Boosts.LuckUse.Value + 1
+	end
+	if ReceiptInfo.ProductId == 1237302210 then
+		Player.leaderstats.Coins.Value = Player.leaderstats.Coins.Value + 1000
+	end
+	if ReceiptInfo.ProductId == 1237302245 then
+		Player.leaderstats.Coins.Value = Player.leaderstats.Coins.Value + 5000
+	end
+	if ReceiptInfo.ProductId == 1237302284 then
+		Player.leaderstats.Coins.Value = Player.leaderstats.Coins.Value + 25000
+	end
+	if ReceiptInfo.ProductId == 1237302323 then
+		Player.leaderstats.Coins.Value = Player.leaderstats.Coins.Value + 100000
+	end
+	if ReceiptInfo.ProductId == 1237302385 then
+		Player.leaderstats.Coins.Value = Player.leaderstats.Coins.Value + 200000
+	end
+	if ReceiptInfo.ProductId == 1237302484 then
+		Player.leaderstats.Coins.Value = Player.leaderstats.Coins.Value + 500000
+	end
+	if ReceiptInfo.ProductId == 1237305268 then
+		Player.leaderstats.Emeralds.Value = Player.leaderstats.Emeralds.Value + 2500000
+	end
+	if ReceiptInfo.ProductId == 1237305313 then
+		Player.leaderstats.Emeralds.Value = Player.leaderstats.Emeralds.Value + 5000000
+	end
+	if ReceiptInfo.ProductId == 1237305376 then
+		Player.leaderstats.Emeralds.Value = Player.leaderstats.Emeralds.Value + 10000000
+	end
+	if ReceiptInfo.ProductId == 1237305413 then
+		Player.leaderstats.Emeralds.Value = Player.leaderstats.Emeralds.Value + 25000000
+	end
+	if ReceiptInfo.ProductId == 1237305461 then
+		Player.leaderstats.Emeralds.Value = Player.leaderstats.Emeralds.Value + 50000000
+	end
+	if ReceiptInfo.ProductId == 1237305486 then
+		Player.leaderstats.Emeralds.Value = Player.leaderstats.Emeralds.Value + 250000000
+	end
+	if ReceiptInfo.ProductId == 1260967254 then
+		local Clone = game.ReplicatedStorage.Pets.PetFolderTemplate:Clone()
+		local MainType = Clone.Type.Value
+		local Type, TypeNumber = GetNextType(MainType)
+		local Settings = game.ReplicatedStorage.Pets.Models:FindFirstChild("Friendly Eternality.").Settings
+		Clone.PetID.Value = RandomID(Player)
+		Clone.Multiplier1.Value = Settings.Multiplier1.Value* (game.ReplicatedStorage.Pets.Settings.CraftMultiplier.Value ^ TypeNumber)
+		Clone.Multiplier2.Value = Settings.Multiplier2.Value* (game.ReplicatedStorage.Pets.Settings.CraftMultiplier.Value ^ TypeNumber)
+		Clone.Type.Value = "Normal"
+		Clone.Parent = Player.Pets
+		Clone.Name = "Demonic Owl"
+		UpdateStock(StockLeft - 1)
+		StockLeft = GetStock()
+		UpdateUi()
+		Player.SideStats.Spent.Value = Player.SideStats.Spent.Value +499
+		--local Signal = game.ServerStorage.Signals.BoughtLimited
+		--Signal:Fire(Player, "FriendlyEternality")
+	end
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+
+RS.RemoteEvents.EggOpened.OnServerInvoke = UnboxEgg
