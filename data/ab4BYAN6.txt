@@ -1,0 +1,222 @@
+PROGRAM = "
+_0P_1[,+-P$0psPD_c[D_9Xc[S_10*aP_P]_]_q]
+$$i ,(D P_0w1p X[X +-P_15&Pg1aw1 ,X-]p Pg1P_1&P_48a.p)
+"
+
+### Brainstack interpreter ###
+$input = ""
+$input_pos = 0
+def get_input(read_input)
+  if $input_pos == $input.size then
+    $input = read_input.() || ""
+    $input_pos = 0
+  end
+  if $input_pos < $input.size
+    result = $input[$input_pos].ord
+    $input_pos += 1
+  else
+    result = nil
+  end
+  return result
+end
+
+$mem = []
+$mem_pos = 0
+$mem_scroll = 0
+def in_mem()
+  if $mem_pos < 0
+    $mem = [nil]*(-$mem_pos) + $mem
+    $mem_scroll += $mem_pos
+    $mem_pos = 0
+  end
+  return $mem_pos
+end
+def get_mem()
+  in_mem()
+  return $mem[$mem_pos]
+end
+def get_mem_at(pos)
+  return $mem[pos + $mem_scroll]
+end
+def set_mem_at(pos, value)
+  return $mem[pos + $mem_scroll] = value
+end
+def set_mem(value)
+  in_mem()
+  $mem[$mem_pos] = value
+end
+def ofs_mem(ofs)
+  $mem_pos += ofs
+end
+def get_mem_pos()
+  return $mem_pos + $mem_scroll
+end
+def set_mem_pos(pos)
+  $mem_pos = pos - $mem_scroll
+end
+
+$stack = []
+def push(value)
+  $stack.push(value)
+end
+def pop()
+  throw :StackEmpty if $stack.size == 0
+  return $stack.pop
+end
+def peek()
+  return $stack.last
+end
+
+def get_end(prog, ip, elseSymbol)
+  nesting = 1
+  ip += 1
+  while ip < prog.size && nesting > 0
+    if "[(".include?(prog[ip])
+      nesting += 1
+    elsif "])".include?(prog[ip]) || (prog[ip] == elseSymbol && nesting == 1)
+      nesting -= 1
+    end
+    ip += 1
+  end
+  ip -= 1
+  return ip
+end
+def get_start(prog, ip)
+  nesting = 1
+  ip -= 1
+  while ip > 0 && nesting > 0
+    if "[(".include?(prog[ip])
+      nesting -= 1
+    elsif "])".include?(prog[ip])
+      nesting += 1
+    end
+    ip -= 1
+  end
+  ip += 1
+end
+
+def brainstack(prog, read_input)
+  ip = 0
+  litteral = false
+  comment = false
+  last_char_input = nil
+  while ip < prog.size && ip >= 0
+    instr = prog[ip]
+
+    if comment
+      comment = false if instr == "\n"
+      ip += 1
+      next
+    end
+
+    if litteral
+      if instr == "\"" then
+        litteral = false
+      else
+        set_mem(instr.ord)
+        ofs_mem(1)
+      end
+      ip += 1
+      next
+    end
+
+    if instr <= " "
+      ip += 1
+      next
+    end
+
+    case instr
+    when "0".."9"
+      set_mem((get_mem() || 0)*10 + (instr.ord - 48))
+    when "#"
+      comment = true
+    when "\""
+      litteral = true
+    when "$"
+      ip += 1
+      push(prog[ip].ord)
+    when "_"; set_mem(nil)
+    when "+"; set_mem((get_mem() || 0)+1)
+    when "-"; set_mem((get_mem() || 0)-1)
+    when "n"; set_mem(-get_mem())
+    when "!"; set_mem(-(get_mem() || 0)-1)
+    when "c"; set_mem((pop() || 0) - (get_mem() || 0) >= 0 ? -1 : 0)
+    when "q"; set_mem((pop() || 0) - (get_mem() || 0) == 0 ? -1 : 0)
+    when "a"; set_mem(pop() + get_mem())
+    when "s"; set_mem(pop() - get_mem())
+    when "%"; set_mem(pop() % get_mem())
+    when "/"; set_mem(pop() / get_mem())
+    when "*"; set_mem(pop() * get_mem())
+    when "|"; set_mem(pop() | get_mem())
+    when "&"; set_mem(pop() & get_mem())
+    when "<"; ofs_mem(-1)
+    when ">"; ofs_mem(1)
+    when "f";
+      ofs_mem(-1)
+      while !get_mem().nil?
+        ofs_mem(-1)
+      end
+      ofs_mem(+1)
+    when "e"
+      while !get_mem().nil?
+        ofs_mem(1)
+      end
+    when "I"; push(get_mem_pos())
+    when "i"; set_mem_pos(pop())
+    when "g"
+      ip += 1
+      set_mem(get_mem_at(prog[ip].to_i(36)))
+    when "w"
+      ip += 1
+      set_mem_at(prog[ip].to_i(36), get_mem())
+    when "P"; push(get_mem())
+    when "p"; set_mem(pop())
+    when "D"; push(peek())
+    when "X"
+      val = pop()
+      push(get_mem())
+      set_mem(val)
+    when "S"
+      val1 = pop()
+      val2 = pop()
+      push(val1)
+      push(val2)
+    when ","
+      last_char_input = get_input(read_input)
+      set_mem(last_char_input)
+    when ";"; set_mem(last_char_input)
+    when "."
+      c = get_mem()
+      $> << (c.nil? ? "\n" : c.chr)
+    when "["
+      if (get_mem() || 0) == 0
+        ip = get_end(prog, ip, ":")
+      end
+    when ":"
+      ip = get_end(prog, ip, "")
+    when "]"
+      if (get_mem() || 0) != 0
+        ip = get_start(prog, ip)
+      end
+    when "("
+      if get_mem().nil?
+        ip = get_end(prog, ip, ":")
+      end
+    when ")"
+      if !get_mem().nil?
+        ip = get_start(prog, ip)
+      end
+    when "@"; break
+    when "r"; ip = pop()
+    when "^"
+      fun = "@#{pop().chr}"
+      push(ip)
+      fun_ip = prog.index("#{fun} ")
+      throw "Function #{fun} not found" if fun_ip.nil?
+      ip = fun_ip + fun.size - 1
+    end
+    ip += 1
+  end
+end
+
+brainstack(PROGRAM, ->{ gets })
