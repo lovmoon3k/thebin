@@ -1,0 +1,50 @@
+import time
+
+from bs4 import BeautifulSoup
+
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+# web driver manager: https://github.com/SergeyPirogov/webdriver_manager
+# will help us automatically download the web driver binaries
+# then we can use `Service` to manage the web driver's state.
+from webdriver_manager.chrome import ChromeDriverManager
+
+
+def extract_data(row):
+    name = row.find("h3").text.strip("\n").strip()
+    capital = row.find("span", attrs={"class": "country-capital"}).text
+    population = row.find("span", attrs={"class": "country-population"}).text
+    area = row.find("span", attrs={"class": "country-area"}).text
+
+    return {"name": name, "capital": capital, 'population': population, "area (km sq)": area}
+
+# start the timer
+start = time.time()
+
+options = webdriver.ChromeOptions()
+options.headless = True
+# this returns the path web driver downloaded
+chrome_path = ChromeDriverManager().install()
+# define the chrome service and pass it to the driver instance
+chrome_service = Service(chrome_path)
+driver = webdriver.Chrome(service=chrome_service, options=options)
+
+url = "https://www.scrapethissite.com/pages/"
+
+driver.get(url)
+# get the first page and click to the its link
+first_page = driver.find_element(By.CSS_SELECTOR, "h3.page-title a")
+first_page.click()
+# get the data div and extract the data using beautifulsoup
+countries = driver.find_element(By.CSS_SELECTOR, "section#countries div.container").get_attribute("innerHTML")
+soup = BeautifulSoup(countries, "html.parser")
+countries = soup.find_all("div", {"class": "country"})
+# process the extracted data
+data = list(map(extract_data, countries))
+
+end = time.time()
+
+print(f"The whole script took: {end-start:.4f}")
+
+driver.quit()
