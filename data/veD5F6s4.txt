@@ -1,0 +1,26 @@
+
+class Application(HTTPEndpoint):
+
+    async def get(self, request: Request) -> JSONResponse:
+
+        query = await async_session().execute(
+            select(Applications).options()
+        )
+        json_data = Serializer(
+            data=query.scalars().all(),
+        )
+        return JSONResponse(json_data.data)
+
+    async def delete(self, request: Request) -> JSONResponse:
+        application_id = request.path_params.get("id")
+        if application_id:
+            query = Applications.__table__.update().where(Applications.id==application_id).values(
+                state=Applications.ApplicationStateType.BLOCKED.name,
+                deleted=True,
+            )
+            query.execution_options(synchronize_session="fetch")
+            await async_session().execute(query)
+            await async_session().commit()
+            await async_session().close()
+
+        return JSONResponse(HTTP_204_NO_CONTENT)
