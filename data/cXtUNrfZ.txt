@@ -1,0 +1,82 @@
+const Users = mongoose.model('users', new mongoose.Schema({
+  username: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  color:{
+    type: String,
+    required: true,
+    unique: true
+  },
+}, { timestamps: true }));
+
+const main = async (req, res, callback, {
+  internalCode = -1,
+  joiSchema = null
+}) => {
+  const params = { ...req.body, ...req.query };
+  let data;
+  try {
+    let value = {};
+    if (joiSchema) {
+      const { error: joiError, value: joiValue = {} } = await joiSchema.validate(params);
+      if (joiError) {
+        console.error(joiError);
+        throw `Joi error: ${JSON.stringify(joiError)}.`;
+      } else {
+        value = { ...joiValue };
+      }
+    }
+    await connectDB();
+    data = await callback(value);
+  } catch (err) {
+    const { code, index, keyPattern, keyValue, message } = err;
+    data = { code, index, keyPattern, keyValue, message };
+    console.error('ERROR', data);
+  } finally {
+    res.json(data);
+  }
+}
+
+const joiPaginationSchema = Joi.object({
+  skip: Joi.number().default(0),
+  limit: Joi.number().default(PAGE_LIMIT)
+});
+
+const joiSchemaFromModel = model => {
+  const obj = {};
+  const schemaObj = model.schema.obj;
+  Object.keys(schemaObj).forEach(field => {
+    const fieldType = schemaObj[field].type;
+    if (fieldType === String) {
+      obj[field] = Joi.string();
+    }
+  });
+  return Joi.object(obj);
+}
+
+const joiModelSchema = model => joiPaginationSchema.concat(joiSchemaFromModel(model));
+
+const paginationAggregation = ({
+  skip: $skip,
+  limit: $limit
+}) => [
+  { $skip },
+  { $limit }
+];
+
+const handlerFromModel = model => async (req, res) => {
+  const joiSchema = joiModelSchema(model);
+  main(req, res, async (values = {}) => {
+    const { skip, limit } = values;
+    const $match = {};
+    const aggregation = [
+      { $match },
+      ...paginationAggregation({ skip, limit })
+    ];
+    return await model.aggregate(aggregation);
+  }, { joiSchema, internalCode: 52 });
+}
+
+app.get('/users', handlerFromModel(Users));
