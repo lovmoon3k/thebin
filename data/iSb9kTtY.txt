@@ -1,0 +1,28 @@
+private fun handleSignInResult(result: AuthSignInResult) {
+        isRegistration = false
+        val signConfirmation = when(result.nextStep.signInStep) {
+            AuthSignInStep.CONFIRM_SIGN_IN_WITH_NEW_PASSWORD -> SignConfirmation(SignType.SIGNIN, AuthSignInStep.CONFIRM_SIGN_IN_WITH_NEW_PASSWORD.name)
+            AuthSignInStep.RESET_PASSWORD -> SignConfirmation(SignType.SIGNIN, AuthSignInStep.RESET_PASSWORD.name)
+            AuthSignInStep.DONE -> {
+                try {
+                    refreshToken()
+                    Settings.identityId = getAwsClient().identityId
+                    val activeOrganization = getAwsClient().userAttributes.getValue("custom:active_organization")
+                    val username = getAwsClient().username
+                    Settings.userName = if (!username.isNullOrBlank()) username else ""
+                    contactInfo = "$username / $activeOrganization"
+                    LogUtil.setLogHeaderValues(activeOrganization)
+                    LogUtil.writeLogsI("Successful login", TAG)
+                    setLoadingState(LoadingState.LOADED)
+                    loginSuccess.postValue(true)
+                    return
+                } catch (e: Throwable) {
+                    handleSignInError(e)
+                    return
+                }
+
+            }
+            else -> return
+        }
+        updateSignConfirmation(signConfirmation)
+    }
