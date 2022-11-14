@@ -1,0 +1,82 @@
+async function getRequest(url) {
+    const response = await fetch(url);
+    return await response.json();
+}
+
+function findByShopName(shopList, shopName) {
+    return shopList.filter((shop) => shop.title.toLowerCase()
+        .includes(shopName.toLowerCase()));
+}
+
+function findByGeographicArea(shopList, geographicArea) {
+    return shopList.filter((shop) => shop.geographicArea.toLowerCase() === geographicArea.toLowerCase());
+}
+
+function getItemPriceByShop(shop, itemName) {
+    const items = shop?.products.filter(
+        (product) => product.name.toLowerCase().includes(itemName.toLowerCase())
+    );
+
+    let minPrice = items[0];
+    for (let item of items) {
+        if (item.price < minPrice.price) {
+            minPrice = item;
+        }
+    }
+
+    return minPrice;
+}
+
+function bestPriceByGeographicArea(shopList, itemName) {
+    const geographicDict = {};
+    for (let shop of shopList) {
+        if (!geographicDict[shop.geographicArea])
+            geographicDict[shop.geographicArea] = [];
+            
+        geographicDict[shop.geographicArea].push(shop);
+    }
+
+    for (let geographicArea of Object.keys(geographicDict)) {
+        geographicDict[geographicArea] = sortShopsByItemNamePrice(geographicDict[geographicArea], itemName);
+        geographicDict[geographicArea] = geographicDict[geographicArea]?.[0];
+    }
+
+    return geographicDict;
+}
+
+function sortShopsByItemNamePrice(shops, itemName) {
+    const comparator = (shop1, shop2) => {
+        return parseFloat(getItemPriceByShop(shop1, itemName)?.price ?? Infinity) -
+            parseFloat(getItemPriceByShop(shop2, itemName)?.price ?? Infinity)
+    }
+
+    return shops.sort(comparator);
+}
+
+async function main() {
+    const shops = await getRequest("http://localhost:3000/api");
+    // console.log(shops);
+
+    // console.log(
+    //     "Shop name (Bode, Miller and Nitzsche):",
+    //     findByShopName(shops, "SchoWAlter")
+    // );
+
+    // console.log(
+    //     "Shop in Penne:",
+    //     findByGeographicArea(shops, "PENNE")
+    // );
+
+    console.log(
+        "Shop with the lowest price categorized by geolocation",
+        bestPriceByGeographicArea(shops, "Pizza")
+    );
+
+    const pizzaPriceShops = shops.map(shop => {
+        return { ...shop, FOUND_PIZZA_PRICE: getItemPriceByShop(shop, "Pizza")?.price }
+    });
+
+    console.log("pizzaPriceShops", pizzaPriceShops);
+}
+
+main();
