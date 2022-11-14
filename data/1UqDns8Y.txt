@@ -1,0 +1,372 @@
+MATRIX.H
+
+#pragma once
+#include<cmath>
+#include<vector>
+#include<string>
+#include <iostream>
+using namespace std;
+
+/*
+*		Problem list:
+*	1. Необходимо избавиться от передачи аргумента при счёте Вектора и Матрицы
+*  2. Все векторы перевести под класс векторов !!!
+*/
+
+namespace solution
+{
+	vector<double> operator + (vector<double> a, vector<double> b);			// Сумма векторов (++)
+	vector<double> operator - (vector<double> a, vector<double> b);			// Разность векторов (++)
+	double ScalarMult(vector<double> a, vector<double> b);						// Скалярное умножение векторов (++)
+	double Norma(vector<double> a);														// Норма вектора (++)
+	void InputValues(unsigned int &N, unsigned int &maxIter, double &eps);	// Ввод вспомогательных значений (++)
+
+	class Matrix
+	{
+	public:
+		friend vector<double> operator * (Matrix A, vector<double> b);			// Умножение матрицы на вектор (+)
+		void InputMatrixValues(unsigned int N);										// Функция для ввода значений (++)
+		Matrix();																				// Конструктор по умолчанию (++)
+		Matrix(																					// Конструктор по факту (++)
+			vector<uint8_t> ig,
+			vector<uint8_t> jg,
+			vector<double> ggl,
+			vector<double> ggu,
+			vector<double> di,
+			unsigned int N
+		);
+		~Matrix();																				// Деструктор (++)
+
+	private:
+		vector<uint8_t> ig, jg;																// Массивы для определения строк и столбцов матрицы
+		vector<double> ggl, ggu, di;														// Массивы для хранения элементов матрицы
+		unsigned int N;																		// Размер матрицы
+	};
+
+	class Vector
+	{
+	public:
+		void InputVectorValues(unsigned int N);										// Дружественная функция для ввода значений (++)
+		Vector();																				// Конструктор по умолчанию (++)
+		Vector(																					// Коструктор по факту (++)
+			vector<double> b,
+			unsigned int N
+		);
+		~Vector();																				// Деструктор (++)
+		double NormaVec();																	// Норма вектора при СЛАУ (++)
+	private:
+		unsigned int N;																		// Размер вектора
+		vector<double> b;																		// Элементы вектора правой части
+		//double ScalarMultipl(Vector b);
+	};
+	vector<double> CGM(Matrix A, Vector b,												// Метод сопряженных градиентов (+)
+		unsigned int maxIter, double eps);
+}
+
+
+
+
+
+
+ADDITIONAL.CPP
+
+#include"Matrix.h"
+#include<fstream>
+
+namespace solution
+{
+
+	/******************************************
+	*					ВВОД ЗНАЧЕНИЙ
+	******************************************/
+	void InputValues(unsigned int &N, unsigned int &maxIter, double &eps)
+	{
+		try
+		{
+			ifstream fin("kuslau.txt");
+			fin >> N >> maxIter >> eps;
+			fin.close();
+		}
+		catch (ios::failure& e)
+		{
+			cerr << e.what();
+		}
+	}
+
+	void Vector::InputVectorValues(unsigned int N)
+	{
+		try
+		{
+			ifstream fin("pr.txt");
+			b.resize(N);
+			for (size_t i(0); i < N; i++)
+				fin >> b[i];
+			fin.close();
+			this->N = N;
+		}
+		catch (ios::failure& e)
+		{
+			cerr << e.what();
+		}
+	}
+
+	void Matrix::InputMatrixValues(unsigned int N)
+	{
+		try
+		{
+			// Считываем диагональные элементы
+			ifstream fin("di.txt");
+			di.resize(N);
+			for (size_t i(0); i < N; i++)
+				fin >> di[i];
+			fin.close();
+
+			/* ACHTUNG КОСТЫЛЬ !!! */
+			// Считываем указатели начала строк
+			double elem;
+			fin.open("ig.txt");
+			fin >> elem;
+			ig.push_back(elem);
+			while (fin.get() != EOF)
+			{
+				fin >> elem;
+				ig.push_back(elem);
+			}
+			fin.close();
+
+			/* ACHTUNG КОСТЫЛЬ !!! */
+			// Считываем указатель на столбцы
+			fin.open("jg.txt");
+			fin >> elem;
+			jg.push_back(elem);
+			while (fin.get() != EOF)
+			{
+				fin >> elem;
+				jg.push_back(elem);
+			}
+			fin.close();
+
+			/* ACHTUNG КОСТЫЛЬ !!! */
+			// Считываем нижний треугольник
+			fin.open("ggl.txt");
+			fin >> elem;
+			ggl.push_back(elem);
+			while (fin.get() != EOF)
+			{
+				fin >> elem;
+				ggl.push_back(elem);
+			}
+			fin.close();
+			this->N = N;
+		}
+		catch (ios::failure e)
+		{
+			std::cerr << e.what();
+		}
+	}
+
+	/******************************************
+	*					МЕТОДЫ ВЕКТОРА
+	******************************************/
+
+	Vector::Vector()
+	{
+		cout << "Вектор создан по умолчанию" << endl;
+	}
+
+	Vector::Vector(vector<double> b, unsigned int N)
+	{
+		this->b = b;
+		this->N = N;
+	}
+
+	Vector::~Vector()
+	{
+		cout << "Вектор удален" << endl;
+	}
+
+	double Vector::NormaVec()
+	{
+		return sqrt(ScalarMult(b, b));
+	}
+
+	/******************************************
+	*					МЕТОДЫ МАТРИЦЫ
+	******************************************/
+
+	Matrix::Matrix()
+	{
+		cout << "Матрица создана по умолчанию" << endl;
+	}
+
+	Matrix::Matrix(vector<uint8_t> ig, vector<uint8_t> jg, vector<double> ggl, vector<double> ggu, vector<double> di, unsigned int N)
+	{
+		this->ig = ig;
+		this->jg = jg;
+		this->ggl = ggl;
+		this->ggu = ggu;
+		this->di = di;
+		this->N = N;
+	}
+
+	Matrix::~Matrix()
+	{
+		cout << "Матрица удалена" << endl;
+	}
+
+	/******************************************
+	*					ПРОЧИЕ ФУНКЦИИ
+	******************************************/
+
+	double ScalarMult(vector<double> a, vector<double> b)
+	{
+		if (a.size() != b.size())
+		{
+			cout << "Невозможно выполнить скалярное произведение";
+			exit(EXIT_FAILURE);
+		}
+
+		double result(0);
+		for (size_t i(0); i < a.size(); i++)
+			result += a[i] * b[i];
+
+		return result;
+	}
+
+	vector<double> operator + (vector<double> a, vector<double> b)
+	{
+		//vector<double> result;
+		if (a.size() != b.size())
+		{
+			cout << "Невозможно найти сумму векторов";
+			exit(EXIT_FAILURE);
+		}
+		for (size_t i(0); i < a.size(); i++)
+			a[i] += b[i];
+		return a;
+	}
+
+	vector<double> operator - (vector<double> a, vector<double> b)
+	{
+		//vector<double> result;
+		if (a.size() != b.size())
+		{
+			cout << "Невозможно найти разность векторов";
+			exit(EXIT_FAILURE);
+		}
+		for (size_t i(0); i < a.size(); i++)
+			a[i] -= b[i];
+
+		return a;
+	}
+
+	vector<double> operator * (Matrix A, vector<double> b)
+	{
+		vector<double> result;
+		result.resize(A.N);
+		//for (size_t i(0); i < A.N; i++)
+		//	result[i] = A.di[i] * b[i];
+
+		for (size_t i(0); i < A.N; i++)
+		{
+			result[i] = A.di[i] * b[i];
+			for (size_t j(A.ig[i]); j < A.ig[i + 1] - 1; j++)
+			{
+				result[i] += A.ggl[j] * b[A.jg[j]];
+				result[A.jg[j]] += A.ggu[j] * b[i];
+			}
+		}
+		return result;
+	}
+
+	vector<double> CGM(Matrix A, Vector b, unsigned int maxIter, double eps)
+	{
+		return vector<double>();
+	}
+
+	double Norma(vector<double> a)
+	{
+		return sqrt(ScalarMult(a, a));
+	}
+}
+
+
+
+
+
+
+source.cpp
+
+#include"Matrix.h"
+
+using namespace solution;
+using namespace std;
+
+void ShowMenu()
+{
+   cout << endl << "0. TEST" << endl
+      << "1. Считать данные из файлов" << endl
+      << "2. Запустить метод сопряженных градиентов" << endl
+      << "3. Запустить локально-оптимальную схему" << endl
+      << "Выход: любой другой символ" << endl
+      << ">> ";
+}
+
+int main()
+{
+   setlocale(LC_ALL, "Russian");
+   size_t command;
+   unsigned int maxIter, N;
+   double eps;
+   Matrix A;
+   Matrix A1(vector<uint8_t> {0, 0, 1, 1, 3, 4, 6},
+      vector<uint8_t> {0, 0, 1, 3, 1, 2},
+      vector<double> {4., 10., 11., 14., 16., 17.},
+      vector<double> {2., 3., 6., 13., 7., 9.},
+      vector<double> {1., 5., 8., 12., 15., 19.},
+      6
+   );
+   Vector b;
+   ShowMenu();
+
+   while (cin >> command)
+   {
+      switch (command)
+      {
+      case 0:
+      {
+         vector<double> res, b1{ 1.,1., 1., 1., 1., 1. };
+         res = A1 * b1;
+         for (int i = 0; i < 6; i++)
+            cout << res[i] << " ";
+         cout << endl;
+         break;
+      }
+
+      case 1:
+      {
+         InputValues(N, maxIter, eps);
+         A.InputMatrixValues(N);
+         b.InputVectorValues(N);
+         cout << N << " " << maxIter << " " << eps << endl;
+         break;
+      }
+      case 2:
+      {
+         break;
+      }
+      case 3:
+      {
+         break;
+      }
+      default:
+      {
+         cout << "Неизвестная команда" << endl;
+         break;
+      }
+      }
+      cout << ">> ";
+   }
+   return 0;
+}
+
