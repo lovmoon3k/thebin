@@ -1,0 +1,110 @@
+<?php
+
+namespace AlexeyGfi\B24InWebhooks;
+
+use Bitrix\Main\ORM\Entity;
+use Bitrix\Main\ORM\Fields\BooleanField;
+use Bitrix\Main\ORM\Fields\IntegerField;
+use Bitrix\Main\ORM\Fields\Relations\Reference;
+use Bitrix\Main\ORM\Fields\StringField;
+use Bitrix\Main\ORM\Query\Join;
+use Bitrix\Main\ORM\Query\Query;
+
+class WebformsConnector
+{
+    protected static $entityAnswers;
+    protected static $entityFields;
+
+    public static function onFormResult($webFormId, $resultId)
+    {
+        // Реакция на событие
+        // 'form', 'onAfterResultAdd'
+
+        // Получаем соответствия полей веб-формы полям рест-а
+
+        // Получаем значения в виде (символьный код - значение)
+        $values = self::getResultAnswers($webFormId, $resultId);
+
+        // Обрабатываем, пинаем рест
+    }
+
+    public static function getResultAnswers($webFormId, $resultId)
+    {
+        $result = [];
+
+        $entity = self::getEntityAnswers();
+        $res = (new Query($entity))
+            ->where('FORM_ID', $webFormId)
+            ->where('RESULT_ID', $resultId)
+            ->setSelect([
+                'FIELD_CODE' => 'FIELD.SID',
+                'FIELD_VALUE' => 'USER_TEXT'
+            ])
+            ->exec();
+
+        while ($arr = $res->fetch()) {
+            $result[$arr['FIELD_CODE']] = $arr['FIELD_VALUE'];
+        }
+
+        return $result;
+    }
+
+    public static function getEntityAnswers()
+    {
+        if (!self::$entityAnswers) {
+            $entityFields = self::getEntityFields();
+
+            self::$entityAnswers = Entity::compileEntity(
+                'FakeFormAnswers',
+                [
+                    (new IntegerField('ID'))
+                        ->configureAutocomplete(true)
+                        ->configurePrimary(true),
+                    (new IntegerField('RESULT_ID')),
+                    (new IntegerField('FORM_ID')),
+                    (new IntegerField('FIELD_ID')),
+                    (new StringField('USER_TEXT')),
+                    (new Reference('FIELD',
+                        $entityFields,
+                        Join::on(
+                            'this.FIELD_ID', 'ref.ID'
+                        ))
+                    )->configureJoinType(Join::TYPE_LEFT),
+                ],
+                [
+                    'namespace' => 'AlexeyGfi',
+                    'table_name' => 'b_form_result_answer'
+                ]
+            );
+        }
+
+        return self::$entityAnswers;
+
+    }
+
+    protected static function getEntityFields()
+    {
+        if (!self::$entityFields) {
+            self::$entityFields = Entity::compileEntity(
+                'FakeFormFields',
+                [
+                    (new IntegerField('ID'))
+                        ->configureAutocomplete(true)
+                        ->configurePrimary(true),
+                    (new IntegerField('FORM_ID')),
+                    (new BooleanField('ACTIVE', [
+                        'values' => ['Y', 'N']
+                    ])),
+                    (new StringField('TITLE')),
+                    (new StringField('SID')),
+                ],
+                [
+                    'namespace' => 'AlexeyGfi',
+                    'table_name' => 'b_form_field'
+                ]
+            );
+        }
+
+        return self::$entityFields;
+    }
+}
