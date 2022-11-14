@@ -1,0 +1,150 @@
+<?php
+
+/*
+
+Version history
+
+1     - Initial release.
+2     - Added option to use the official domain name instead of IPs and retry if
+        a timeout occurs.
+2.1   - Added more master servers.
+2.1.1 - Fixed a bug, program didn't terminate if all master servers time out.
+2.1.2 - Removed a now redundant variable.
+2.2   - Seeding for long server lists.
+      - Removed the domain name because it's often better to try different
+        servers.
+2.2.1 - Bug fix: Timeout showed wrong master server IP.
+      - Bug fix: Check whether the new seed starts with a duplicate or not.
+      - Bug fix: Don't close socket twice.
+2.3   - Retry queries on timeout if the first query was successful.
+2.3.1 - Reading the whole address again if it starts with a zero.
+      - Increased timeout to avoid a communication issue.
+      - Removed maximum number of timeouts for testing.
+2.4   - Again using hl1master.steampowered.com because IPs change often.
+      - Endless retries because this server often times out.
+2.5   - Trying following ports on timeout or if the response wasn't correct.
+2.5.3 - Cosmetic changes (defines, variable name).
+2.5.4 - Code optimisation.
+2.6   - Repeat until list isn't empty.
+*/
+
+// Currently uses ports 27011-27013 and 27015.
+$master_servers = array("hl2master.steampowered.com");
+
+define("MIN_PORT", 27011); // Range of port numbers which the master servers
+define("MAX_PORT", 27015); // potentially use.
+define("FILTER", '\gamedir\tfc'); // game = Team Fortress Classic
+define("REGION", "\xFF"); // region = world
+define("TIMEOUT", 2.0); // 2s timeout
+
+function query_timeout($socket, $seed)
+{
+   echo "Sending query to master server.\n";
+   stream_set_timeout($socket, TIMEOUT);
+   if (!fwrite($socket, "1".REGION."$seed\0".FILTER."\0"))
+   {
+      fclose($socket);
+      exit("fwrite error\n");
+   }
+
+   echo "Reading response header.\n";
+   stream_set_timeout($socket, TIMEOUT);
+   $s = bin2hex(fread($socket, 6));
+   $info = stream_get_meta_data($socket);
+   if ($info['timed_out'])
+      echo "Master server timed out.\n";
+   else
+   {
+      if ($s !== "ffffffff660a")
+      {
+         fclose($socket);
+         if ($s == "")
+            echo "Expected ff ff ff ff 66 0a (hex) but got nothing.\n";
+         else
+            echo "Expected ff ff ff ff 66 0a (hex) but got $s.\n";
+         return True;
+      }
+   }
+   return $info['timed_out'];
+}
+
+// Connect to master server, return timeout info.
+// The socket is passed as reference and thus returned as well.
+
+function master_server_timeout(&$socket, $ip)
+{
+   $port = MIN_PORT;
+   do {
+      echo "Connecting to master server \"$ip:$port\".\n";
+      $socket = fsockopen("udp://$ip", $port, $errno, $errstr, TIMEOUT);
+      if (!$socket) exit("Error $errno : $errstr \n");
+      $timeout = query_timeout($socket, "0.0.0.0:0");
+      $port = $port + 1;
+   } while ($timeout && ($port <= MAX_PORT));
+   return $timeout;
+}
+
+// Read list with server addresses (IP:port).
+
+function list_not_empty($socket)
+	{
+	$count = 0;
+	$old_a1 = 0; $old_a2 = 0; $old_a3 = 0; $old_a4 = 0; $old_a5 = 0;
+	$max_timeouts = 6;
+	do
+	{
+	   stream_set_timeout($socket, TIMEOUT);
+	   $a1 = ord(fread($socket,1));
+	   $info = stream_get_meta_data($socket);
+	   if ($info['timed_out'])
+	   {
+		  $seed = "$old_a1.$old_a2.$old_a3.$old_a4:$old_a5";
+		  echo "Seed: $seed\n";
+		  while (query_timeout($socket, $seed));
+		  stream_set_timeout($socket, TIMEOUT);
+		  $a1 = ord(fread($socket,1));
+		  $info = stream_get_meta_data($socket);
+		  if ($info['timed_out'])
+		  {
+			 echo "Timeout occured.\n";
+			 break;
+		  }
+		  $check_for_duplicate = 1;
+	   }
+	   else
+		  $check_for_duplicate = 0;
+
+	   // Let's always read the rest of the address (even if it starts with 0) in
+	   // order to empty the master server's write buffer. This may avoid subsequent
+	   // problems, but I'm paranoid here.
+	   $a2 = ord(fread($socket,1));
+	   $a3 = ord(fread($socket,1));
+	   $a4 = ord(fread($socket,1));
+	   $a5 = ord(fread($socket,1))*256 + ord(fread($socket,1));
+
+	   if ($a1 != 0)
+	   {
+		  if (($check_for_duplicate==0)||($a1!=$old_a1)||($a2!=$old_a2)||
+		  ($a3!=$old_a3)||($a4!=$old_a4)||($a5!=$old_a5))
+		  {
+			 $count++;
+			 echo "$count $a1.$a2.$a3.$a4:$a5\n";
+		  }
+		  $old_a1 = $a1; $old_a2 = $a2; $old_a3 = $a3; $old_a4 = $a4; $old_a5 = $a5;
+	   }
+	} while ($a1 != 0);
+	fclose($socket);
+
+	if ($count != 0) echo "Retrieved $count server addresses.\n";
+	return ($count != 0);
+}
+
+// Try all master servers until we find one that isn't timing out.
+
+foreach ($master_servers as $ip)
+	if ($timeout=master_server_timeout($socket, $ip))
+		fclose($socket);
+	else
+		if (list_not_empty($socket)) break;
+
+?>

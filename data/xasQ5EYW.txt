@@ -1,0 +1,72 @@
+int box_check(int x, int y, int z, int nx, int ny, int nz)
+{
+	return
+		(0 <= x) && (x < nx) &&
+		(0 <= y) && (y < ny) &&
+		(0 <= z) && (z < nz);
+}
+
+void diffconv3d_mx2(int nx, int ny, int nz, double p, double q, double r, int* n, int** ia, int** ja, double** a)
+{
+	int x, y, z, cp, cr, i, nnz, nrow;
+
+	// output:
+	int* irow, * icol;
+	double* data;
+
+	// offsets:
+	int xof[7] = { 0, 0, -1, 0, 1, 0, 0 };
+	int yof[7] = { 0, -1, 0, 0, 0, 1, 0 };
+	int zof[7] = { -1, 0, 0, 0, 0, 0, 1 };
+	int crof[7] = { -nx * ny, -nx, -1, 0, 1, nx, nx * ny };
+	double c[7];
+
+	// mx coeffs (exponential scheme):
+	{
+		c[0] = -exp(0.5 * r / ((double)nz + 1));
+		c[1] = -exp(0.5 * q / ((double)ny + 1));
+		c[2] = -exp(0.5 * p / ((double)nx + 1));
+		c[4] = -exp(-0.5 * p / ((double)nx + 1));
+		c[5] = -exp(-0.5 * q / ((double)ny + 1));
+		c[6] = -exp(-0.5 * r / ((double)nz + 1));
+
+		c[3] = -(c[0] + c[1] + c[2] + c[4] + c[5] + c[6]);
+	}
+
+	// alloc arrays:
+	{
+		nrow = nx * ny * nz;
+		nnz = 7 * nx * ny * nz - 2 * (nx * ny + ny * nz + nz * nx);
+
+		irow = new int[nrow + 1];
+		icol = new int[nnz];
+		data = new double[nnz];
+	}
+
+	// fill everything:
+	cp = 0;
+
+	for (z = 0; z < nz; z++)
+		for (y = 0; y < ny; y++)
+			for (x = 0; x < nx; x++)
+			{
+				cr = x + y * nx + z * nx * ny;
+
+				for (i = 0; i < 7; i++)
+					if (box_check(x + xof[i], y + yof[i], z + zof[i], nx, ny, nz))
+					{
+						icol[cp] = cr + crof[i];
+						data[cp++] = c[i];
+					}
+
+				irow[cr + 1] = cp;
+			}
+
+	irow[0] = 0;
+
+	// voila.
+	if (n)  *n = nrow;
+	if (ia) *ia = irow; else delete[] irow;
+	if (ja) *ja = icol; else delete[] icol;
+	if (a)  *a = data; else delete[] data;
+}
