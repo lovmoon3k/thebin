@@ -1,0 +1,132 @@
+# based on https://sites.math.washington.edu/~morrow/336_09/papers/Yevgeny.pdf
+import random
+
+
+def gcd(x, y):
+    while y:
+        x, y = y, x % y
+    return x
+
+
+# Jacobi symbol
+def j(a, b):
+    if a == 1:
+        return 1
+    if a % 2 == 0:
+        return j(a // 2, b) * (-1) ** (((b * b - 1) // 8) % 2)
+    else:
+        return j(b % a, a) * (-1) ** (((a - 1) * (b - 1) // 4) % 2)
+
+
+# check prime probability of number (fast probability prime check)
+def is_prime(b):
+    for i in range(100):
+        a = random.randint(1, b - 1)
+        if not (b % 2 == 1 and gcd(a, b) == 1 and (j(a, b) + b) % b == pow(a, (b - 1) // 2, b)):
+            return False
+    return True
+
+
+def random_prime(a, b):
+    n = random.randint(a, b)
+    while not is_prime(n):
+        n = random.randint(a, b)
+    return n
+
+
+def gen_primes(a, b) -> (int, int):
+    u = random_prime(a, b)
+    v = random_prime(a, b)
+    return u, v
+
+
+def egcd(a, b):
+    if a == 0:
+        return b, 0, 1
+    else:
+        g, y, x = egcd(b % a, a)
+        return g, x - (b // a) * y, y
+
+
+def mod_inv(a, m):
+    g, x, y = egcd(a, m)
+    if g != 1:
+        raise Exception('modular inverse does not exist')
+    else:
+        return (x + m) % m
+
+
+def gen_keys(key_size=128) -> ((int, int), (int, int)):
+    p, q = gen_primes(1 << (key_size // 2 - 1), (1 << key_size // 2) - 1)
+
+    n = p * q
+    phi = (p - 1) * (q - 1)
+    d = random_prime(max(p, q) + 1, n)
+    e = mod_inv(d, phi)  # can be replaced with pow(d, -1, phi)?
+    return (e, n), (d, n)
+
+
+# Smart people on the internet write that RSA is used only for encrypting numbers, not plaintexts
+# i.e. AES key
+def encrypt(number, public_key):
+    e, n = public_key
+    return pow(number, e, n)
+
+
+def decrypt(number, private_key):
+    d, n = private_key
+    return pow(number, d, n)
+
+
+import rsa.core as core
+import math
+
+
+def bytes2int(raw_bytes):
+    return int.from_bytes(raw_bytes, "big", signed=False)
+
+
+def int2bytes(number, fill_size=0):
+    bytes_required = max(1, math.ceil(number.bit_length() / 8))
+
+    if fill_size > 0:
+        return number.to_bytes(fill_size, "big")
+
+    return number.to_bytes(bytes_required, "big")
+
+
+def small_test(public, private, et):
+    e, n = public
+    d, n = private
+    message = bytes2int(et.encode())
+    enc_alg = core.encrypt_int(message, e, n)
+    enc_me = encrypt(message, public)
+    assert enc_me == enc_alg
+    dec_me = decrypt(enc_me, private)
+    dec_alc = core.decrypt_int(enc_alg, d, n)
+    assert dec_alc == dec_me and (int2bytes(dec_alc).decode() == et)
+
+
+def big_file_test(public, private, text):
+    chunks, chunk_size = len(text), 15
+    for i in [text[i:i + chunk_size] for i in range(0, chunks, chunk_size)]:
+        small_test(public, private, i)
+
+
+from hashlib import sha256
+
+
+def sign_test_document(public, private, document):
+    e, n = public
+    d, n = private
+    hash = bytes2int(sha256(document.encode()).hexdigest().encode())
+    assert encrypt(hash, private) == core.encrypt_int(hash, d, n)
+
+
+if __name__ == "__main__":
+    public, private = gen_keys(128)
+    small_test(public, private, 'hello world')
+    small_test(public, private, '🚩')
+    big_file_test(public, private, 'a' * 10000)
+    public, private = gen_keys(1024)
+    sign_test_document(public, private, 't')
