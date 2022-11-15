@@ -1,0 +1,111 @@
+https://imgur.com/a/lB2STYz imgur 
+
+GameController script
+```lua
+
+local function SetupGui()
+    health.Setup(base, gui.Info.Health)
+
+    --add health bar to mob
+    workspace.Mobs.ChildAdded:Connect(function(mob)
+        health.Setup(mob)
+    end)
+
+    info.Message.Changed:Connect(function(change)
+        gui.Info.Message.Text = change
+        if change == "" then
+            gui.Info.Message.Visible = false
+        else
+            gui.Info.Message.Visible = true
+            
+            if change == "VICTORY" or change == "GAME OVER" then
+                DisplayEndScreen(change)
+            end
+        end
+    end)
+
+    info.Wave.Changed:Connect(function(change)
+        gui.Info.Stats.Wave.Text = "Wave: " .. change
+    end)
+
+    local function UpdateAlmondWater()
+        gui.Stats.AlmondWater.Text = "Almond Water: " .. almondwater.Value
+    end
+    UpdateAlmondWater()
+    almondwater.Changed:Connect(UpdateAlmondWater)
+
+    gui.Stats.Title.Text = "Towers: " .. placedTowers .. "/" .. maxTowers
+    local playerData = getDataFunction:InvokeServer()
+    for i, tower in pairs(playerData.SelectedTowers) do
+        local tower = towers:FindFirstChild(tower)
+        if tower then
+            local button = gui.Towers.Template:Clone()
+            local config = tower:WaitForChild("Config")
+            button.Name = tower.Name
+            button.Image = config.Image.Texture
+            button.Visible = true
+            button.LayoutOrder = config.Price.Value
+            button.Price.Text = config.Price.Value 
+
+            button.Parent = gui.Towers
+
+            button.Activated:Connect(function()
+                local allowedToSpawn = requestTowerFunction:InvokeServer(tower.Name)
+                if allowedToSpawn then
+                    AddPlaceholderTower(tower.Name)
+                end
+            end)
+        end
+    end
+end
+
+SetupGui()
+```
+
+
+datastore script
+```lua
+
+local function LoadData(player)
+    local success = nil
+    local playerData = nil
+    local attempt = 1
+    
+    local info = workspace.Info
+    local survivorPoints = math.round(info.Wave.Value / 2)
+    if info.Message.Value == "VICTORY" then
+        survivorPoints = 125
+    end
+    data[player.UserId].SurvivorPoints = survivorPoints
+    
+    repeat
+        success, playerData = pcall(function()
+            return database:GetAsync(player.UserId)
+        end)
+        
+        attempt += 1
+        if not success then
+            warn(playerData)
+            task.wait()
+        end
+        
+    until success or attempt  == 3
+    
+    if success then
+        print("connection success")
+        if not playerData then
+            print("new player, giving defult data")
+            playerData = {
+                ["SurvivorPoints"] = 10,
+                ["SelectedTowers"] = {"Survivor"},
+                ["OwnedTowers"] = {"Survivor"}
+            }
+        end
+        data[player.UserId] = playerData
+    else
+        warn("unable to get data for player", player.UserId)
+        player:Kick("there was a problem retriving your data")
+    end
+    
+end
+```
