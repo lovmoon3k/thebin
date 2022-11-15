@@ -1,9 +1,5 @@
-[**JypxKEZe**](/data/JypxKEZe.txt) (15/11/22 - 17:25)- 1542 bytes
+[**d7sV4RUL**](/data/d7sV4RUL.txt) (15/11/22 - 17:35)- 1812 bytes
 
-[**R2G0F7v3**](/data/R2G0F7v3.txt) (15/11/22 - 17:25)- 1175 bytes
-
-[**R2G0F7v3**](/data/R2G0F7v3.txt) (15/11/22 - 17:25)- 1175 bytes
-
-**Total Datas**: 3200
+**Total Datas**: 3201
 
 **Total Size**: 17.77 MB / 17.8 MB
