@@ -1,0 +1,169 @@
+--[[
+	<String.lua>
+
+	Version: 1;
+
+	improved lua standard string library
+
+	author: Biola
+	date: 11/14/2022
+
+	No documentation yet.
+--]]
+
+local string = {};
+------------------
+setmetatable(string, {__index = _G.string, __metatable = _G.string});
+------------------
+	--!!! SOME FUNCTIONS MAY REQUIRE THESE TABLES !!!--
+
+local STRING_FUNCTIONAL_TABLE =
+{
+	["WFO"] = {
+		["*"] = function(x) return x:gsub("%s+",'') end,
+		["*sp"] = function(x) return x:gsub("\32+",' ') end,
+		["*tab"] = function(x) return x:gsub("\t+",'\t') end,
+		["*newl"] = function(x) return x:gsub("\n+", '\n') end,
+
+		["*ex"] = function(x) 
+			return x:gsub('(%s+)', function(x)
+				local f = {{string.gsub(x, '\32','')},{string.gsub(x, '\t','')},{string.gsub(x, '\n','')}}
+
+				return x:gsub('\32', '', (f[1][2] or 1) - 1):gsub('\t', '', (f[2][2] or 1) - 1):gsub('\n', '', (f[3][2] or 1) - 1)
+			end)
+		end,
+		["*spex"] = function(x) 
+			return x:gsub('(%s+)', function(x)
+				local _, n = string.gsub(x, '\32','')
+
+				return x:gsub('\32', '', (n or 1) - 1)
+			end)
+		end,
+		["*tabex"] = function(x) 
+			return x:gsub('(%s+)', function(x)
+				local _, n = string.gsub(x, '\t','')
+
+				return x:gsub('\t', '', (n or 1) - 1)
+			end)
+		end,
+		["*newlex"] = function(x) 
+			return x:gsub('(%s+)', function(x)
+				local _, n = string.gsub(x, '\n','')
+
+				return x:gsub('\n', '', (n or 1) - 1)
+			end)
+		end
+	}
+}
+------------------
+function string.contains(strconst, strc)
+	return not (string.match(strconst, strc:gsub("(.)", function(x) return '%' .. x end), nil) == nil);
+end
+function string.endswith(strconst, strc)
+	return not (string.match(strconst:reverse(), "^" .. strc:reverse():gsub("(.)", function(x) return '%' .. x end):gsub("%%b","b"), nil) == nil)
+end
+function string.startswith(strconst, strc)
+	return not (string.match(strconst, "^" .. strc:gsub("(.)", function(x) return '%' .. x end):gsub("%%b", 'b'), nil) == nil)
+end
+
+function string.lookright(strconst, position, strsize_max)
+	position = (position or 1);
+	strsize_max = (strsize_max or 1);
+
+	return string.sub(strconst, position + 1, (position + strsize_max));
+end
+function string.lookleft(strconst, position, strsize_max)
+	position = (position or 1);
+	strsize_max = (strsize_max or 1);
+
+	return string.sub(strconst:reverse(), position + 1, (position + strsize_max)):reverse()
+end
+
+function string.split(strconst, del)
+	if (del == '') then return {} end
+	del = del:gsub("(.)", function(a) return '%' .. a end)
+	if (del == "%b") then del = 'b' end;
+
+	local a = {};
+	a.delimiter = del;
+
+	for m in string.gmatch(strconst, ("([^%s]+)"):format(del)) do
+		a[#a + 1] = m;
+	end
+
+	return a;
+end
+function string.gsplit(strconst, del)
+	if (del == '') then return {} end
+	del = del:gsub("(.)", function(a) return '%' .. a end)
+	if (del == "%b") then del = 'b' end;
+
+	local a = {};
+	a.delimiter = del;
+
+	for m in string.gmatch(strconst, ("([^%s]+)"):format(del)) do
+		a[#a + 1] = m;
+	end
+
+	return function()
+		return a[1], table.remove(a, 1);
+	end
+end
+
+function string.isblank(strconst)
+	return (strconst:match("%s+") == strconst or strconst == '' or not strconst) or false
+end
+function string.default(strcmp_a, strcmp_b, def)
+	if (strcmp_a ~= strcmp_b and strcmp_b ~= false) then
+		if (type(def) == "function") then return def() end;
+		return def;
+	end
+	return strcmp_a;
+end
+
+function string.whitespace(strconst, m)
+	local f = STRING_FUNCTIONAL_TABLE["WFO"][(m or '*ex')](strconst);
+	return f;
+end
+
+function string.totable(strconst)
+	local a = {};
+	for i = 1, #strconst do
+		a[#a + 1] = string.sub(strconst, i, i);
+	end
+
+	return a;
+end
+function string.tabletostring(luaLTABLE, F)
+	local str = '';
+
+	for s, v in (F or ipairs)(luaLTABLE) do
+		if type(v) == "string" then
+			str = str .. v
+		end
+	end
+
+	return str;
+end
+
+function string.gfind(strconst, strpat)
+	local sub = 1;
+	local found = {};
+
+	while (string.sub(strconst, sub):find(strpat)) do 
+		table.insert(found, {string.sub(strconst, sub):find(strpat)});
+		local nspecimen = found[#found]
+
+		nspecimen[1] = (nspecimen[1] + (found[#found - 1] or {nil, 1})[2]) - 1;
+		nspecimen[2] = (nspecimen[2] + (found[#found - 1] or {nil, 1})[2]);
+
+		sub = nspecimen[2];
+	end
+
+	return function()
+		local c = found[1];
+		table.remove(found, 1);
+
+		return (unpack or table.unpack)((c or {}));
+	end
+end
