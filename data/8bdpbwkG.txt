@@ -1,0 +1,144 @@
+-- Options
+kHoursNeedleSize = 0.5 -- between 0 and 1
+kMinutesNeedleSize = 0.9 -- between 0 and 1
+kUseIngameTime = false -- false will use real time
+
+-- Constant
+kPixelSizeX = 5
+kPixelSizeY = 7
+kPixelMargin = 12
+
+-- Connect screen
+screen = peripheral.wrap("monitor_0")
+screen.setTextScale(0.5)
+
+-- Setup screen
+term.redirect(screen)
+term.setBackgroundColor(colors.black)
+term.clear()
+sWidth, sHeight = term.getSize()
+sWidth = sWidth * kPixelSizeX - kPixelMargin * 2
+sHeight = sHeight * kPixelSizeY - kPixelMargin * 2
+if sWidth > sHeight then
+    squareSize = sHeight
+    offsetX = (sWidth - squareSize) / 2 + kPixelMargin
+    offsetY = kPixelMargin
+else
+    squareSize = sWidth
+    offsetX = kPixelMargin
+    offsetY = (sHeidth - squareSize) / 2 + kPixelMargin
+end    
+
+-- Functions to abstact window size with a new area
+-- between (-1, -1) and (1, 1)
+local function transformPixel(x, y)
+    -- Transform from (-1; 1) to (0; 1)
+    x = (x + 1) / 2
+    y = (y + 1) / 2
+
+    -- Transform from (0, 1) to subpixels
+    x = x * squareSize + offsetX
+    y = y * squareSize + offsetY
+    
+    -- Transform from subpixels to real pixels
+    x = x / kPixelSizeX + 1
+    y = y / kPixelSizeY + 1
+    
+    return x, y
+end
+
+local function drawPixel(x, y)
+    x, y = transformPixel(x, y)
+    paintutils.drawPixel(x, y, colors.white)
+end
+
+local function drawLine(x1, y1, x2, y2)
+    x1, y1 = transformPixel(x1, y1)
+    x2, y2 = transformPixel(x2, y2)
+    paintutils.drawLine(x1, y1, x2, y2, colors.white)
+end
+
+local function removeLine(x1, y1, x2, y2)
+    x1, y1 = transformPixel(x1, y1)
+    x2, y2 = transformPixel(x2, y2)
+    paintutils.drawLine(x1, y1, x2, y2, colors.black)
+end
+
+-- Draw dots
+local function drawDots()
+    for i = 0, 11 do
+        local step = ((math.pi * 2) / 12) * i
+        local x = math.cos(step)
+        local y = math.sin(step)
+      
+        drawPixel(x, y, colors.white)
+    end
+end
+
+-- Return hours and minutes with a value
+-- between 0 and 1
+local function getIngameTime()
+    local time = os.time() % 12
+    local hours = (time / 12) * math.pi * 2
+    local minutes = (time - math.floor(time)) * math.pi * 2
+    
+    return hours, minutes
+end
+
+local function getRealTime()
+    local time = os.date("*t")
+    local minutes = time.min / 60
+    local hours = ((time.hour + 1 + minutes) % 12) / 12
+    
+    return hours, minutes
+end
+
+-- Draw needles
+local function getNeedlesPositions(hours, minutes)
+    local hoursX = math.cos(hours * math.pi * 2 - math.pi / 2)
+    local hoursY = math.sin(hours * math.pi * 2 - math.pi / 2)
+
+    local minutesX = math.cos(minutes * math.pi * 2 - math.pi / 2)
+    local minutesY = math.sin(minutes * math.pi * 2 - math.pi / 2)
+
+    hoursX = hoursX * kHoursNeedleSize
+    hoursY = hoursY * kHoursNeedleSize
+    
+    minutesX = minutesX * kMinutesNeedleSize
+    minutesY = minutesY * kMinutesNeedleSize
+
+    return hoursX, hoursY, minutesX, minutesY
+end
+
+local function drawNeedles(hoursX, hoursY, minutesX, minutesY)
+    drawLine(0, 0, hoursX, hoursY)
+    drawLine(0, 0, minutesX, minutesY)
+end
+
+local function removeNeedles(hoursX, hoursY, minutesX, minutesY)
+    removeLine(0, 0, hoursX, hoursY)
+    removeLine(0, 0, minutesX, minutesY)
+end
+
+-- Main
+local function main()
+    drawDots()
+    while true do
+        local hours = 0
+        local minutes = 0
+        local timeToSleep = 1
+        if kUseIngameTime then
+            hours, minutes = getIngameTime()
+            timeToSleep = 1
+        else
+            hours, minutes = getRealTime()
+            timeToSleep = 60
+        end
+        local hX, hY, mX, mY = getNeedlesPositions(hours, minutes)
+        drawNeedles(hX, hY, mX, mY)
+        sleep(timeToSleep)
+        removeNeedles(hX, hY, mX, mY)
+    end
+end
+
+main()
