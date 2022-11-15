@@ -1,0 +1,91 @@
+public class LightsaberItem extends SwordItem implements IAnimatable, ISyncable{
+
+    public AnimationFactory factory = GeckoLibUtil.createFactory(this);
+    public String controllerName = "controller";
+    private static final int OFF = 0;
+    private static final int ON = 1;
+
+
+
+    public LightsaberItem(ToolMaterial tier, int attackDamage, float attackSpeed, Settings properties) {
+        super(tier, attackDamage, attackSpeed, properties);
+        GeckoLibNetwork.registerSyncable(this);
+    }
+
+
+    @Override
+    public void registerControllers(AnimationData data) {
+        data.addAnimationController(new AnimationController(this, controllerName,0,this::predicate));
+    }
+
+    private <E extends IAnimatable> PlayState predicate(AnimationEvent<E> event) {
+        return PlayState.CONTINUE;
+    }
+
+    @Override
+    public TypedActionResult<ItemStack> use(World level, PlayerEntity player, Hand interactionHand) {
+        Hand otherHand = Hand.MAIN_HAND;
+        if(interactionHand == Hand.MAIN_HAND) otherHand = Hand.OFF_HAND;
+
+        if(!level.isClient()) {
+            ItemStack stack = player.getStackInHand(interactionHand);
+            ItemStack otherStack = player.getStackInHand(otherHand);
+            final int id = GeckoLibUtil.guaranteeIDForStack(player.getStackInHand(interactionHand), (ServerWorld) level);
+
+            player.getItemCooldownManager().set(this,20);
+            if(stack.getNbt() != null) {
+                if (stack.getNbt().getBoolean("ignited")){
+
+                    stack.getNbt().putBoolean("ignited", false);
+                    level.playSound(null, player.getBlockPos(), ModSoundRegistry.GENERIC_LIGHTSABER_RETRACT.get(), SoundCategory.PLAYERS, 0.7f, 0.8f + (RandomUtils.nextFloat(0.1f, 0.5f)));
+
+                    GeckoLibNetwork.syncAnimation(player, this, id, OFF);
+                    for (PlayerEntity otherPlayer : PlayerLookup.tracking(player)) {
+                        GeckoLibNetwork.syncAnimation(otherPlayer, this, id, OFF);
+                    }
+                } else{
+                    stack.getNbt().putBoolean("ignited", true);
+                    level.playSound(null, player.getBlockPos(), ModSoundRegistry.GENERIC_LIGHTSABER_IGNITE.get(), SoundCategory.PLAYERS, 0.7f, 0.8f + (RandomUtils.nextFloat(0.1f, 0.5f)));
+                    GeckoLibNetwork.syncAnimation(player, this, id, ON);
+                    for (PlayerEntity otherPlayer : PlayerLookup.tracking(player)) {
+                        GeckoLibNetwork.syncAnimation(otherPlayer, this, id, ON);
+                    }
+                }          
+            }
+             }
+        return TypedActionResult.pass(player.getStackInHand(interactionHand));
+    }
+
+    @Override
+    public boolean postHit(ItemStack stack, LivingEntity target, LivingEntity attacker) {
+        if(stack.getNbt() != null && stack.getNbt().getBoolean("ignited")) {
+            attacker.getWorld().playSound(null, target.getBlockPos(), ModSoundRegistry.GENERIC_LIGHTSABER_HIT.get(), SoundCategory.PLAYERS, 1.0f, 1.0f);
+        }
+        return super.postHit(stack, target,attacker);
+    }
+
+    @Override
+    public AnimationFactory getFactory() {
+        return this.factory;
+    }
+
+    @Override
+    public void onAnimationSync(int id, int state) {
+        final AnimationController controller = GeckoLibUtil.getControllerForID(this.factory, id, controllerName);
+        if(state == ON) {
+            if (controller.getAnimationState() == AnimationState.Stopped) {
+                controller.markNeedsReload();
+                controller.setAnimation(new AnimationBuilder().addAnimation("animation.ignite", ILoopType.EDefaultLoopTypes.HOLD_ON_LAST_FRAME));
+            controller.setAnimation(new AnimationBuilder().addAnimation("animation.ignite"));
+            }
+        }
+         else if(state == OFF) {
+            if (controller.getAnimationState() == AnimationState.Stopped) {
+                controller.markNeedsReload();
+                controller.setAnimation(new AnimationBuilder().addAnimation("animation.retract", ILoopType.EDefaultLoopTypes.PLAY_ONCE).addAnimation("animation.hilt", ILoopType.EDefaultLoopTypes.PLAY_ONCE));
+            }
+        }
+    }
+
+
+}
