@@ -1,0 +1,65 @@
+#!/bin/bash
+
+export_dir="./export-2"
+check-tag_ogg () {
+    vorbiscomment -lRe ${1} | grep ${2} | sed "s/${2}=//g"
+}
+
+check-tag_mp3 () {
+    mid3v2 -l ${1} | grep ${2} | sed "s/${2}=//g"
+}
+
+#metadata-update_ogg () {
+#    if [[ ! $(check-tag_ogg ${1} ${2} ${3}) ]]; then
+#        vorbiscomment -a ${1} -t "${2}=${3}"
+#    fi
+#}
+#metadata-update_mp3 () {
+#    if [[ ! $(check-tag_mp3 ${1} ${2} ${3}) ]]; then
+#        mid3v2 --${2} "${3}" ${1}
+#    fi
+#}
+
+if [[ ! -d "${export_dir}" ]]; then
+    mkdir -p ${export_dir}
+fi
+
+
+for file in ./*
+do
+    if [[ "${file##*.}" = "ogg" ]]; then
+        if [[ $(check-tag_ogg ${file} ARTIST) ]] && [[ $(check-tag_ogg ${file} TITLE) ]]; then 
+            artist_value="$(check-tag_ogg ${file} ARTIST)"
+            title_value="$(check-tag_ogg ${file} TITLE)"
+            name="${artist_value} - ${title_value}"
+            if [[ ! -f "${export_dir}/${name}.flac" ]]; then
+                echo -e "Building: ${file} -- ${name}" | tee -a "${export_dir}/debug.list"
+                ffmpeg -i ${file} -f flac "${export_dir}/${name}.flac" >/dev/null 2>&1
+                metaflac --remove-all-tags --set-tag="ARTIST=${artist_value}" --set-tag="TITLE=${title_value}" --set-tag="ALBUM=Star Citizen" --set-tag="GENRE=soundtrack" --set-tag="ORGANIZATION=Cloud Imperium Games" --import-picture-from="3|image/jpeg|||star-citizen-cover-500x500.jpg" "${export_dir}/${name}.flac"
+                echo -e "${name}" | tee -a "${export_dir}/playlist.txt" >/dev/null 2>&1
+                echo -e "Complete: ${file} -- ${name}" | tee -a "${export_dir}/debug.list"
+            else
+                echo -e "File: ${name} exist in dir: ${export_dir}. Skipping..." | tee -a "${export_dir}/debug.list" >/dev/null 2>&1
+            fi
+        else 
+            echo -e "File: ${file} do not have required metadata"
+        fi
+    elif [[ "${file##*.}" = "mp3" ]]; then
+        if [[ $(check-tag_mp3 ${file} TPE1) ]] && [[ $(check-tag_mp3 ${file} TIT2) ]]; then 
+            artist_value="$(check-tag_mp3 ${file} TPE1)"
+            title_value="$(check-tag_mp3 ${file} TIT2)"
+            name="${artist_value} - ${title_value}"
+            if [[ ! -f "${export_dir}/${name}.flac" ]]; then
+                echo -e "Building: ${file} -- ${name}" | tee -a "${export_dir}/debug.list"
+                ffmpeg -i ${file} -f flac "${export_dir}/${name}.flac" >/dev/null 2>&1
+                metaflac --remove-all-tags --set-tag="ARTIST=${artist_value}" --set-tag="TITLE=${title_value}" --set-tag="ALBUM=Star Citizen" --set-tag="GENRE=soundtrack" --set-tag="ORGANIZATION=Cloud Imperium Games" --import-picture-from="3|image/jpeg|||star-citizen-cover-500x500.jpg" "${export_dir}/${name}.flac"
+                echo -e "${name}" | tee -a "${export_dir}/playlist.txt" >/dev/null 2>&1
+                echo -e "Complete: ${file} -- ${name}" | tee -a "${export_dir}/debug.list"
+            else
+                echo -e "File: ${name} exist in dir: ${export_dir}. Skipping..." | tee -a "${export_dir}/debug.list" >/dev/null 2>&1
+            fi
+        else 
+            echo -e "File: ${file} do not have required metadata"
+        fi
+    fi
+done
