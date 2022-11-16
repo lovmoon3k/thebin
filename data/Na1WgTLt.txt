@@ -1,0 +1,724 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Windows.Navigation;
+
+namespace Animal_Crossing_Text_Editor.Classes.Parser.Wii
+{
+    public static class MessageTags
+    {
+        public sealed class Conversion
+        {
+            public Func<byte, ushort, byte[], int, byte[], int> String2Bytes;
+            public Func<byte, ushort, byte[], string> Bytes2String;
+
+            public void ToBytes(byte group, ushort index, in byte[] args, ref int write_ofs, in byte[] data)
+            {
+                int res = String2Bytes(group, index, args, write_ofs, data);
+                write_ofs += res;
+            }
+
+            public string ToString(byte group, ushort index, in byte[] args) => Bytes2String(group, index, args);
+
+            public static implicit operator Conversion(Func<byte, ushort, byte[], int, byte[], int> s2b)
+            {
+                return new Conversion() { String2Bytes = s2b };
+            }
+
+            public static implicit operator Conversion(Func<byte, ushort, byte[], string> b2s)
+            {
+                return new Conversion() { Bytes2String = b2s };
+            }
+
+            public static implicit operator Conversion((Func<byte, ushort, byte[], string>, Func<byte, ushort, byte[], int, byte[], int>) methods)
+            {
+                return new Conversion() { Bytes2String = methods.Item1, String2Bytes = methods.Item2 };
+            }
+        }
+
+        public sealed class MessageTag
+        {
+            public byte Group;
+            public ushort Index;
+            public int ArgsByteCount;
+
+            public readonly Conversion Conversion;
+            public Func<byte[], int> GetArgsSize;
+
+            public MessageTag(byte group, ushort index, int argsByteCount, Conversion conversion)
+            {
+                Group = group;
+                Index = index;
+                ArgsByteCount = argsByteCount;
+                Conversion = conversion;
+            }
+
+            public MessageTag(byte group, ushort index, int argsByteCount, Func<byte, ushort, byte[], string> b2s, Func<byte, ushort, byte[], int, byte[], int> s2b)
+                : this(group, index, argsByteCount, (b2s, s2b)) { }
+        }
+
+        public static string GetMessageTagString(byte group, ushort index, in byte[] arguments = null)
+        {
+            if (Tags.ContainsKey(group) && Tags[group].ContainsKey(index))
+            {
+                return Tags[group][index].Conversion.Bytes2String(group, index, arguments);
+            }
+
+            var argsStr = arguments?.Aggregate("", (result, i) => result + i.ToString("X2") + " ").Trim() ?? "";
+            return $"<Unk {group:X2}|{index:X4}|{argsStr}>";
+        }
+
+        private static readonly Func<byte, ushort, byte[], int, byte[], int> default_string2bytes = (group, index, args, i, data) =>
+        {
+            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+            data[i + 1] = WiiParser.TAG_CHARACTER;
+            data[i + 2] = 0x6;
+            data[i + 3] = group;
+            data[i + 4] = (byte)(index >> 8);
+            data[i + 5] = (byte)index;
+            return 6;
+        };
+
+        private static readonly string[] Species = new string[33]
+        {
+            "Cat", "Elephant", "Sheep", "Bear", "Dog", "Squirrel", "Rabbit", "Duck",
+            "Hippo", "Wolf", "Kouse", "Pig", "Chicken", "Bull", "Cow", "Bird",
+            "Frog", "Crocodile", "Goat", "Tiger", "Anteater", "Koala", "Horse", "Octopus",
+            "Lion", "Cub", "Rhino", "Gorilla", "Ostrich", "Kangaroo", "Eagle", "Penguin",
+            "Monkey"
+        };
+
+        public static readonly IReadOnlyDictionary<byte, IReadOnlyDictionary<ushort, MessageTag>> Tags = new Dictionary<byte, IReadOnlyDictionary<ushort, MessageTag>>()
+        {
+            {
+                0x00, new Dictionary<ushort, MessageTag>
+                {
+                    { 0x0003, new MessageTag(0x00, 0x0003, 0, (_, __, ___) => "<Music Symbol>", default_string2bytes) },
+                }
+            },
+
+            // Emotion/Reaction
+            { 0x02, new Dictionary<ushort, MessageTag>
+                {
+                    { 0x0000, new MessageTag(0x02, 0x0000, 0, (_, __, ___) => "<Clear Reaction>", default_string2bytes) },
+                    { 0x000A, new MessageTag(0x02, 0x000A, 0, (_, __, ___) => "<Reaction (Joy)>", default_string2bytes) },
+                    { 0x000B, new MessageTag(0x02, 0x000B, 0, (_, __, ___) => "<Reaction (Curiosity)>", default_string2bytes) },
+                    { 0x0014, new MessageTag(0x02, 0x0014, 0, (_, __, ___) => "<Reaction (Happiness)>", default_string2bytes) },
+                    { 0x0016, new MessageTag(0x02, 0x0016, 0, (_, __, ___) => "<Reaction (Worry)>", default_string2bytes) }, // Not sure about this yet.
+                }
+            },
+
+            {
+                /* Dynamic & Item Strings */
+                0x04, new Dictionary<ushort, MessageTag>
+                {
+                    {
+                        0x0001, new MessageTag(0x04, 0x0001, -1,
+                        (_, __, args) => $"<String [{args[0]}] [{Encoding.BigEndianUnicode.GetString(args, 1, (args.Length & 1) == 0 ? args.Length - 2 : args.Length - 1)}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = (byte)(0x6 + args.Length);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            Buffer.BlockCopy(args, 0, data, i + 6, args.Length);
+                            return 6 + 1 * sizeof(ushort);
+                        })
+                        {
+                            GetArgsSize = (data) => data.Length // first byte is the number of characters to replace
+                        }
+                    }
+                }
+            },
+
+            // String
+            { 0x05, new Dictionary<ushort, MessageTag>
+                {
+                    { 0x0000, new MessageTag(0x05, 0x0000, 0, (_, __, ___) => "<Player>", default_string2bytes) },
+                    { 0x0001, new MessageTag(0x05, 0x0001, 0, (_, __, ___) => "<NPC>", default_string2bytes) },
+                    { 0x0005, new MessageTag(0x05, 0x0005, 0, (_, __, ___) => "<Town>", default_string2bytes) },
+                    { 0x0006, new MessageTag(0x05, 0x0006, 0, (_, __, ___) => "<Catchphrase>", default_string2bytes) },
+                    { 0x0007, new MessageTag(0x05, 0x0007, 0, (_, __, ___) => "<Player Nickname>", default_string2bytes) },
+                }
+            },
+
+            // Base
+            { 0x06, new Dictionary<ushort, MessageTag>
+                {
+                    { 0x0000, new MessageTag(0x06, 0x0000, 1 * sizeof(ushort),
+                        (_, __, args) => $"<Pause [{BitConverterBE.ToUInt16(args, 0)}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            return 6 + sizeof(ushort);
+                        })
+                    },
+                    { 0x0001, new MessageTag(0x06, 0x0001, 0, (_, __, ___) => $"<Press Button>", default_string2bytes) },
+                }
+            },
+
+            // Choices
+            {
+                0x07, new Dictionary<ushort, MessageTag>
+                {
+                    //{ 0x0000, (_, __, args) => $"<Set Choices [{args[0]:X2}] [{args[1]:X2}]>" },
+                    //{ 0x0001, (_, __, args) => $"<Set Choices [{args[0]:X2}] [{args[1]:X2}] [{args[2]:X2}]>" },
+                    //{ 0x0002, (_, __, args) => $"<Set Choices [{args[0]:X2}] [{args[1]:X2}] [{args[2]:X2}] [{args[3]:X2}]>" },
+                    { 0x0004, new MessageTag(0x07, 0x0004, 2 * sizeof(ushort),
+                        (_, __, args) => $"<Set Choices [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 2 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            return 6 + 2 * sizeof(ushort);
+                        })
+                    },
+                }
+            },
+
+            // Dynamic
+            {
+                0x08, new Dictionary<ushort, MessageTag>
+                {
+                    { 0x0000, new MessageTag(0x08, 0x0000, 2 * sizeof(ushort),
+                        (_, __, args) => $"<Random Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 2 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            return 6 + 2 * sizeof(ushort);
+                        })
+                    },
+                    { 0x0001, new MessageTag(0x08, 0x0001, 3 * sizeof(ushort),
+                        (_, __, args) => $"<Random Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 3 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            data[i + 10] = args[4];
+                            data[i + 11] = args[5];
+                            return 6 + 3 * sizeof(ushort);
+                        })
+                    },
+                    { 0x0002, new MessageTag(0x08, 0x0002, 1 * sizeof(byte) + 2 * sizeof(ushort),
+                        (_, __, args) => $"<Friendship Dialog Jump [{args[0]:X2}] [{BitConverterBE.ToUInt16(args, 1):X4}] [{BitConverterBE.ToUInt16(args, 3):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 1 * sizeof(byte) +2 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            data[i + 10] = args[4];
+                            return 6 + 1 * sizeof(byte) + 2 * sizeof(ushort);
+                        })
+                    },
+                    { 0x0003, new MessageTag(0x08, 0x0003, 2 * sizeof(ushort),
+                        (_, __, args) => $"<Gender Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 2 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            return 6 + 2 * sizeof(ushort);
+                        })
+                    },
+                    { 0x0004, new MessageTag(0x08, 0x0004, 5 * sizeof(ushort),
+                        (_, __, args) => $"<House Size Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}] [{BitConverterBE.ToUInt16(args, 8):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 5 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            data[i + 10] = args[4];
+                            data[i + 11] = args[5];
+                            data[i + 12] = args[6];
+                            data[i + 13] = args[7];
+                            data[i + 14] = args[8];
+                            data[i + 15] = args[9];
+                            return 6 + 5 * sizeof(ushort);
+                        })
+                    },
+                    { 0x0005, new MessageTag(0x08, 0x0005, 3 * sizeof(ushort), // First is < 60% completion, second is >= 60% completion, third is 100% completion
+                        (_, __, args) => $"<Insect Collection Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 3 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            data[i + 10] = args[4];
+                            data[i + 11] = args[5];
+                            return 6 + 3 * sizeof(ushort);
+                        })
+                    },
+                    { 0x0006, new MessageTag(0x08, 0x0006, 3 * sizeof(ushort), // First is < 60% completion, second is >= 60% completion, third is 100% completion
+                        (_, __, args) => $"<Fish Collection Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 3 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            data[i + 10] = args[4];
+                            data[i + 11] = args[5];
+                            return 6 + 3 * sizeof(ushort);
+                        })
+                    },
+                    { 0x0007, new MessageTag(0x08, 0x0007, 5 * sizeof(ushort), // First is 0-6 villagers, second is 7, third is 8, fourth is 9, fifth is 10
+                        (_, __, args) => $"<Villager Count Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}] [{BitConverterBE.ToUInt16(args, 8):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 5 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            data[i + 10] = args[4];
+                            data[i + 11] = args[5];
+                            data[i + 12] = args[6];
+                            data[i + 13] = args[7];
+                            data[i + 14] = args[8];
+                            data[i + 15] = args[9];
+                            return 6 + 5 * sizeof(ushort);
+                        })
+                    },
+                    { 0x0008, new MessageTag(0x08, 0x0008, 4 * sizeof(ushort), // First is 05:00-11:59, second is 12:00-17:59, third is 18:00-23:59, fourth is 00:00-04:59
+                        (_, __, args) => $"<Time of Day Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 4 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            data[i + 10] = args[4];
+                            data[i + 11] = args[5];
+                            data[i + 12] = args[6];
+                            data[i + 13] = args[7];
+                            return 6 + 4 * sizeof(ushort);
+                        })
+                    },
+                    { 0x0009, new MessageTag(0x08, 0x0009, 8 * sizeof(ushort), // Weather based jump -- Args in order: Clear, Cloudy, Overcast, Rain, Heavy Rain, Snow, Heavy Snow, Cherry Blossoms
+                        (_, __, args) => $"<Weather Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}] [{BitConverterBE.ToUInt16(args, 8):X4}] [{BitConverterBE.ToUInt16(args, 10):X4}] [{BitConverterBE.ToUInt16(args, 12):X4}] [{BitConverterBE.ToUInt16(args, 14):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 8 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+
+                            for (int x = 0; x < 8*sizeof(ushort); x += 2)
+                            {
+                                data[i + 6 + x] = args[x];
+                                data[i + 7 + x] = args[x + 1];
+                            }
+
+                            return 6 + 8 * sizeof(ushort);
+                        })
+                    },
+                    { 0x000A, new MessageTag(0x08, 0x000A, 4 * sizeof(ushort), // 0 = 1 player, 1 = 2 players, ...
+                        (_, __, args) => $"<Player Count Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 4 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            data[i + 10] = args[4];
+                            data[i + 11] = args[5];
+                            data[i + 12] = args[6];
+                            data[i + 13] = args[7];
+                            return 6 + 4 * sizeof(ushort);
+                        })
+                    },
+                    { 0x000B, new MessageTag(0x08, 0x000B, 7 * sizeof(ushort), // Day of week Jump (Monday -> Sunday)
+                        (_, __, args) => $"<Day of Week Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}] [{BitConverterBE.ToUInt16(args, 8):X4}] [{BitConverterBE.ToUInt16(args, 10):X4}] [{BitConverterBE.ToUInt16(args, 12):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 7 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+
+                            for (int x = 0; x < 7*sizeof(ushort); x += 2)
+                            {
+                                data[i + 6 + x] = args[x];
+                                data[i + 7 + x] = args[x + 1];
+                            }
+
+                            return 6 + 7 * sizeof(ushort);
+                        })
+                    },
+                    { 0x000C, new MessageTag(0x08, 0x000C, 2 * sizeof(ushort), // args[0] = player lives in town, args[1] = player is foriegner
+                        (_, __, args) => $"<Foreign Player Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 2 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            return 6 + 2 * sizeof(ushort);
+                        })
+                    },
+                    { 0x000D, new MessageTag(0x08, 0x000D, 3 * sizeof(ushort),
+                        (_, __, args) => $"<Species Dialog Jump [{Species[BitConverterBE.ToUInt16(args, 0)]}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 3 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+
+                            // TODO: Refactor how arguments work to be a string array and parse out needed values.
+
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            return 6 + 3 * sizeof(ushort);
+                        })
+                    },
+                    { 0x000E, new MessageTag(0x08, 0x000E, 1 * sizeof(uint) + 2 * sizeof(ushort), // first message id is >= bell value, second is less
+                        (_, __, args) => $"<Player Bell Value Dialog Jump [{BitConverterBE.ToUInt32(args, 0)}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 1 * sizeof(uint) + 2 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+
+                            // TODO: Refactor how arguments work to be a string array and parse out needed values.
+
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            return 6 + 1 * sizeof(uint) + 2 * sizeof(ushort);
+                        })
+                    },
+                    { 0x000F, new MessageTag(0x08, 0x000F, 2 * sizeof(ushort), // first message idx is used when player has inventory space, second when they don't have any free space
+                        (_, __, args) => $"<Free Inventory Space Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 2 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            return 6 + 2 * sizeof(ushort);
+                        })
+                    },
+                    { 0x0010, new MessageTag(0x08, 0x0010, 8 * sizeof(ushort), // Tan level jump. Goes from pale -> dark
+                        (_, __, args) => $"<Tan Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}] [{BitConverterBE.ToUInt16(args, 8):X4}] [{BitConverterBE.ToUInt16(args, 10):X4}] [{BitConverterBE.ToUInt16(args, 12):X4}] [{BitConverterBE.ToUInt16(args, 14):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 8 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+
+                            for (int x = 0; x < 8*sizeof(ushort); x += 2)
+                            {
+                                data[i + 6 + x] = args[x];
+                                data[i + 7 + x] = args[x + 1];
+                            }
+
+                            return 6 + 8 * sizeof(ushort);
+                        })
+                    },
+                    // TODO: Determine 0x0011
+                    { 0x0012, new MessageTag(0x08, 0x0012, 4 * sizeof(ushort), // 0 = 1 player playing, 1 = 2 players playing, ...
+                        (_, __, args) => $"<Players in Town Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 4 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            data[i + 8] = args[2];
+                            data[i + 9] = args[3];
+                            data[i + 10] = args[4];
+                            data[i + 11] = args[5];
+                            data[i + 12] = args[6];
+                            data[i + 13] = args[7];
+                            return 6 + 4 * sizeof(ushort);
+                        })
+                    },
+                    { 0x00013, new MessageTag(0x08, 0x0013, 4 * sizeof(ushort), // Complete RNG Dialog
+                        (_, __, args) => $"<Random Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 4 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+
+                            for (int x = 0; x < 4 * sizeof(ushort); x += 2)
+                            {
+                                data[i + 6 + x] = args[x];
+                                data[i + 7 + x] = args[x + 1];
+                            }
+
+                            return 6 + 4 * sizeof(ushort);
+                        })
+                    },
+                    { 0x00014, new MessageTag(0x08, 0x0014, 5 * sizeof(ushort), // Complete RNG Dialog
+                        (_, __, args) => $"<Random Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}] [{BitConverterBE.ToUInt16(args, 8):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 5 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+
+                            for (int x = 0; x < 5 * sizeof(ushort); x += 2)
+                            {
+                                data[i + 6 + x] = args[x];
+                                data[i + 7 + x] = args[x + 1];
+                            }
+
+                            return 6 + 5 * sizeof(ushort);
+                        })
+                    },
+                    { 0x00015, new MessageTag(0x08, 0x0015, 6 * sizeof(ushort), // Complete RNG Dialog
+                        (_, __, args) => $"<Random Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}] [{BitConverterBE.ToUInt16(args, 8):X4}] [{BitConverterBE.ToUInt16(args, 10):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 6 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+
+                            for (int x = 0; x < 6 * sizeof(ushort); x += 2)
+                            {
+                                data[i + 6 + x] = args[x];
+                                data[i + 7 + x] = args[x + 1];
+                            }
+
+                            return 6 + 6 * sizeof(ushort);
+                        })
+                    },
+                    { 0x00016, new MessageTag(0x08, 0x0016, 7 * sizeof(ushort), // Complete RNG Dialog
+                        (_, __, args) => $"<Random Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}] [{BitConverterBE.ToUInt16(args, 8):X4}] [{BitConverterBE.ToUInt16(args, 10):X4}] [{BitConverterBE.ToUInt16(args, 12):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 7 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+
+                            for (int x = 0; x < 7 * sizeof(ushort); x += 2)
+                            {
+                                data[i + 6 + x] = args[x];
+                                data[i + 7 + x] = args[x + 1];
+                            }
+
+                            return 6 + 7 * sizeof(ushort);
+                        })
+                    },
+                    { 0x00017, new MessageTag(0x08, 0x0017, 8 * sizeof(ushort), // Complete RNG Dialog
+                        (_, __, args) => $"<Random Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}] [{BitConverterBE.ToUInt16(args, 8):X4}] [{BitConverterBE.ToUInt16(args, 10):X4}] [{BitConverterBE.ToUInt16(args, 12):X4}] [{BitConverterBE.ToUInt16(args, 14):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 8 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+
+                            for (int x = 0; x < 8 * sizeof(ushort); x += 2)
+                            {
+                                data[i + 6 + x] = args[x];
+                                data[i + 7 + x] = args[x + 1];
+                            }
+
+                            return 6 + 8 * sizeof(ushort);
+                        })
+                    },
+                    { 0x00018, new MessageTag(0x08, 0x0018, 4 * sizeof(ushort), // Spring, Summer, Fall, Winter
+                        (_, __, args) => $"<Seasonal Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 4 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+
+                            for (int x = 0; x < 4 * sizeof(ushort); x += 2)
+                            {
+                                data[i + 6 + x] = args[x];
+                                data[i + 7 + x] = args[x + 1];
+                            }
+
+                            return 6 + 4 * sizeof(ushort);
+                        })
+                    },
+                    { 0x00019, new MessageTag(0x08, 0x0019, 4 * sizeof(ushort), // Cranny, Nook 'n Go, Nookway, Nookington's
+                        (_, __, args) => $"<Nook Store Size Dialog Jump [{BitConverterBE.ToUInt16(args, 0):X4}] [{BitConverterBE.ToUInt16(args, 2):X4}] [{BitConverterBE.ToUInt16(args, 4):X4}] [{BitConverterBE.ToUInt16(args, 6):X4}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 4 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+
+                            for (int x = 0; x < 4 * sizeof(ushort); x += 2)
+                            {
+                                data[i + 6 + x] = args[x];
+                                data[i + 7 + x] = args[x + 1];
+                            }
+
+                            return 6 + 4 * sizeof(ushort);
+                        })
+                    },
+                }
+            },
+
+            // System
+            {
+                0xFF, new Dictionary<ushort, MessageTag>
+                {
+                    { 0x0000, new MessageTag(0xFF, 0x0000, 1 * sizeof(byte),
+                        (_, __, args) => $"<Text Color [{args[0]}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 1 * sizeof(byte);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            return 6 + 1 * sizeof(byte);
+                        })
+                    }, // The argument array is 2 bytes long, idk what the second byte is for yet.
+                    { 0x0001, new MessageTag(0xFF, 0x0001, 1 * sizeof(ushort),
+                        (_, __, args) => $"<Font Scale [{BitConverterBE.ToUInt16(args, 0)}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = 0x6 + 1 * sizeof(ushort);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            data[i + 6] = args[0];
+                            data[i + 7] = args[1];
+                            return 6 + 1 * sizeof(ushort);
+                        })
+                    },
+                    // Converts Kanji into Kana form when Kanji is disabled. Args are: u8 numKanji wchar16_t kana[]
+                    { 0x0002, new MessageTag(0xFF, 0x0002, -1,
+                        (_, __, args) => $"<Kana [{args[0]:X2}] [{Encoding.BigEndianUnicode.GetString(args, 1, (args.Length & 1) == 0 ? args.Length - 2 : args.Length - 1)}]>",
+                        (group, index, args, i, data) => {
+                            data[i + 0] = WiiParser.TAG_CHARACTER >> 8;
+                            data[i + 1] = WiiParser.TAG_CHARACTER;
+                            data[i + 2] = (byte)(0x6 + args.Length);
+                            data[i + 3] = group;
+                            data[i + 4] = (byte)(index >> 8);
+                            data[i + 5] = (byte)index;
+                            Buffer.BlockCopy(args, 0, data, i + 6, args.Length);
+                            return 6 + 1 * sizeof(ushort);
+                        })
+                        {
+                            GetArgsSize = (data) => data.Length // first byte is the number of characters to replace
+                        }
+                    }
+                }
+            }
+        };
+
+        // TODO: Check for the first index
+        private static string GetStringMessage(byte group, ushort index, byte[] arguments = null) => $"<String {index}>";
+    }
+}
