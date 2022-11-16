@@ -1,0 +1,73 @@
+    /**
+     * Creating a new directory in the FileSystem.
+     *
+     * @param pathname   Absolute path for the new directory
+     * @param permission "r" - readonly directory, "rw" - writable directory
+     * @return inode number of the created directory
+     * @throws Exception
+     */
+    public int mkdir(String pathname, String permission) throws Exception {
+        String fullPath = "";
+        // get the full path
+        if (pathname.startsWith("/")) {
+            fullPath = pathname;
+        } else {
+            throw new IOException("Pathname should be absolute.");
+        }
+
+        // get the parent path of the target directory
+        String parentPath = fullPath.substring(0, fullPath.lastIndexOf("/") + 1) + ".";
+        String dirName = fullPath.substring(fullPath.lastIndexOf("/") + 1);
+
+        // though use "rw" to open, the implementation of file system doesn't check permission
+        FileDescriptor file = open(parentPath, "rw");
+        // since the our path is <prefix>/. we already check the current path isn't a file in the `open` function
+
+        DirectoryEntry tempDir = new DirectoryEntry();
+        while (true) { // iterate the FileDescriptor to get the last empty block
+            int status = readDir(file, tempDir);
+            if (status == 0) {
+                break;
+            }
+            if (status < 0) {
+                throw new Exception("Directory error");
+            }
+        }
+
+        if ( (short) ((file.getOffset() + DirectoryEntry.DIRECTORY_ENTRY_SIZE) / file.getBlockSize()) >= INode.MAX_DIRECT_BLOCKS ) {
+            throw new Exception("Reach directory number Max");
+        }
+
+        short newInodeNum = (short) fs.allocateINode();
+        int newBlockAddress = fs.allocateBlock();
+
+        INode newINode = new INode();
+        newINode.setMode(FileSystem.DIR);
+        newINode.setSize(DirectoryEntry.DIRECTORY_ENTRY_SIZE * 2); // initially . and ..
+        newINode.setNlink((short) 3); // itself, dot and dot dot
+        // set the first block address to the the
+        // address of the first available data block.
+        newINode.setBlockAddress(0, newBlockAddress);
+        fs.writeIndexNode(newINode, newInodeNum);
+
+        DirectoryEntry newEntry = new DirectoryEntry(newInodeNum, dirName, file.getIndexNodeNumber());
+
+        // create the root directory block
+        Block newDirBlock = new Block((short) fs.getBlockSize());
+        DirectoryEntry itself =
+                new DirectoryEntry(newInodeNum, ".", file.getIndexNodeNumber());
+        // Since finding the grandparent directory of the new directory is highcost if we don't add some
+        // functions, and in this assignment there is no reference to `getParent` function in `DirectoryEntry`
+        // we just omit it, and replace it with the parent directory of the new directory
+        DirectoryEntry parent =
+                new DirectoryEntry(file.getIndexNodeNumber(), "..", file.getIndexNodeNumber());
+        // write the root directory entries to the root directory block
+        itself.write(newDirBlock.bytes, 0);
+        parent.write(newDirBlock.bytes, DirectoryEntry.DIRECTORY_ENTRY_SIZE);
+
+        fs.writeDataBlock(newDirBlock.bytes, newBlockAddress);
+
+        writeDir(file, newEntry);
+
+        return 0;
+    }
