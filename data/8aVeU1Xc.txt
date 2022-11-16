@@ -1,0 +1,103 @@
+from pprint import pprint
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def cast_line(h, r1, r2):
+    # Кастим прямую с углом наклона tan(h), которая
+    # исходит из точки (r1, r2)
+    k = np.round(np.tan(h), K)
+    return k, -k*r1+r2
+
+
+def intersection(y1, y2):
+    k1, b1 = y1
+    k2, b2 = y2
+    if k1 == k2: return None
+
+    x = np.round((b2-b1) / (k1-k2), K)
+    y = np.round(k1*x + b1, K)
+    return x, y
+
+
+def dist(x1, y1, x2, y2):
+    return np.round(np.sqrt((x1-x2)**2 + (y1-y2)**2), K)
+
+
+def get_all_intersections(all_lines, cur_line):
+    intrs = []
+    for line in all_lines:
+        p = intersection(line, cur_line)
+        if p: intrs.append((p, line))
+    return intrs
+
+
+def get_first_near_intersections(lines, cur_line, initial_point):
+    x0, y0 = initial_point
+    intrs = get_all_intersections(lines, cur_line)
+    min_forward = [1e9, (), ()]
+    min_backward = [1e9, (), ()]
+    for p, line in intrs:
+        x1, y1 = p
+        t = [dist(x0, y0, x1, y1), line, p]
+        if (x0 == x1 and y0 <= y1) or (x0 <= x1 and y0 == y1) or x0 <= x1:
+            min_forward = min(min_forward, t, key=lambda x: x[0])
+        else:
+            min_backward = min(min_backward, t, key=lambda x: x[0])
+    if not all(min_backward) or not all(min_forward):
+        print(f'A({x}, {y}) не находится в каком-либо многоугольнике!')
+        plot_graphic()
+        raise SystemExit(1)
+    return min_forward, min_backward
+
+def plot_graphic(spec_lines=[]):
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1)
+    ox = np.linspace(r1, r2, n)
+    ax.spines['left'].set_position('center')
+    ax.spines['bottom'].set_position('center')
+    ax.spines['right'].set_color('none')
+    ax.spines['top'].set_color('none')
+    ax.xaxis.set_ticks_position('bottom')
+    ax.yaxis.set_ticks_position('left')
+    plt.xlim(r1, r2)
+    plt.ylim(r1, r2)
+    plt.plot(x, y, marker='o', markersize=5, markerfacecolor='red', label=f'A({np.round(x, 2)}, {np.round(y, 2)})')
+    for line in lines:
+        k, b = line
+        plt.plot(ox, k*ox + b, '--g')
+    for line in spec_lines:
+        k, b = line
+        plt.plot(ox, k*ox + b, '-b', label=f'y={np.round(k, 2)}x + {np.round(b, 2)}')
+    plt.legend(loc='upper left')
+    plt.show()
+
+n = 20
+r1, r2 = -10, 10
+k = (r2-r1) * np.random.sample(n) + r1
+b = (r2-r1) * np.random.sample(n) + r1
+lines = list(zip(k, b))
+
+x, y = (r2-r1) * np.random.sample(2) + r1
+K = 16
+h = 0.01
+vertexes = set()
+main_lines = set()
+for i in np.arange(-np.pi/2+h, np.pi/2-h, h):
+    cur_line = cast_line(i, x, y)
+    forward_result, backward_result = get_first_near_intersections(lines, cur_line, (x, y))
+    for result in (forward_result, backward_result):
+        _, line, intr = result
+        forward_result2, backward_result2 = get_first_near_intersections(lines, line, intr)
+        for second_result in (forward_result2, backward_result2):
+            _, _, vertex = second_result
+            _x, _y = vertex
+            _x = np.round(_x, K//2)
+            _y = np.round(_y, K//2)
+            vertexes.add((_x, _y))
+            main_lines.add(line)
+
+print(f'Вершины многоугольника, которому принадлежит начальная точка A({x}, {y})')
+pprint(vertexes)
+plot_graphic(list(main_lines))
