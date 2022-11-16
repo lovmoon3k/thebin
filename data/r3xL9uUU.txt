@@ -1,0 +1,82 @@
+/*
+ * Copyright 2022 Z Automotive Technologies
+ *
+ * Developed by Nucleon 11.16.2022
+ */
+
+#include <stdio.h>
+#include <inttypes.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_system.h"
+#include "nvs_flash.h"
+#include "nvs.h"
+
+esp_err_t handle_nvs_errors(esp_err_t err, nvs_handle_t handle) 
+{
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( err );
+    err = nvs_open("storage", NVS_READWRITE, &handle);
+    if (err != ESP_OK) { printf("Error (%s) opening NVS handle!\n", esp_err_to_name(err)); } 
+    if (err == ESP_OK) {
+        return ESP_OK;
+    }
+    return ESP_FAIL;
+}
+
+
+/*
+ * read_preferences_int32
+ * fetches the key:value pair from the NVS Flash
+ * Argument: const char* name 
+ * Returns: value success or -1 on falure
+ */
+
+int32_t read_preferences_int32(const char* name) {
+
+    nvs_handle_t my_handle;
+    esp_err_t checkErrors = nvs_flash_init();
+    esp_err_t errors = handle_nvs_errors(checkErrors, my_handle);
+
+    if (errors == ESP_OK) 
+    {
+        esp_err_t results = nvs_open("storage", NVS_READWRITE, &my_handle);
+        if (results == ESP_OK) 
+        {
+            //default value 
+            int32_t value = 0;
+            esp_err_t read = nvs_get_i32(my_handle, name, &value);
+
+            if (read == ESP_OK) {
+                printf("value = %" PRIu32 "\n", value);
+                nvs_close(my_handle);
+                return value;
+            }
+        }
+    }
+    nvs_close(my_handle);
+    return -1;
+}
+
+void write_preferences_int32(const char* name, int32_t value) {
+
+    nvs_handle_t my_handle;
+    esp_err_t err;
+    esp_err_t checkErrors = nvs_flash_init();
+    esp_err_t errors = handle_nvs_errors(checkErrors, my_handle);
+    if (errors == ESP_OK) 
+    {
+        esp_err_t results = nvs_open("storage", NVS_READWRITE, &my_handle);
+        if (results == ESP_OK) 
+        {
+            err = nvs_set_i32(my_handle, name, value);
+            printf((err != ESP_OK) ? "Writing NVS Failed!\n" : "Writing NVS Success\n");
+            err = nvs_commit(my_handle);
+            printf((err != ESP_OK) ? "Failed!\n" : "Done\n");
+            nvs_close(my_handle);
+        }
+    }
+}  
