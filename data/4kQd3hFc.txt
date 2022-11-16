@@ -1,0 +1,20 @@
+@staticmethod
+    def get_cross_account_features_properties(tx, account_hash: str, from_timestamp: int,
+                                              to_timestamp: int) -> list:
+        # data is stored in relationships between Account and Transaction, extract all possible dst
+        where_from_timestamp = "($from_timestamp <= tx.timestamp)" if from_timestamp > 0 else ""
+        where_to_timestamp = "(tx.timestamp < $to_timestamp)" if to_timestamp > 0 else ""
+        where_clause = Neo4jQueryService.join_non_empty_strings(" AND ", [where_from_timestamp, where_to_timestamp])
+        if len(where_clause) > 0:
+            where_clause = "WHERE " + where_clause
+
+        transaction_features = tx.run(
+            "MATCH (src:Account {hash:$src_account_hash}) -[link1:FEATURES]-> (tx:Transaction)"
+            + where_clause +
+            "RETURN PROPERTIES(link1) as link, tx.hash as tx_hash ORDER BY tx.timestamp",
+            src_account_hash=account_hash,
+            from_timestamp=from_timestamp,
+            to_timestamp=to_timestamp
+        )
+        print("get_cross_account_features_properties >> transaction_features", list(transaction_features))
+        return list(transaction_features)
