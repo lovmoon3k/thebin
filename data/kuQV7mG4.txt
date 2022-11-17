@@ -1,0 +1,369 @@
+  ------------- Configuration part ------------------
+  
+  -- Seconds between checking stored energy
+  -- and updating monitors (default: 5)
+local updateInterval = 5
+
+-- Simple mode tries to scan for compatible storages and
+-- wrap the first found one and the first found monitor
+-- For more advanced configuration, set this to false and
+-- and fill the dataTable below (example follows)
+-- Default: true
+local simpleMode = true 
+     
+local dataTable = {
+   
+}
+
+  -- help for how to fill dataTable:
+--[[ add a comma at the end of all lines except the
+  last one in all tables.
+  "[required]" in front of a line means you need to
+  have it or the program won't work, rows with
+  "[optional]" are optional and can be left out.
+  The following information can be added:
+
+  [required] monitor = the side or network name
+            of a monitor connected to the computer.
+  [required] energy = the energy storage witch
+            content should be displayed on the
+            monitor defined above.
+  [optional] text = a word or sentence that will
+            be displayed at the bottom line on the
+            monitor.
+  [optional] blitColor = Will be ignored if its
+            not a advanced monitor, specifies the
+            color of the graph, see following link
+            for help:
+            http://www.computercraft.info/wiki/Colors_(API)#Colors
+            allowed values are 0-9 and a-f,
+            defaults to 5 (green)
+  [optional] textSize = Sets how large the text is and
+            how thick the graph line is.
+            Needs to be between 0.5 and 5 and is in
+            steps of 0.5. eg 0.5, 1, 1.5 ... 4.5, 5
+            Default is 1. (5 is very large text)
+            
+local Example = {
+  {
+    monitor = "monitor_1",    <-- comma
+    energy = "tile_blockcapacitorbank_name_0", <--comma
+    text = "ME Backup",     <-- comma
+    blitColor = "5"       <-- no comma, last line for this monitor-battery pair
+    },{         <-- comma between braces, there are more monitor-battery pairs
+    monitor = "top",      <-- comma
+    energy = "back",      <-- comma
+    textSize = 0.5    <-- no comma, last line in this pair
+    }       <-- no comma, this was last pair
+  }         <-- closing the example table, no comma
+
+  ]] -- (ignore this two brackets, they indicate
+     -- the end of this long multi-line comment)
+
+------------- End of configuration part --------------------
+
+-- Dont change anything below this line
+-- if you not know what you are doing!
+
+if simpleMode then
+  dataTable.auto = {}
+  
+  -- Scan after a monitor and wrap the first one found
+  -- If no monitor is found, error and exit
+  local mon = peripheral.find("monitor")
+  if not mon then 
+    error("Could not automaticly find a monitor, connect one with a wired modem or place one touching the computer")
+  else
+    dataTable.auto.monitor = mon
+  end
+  
+  -- Scan for energy storage, first EnderIO
+  local ene = peripheral.find("tile_blockcapacitorbank_name") -- basic, normal and vibrant
+  
+  -- If not found, scan for thermal expansion cells
+  if not ene then
+    ene = peripheral.find("tile_thermalexpansion_cell_basic_name")
+  end
+  
+  -- ImmersiveEngineering
+  if not ene then
+    ene = peripheral.find("IE:lvCapacitor")
+  end
+  if not ene then
+    ene = peripheral.find("IE:mvCapacitor")
+  end
+  if not ene then
+    ene = peripheral.find("IE:hvCapacitor")
+  end
+  
+  -- Draconic Evolution
+  if not ene then
+    ene = peripheral.find("draconic_rf_storage")
+  end
+  
+  -- Industrial Craft 2
+  if not ene then
+    ene = peripheral.find("batbox")
+  end
+  if not ene then
+    ene = peripheral.find("mfe")
+  end
+  if not ene then
+    ene = peripheral.find("mfsu")
+  end
+  
+  -- Mekanism
+  if not ene then
+    ene = peripheral.find("basicEnergyCube")
+  end
+  if not ene then
+    ene = peripheral.find("advancedEnergyCube")
+  end
+  if not ene then
+    ene = peripheral.find("eliteEnergyCube")
+  end
+  if not ene then
+    ene = peripheral.find("ultimateEnergyCube")
+  end
+  if not ene then
+    ene = peripheral.find("Induction Matrix")
+  end
+  
+  -- Big Reactors
+  if not ene then
+    ene = peripheral.find("BigReactors-Reactor")
+  end
+  if not ene then
+    ene = peripheral.find("BigReactors-Turbine")
+  end
+  
+  -- plethora (peripheral)
+  if not ene then
+    local periphs = peripheral.getNames()
+    for _, v in pairs(periphs) do
+	  local periph = peripheral.wrap(v)
+	  if (periph.getMetadata and periph.getMetadata().energy 
+	  and periph.getMetadata().energy.capacity 
+	  and periph.getMetadata().energy.stored) then
+	    ene = periph
+		break
+      end
+	end
+  end
+  
+  -- End of scanning attempts
+  if ene then
+    dataTable.auto.energy = ene
+  else
+    print("Could not automaticly find a energy storage, check the connection or try adding it in the program code in dataTable and disable simpleMode")
+    print("Connected peritherals: ")
+    local periphs = peripheral.getNames()
+    for _, v in pairs(periphs) do
+      print(v)
+    end
+    error("Fix the above and try again")
+  end
+end
+
+
+local emptyDataTable = true
+
+-- checks information in dataTable and sets variables
+-- that will be used later
+for rowNumber, row in pairs(dataTable) do
+  emptyDataTable = false
+  local monTest
+  if type(row.monitor) == "table" then monTest = row.monitor -- true if on simpleMode
+  else monTest = peripheral.wrap(row.monitor) end
+  
+  -- Monitor stuff
+  if (monTest == nil) then
+    error("\nCould not wrap monitor on row " .. rowNumber)
+  end
+  row.monitor = monTest
+  
+  local test = row.monitor.isColor()
+  if (test == nil) then
+    error("\n\"monitor\" on row " .. rowNumber .. " is not a monitor")
+  end 
+  row.monIsColor = test
+  
+  if row.textSize then
+    local size = row.textSize*2
+    if size < 1 or size > 10 or size ~= math.floor(size) then
+      if row.monIsColor then term.setTextColor(colors.yellow) end
+      print("\nInvalid textSize for monitor on row " .. rowNumber .. ". Needs to be beween 0.5 and 5 and a multiple of 0.5")
+      print("Using monitor default 1")
+      if row.monIsColor then term.setTextColor(colors.white) end
+    else
+      row.monitor.setTextScale(row.textSize)
+    end
+  end
+  
+  if (row.text ~= nil) then row.hasText = 1
+  else row.hasText = 0 end
+  
+  row.x, row.y = row.monitor.getSize()
+  row.Y = 100/(row.y - 1 - row.hasText)
+  row.pointsArray = {}
+  row.indexPointer = 1
+  for i = 1, row.x do
+    row.pointsArray[i] = row.y - row.hasText --looks like 0% in the beginning
+  end
+  
+  if not row.blitColor then row.blitColor = "5"
+  else
+    local bc = row.blitColor
+    if not (bc == "0" or bc == "1" or bc == "2" or bc == "3"
+    or bc == "4" or bc == "5" or bc == "6" or bc == "7"
+    or bc == "8" or bc == "9" or bc == "a" or bc == "b"
+    or bc == "c" or bc == "d" or bc == "e" or bc == "f") then
+      if row.monIsColor then term.setTextColor(colors.yellow) end
+      print("\nInvalid blitColor for monitor on row " .. rowNumber .. ". Needs to be in quotation marks and between 0-9 or a-f")
+      print("Defaulting to green (5)")
+      if row.monIsColor then term.setTextColor(colors.white) end
+      row.blitColor = "5"
+    end
+  end
+  
+  if row.x < 27 then row.hideStekeblad = true -- do not print "Stekeblad's Powergraph" if it
+  else row.hideStekeblad = false end          -- does not fit on the monitor
+  if ((row.hasText == 1) and (row.x < string.len(row.text))) then
+    if row.monIsColor then term.setTextColor(colors.yellow) end
+    print("\nDefined text for monitor on row " .. rowNumber .. " does not fit on screen")
+    if row.monIsColor then term.setTextColor(colors.white) end
+  end
+
+  --  Battery stuff
+  local eneTest
+  if type(row.energy) == "table" then eneTest = row.energy
+  else eneTest = peripheral.wrap(row.energy) end
+  
+  if (eneTest == nil) then
+    error("\nCould not wrap energy storage on row " .. rowNumber)
+  else 
+    row.energy = eneTest
+    -- check if IC2 energy storage and if so add support for it
+    if (row.energy.getEUStored and row.energy.getEUCapacity) then
+      row.energy.getEnergyStored = row.energy.getEUStored
+      row.energy.getMaxEnergyStored = row.energy.getEUCapacity
+    
+    -- check if mekanism energy storage and if so add support for it
+    elseif (row.energy.getEnergy and row.energy.getMaxEnergy) then
+      row.energy.getEnergyStored = row.energy.getEnergy
+      row.energy.getMaxEnergyStored = row.energy.getMaxEnergy
+    
+    -- check if bigreactors reactor (can store 10 million)
+    elseif (row.energy.getEnergyStored and row.energy.getControlRodLevel) then    
+      row.energy.getMaxEnergyStored = function() return 10000000 end
+      
+    -- check for bigreactors turbine (can store 1 million)
+    elseif (row.energy.getEnergyStored and row.energy.getBladeEfficiency) then    
+      row.energy.getMaxEnergyStored = function() return 1000000 end
+	  
+	-- plethora (peripheral)
+	elseif (row.energy.getMetadata) then
+		local blockMeta = row.energy.getMetadata()
+		if (blockMeta.energy and blockMeta.energy.stored and blockMeta.energy.capacity) then
+			row.energy.getEnergyStored = function() return row.energy.getMetadata().energy.stored end
+			row.energy.getMaxEnergyStored = function() return row.energy.getMetadata().energy.capacity end
+		end
+      
+    -- If the energy storage is not compatible
+    elseif not (row.energy.getEnergyStored and row.energy.getMaxEnergyStored) then
+      error("\n\"energy\" on row " .. rowNumber .. " is not a energy storage or does not support the required functions")
+    end
+    row.maxEnergy = row.energy.getMaxEnergyStored()
+  end
+end
+
+  -- Check if dataTable is empty and tell user to add something
+if emptyDataTable then
+  if term.isColor then term.setTextColor(colors.red) end
+  print("\nNo monitors and energy storages added, press enter to open file for editing....")
+  if term.isColor then term.setTextColor(colors.white) end
+  read()
+  shell.run("edit " .. shell.getRunningProgram())
+  return -1
+end
+
+print("\nSuccessfully wrapped all monitors and energy storages as peripherals")
+
+-- Prints one pixel of the graph in choosen color, or white if non-advanced
+function blitPoint(row)
+  if row.monIsColor then
+    row.monitor.blit(row.blitColor, row.blitColor, row.blitColor) -- (advanced monitor)
+  else
+    row.monitor.blit("0", "0", "0") -- Write a white 0 on a white background (normal monitor)
+  end
+end
+
+-- Prints the "text"-value for the storage centered at the bottom, if defined
+function printBottomText(row)
+  if row.hasText == 1 then
+    local strLen = string.len(row.text)
+    row.monitor.setCursorPos((row.x-strLen+1)/2, row.y)
+    row.monitor.write(row.text)
+  end
+end
+
+-- Prints "Stekeblad's Powergraph" centered at the top of the monitor, if their is enough space
+function printMadeBy(row)
+  if row.hideStekeblad == false then
+    local startX = math.floor(row.x/2-13)
+    row.monitor.setCursorPos(startX, 1)
+    row.monitor.write("Main Powergraph")
+  end
+end
+
+-- Print how many percent of the storage is full
+function printPercentFull(row)
+  row.monitor.setCursorPos(row.x-4, 1)
+  row.monitor.write(row.filledPercent .. "%")
+end
+
+local all = {} -- Creates a table for functions that will operate on all monitor-battery pairs
+
+-- Read from storage and find the y-value of this point
+all.getNewData = function () 
+  for rowNumber, row in pairs(dataTable) do
+    local stored = row.energy.getEnergyStored()
+    if stored == nil then
+      error("\n Failed to read stored energy from storage on row " .. rowNumber)
+    end
+    row.filledPercent = math.floor((stored/row.maxEnergy)*100)
+    local pointY = math.floor(row.filledPercent/row.Y)
+    if pointY == row.y - 1 - row.hasText then pointY = pointY-1 end
+    row.pointsArray[row.indexPointer] = row.y - pointY - row.hasText--Else is 100% bottom of screen and top is 0%
+    row.indexPointer = (row.indexPointer % row.x) + 1
+  end
+end
+
+-- Refreshes what you see on the monitors
+all.updateView = function ()
+  for rowNumber, row in pairs(dataTable) do
+    local ptr = row.indexPointer
+    local Xi = 1
+    row.monitor.clear()
+    printPercentFull(row)
+    printMadeBy(row)
+    if row.hasText then printBottomText(row) end
+    row.monitor.setCursorPos(Xi, row.pointsArray[ptr])
+    blitPoint(row) -- blit one character, based on if its a advanced or normal monitor
+    Xi = (Xi % row.x) + 1
+    ptr = (ptr % row.x) + 1
+    while (ptr ~= row.indexPointer) do
+      row.monitor.setCursorPos(Xi, row.pointsArray[ptr])
+      blitPoint(row)
+      Xi = (Xi % row.x) + 1
+      ptr = (ptr % row.x) + 1
+    end
+  end
+end
+
+--Main program loop
+while true do
+  all.getNewData()
+  all.updateView()
+  sleep(updateInterval)
+end
