@@ -1,0 +1,81 @@
+query = test_queries_10.query_text[2]   #  запрос (строка текста)
+lemm_list = []   # лемматизация текста
+word_list = nltk.word_tokenize(query)
+lemmatizer = WordNetLemmatizer()
+lemm_list.append(' '.join([lemmatizer.lemmatize(word) for word in word_list]))
+
+child_list = ['child', 
+       'kid', 
+       'baby', 
+       'infant', 
+       'babe', 
+       'brat', 
+       'bairn', 
+       'tad', 
+       'wean', 
+       'youngling', 
+       'kiddy', 
+       'children', 
+       'babies',
+       'young boy',
+       'young girl']   # словарь стопслов
+
+lemm_series = pd.Series(' '.join(lemm_list).split())
+
+if sum(lemm_series.str.contains('|'.join(child_list)))==1: # провекра в запросе на детей
+    print('This image is unavailable in your country in compliance with local laws.')
+else:
+    string = ' '.join(lemm_list)
+    
+    tokenized = tokenizer.encode(string, truncation = True, add_special_tokens=True)
+    tokenized = pd.Series([tokenized])   # токенизация текстового описания
+    
+
+    max_len = 0
+    for i in tokenized.values:
+        if len(i) > max_len:
+            max_len = len(i)
+    padded_test = np.array([i + [0]*(max_len - len(i)) for i in tokenized.values])
+    attention_mask_test = np.where(padded != 0, 1, 0)
+
+   
+    batch_size = 1   # векторизация текстового описания
+    embeddings_test = []  
+
+    for i in notebook.tqdm(range(padded_test.shape[0] // batch_size)):
+        batch_test = torch.LongTensor(padded_test[batch_size*i:batch_size*(i+1)])                         
+        attention_mask_batch_test = torch.LongTensor(attention_mask_test[batch_size*i:batch_size*(i+1)])    
+
+        with torch.no_grad():
+            batch_embeddings_test = model(batch_test)  
+
+            
+        embeddings_test.append(batch_embeddings_test[0][:,0,:].numpy()) 
+        
+    embeddings_arr = np.concatenate(embeddings_test)
+    
+    df_text_embedings = pd.concat([pd.DataFrame(embeddings_arr)]*   # размножаем текстовый вектор запроса 
+      len(vectorized_test_images)).reset_index(drop=True)   # на количество векторов изображений
+    
+    X_test = pd.DataFrame(np.concatenate((df_text_embedings,   # преобразуем в датафрейм
+                                          vectorized_test_images.drop(['image_name'], axis=1)), axis=1))
+    
+        #   переводим данные в тензор
+    X_test_tens = torch.FloatTensor(X_test.values)
+
+    net.eval()
+        #   делаем предсказания
+    preds_test = net.forward(X_test_tens).flatten()
+    
+        #   находим максимальную вероятность в массиве предсказаний
+    max_elem = max(preds_test.detach().numpy())
+        #   по максимальному значению прогноза находим индекс изображения
+    image_index = preds_test.detach().numpy().tolist().index(max_elem)
+    
+        #   выводим изображение на экран по его индексу в папке
+    img = Image.open(folder_dir+'\\'+vectorized_test_images.image_name[image_index]).convert('RGB')
+    fig.add_subplot(5, 2, 1)
+    plt.yticks([])
+    plt.xticks([])
+    plt.title(query) #   выводим описание запроса 
+    plt.imshow(img)
