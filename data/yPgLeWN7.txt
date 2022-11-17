@@ -1,0 +1,170 @@
+Display = {}
+Display.__index = Display
+
+
+function Display:new(display)
+  if display == nil then
+    print("Display is required")
+  end
+
+  local self = setmetatable({}, self)
+  self.display = display;
+
+  local w, h = display.getSize()
+  self.width = w
+  self.height = h
+
+  return self
+end
+
+function Display:reset()
+  self.display.clear()
+  self.display.setCursorPos(1, 1)
+end
+
+-- OPTS = {y = int, text_align = "left|right|center", color = color_name}
+function Display:text(str, opts)
+  local cursor_x, cursor_y = self.display.getCursorPos()
+  opts = opts or {}
+
+  -- Set height offset from the top of the display
+  local y = cursor_y
+  if opts.y then
+    y = opts.y
+  end
+
+  -- If a color was given
+  if opts.color ~= nil then
+    self.display.setTextColor(colors[opts.color])
+  end
+
+  if opts.text_align == "center" then
+    self.display.setCursorPos(self.width / 2 - #str / 2, y)
+    self.display.write(str)
+  elseif opts.text_align == "right" then
+    self.display.setCursorPos(self.width - #str, y)
+    self.display.write(str)
+  else
+    self.display.setCursorPos(1, y)
+    self.display.write(str)
+  end
+
+  -- If a color was given, return back to white after
+  -- IDEA: we could grab the color that they had set before we change it and go back to that
+  if opts.color ~= nil then
+    self.display.setTextColor(colors.white)
+  end
+
+  -- Return to new line
+  self.display.setCursorPos(1, y + 1)
+end
+
+-- OPTS = {y = int , x = int, color = color_name}
+function Display:write(str, opts)
+  local cursor_x, cursor_y = self.display.getCursorPos()
+  opts = opts or {}
+
+  -- Set height offset from the top side of the display
+  local y = cursor_y
+  if opts.y then
+    y = opts.y
+  end
+
+  -- Set height offset from the left side of the display
+  local x = 1
+  if opts.x then
+    x = opts.x
+  end
+
+  -- If a color was given
+  if opts.color ~= nil then
+    self.display.setTextColor(colors[opts.color])
+  end
+
+  -- write to display
+  self.display.setCursorPos(x, y)
+  self.display.write(str)
+
+  -- reset
+  self.display.setCursorPos(1, y + 1)
+  self.display.setTextColor(colors.white)
+end
+
+-- OPTS = {symbol=str, color=color_name, direction="horizontal|verticle", x=int, y=int}
+function Display:fill(opts)
+  opts = opts or {}
+
+  -- verticle only cares about x position
+  if opts.direction == "verticle" then
+    for i = 1, self.height do
+
+      -- If symbol
+      if opts.symbol ~= nil then
+        local write_opts = { x = opts.x, y = i }
+        if opts.color then
+          write_opts.color = opts.color
+        end
+
+        self:write(opts.symbol, write_opts)
+      end
+
+    end
+
+  else
+    -- horizontal only cares about y position
+    for i = 1, self.width do
+
+      -- If symbol
+      if opts.symbol ~= nil then
+        local write_opts = { x = i, y = opts.y }
+        if opts.color then
+          write_opts.color = opts.color
+        end
+
+        self:write(opts.symbol, write_opts)
+      end
+
+    end
+
+  end
+
+end
+
+-- opts = {default=int, min=int, max=int, shutoff=int}
+function Display:number_input(question, opts)
+  if self.display.read == nil then
+    error("Only terminals can be asked questions")
+  end
+
+  opts = opts or {}
+
+  local function ask()
+    self:reset()
+    self:text(question)
+    local input_num = tonumber(self.display.read())
+
+    -- Return default
+    if opts.default ~= nil and input_num == nil or input_num == "" then
+      return opts.default
+    end
+
+    -- If it can be shutoff return nil
+    if opts.shutoff ~= nil and input_num == opts.shutoff then
+      return nil
+    end
+
+    -- If input is below minimun, then ask again
+    if opts.min ~= nil and input_num > opts.min then
+      return ask()
+    end
+
+    -- If input is above maximum, then ask again
+    if opts.max ~= nil and opts.max > input_num then
+      return ask()
+    end
+
+    return input_num
+  end
+
+  return ask()
+end
