@@ -1,0 +1,310 @@
+	--------------------------------------------------------------------------------
+    -------------------------------- ТРАНЗАКЦИИ ------------------------------------
+    --------------------------------------------------------------------------------
+    --Пример 6-1. 
+    --Да се създаде транзакция, която добавя нов клиент и създава поръчка за него, 
+    --включваща два продукта.
+	SELECT * FROM PRODUCTS
+
+	--#1
+	BEGIN TRAN TRAN1
+		--OPERATION 1:
+		INSERT INTO CUSTOMERS(CUSTOMER_ID, COUNTRY_ID, FNAME, LNAME, ADDRESS, EMAIL, GENDER)
+		VALUES(1001, 'BG', 'Ива', 'Илиева', 'гр. Пловдив Ж.К. Тракия', 'ii@abv.bg', 'F')
+		--OPERAION 2:
+		INSERT INTO ORDERS (ORDER_ID, ORDER_DATE, CUSTOMER_ID, EMPLOYEE_ID)
+		VALUES(1, GETDATE(), 1001, 125)
+		--OPERATION 3:
+		INSERT INTO ORDER_ITEMS(ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE)
+		VALUES(1, 1726, 1, 99.00)
+		--OPERATION 4:
+		INSERT INTO ORDER_ITEMS(ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE)
+		VALUES(1, 2245, 1, 42)
+	COMMIT TRAN TRAN1
+
+	SELECT * FROM ORDER_ITEMS
+	WHERE ORDER_ID = 1
+
+	--#1 --NO atomic
+	BEGIN TRAN TRAN1
+		--OPERATION 1:
+		INSERT INTO CUSTOMERS(CUSTOMER_ID, COUNTRY_ID, FNAME, LNAME, ADDRESS, EMAIL, GENDER)
+		VALUES(1002, 'BG', 'Ива', 'Илиева', 'гр. Пловдив Ж.К. Тракия', 'ii@abv.bg', 'F')
+		--OPERAION 2:
+		INSERT INTO ORDERS (ORDER_ID, ORDER_DATE, CUSTOMER_ID, EMPLOYEE_ID)
+		VALUES(1, GETDATE(), 1001, 125)
+		--OPERATION 3:
+		INSERT INTO ORDER_ITEMS(ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE)
+		VALUES(1, 1726, 1, 99.00)
+		--OPERATION 4:
+		INSERT INTO ORDER_ITEMS(ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE)
+		VALUES(1, 2245, 1, 42)
+	COMMIT TRAN TRAN1
+
+	SELECT * FROM CUSTOMERS
+
+	--#2
+	BEGIN TRAN TRAN1
+		--OPERATION 1:
+		INSERT INTO CUSTOMERS(CUSTOMER_ID, COUNTRY_ID, FNAME, LNAME, ADDRESS, EMAIL, GENDER)
+		VALUES(1003, 'BG', 'Ива', 'Илиева', 'гр. Пловдив Ж.К. Тракия', 'ii@abv.bg', 'F')
+		IF @@ERROR <> 0 ROLLBACK
+
+		--OPERAION 2:
+		INSERT INTO ORDERS (ORDER_ID, ORDER_DATE, CUSTOMER_ID, EMPLOYEE_ID)
+		VALUES(1, GETDATE(), 1001, 125)
+		IF @@ERROR <> 0 ROLLBACK
+
+		--OPERATION 3:
+		INSERT INTO ORDER_ITEMS(ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE)
+		VALUES(1, 1726, 1, 99.00)
+		IF @@ERROR <> 0 ROLLBACK
+
+		--OPERATION 4:
+		INSERT INTO ORDER_ITEMS(ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE)
+		VALUES(1, 2245, 1, 42)
+		IF @@ERROR <> 0 ROLLBACK
+
+	COMMIT TRAN TRAN1
+
+	SELECT * FROM CUSTOMERS
+
+	--#3
+	BEGIN TRAN TRAN1
+	SET XACT_ABORT ON
+		--OPERATION 1:
+		INSERT INTO CUSTOMERS(CUSTOMER_ID, COUNTRY_ID, FNAME, LNAME, ADDRESS, EMAIL, GENDER)
+		VALUES(1003, 'BG', 'Ива', 'Илиева', 'гр. Пловдив Ж.К. Тракия', 'ii@abv.bg', 'F')
+		--OPERAION 2:
+		INSERT INTO ORDERS (ORDER_ID, ORDER_DATE, CUSTOMER_ID, EMPLOYEE_ID)
+		VALUES(1, GETDATE(), 1001, 125)
+		--OPERATION 3:
+		INSERT INTO ORDER_ITEMS(ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE)
+		VALUES(1, 1726, 1, 99.00)
+		--OPERATION 4:
+		INSERT INTO ORDER_ITEMS(ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE)
+		VALUES(1, 2245, 1, 42)
+	COMMIT TRAN TRAN1
+
+	SELECT * FROM CUSTOMERS
+
+    /*Пример 6-2. 
+    Транзакция, която променя фамилията на клиент с идентификатор = 1001, 
+    след което отхвърля направените промени.*/
+	BEGIN TRAN 
+	        --1
+			SELECT LNAME 
+			FROM CUSTOMERS  
+			WHERE CUSTOMER_ID = 1001
+			--2
+			UPDATE CUSTOMERS  
+			SET LNAME = 'Димитрова'
+			WHERE CUSTOMER_ID = 1001
+			--3
+			SELECT LNAME 
+			FROM CUSTOMERS  
+			WHERE CUSTOMER_ID = 1001
+	ROLLBACK TRAN
+			SELECT LNAME 
+			FROM CUSTOMERS  
+			WHERE CUSTOMER_ID = 1001
+ 
+    /*Пример 6-3.
+    Транзакция, която въвежда нов клиент, поставя точка на запис,
+    въвежда поръчка, след което отхвърля промените до точката на запис, т.е.
+    отхвърля се само поръчката.*/
+	SELECT * FROM EMPLOYEES
+
+
+	--START.............POINT1 ......... 2.... 3 ROLLBACK POINT1
+
+	BEGIN TRAN 
+		--OPERATION 1:
+		INSERT INTO CUSTOMERS(CUSTOMER_ID, COUNTRY_ID, FNAME, LNAME)
+		VALUES(1003, 'IT', 'Кей', 'Ромеро')
+	SAVE TRAN POINT1
+		--OPERATION 2:
+		INSERT INTO ORDERS(ORDER_ID, ORDER_DATE, EMPLOYEE_ID, CUSTOMER_ID)
+		VALUES (2, GETDATE(), 137, 1003)
+	ROLLBACK TRAN POINT1
+	COMMIT TRAN
+
+	SELECT * FROM ORDERS
+	SELECT * FROM CUSTOMERS
+ 
+    /*Задача 6-1. 
+    Транзакция, която има за цел да изтрие отдел „Мениджмънт“,
+    като преди това прехвърли всички служители от него в отдел „Администрация“.
+	*/
+	SELECT D.NAME , D.DEPARTMENT_ID, E.EMPLOYEE_ID
+	FROM EMPLOYEES E FULL JOIN DEPARTMENTS D
+	ON D.DEPARTMENT_ID = E.DEPARTMENT_ID
+	WHERE D.NAME = 'Мениджмънт' OR D.NAME = 'Администрация'
+
+	BEGIN TRAN 
+	---прехвърли всички служители  „Мениджмънт“ --> „Администрация“
+	UPDATE EMPLOYEES
+	SET DEPARTMENT_ID = 10
+	WHERE DEPARTMENT_ID = 90
+	--изтрие отдел „Мениджмънт“
+	DELETE FROM DEPARTMENTS
+	WHERE NAME = 'Мениджмънт'
+	COMMIT TRAN
+ 
+	SELECT D.NAME , D.DEPARTMENT_ID, E.EMPLOYEE_ID
+	FROM EMPLOYEES E FULL JOIN DEPARTMENTS D
+	ON D.DEPARTMENT_ID = E.DEPARTMENT_ID
+	WHERE D.NAME = 'Мениджмънт' OR D.NAME = 'Администрация'
+
+     /* Задача 6-2. 
+    Транзакция, която изтрива продукт 1726 - първо го изтрива от всички поръчки 
+    после от таблицата с продукти, и накрая отхвърля направените промени.*/
+	SELECT * 
+	FROM PRODUCTS P JOIN ORDER_ITEMS OI
+	ON P.PRODUCT_ID = OI.PRODUCT_ID
+	WHERE P.PRODUCT_ID = 1726
+
+	BEGIN TRAN
+		--OPER 1
+		SELECT * FROM PRODUCTS
+		WHERE PRODUCT_ID = 1726
+		--OPER 2:
+		DELETE FROM ORDER_ITEMS
+		WHERE PRODUCT_ID = 1726
+		--OPER 3:
+		DELETE FROM PRODUCTS
+		WHERE PRODUCT_ID = 1726
+		--OPER 3:
+		SELECT * FROM PRODUCTS
+		WHERE PRODUCT_ID = 1726
+	ROLLBACK TRAN
+
+	SELECT * 
+	FROM PRODUCTS P JOIN ORDER_ITEMS OI
+	ON P.PRODUCT_ID = OI.PRODUCT_ID
+	WHERE P.PRODUCT_ID = 1726
+ 
+    --Задача *
+    --Да се създаде транзакция, която променя фамилията на служител с 
+    --идентификатор 103 на 'Гочев', променя фамилията на служител с 
+    --идентификатор 114 на 'Петров', както и фамилията на служител с 
+    --идентификатор 118 на 'Маринов'. 
+    --Нека след това извлече в резултат име и фамилия само за горепосочените 
+    --променени служители. 
+	--Като промените от транзакцията останат постоянни!
+	BEGIN TRAN
+		---OPER 1:
+		SELECT FNAME, LNAME
+		FROM EMPLOYEES
+		WHERE EMPLOYEE_ID IN (103, 114, 118)
+		---OPER 2:
+		UPDATE EMPLOYEES
+		SET LNAME = 'Гочев'
+		WHERE EMPLOYEE_ID = 103
+		---OPER 3:
+		UPDATE EMPLOYEES
+		SET LNAME = 'Петров'
+		WHERE EMPLOYEE_ID = 114
+		---OPER 4:
+		UPDATE EMPLOYEES
+		SET LNAME = 'Маринов'
+		WHERE EMPLOYEE_ID = 118
+		---OPER 5:
+		SELECT FNAME, LNAME
+		FROM EMPLOYEES
+		WHERE EMPLOYEE_ID IN (103, 114, 118)
+	COMMIT TRAN
+
+    	SELECT FNAME, LNAME
+		FROM EMPLOYEES
+		WHERE EMPLOYEE_ID IN (103, 114, 118)
+
+    -------------------------------------------------------------------------------------
+    ---------------------------------- ПРОЦЕДУРИ ----------------------------------------
+    -------------------------------------------------------------------------------------
+    --Пример 7-2. 
+    --Да се създаде процедура, която за подаден като входен параметър идентификатор на 
+    --поръчка извежда имена на служител, който я е обработил, както и общата й стойност.
+	CREATE PROCEDURE EMPLOYEE_TOTAL_ORDER_PROC @ORDER INT 
+	AS
+	SELECT FNAME, LNAME, O.ORDER_ID, SUM(UNIT_PRICE*QUANTITY) AS TOTAL
+	FROM EMPLOYEES E JOIN ORDERS O ON O.EMPLOYEE_ID = E.EMPLOYEE_ID
+	                 JOIN ORDER_ITEMS OI  ON OI.ORDER_ID = O.ORDER_ID
+	WHERE O.ORDER_ID =  @ORDER
+	GROUP BY FNAME, LNAME, O.ORDER_ID
+
+	EXEC EMPLOYEE_TOTAL_ORDER_PROC @ORDER  = 2356
+   
+    -------------------------------------------------------------------------------------
+    ---------------------------------- ФУНКЦИИ ------------------------------------------
+    -----1.--Скаларни -------------------------------------------------------------------
+    --Пример 7-4. 
+    --Да се създаде функция, връщаща като скаларна стойност текст, съдържащ името на 
+    --отдел (подаден като параметър) и обща стойност на заплатите в него.
+	CREATE FUNCTION DEPT_NAME_SUM_SALARIES_FUNC (@DEPT_ID INT ) RETURNS VARCHAR(200)
+	AS 
+	BEGIN 
+	DECLARE @NAME VARCHAR(50) , @SUM_SALARY  NUMERIC(10,2)
+
+	SELECT @NAME = D.NAME , @SUM_SALARY = SUM(E.SALARY) 
+	FROM EMPLOYEES E  JOIN DEPARTMENTS D
+	ON E.DEPARTMENT_ID = D.DEPARTMENT_ID
+	WHERE D.DEPARTMENT_ID = @DEPT_ID
+	GROUP BY D.NAME, D.DEPARTMENT_ID
+
+	RETURN 'СУМАТА ОТ ЗАПЛАТИТЕ В ' 
+			+ @NAME + ' С ID= ' + CAST(@DEPT_ID AS varchar) + 'Е '
+			 + CAST(@SUM_SALARY  AS varchar) +'. '
+	END
+
+	SELECT DBO.DEPT_NAME_SUM_SALARIES_FUNC(DEPARTMENT_ID) FROM DEPARTMENTS
+
+    
+    -----2. Функции, връщащи резултатен набор ------------------------------------------
+ 
+    --Пример 7-5.
+    --Да се създаде функция, връщаща като резултат служителите с техните длъжности.
+    CREATE FUNCTION EMP_JOBS_FUNCTION () RETURNS TABLE
+    AS
+    RETURN
+        SELECT FNAME, LNAME, JOB_TITLE 
+        FROM EMPLOYEES E JOIN JOBS J
+        ON E.JOB_ID = J.JOB_ID
+ 
+    SELECT * FROM DBO.EMP_JOBS_FUNCTION()
+    ORDER BY JOB_TITLE
+ 
+    -------------------------------------------------------------------------------------
+    ----------------------------- Тригери -----------------------------------------------
+    -------------------------------------------------------------------------------------
+    /*Задача 9-1. 
+    Да се създаде тригер, който при всяка промяна на фамилия на клиент
+    записва ред в нова таблица CUSTOMERS_HISTORY с атрибути:
+    • идентификатор на клиент;
+    • стара фамилия;
+    • нова фамилия.*/
+
+	CREATE TABLE CUSTOMERS_HISTORY 
+	(
+		CUSTOMER_ID INT,
+		OLD_LNAME VARCHAR(50),
+		NEW_LNAME VARCHAR(50)
+	)
+
+	CREATE TRIGGER CUST_HISTORY_TRIGGER
+	ON CUSTOMERS  FOR UPDATE 
+	AS 
+	 IF UPDATE(LNAME)
+	 BEGIN 
+		INSERT INTO CUSTOMERS_HISTORY(CUSTOMER_ID, OLD_LNAME, NEW_LNAME)
+		SELECT I.CUSTOMER_ID, D.LNAME, I.LNAME 
+		FROM inserted  I, deleted D
+		WHERE I.CUSTOMER_ID = D.CUSTOMER_ID
+	 END
+
+UPDATE CUSTOMERS
+SET LNAME = 'ИВАНОВ'
+WHERE CUSTOMER_ID = 101
+
+
+SELECT * FROM CUSTOMERS_HISTORY

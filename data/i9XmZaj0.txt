@@ -1,0 +1,323 @@
+#include<bits/stdc++.h>
+
+using namespace std;
+
+using ll = long long;
+using ld = long double;
+using ull = unsigned long long;
+
+using pii = pair<int, int>;
+using pll = pair<ll, ll>;
+using pld = pair<ld, ld>;
+
+#define fi first
+#define se second
+#define pb push_back
+#define pf push_front
+#define mp make_pair
+#define ins insert
+#define btpc __builtin_popcount
+#define btclz __builtin_clz
+
+#define sz(x) (int)(x.size());
+#define all(x) x.begin(), x.end()
+#define debug(...) " [" << #__VA_ARGS__ ": " << (__VA_ARGS__) << "] "
+
+mt19937 rng(chrono::steady_clock::now().time_since_epoch().count());
+
+int d4x[4] = {1, 0, -1, 0}; int d4y[4] = {0, 1, 0, -1};
+int d8x[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+int d8y[8] = {1, 1, 0, -1, -1, -1, 0, 1};
+
+template<class X, class Y>
+    bool minimize(X &x, const Y &y) {
+        if (x > y)
+        {
+            x = y;
+            return true;
+        }
+        return false;
+    }
+template<class X, class Y>
+    bool maximize(X &x, const Y &y) {
+        if (x < y)
+        {
+            x = y;
+            return true;
+        }
+        return false;
+    }
+
+const int MOD = 1e9 + 7; //998244353
+
+template<class X, class Y>
+	void add(X &x, const Y &y) {
+		x = (x + y);
+		if(x >= MOD) x -= MOD;
+	}
+
+template<class X, class Y> 
+	void sub(X &x, const Y &y) {
+		x = (x - y);
+		if(x < 0) x += MOD;
+	}
+
+/* Author : Le Ngoc Bao Anh, 12A5, LQD High School for Gifted Student*/
+
+const ll INF = 1e9;
+const int N = 4e5 + 10;
+const int LOG = 18;
+
+template <class T> struct FenwickTree {
+	int n;
+	vector<T> bit;
+
+	FenwickTree(int _n = 0) {
+		n = _n;
+		bit.resize(n + 5);
+		for(int i = 1; i <= n; i++) bit[i] = 0;
+	}
+
+	void update(int pos, T x) {
+		for(int i = pos; i <= n; i += i & (-i)) bit[i] += x;
+	}
+
+	T get(int pos) {
+		T ans = 0;
+		for(int i = pos; i > 0; i -= i & (-i)) ans += bit[i];
+		return ans;
+	}
+};
+
+int sz[N], pc[N], lg[N];
+bool visited[N];
+vector<pii> g[N];
+pii f[LOG + 2][N];
+int in[N], out[N], par[LOG + 2][N], depth[N];
+ll path[N], cnt[N], dist[N], roll[N];
+int Time = 0;
+
+void dfs_sz(int u, int par) {
+	sz[u] = 1;
+	for(auto nxt : g[u]) {
+		int v = nxt.fi;
+		if(v != par && !visited[v]) {
+			dfs_sz(v, u);
+			sz[u] += sz[v];
+		}
+	}
+}
+
+int centroid(int u, int par, int n) {
+	for(auto nxt : g[u]) {
+		int v = nxt.fi;
+		if(v != par && sz[v] * 2 > n && !visited[v]) return centroid(v, u, n);
+	}
+	return u;
+}
+
+void build_centroid(int u, int par, int d) {
+	dfs_sz(u, 0);
+	u = centroid(u, 0, sz[u]);
+
+	pc[u] = par;
+	visited[u] = true;
+
+	for(auto nxt : g[u]) {
+		int v = nxt.fi;
+		if(!visited[v]) build_centroid(v, u, d + 1);
+	}
+}
+
+void dfs(int u) {
+	f[0][++Time] = mp(depth[u], u);
+	in[u] = Time;
+	for(auto nxt : g[u]) {
+		int v = nxt.fi;
+		int w = nxt.se;
+		if(v != par[0][u]) {
+			depth[v] = depth[u] + 1;
+			par[0][v] = u;
+			path[v] = path[u] + w;
+			dfs(v);
+			f[0][++Time] = mp(depth[u], u);
+		}
+	}
+	out[u] = Time;
+}
+
+int find_lca(int u, int v) {
+	if(in[u] > in[v]) swap(u, v);
+	int L = in[u], R = out[v];
+	int x = lg[R - L + 1];
+
+	return (f[x][L].fi < f[x][R - (1 << x) + 1].fi ? f[x][L].se : f[x][R - (1 << x) + 1].se);
+}
+
+ll find_dist(int u, int v) {
+	int p = find_lca(u, v);
+	return path[u] + path[v] - path[p] * 2;
+}
+
+int find_par(int u, int d) {
+	if(depth[u] < d) return u;
+	int x = lg[depth[u] - d + 1];
+	for(int i = x; i >= 0; i--) {
+		if(depth[u] - (1 << i) >= d) u = par[i][u];
+	}
+	return u;
+}
+
+void add(int u) {
+	int v = u;
+	while(v) {
+		++cnt[v];
+		dist[v] += find_dist(u, v);
+		if(pc[v]) {
+			++roll[v];
+			dist[v] -= find_dist(u, pc[v]);
+		}
+		v = pc[v];
+	}
+}
+
+ll calc(int u) {
+	ll ans = 0;
+	int v = u;
+	while(v) {
+		ans += dist[v] + find_dist(u, v) * cnt[v] - roll[v] * (pc[v] ? find_dist(u, pc[v]) : 0);
+		v = pc[v];
+	}
+	return ans;
+}
+
+void solve() {
+	int n; cin >> n;
+	for(int i = 1; i < n; i++) {
+		int u, v, w; cin >> u >> v >> w;
+		g[u].pb(mp(v, w));
+		g[v].pb(mp(u, w));	
+	}
+
+	lg[2] = 1;
+	for(int i = 2; i <= 2 * n; i++) lg[i] = lg[i / 2] + 1;
+
+	FenwickTree<int> BIT = FenwickTree<int>(2 * n);
+
+	build_centroid(1, 0, 1);
+
+	depth[1] = 1;
+	dfs(1);	
+
+	for(int j = 1; j <= LOG; j++) {
+		for(int i = 1; i <= Time - (1 << j) + 1; i++) {
+			int u = i + (1 << (j - 1));
+			f[j][i] = (f[j - 1][i].fi < f[j - 1][u].fi ? f[j - 1][i] : f[j - 1][u]);
+		}
+	}
+
+	for(int j = 1; j <= LOG; j++) {
+		for(int i = 1; i <= n; i++) {
+			if(depth[i] <= (1 << j)) continue;
+			int u = par[j - 1][i];
+			par[j][i] = par[j - 1][u];
+		}
+	}
+
+	int node = 1;
+	cout << 0 << " ";
+	add(1);
+	BIT.update(in[1], 1);
+
+	for(int i = 2; i <= n; i++) {
+		add(i);
+		BIT.update(in[i], 1);
+		int p = find_lca(node, i);
+		int L = 0, R = depth[i] + depth[node] - 2 * depth[p] - 1;
+
+		int num;
+		int current = node;
+		int new_node = i;
+
+		if(p != i) {
+			if(find_par(i, depth[current]) == current) {
+				int u = find_par(i, depth[current] + 1);
+				num = BIT.get(out[u]) - BIT.get(in[u] - 1);
+			} else {
+				num = i - BIT.get(out[current]) + BIT.get(in[current] - 1);
+			}
+
+			if(num * 2 <= i) {
+				new_node = current;
+			}
+		} else {
+			int num = i - (BIT.get(out[current]) - BIT.get(in[current] - 1));
+			if(num * 2 <= i) {
+				new_node = current;
+			}
+		}
+
+		if(new_node == node) {
+			cout << calc(node) << " ";
+			continue;
+		}
+		
+		while(L <= R) {
+			int mid = (L + R) >> 1;
+			int dist = mid;
+			int current = 0;
+
+			if(p != i) {
+				int num, current;
+				if(dist > depth[node] - depth[p]) {
+					current = find_par(i, depth[p] + dist - (depth[node] - depth[p]));
+				} else {
+					current = find_par(node, depth[p] + depth[node] - depth[p] - dist);
+				}
+
+				if(find_par(i, depth[current]) == current) {
+					int u = find_par(i, depth[current] + 1);
+					num = BIT.get(out[u]) - BIT.get(in[u] - 1);
+				} else {
+					num = i - BIT.get(out[current]) + BIT.get(in[current] - 1);
+				}
+
+				if(num * 2 <= i) {
+					R = mid - 1;
+					new_node = current;
+				} else L = mid + 1;
+			} else {
+				current = find_par(node, depth[node] - dist);
+				int num = i - (BIT.get(out[current]) - BIT.get(in[current] - 1));
+				if(num * 2 <= i) {
+					R = mid - 1;
+					new_node = current;
+				} else L = mid + 1;
+			}
+		}
+
+		node = new_node;
+		cout << calc(node) << " ";
+	}
+}
+
+int main()
+{
+    ios_base::sync_with_stdio(0); cin.tie(0); cout.tie(0);
+    #ifndef ONLINE_JUDGE
+    freopen("input.txt", "r", stdin);
+    freopen("output.txt", "w", stdout);
+    #else 
+    //online
+    freopen("tree.inp", "r", stdin);
+    freopen("tree.out", "w", stdout);
+    #endif
+
+    int tc = 1, ddd = 0;
+    cin >> tc; tc = 1;
+    while(tc--) {
+        //ddd++;
+        //cout << "Case #" << ddd << ": ";
+        solve();
+    }
+}
