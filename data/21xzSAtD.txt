@@ -1,0 +1,132 @@
+# get users feeds from Mixpanel 
+
+
+
+import requests
+import pandas as pd
+import pycountry
+from collections import Counter
+from datetime import datetime as dt
+import time
+from datetime import datetime
+ 
+# get users ids
+users_data = pd.read_csv('users_ids.csv')
+users_ids = users_data['$distinct_id'].tolist()
+users_total_sessions = users_data['$ae_total_app_sessions'].tolist()
+ 
+# make batches
+n = 60
+users_id_batches = [users_ids[i:i + n] for i in range(0, len(users_ids), n)]
+users_sess_batches = [users_total_sessions[i:i + n] for i in range(0, len(users_total_sessions), n)]
+ 
+first_week = "&from_date=2022-11-4&to_date=2022-11-10"
+second_week = "&from_date=2022-10-28&to_date=2022-11-3"
+third_week = "&from_date=2022-10-12&to_date=2022-10-27"
+weeks = [first_week, second_week, third_week]
+ 
+data = pd.DataFrame(columns=['user_id', 'cohort', 'total_app_sessions', 'week', 'country', 'os', 'events', 'actions',
+                             'actions_per_day', 'actions_per_week'])
+ 
+ 
+def get_json(user_id, week):
+    url = f"https://eu.mixpanel.com/api/2.0/stream/query?project_id=2627155&distinct_ids=%5B%22{user_id}%22%5D{week}"
+    headers = {
+        "accept": "application/json",
+        "authorization": "Basic {key}="
+    }
+ 
+    response = requests.get(url, headers=headers)
+    return response.json()['results']['events']
+ 
+ 
+def get_country(json_data):
+    try:
+        country = json_data[0]['properties']['mp_country_code']
+        if len(country) > 1:
+            country = pycountry.countries.get(alpha_2=country).name
+            return country
+    except:
+        return "Nan"
+ 
+ 
+def get_os(json_data):
+    try:
+        os = json_data[0]['properties']['$os']
+        if len(os) > 1:
+            return os
+    except:
+        return "Nan"
+ 
+ 
+def get_events_stat(json_data):
+    events = []
+    actions = []
+    for event in json_data:
+        if event['event'] == 'Screen Viewed':
+            events.append(event['properties']['Screen Name'])
+        else:
+            actions.append(event['event'])
+    return dict(Counter(events)), dict(Counter(actions))
+ 
+ 
+def get_actions_per_day(json_data):
+    actions_per_day = []
+    for event in json_data:
+        day_info = dt.fromtimestamp(event['properties']['time']).day
+        actions_per_day.append(day_info)
+    actions_per_day_dict = dict(Counter(actions_per_day))
+    if len(actions_per_day_dict) > 0:
+        actions_per_day_mean = sum(actions_per_day_dict.values()) / len(actions_per_day_dict)
+        return actions_per_day_mean
+    else:
+        return 0
+ 
+ 
+def get_actions_per_week(json_data):
+    actions_per_week = []
+    for event in json_data:
+        day_info = dt.fromtimestamp(event['properties']['time']).day
+        actions_per_week.append(day_info)
+    actions_per_week_dict = dict(Counter(actions_per_week))
+    return sum(actions_per_week_dict.values())
+ 
+ 
+def get_info(user_id, sessions, data_week, cohort_num):
+    raw_data = get_json(user_id, data_week)
+    time.sleep(2)
+ 
+    country = get_country(raw_data)
+    os = get_os(raw_data)
+    events_stats, actions = get_events_stat(raw_data)
+    actions_per_week = get_actions_per_week(raw_data)
+    actions_per_day = get_actions_per_day(raw_data)
+    user_info = [user_id, cohort_num, sessions, data_week, country, os, events_stats, actions, actions_per_day,
+                 actions_per_week]
+    return user_info
+ 
+ 
+def get_part(ids, sessions_num, week):
+    for user_id, sessions in zip(ids, sessions_num):
+        try:
+            data.loc[len(data)] = get_info(user_id, sessions, week, 1)
+            print('Data set size is', data.shape[0])
+        except:
+            print(f"Error is occurred, data set size now is {data.shape[0]}, waiting one hour to continue")
+            time.sleep(4000)
+            data.loc[len(data)] = get_info(user_id, sessions, week, 1)
+            print('Data set size is', data.shape[0])
+ 
+ 
+for week in weeks:
+    print(f'Start get info WEEK {weeks.index(week)}')
+    n = 1
+    for batch_ids, batch_sessions in zip(users_id_batches, users_sess_batches):
+        print(f'Batch number {n} in progress...')
+        get_part(batch_ids, batch_sessions, week)
+        print(f'Batch number {n} is done, time {datetime.now().strftime("%H:%M:%S")}')
+        time.sleep(3650)
+        n += 1
+        data.to_csv('data.csv')
+ 
+ 
