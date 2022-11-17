@@ -1,0 +1,133 @@
+WITH status_map AS (
+    SELECT 2 AS KEY, 12 AS VALUE FROM dual
+), source_map AS (
+    SELECT 8 AS KEY, 7 AS VALUE FROM dual
+    UNION
+    SELECT 9, 6 FROM dual
+), type_map AS (
+    SELECT 3 AS KEY, 1 AS VALUE FROM dual
+    UNION
+    SELECT 4, 2 FROM dual
+    UNION
+    SELECT 5, 3 FROM dual
+) SELECT *
+
+FROM
+ (
+SELECT
+                DDRF.R_DECL_DEB_REFUND_ID   AS DECL_DEB_REFUND_ID,
+                DDRF.STATUS_DECL            AS DECL_STATUS,
+                DDRF.TYPE_REQ               AS TYPE_REQ,
+                DDRF.DATE_DECL              AS DATE_DECL,
+                DDRF.DATE_TAKING            AS DATE_TAKING,
+                DDRF.AMOUNT                 AS AMOUNT,
+                DDRF.CBE                    AS CBE,
+                DDRF.ERROR_DESC             AS ERROR_DESC,
+                DDRF.SRC_DECL               AS SRC_DECL,
+                DDRF.SOURCE_SYSTEM          AS SOURCE_SYSTEM,
+                DDRF.NUM_DECLARATION        AS NUM_DECLARATION,
+                DDRF.BANK_ACCOUNT_RET       AS BANK_ACCOUNT_RET,
+                TP_DECL.RNN                 AS TP_SRC_RNN,
+                TP_DECL.IIN_BIN             AS TP_SRC_IIN_BIN,
+                TP_DECL.NAME_R              AS TP_SRC_NAME_R,
+                tp_decl.name_k              AS tp_src_name_k,
+                TP_DECL.NAME_E              AS TP_SRC_NAME_E,
+                KBK_SRC.KBK_CODE            AS KBK_SRC_CODE,
+                OPER_TYPE_SRC.PAYMENT_CODE  AS OPER_TYPE_SRC_CODE,
+                oper_type_src.name_r        AS oper_type_src_name_r,
+                OPER_TYPE_SRC.NAME_K        AS OPER_TYPE_SRC_NAME_K,
+                KBK_DST.KBK_CODE            AS KBK_DST_CODE,
+                OPER_TYPE_DST.PAYMENT_CODE  AS OPER_TYPE_DST_CODE,
+                OPER_TYPE_DST.NAME_R        AS OPER_TYPE_DST_NAME_R,
+                OPER_TYPE_DST.NAME_K        AS OPER_TYPE_DST_NAME_K,
+                TAX_ORG_DST.NAME_R          AS TAX_ORG_DST_NAME_R,
+                tax_org_dst.name_k          AS tax_org_dst_name_k,
+                nvl(bank.bik, bank.head_bik) AS bank_dst_bic,
+                DEBCR.NAME_R                AS DEBCR_NAME_R,
+                debcr.name_k                AS debcr_name_k,
+                ddrf.statement_type         as statement_type,
+                PERSON.LAST_NAME_R || ' ' || PERSON.FIRST_NAME_K || ' ' || PERSON.MIDDLE_NAME_R  as employee_name_r,
+                person.last_name_k || ' ' || person.first_name_k || ' ' || person.middle_name_k  as employee_name_k,
+                (select count(1) from R_DECL_DEB_REF_RETURN_DOC doc where doc.r_decl_deb_refund_id = DDRF.R_DECL_DEB_REFUND_ID) as all_docs_cnt,
+                (select count(1) from R_DECL_DEB_REF_RETURN_DOC doc where doc.r_decl_deb_refund_id = DDRF.R_DECL_DEB_REFUND_ID and doc.status = 1) as downloaded_docs_cnt,
+                TAX_ORG_SRC.CODE_NK         AS CODE_NK_SRC,
+                TAX_ORG_SRC.CODE_TPK        AS CODE_TPK_SRC,
+                TAX_ORG_DST.CODE_NK         AS CODE_NK_DST,
+                TAX_ORG_DST.CODE_TPK        AS CODE_TPK_DST
+
+FROM            R_DECL_DEB_REFUND DDRF
+INNER JOIN      M_KBK KBK_SRC                       ON DDRF.M_KBK_SRC_ID                  = KBK_SRC.M_KBK_ID
+INNER JOIN      M_OPERATION_TYPE OPER_TYPE_SRC      ON DDRF.M_OPERATION_TYPE_SRC_ID       = OPER_TYPE_SRC.M_OPERATION_TYPE_ID
+LEFT OUTER JOIN M_KBK KBK_DST                       ON DDRF.M_KBK_DST_ID                  = KBK_DST.M_KBK_ID
+LEFT OUTER JOIN M_OPERATION_TYPE OPER_TYPE_DST      ON DDRF.M_OPERATION_TYPE_DST_ID       = OPER_TYPE_DST.M_OPERATION_TYPE_ID
+LEFT OUTER JOIN M_TAX_ORG_ADM_INFO TAX_ORG_ADM_DST  ON DDRF.M_TAX_ORG_ADM_INFO_DST_ID     = TAX_ORG_ADM_DST.M_TAX_ORG_ADM_INFO_ID
+LEFT OUTER JOIN M_TAX_ORG TAX_ORG_DST               ON TAX_ORG_ADM_DST.M_TAX_ORG_ID      = TAX_ORG_DST.M_TAX_ORG_ID
+LEFT OUTER JOIN (select bank.m_bank_id, max(bank.bik) as bik, max(head_bank.bik) as head_bik
+                from m_bank bank
+                left outer join r_tax_payer   tp        on bank.r_tax_payer_id          = tp.r_tax_payer_id
+                left outer join r_tp_main     tp_main   on tp.r_tp_main_id              = tp_main.r_tp_main_id
+                left outer join m_bank        head_bank on tp_main.r_tax_payer_head_id  = head_bank.r_tax_payer_id
+                group by bank.m_bank_id) bank       on ddrf.m_bank_id                     = bank.m_bank_id
+INNER JOIN      V_TP_NAME_INFO TP_DECL              ON DDRF.R_TAX_PAYER_DECLARANT_ID      = TP_DECL.R_TAX_PAYER_ID
+INNER JOIN      M_BASE_DEB_CR DEBCR                 ON DDRF.M_BASE_DEB_CR_ID              = DEBCR.M_BASE_DEB_CR_ID
+left outer join m_tax_org_adm_info adm_src          on ddrf.M_TAX_ORG_ADM_INFO_SRC_ID     = adm_src.m_tax_org_adm_info_id
+LEFT OUTER JOIN M_TAX_ORG TAX_ORG_SRC               ON adm_src.M_TAX_ORG_ID               = TAX_ORG_SRC.M_TAX_ORG_ID
+left outer join (select min(r_decl_deb_ref_hist_id) as r_decl_deb_ref_hist_id,
+                        r_decl_deb_refund_id        as r_decl_deb_refund_id
+                 from r_decl_deb_ref_hist
+                 where operator_create != -1 and status_decl in (1,2,3,4)
+                 group by r_decl_deb_refund_id) h1  on ddrf.r_decl_deb_refund_id          = h1.r_decl_deb_refund_id
+left outer join r_decl_deb_ref_hist hist            on h1.r_decl_deb_ref_hist_id          = hist.R_DECL_DEB_REF_HIST_ID
+LEFT OUTER JOIN R_USER RUSER                        ON hist.OPERATOR_CREATE               = RUSER.R_USER_ID
+left outer join r_person person                     on ruser.r_person_id                  = person.r_person_id
+ WHERE tp_decl.r_tax_payer_id = 19372754 AND ddrf.source_system IN (5, 2, 1, 7, 6) AND (DDRF.m_tax_org_frmd_id = 384 OR adm_src.M_TAX_ORG_ID IN (SELECT MT.M_TAX_ORG_ID FROM M_TAX_ORG MT START WITH MT.M_TAX_ORG_ID = 384 CONNECT BY MT.PARENT_TAX_ORG_ID = PRIOR M_TAX_ORG_ID AND MT.IS_ACTIVE = 1)) AND ddrf.statement_type IN (1, 3, 2)
+UNION ALL
+    SELECT
+        req.r_decl_deb_refund_id,
+        statusMap.value             AS STATUS_DECL,
+        req.type_req,
+        req.decl_date,
+        req.create_date,
+        null                        AS AMOUNT,
+        null                        AS CBE,
+        req.error_desc,
+        req.src_decl,
+        sourceMap.value             AS SOURCE_SYSTEM,
+        null                        AS NUM_DECLARATION,
+        null                        AS BANK_ACCOUNT_RET,
+        tp_decl.rnn,
+        tp_decl.iin_bin,
+        tp_decl.name_r,
+        tp_decl.name_k,
+        tp_decl.name_e,
+        null                        AS KBK_SRC_CODE,
+        null                        AS OPER_TYPE_SRC_CODE,
+        null                        AS OPER_TYPE_SRC_NAME_R,
+        null                        AS OPER_TYPE_SRC_NAME_K,
+        null                        AS KBK_DST_CODE,
+        null                        AS OPER_TYPE_DST_CODE,
+        null                        AS OPER_TYPE_DST_NAME_R,
+        null                        AS OPER_TYPE_DST_NAME_K,
+        null                        AS TAX_ORG_DST_NAME_R,
+        null                        AS TAX_ORG_DST_NAME_K,
+        null                        AS BANK_DST_BIC,
+        null                        AS DEBCR_NAME_R,
+        null                        AS DEBCR_NAME_K,
+        typeMap.value               AS STATEMENT_TYPE,
+        null                        AS EMPLOYEE_NAME_R,
+        null                        AS EMPLOYEE_NAME_K,
+        0                           AS ALL_DOCS_CNT,
+        0                           AS DOWNLOADED_DOCS_CNT,
+        null                        AS CODE_NK_SRC,
+        null                        AS CODE_TPK_SRC,
+        null                        AS CODE_NK_DST,
+        null                        AS CODE_TPK_DST
+    FROM
+        r_decl_deb_refund_req req
+    JOIN v_tp_name_info tp_decl ON req.r_tax_payer_id = tp_decl.r_tax_payer_id
+    JOIN status_map statusMap ON statusMap.key = req.status_decl
+    JOIN source_map sourceMap ON sourceMap.key = req.src_decl
+    JOIN type_map typeMap ON typeMap.key = req.type_req
+    LEFT JOIN m_tax_org_adm_info adm_src ON adm_src.m_tax_org_id = req.m_tax_org_id
+ WHERE tp_decl.r_tax_payer_id = 19372754 AND sourceMap.value IN (5, 2, 1, 7, 6) AND (req.m_tax_org_id = 384 OR adm_src.M_TAX_ORG_ID IN (SELECT MT.M_TAX_ORG_ID FROM M_TAX_ORG MT START WITH MT.M_TAX_ORG_ID = 384 CONNECT BY MT.PARENT_TAX_ORG_ID = PRIOR M_TAX_ORG_ID AND MT.IS_ACTIVE = 1))
+) ORDER BY tp_src_iin_bin;
