@@ -1,0 +1,179 @@
+import datetime
+import json
+from selectolax.parser import HTMLParser
+import subprocess
+import urllib.parse
+from dataclasses import dataclass
+
+COMMON_CITY_ID = {
+    'Москва': 1,
+    'Санкт-Петербург': 2,
+}
+WAY_TO_HSE = {
+    'Славянский бульвар': 229,
+    'Парк Победы': 87,
+    'Киевская': 46,
+    'Смоленская': 115,
+    'Арбатская': 8,
+    'Площадь Революции': 96,
+    'Курская': 61,
+}
+
+
+@dataclass
+class HouseFilter:
+    city: str
+    # type: str only flats - for houses I need dynamic filters
+    room_cnt: int
+    floor: int
+    price_min: int
+    price_max: int
+    metro: str
+
+
+@dataclass
+class HouseInfo:
+    pic_url: str
+    price: float
+    address: str
+    title: str
+    description: str
+    contacs: str
+
+
+def get_house_filters(path):
+    path_arr = path[path.find('?') + 1:].split('&')
+    result = HouseFilter(None, None, None, None, None, None)
+    for path_el in path_arr:
+        key, value = path_el.split('=')
+        if key in result.__dict__:
+            if key == 'city' or key == 'metro':
+                result.__dict__[key] = urllib.parse.unquote(value)
+            else:
+                result.__dict__[key] = value
+
+    return result
+
+
+def get_house_info(info_jsoin):
+    house = HouseInfo(
+        info_jsoin['photos'][0]['fullUrl'],
+        info_jsoin['bargainTerms']['price'],
+        info_jsoin['title'],
+        info_jsoin['geo']['userInput'],
+        info_jsoin['description'],
+        info_jsoin['fullUrl'],
+    )
+    return {
+        'pic_url': house.pic_url,
+        'price': house.price,
+        'address': house.address,
+        'title': house.title,
+        'description': house.description,
+    }
+
+
+class Parser:
+    def __init__(self):
+        pass
+
+    def get_response(self, filters):  # request.path
+        external_request = self.get_external_request(
+            get_house_filters(filters))
+        # print(external_request)
+        try:
+            result = subprocess.run(
+                external_request, stdout=subprocess.PIPE, check=True)
+            response = result.stdout.decode()
+            return self.common(response)
+        except Exception:
+            return {}
+
+    def get_debug_response(self):
+        response = None
+        with open('/home/ksenia/code/ux_parse/response.txt', 'r') as reponse_file:
+            response = reponse_file.read()
+        return self.common(response)
+
+    def common(self, response):
+        tree = HTMLParser(response)
+        last_script = None
+        # find data section
+        for i in tree.css('script'):
+            if 'address' not in i.html:
+                continue
+            last_script = i.html
+        with open(f'response_{datetime.now()}.txt', 'w') as file:
+            print("hwat the hell", file=file)
+            print(last_script, file=file)
+
+        # get only json from <script> tags
+        last_script = last_script[last_script.find(
+            '.concat(') + len('.concat('):]
+        last_script = last_script[:last_script.find(');')]
+
+        # find all offers
+        json_help = json.loads(last_script)
+        offers = []
+        for json_h in json_help:
+            if json_h['key'] != 'initialState':
+                continue
+            offers = json_h['value']['results']['offers']
+            break
+
+
+
+        # make result with offers info to show
+        results = []
+        for offer in offers:
+            results.append(get_house_info(offer))
+
+        return results
+
+    def add_browser_like_data(self, request):
+        headers = [
+            # smh hide. I don't know how right now
+            "'authority: www.cian.ru'",
+            "'accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'",
+            "'accept-language: en-US,en;q=0.7'",
+            "'cache-control: max-age=0'",
+            # "'cookie: '",
+            "'cookie: _CIAN_GK=160223d5-f0b4-4a96-aed4-4663aea841dd; session_region_id=1; session_main_town_region_id=1; __cf_bm=ilHDpgHYhL2dbUv1qTEktV8FOZIi_N3w4gTA6YTRmg8-1667436585-0-AbFj/TkKElVMA0qfh9z8RUpnHbJLDhAYjXiFPXEkyTsn8f9r2ygIdAGpqq0ptt/7CrZzonWrTYJ583EEGKJhOG4=; adb=1; login_mro_popup=1; sopr_utm=%7B%22utm_source%22%3A+%22direct%22%2C+%22utm_medium%22%3A+%22None%22%7D; sopr_session=a9b2e3d890284873'",
+            # "'if-none-match: '",
+            "'if-none-match: W/\"2350d5-qQBbuDMMifONQ+WFAH1pGlrFEcs\"'",
+            "'referer: https://www.cian.ru/'",
+            "'sec-fetch-dest: document'",
+            "'sec-fetch-mode: navigate'",
+            "'sec-fetch-site: same-origin'",
+            # "'sec-fetch-user: '",
+            "'sec-fetch-user: ?1'",
+            # "'sec-gpc: '",
+            "'sec-gpc: 1'",
+            # "'upgrade-insecure-requests: 1'",
+            "'upgrade-insecure-requests: 1'",
+            # "'user-agent: '",
+            "'user-agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36'",
+        ]
+        for header in headers:
+            request += ["-H", header]
+        request.append("--compressed")
+        return request
+
+    def get_external_request(self, filters: HouseFilter):
+        url = 'https://www.cian.ru/cat.php?deal_type=rent&engine_version=2&offer_type=flat&type=2'
+        if filters.city:
+            url += f'&region={COMMON_CITY_ID[filters.city]}'
+            if COMMON_CITY_ID[filters.city] == 2:
+                url.replace('www', 'spb', 1)
+        if filters.room_cnt:
+            url += f'&room{filters.room_cnt}=1'
+        if filters.floor:
+            url += f'&maxfloor={filters.floor}&minfloor={filters.floor}'
+        if filters.price_min:
+            url += f'&minprice={filters.price_min}'
+        if filters.price_max:
+            url += f'&maxprice={filters.price_max}'
+        if filters.metro:
+            url += f'&metro%5B0%5D={WAY_TO_HSE[filters.metro]}'
+        curl = ["curl", url]
+        return self.add_browser_like_data(curl)
