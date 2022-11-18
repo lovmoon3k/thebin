@@ -1,0 +1,372 @@
+//Rev 4 Was Developed on 11/18/2022 by Jonathan DeWitt - Rev 0 thru Rev 3 all were partially completed versions of Rev 4.  They were saved as developement points so that progress was not lost along the way of developing Rev 4. Open the WiFi in your phone and connect to the ssid named in this code using the password named in this code.  Then go to your web browser and enter the ip address 192.168.4.1.  You should then be able to control the shown buttons.  If your web browser hangs then go back to the WiFi on your phone, forget the ssid named in this sketch.  Then reconnect to it.  When it asks if you want to remain connected even though there is no internet say yes and select don't ask the question again.  Even then you'll still probably have to forget and reconnect to that ssid. 
+
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <SparkFun_TB6612.h> //Library used to control TB6612FNG - See Reference 1
+#include <FastLED.h> //Needed to control LEDs - In this case WS2812B
+
+#define AIN1 19 //ESP32 GPIO 19 Connected to TB6612FNG Pin AIN1
+#define BIN1 17 //ESP32 GPIO 17 Connected to TB6612FNG Pin BIN1
+#define AIN2 21 //ESP32 GPIO 21 Connected to TB6612FNG Pin AIN2
+#define BIN2 16 //ESP32 GPIO 16 Connected to TB6612FNG Pin BIN2
+#define PWMA 22 //ESP32 GPIO 22 Connected to TB6612FNG Pin PWMA
+#define PWMB 4 //ESP32 GPIO 4 Connected to TB6612FNG Pin PWMB
+#define STBY 18 //ESP32 GPIO 18 Connected to TB6612FNG Pin STBY
+#define horn_Buzz 13 //ESP32 GPIO 13 Connected to Horn Buzzer Red Wire
+
+//#ifdef ESP_H //See Reference 7
+#define PWM1_Ch    0
+#define PWM1_Res   8
+void tone ( int tonePin, int toneFreq ) {
+  Serial.print( "my tone called for pin " );
+  Serial.print( tonePin );
+  Serial.print( " with frequency " );
+  Serial.println( toneFreq );
+  ledcSetup( PWM1_Ch, toneFreq, PWM1_Res );
+  ledcWrite( PWM1_Ch, 127 ); // 50% duty cycle
+}
+void noTone( int tonePin ) {
+  Serial.print( "my noTone called for pin " );
+  Serial.println( tonePin );
+  ledcWrite( PWM1_Ch, 0 ); // 0% duty cycle
+}
+
+FASTLED_USING_NAMESPACE //From DemoReel100Rev4.ino Used for LED Control
+#define LED_TYPE    WS2812
+#define COLOR_ORDER GRB //From DemoReel100Rev4.ino Used for LED Control
+#define NUM_LEDS    4 //From DemoReel100Rev4.ino Used for LED Control
+CRGB leds[NUM_LEDS]; //Defins an leds array with NUM_LEDS number of elements i.e. LED 1 is accessed through leds[0], LED2 is accessed through leds[1] etc.
+#define BRIGHTNESS 96 //From DemoReel100Rev4.ino Used for LED Strip Control
+#define FRAMES_PER_SECOND 120 //From DemoReel100Rev4.ino Used for LED Strip Control
+#define DATA_PIN 23 //LED strip data pin connected to ESP32 GPIO 23
+
+char command;
+int speedCar = 100; // Variable to store the PWM speed of the car 50 - 255.
+int speed_Coeff = 4;
+
+//These constants are used to allow you to make your motor configuration line up with function names like forward.  Value can be 1 or -1
+const int offsetA = 1; //From Reference 4
+const int offsetB = 1; //From Reference 4
+
+//Initializing motors.  The library will allow you to initialize as many motors as you have memory for.  If you are using functions like forward
+// that take 2 motors as arguements you can either write new functions or call the function more than once.
+Motor motor1 = Motor(AIN1, AIN2, PWMA, offsetA, STBY); //From Reference 4
+Motor motor2 = Motor(BIN1, BIN2, PWMB, offsetB, STBY); //From Reference 4
+
+int lightFState=0, lightBState=0; //Stores the state of the front and back lights
+
+// Replace with your network credentials
+const char* ssid = "JonDeWittsESP32WiFiCar1";
+const char* password = "123456789";
+
+const char* PARAM_INPUT_1 = "output";
+const char* PARAM_INPUT_2 = "state";
+
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
+
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML><html>
+<head>
+  <title>"ESP32 WiFi Car"</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <style>
+    html {font-family: Arial; display: inline-block; text-align: center;}
+    h2 {font-size: 3.0rem;}
+    p {font-size: 3.0rem;}
+    body {max-width: 600px; margin:0px auto; padding-bottom: 25px;}
+    .switch {position: relative; display: inline-block; width: 120px; height: 68px} 
+    .switch input {display: none}
+    .slider {position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; border-radius: 6px}
+    .slider:before {position: absolute; content: ""; height: 52px; width: 52px; left: 8px; bottom: 8px; background-color: #fff; -webkit-transition: .4s; transition: .4s; border-radius: 3px}
+    input:checked+.slider {background-color: #b30000}
+    input:checked+.slider:before {-webkit-transform: translateX(52px); -ms-transform: translateX(52px); transform: translateX(52px)}
+  </style>
+</head>
+<body>
+  <h2>"ESP32 WiFi Car"</h2>
+  %BUTTONPLACEHOLDER%
+<script>function toggleCheckbox(element) {
+  var xhr = new XMLHttpRequest();
+  if(element.checked){ xhr.open("GET", "/update?output="+element.id+"&state=1", true); }
+  else { xhr.open("GET", "/update?output="+element.id+"&state=0", true); }
+  xhr.send();
+}
+</script>
+</body>
+</html>
+)rawliteral";
+
+// Replaces placeholder with button section in your web page
+String processor(const String& var){
+  //Serial.println(var);
+  if(var == "BUTTONPLACEHOLDER"){
+    String buttons = "";
+    buttons += "<h4>Forward</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"1\" " + outputState(1) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Reverse</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"2\" " + outputState(2) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Left</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"3\" " + outputState(3) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Right</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"4\" " + outputState(4) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Stop</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"5\" " + outputState(5) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Horn</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"6\" " + outputState(6) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Headlights</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"7\" " + outputState(7) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Taillights</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"8\" " + outputState(8) + "><span class=\"slider\"></span></label>";
+    return buttons;
+  }
+  return String();
+}
+
+String outputState(int output){
+  if(digitalRead(output)){
+    return "checked";
+  }
+  else {
+    return "";
+  }
+}
+
+void setup(){
+  // Serial port for debugging purposes
+  Serial.begin(115200);
+
+  speedCar = 235; //Hard codes motors to go at maximum speed that won't cause a brownout
+
+  pinMode(AIN1,OUTPUT); //Sets specified pin as an output
+  pinMode(BIN1,OUTPUT); //Sets specified pin as an output
+  pinMode(AIN2,OUTPUT); //Sets specified pin as an output
+  pinMode(BIN2,OUTPUT); //Sets specified pin as an output
+  pinMode(PWMA,OUTPUT); //Sets specified pin as an output
+  pinMode(PWMB,OUTPUT); //Sets specified pin as an output
+  pinMode(STBY,OUTPUT); //Sets specified pin as an output
+
+  FastLED.addLeds<LED_TYPE,DATA_PIN,COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip); //For LED Strip - See DemoReel100
+  FastLED.setBrightness(BRIGHTNESS); //Set master brightness control for LED strip
+
+  //Reference 5 Code for Horn
+  #ifdef ESP_H
+  ledcAttachPin( horn_Buzz, PWM1_Ch );
+  #else
+  // LilyPad!
+  pinMode(horn_Buzz, OUTPUT);
+  #endif
+  
+  WiFi.softAP(ssid, password);
+
+  // Print ESP Local IP Address
+  Serial.println(WiFi.localIP()); //Reference 2
+
+  // Route for root / web page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", index_html, processor);
+  });
+
+  // Send a GET request to <ESP_IP>/update?output=<inputMessage1>&state=<inputMessage2>
+  server.on("/update", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    String inputMessage1;
+    String inputMessage2;
+    // GET input1 value on <ESP_IP>/update?output=<inputMessage1>&state=<inputMessage2>
+    if (request->hasParam(PARAM_INPUT_1) && request->hasParam(PARAM_INPUT_2)) {
+      inputMessage1 = request->getParam(PARAM_INPUT_1)->value();
+      inputMessage2 = request->getParam(PARAM_INPUT_2)->value();
+      //digitalWrite(inputMessage1.toInt(), inputMessage2.toInt()); //Actual writes output pin inputMesssage1 to state inputMessage2 
+    }
+    else {
+      inputMessage1 = "No message sent";
+      inputMessage2 = "No message sent";
+    }
+    //Serial.print("Button: ");
+    //Serial.print(inputMessage1);
+    //Serial.print(" - Set to: ");
+    //Serial.println(inputMessage2);
+
+    if(inputMessage1.toInt() == 1 && inputMessage2.toInt() == 1) //Forward Pushbutton is Pressed
+    {
+      command = 'F';
+      Serial.println(command);
+      motor1.drive(speedCar,50);
+      motor2.drive(-speedCar,50);
+    }
+    if(inputMessage1.toInt() == 1 && inputMessage2.toInt() == 0) //Forward Pushbutton is Released
+    {
+      command = 'S';
+      Serial.println(command);
+      stopVehicle();
+    }
+    else if (inputMessage1.toInt() == 2 && inputMessage2.toInt() == 1) //Reverse Pushbutton is Pressed
+    {
+      command = 'B';
+      Serial.println(command);
+      motor1.drive(-speedCar,50);
+      motor2.drive(speedCar,50);
+    }
+    else if (inputMessage1.toInt() == 2 && inputMessage2.toInt() == 0) //Reverse Pushbutton is Released
+    {
+      command = 'S';
+      Serial.println(command);
+      stopVehicle();
+    }
+     else if (inputMessage1.toInt() == 3 && inputMessage2.toInt() == 1) //Left Pushbutton is Pressed
+    {
+      command = 'L';
+      Serial.println(command);
+      motor1.drive(-speedCar,50); //Motor A goes opposite direction from forward
+      motor2.drive(-speedCar,50); //Motor B keeps going forward
+    }
+    else if (inputMessage1.toInt() == 3 && inputMessage2.toInt() == 0) //Left Pushbutton is Released
+    {
+      command = 'S';
+      Serial.println(command);
+      stopVehicle();
+    }
+    else if (inputMessage1.toInt() == 4 && inputMessage2.toInt() == 1) //Right Pushbutton is Pressed
+    {
+      command = 'R';
+      Serial.println(command);
+      motor1.drive(speedCar,50); //Motor A keeps going forward
+      motor2.drive(speedCar,50); //Motor B goes opposite direction from forward
+    }
+    else if (inputMessage1.toInt() == 4 && inputMessage2.toInt() == 0) //Right Pushbutton is Released
+    {
+      command = 'S';
+      Serial.println(command);
+      stopVehicle();
+    }
+    else if (inputMessage1.toInt() == 5 && inputMessage2.toInt() == 1) //Stop Pushbutton is Pressed
+    {
+      command = 'S';
+      Serial.println(command);
+      stopVehicle();
+    }
+    else if (inputMessage1.toInt() == 6 && inputMessage2.toInt() == 1) //Horn Pushbutton is Pressed
+    {
+      command = 'U';
+      Serial.println(command);
+      hornH();
+    }
+    else if (inputMessage1.toInt() == 6 && inputMessage2.toInt() == 0) //Horn Pushbutton is Released
+    {
+      command = 'Z';
+      Serial.println(command);
+      hornL();
+    }
+    else if (inputMessage1.toInt() == 7 && inputMessage2.toInt() == 1) //Headlights Pushbutton is Pressed
+    {
+      command = 'D';
+      Serial.println(command);
+      lightsFrontH();
+    }
+    else if (inputMessage1.toInt() == 7 && inputMessage2.toInt() == 0) //Headlights Pushbutton is Released
+    {
+      lightsFrontL();
+    }
+    else if (inputMessage1.toInt() == 8 && inputMessage2.toInt() == 1) //Taillights Pushbutton is Pressed
+    {
+      command = 'O';
+      Serial.println(command);
+      lightsBackH();
+    }
+    else if (inputMessage1.toInt() == 8 && inputMessage2.toInt() == 0) //Taillights Pushbutton is Released
+    {
+      lightsBackL();
+    }
+        
+    request->send(200, "text/plain", "OK");
+  });
+
+  // Start server
+  server.begin();
+}
+
+void loop() {
+  //commandEval(command); //Calls the commandEval function to actually take action that the commands received mandate
+}
+
+//Function Definitions
+void stopVehicle()
+{
+  motor1.brake();
+  motor2.brake();
+}
+
+void hornH() //Function turns the horn on
+{
+  //digitalWrite(horn_Buzz, HIGH); //This works fine with the small buzzer
+  tone(horn_Buzz, 523); //Sets the horn_Buzz pin high at a frequency of 523 Hz which is a high c note
+} //End of hornH function
+
+void hornL() //Function turns the horn off
+{
+  //digitalWrite(horn_Buzz, LOW);
+  noTone(horn_Buzz);
+} //End of hornL function
+
+void stopPeriph() //Function turns off all of the peripherals at once (i.e. front lights, back lights, and horn)
+{
+  lightsFrontL(); //Turns front lights output low
+  lightsBackL(); //Turns back lights output low
+  hornL(); //Turns horn output low
+} //End of stopPeriph function
+
+void lightsFrontH() //Function turns the front lights on
+{
+  //float brightF = 0.75;
+  //int brightness = 255*brightF;
+  //fill_solid(leds[0], 1, CRGB::Green);
+  //fill_solid(leds[1], 1, CRGB::Green);
+  leds[0].r=0;
+  leds[0].g=255;
+  leds[0].b=0;
+  leds[1].r=0;
+  leds[1].g=255;
+  leds[1].b=0;
+  //Serial.println("Front light code executed.");
+  FastLED.show();
+} //End of lightsFrontH function
+
+void lightsFrontL() //Function turns the front lights off
+{
+  leds[0].r=0;
+  leds[0].g=0;
+  leds[0].b=0;
+  leds[1].r=0;
+  leds[1].g=0;
+  leds[1].b=0;
+  FastLED.show();
+} //End of lightsFrontL function
+
+void lightsBackH() //Function turns the back lights on
+{
+  //fill_solid(leds[2], 1, CRGB::Red);
+  //fill_solid(leds[3], 1, CRGB::Red);
+  leds[2].r=255;
+  leds[2].g=0;
+  leds[2].b=0;
+  leds[3].r=255;
+  leds[3].g=0;
+  leds[3].b=0;
+  //Serial.println("Back light code executed.");
+  FastLED.show();
+} //End of lightsBackH function
+
+void lightsBackL() //Function turns the back lights off
+{
+  leds[2].r=0;
+  leds[2].g=0;
+  leds[2].b=0;
+  leds[3].r=0;
+  leds[3].g=0;
+  leds[3].b=0;
+  FastLED.show();
+} //End of lightsBackL function
+
+//Reference 1- https://randomnerdtutorials.com/esp32-async-web-server-espasyncwebserver-library/
+//Reference 2- https://randomnerdtutorials.com/esp32-cam-access-point-ap-web-server/
+//Reference 3- https://randomnerdtutorials.com/esp32-esp8266-web-server-outputs-momentary-switch/
+//Reference 4- "MotorTestRunESP32.ino" located in D:\Stuff\Projects\ESP32 Control\RC Vehicles\ESP32 3D Printed\Sketches
+//Reference 5- https://forum.sparkfun.com/viewtopic.php?t=56631
+//Reference 6- https://dronebotworkshop.com/tb6612fng-h-bridge/
+//Reference 7- https://github.com/sparkfun/SparkFun_TB6612FNG_Arduino_Library
+//Reference 8- https://github.com/FastLED/FastLED/wiki/Controlling-leds
+//Reference 9- ESP32RCCarRev4.ino located in D:\Stuff\Projects\ESP32 Control\RC Vehicles\ESP32 3D Printed\Sketches\Bluetooth
+//Reference 10- Didn't Use But May Need to For Future Improvements https://randomnerdtutorials.com/esp32-esp8266-web-server-outputs-momentary-switch/
