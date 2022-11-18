@@ -1,0 +1,96 @@
+csrand_init:
+; input: n is uint24 on the stack, 1 <= n <= 256
+;        n * 4 is the samples per bit
+    pop hl
+    pop de
+    ld a,e
+    ld (.smc_samples), a
+    push de
+    push hl
+
+    push ix
+        ld ix,0
+        ld a,0x46
+.bit_loop:
+        ld (.smc1),a
+        ld (.smc2),a
+        ld (.smc3),a
+        ld (.smc4),a
+        push af
+            push hl
+                ld bc,513
+.scan_loop:
+                push hl
+                    call _test_bit
+                    ; or a,a
+                    sbc hl,de
+                    jq nc,.skip1
+                    add hl,de
+                    ex de,hl
+                    pop ix
+                    push ix
+.skip1:
+                pop hl
+                jq z,.early_exit
+
+                cpi
+                jp pe,.scan_loop
+            pop hl
+        pop af
+        add a,8
+        cp 0x86
+        jq nz,.bit_loop
+        jq .return
+.early_exit:
+        pop hl
+        pop af
+.return:
+        lea hl, ix+0
+        ld (_sprng_read_addr), hl
+ 
+        xor a, a
+        sbc hl, bc  ; subtract 0 to set the z flag if HL is 0
+    pop ix
+    ret z
+    inc a
+    ret
+
+.test_bit:
+; inputs: hl = byte
+; outputs: hl = hit count
+; outputs: carry flag reset
+; destroys: af, bc, de, hl
+.smc_samples:=$+1
+    ld b,0
+    ld de,0
+.loop:
+    bit 0,(hl)
+.smc1:=$-1
+    jq z,.next1
+    inc de
+.next1:
+    bit 0,(hl)
+.smc2:=$-1
+    jq nz,.next2    ; notice the inverted logic !
+    dec de          ; and the dec instead of inc !
+.next2:
+    bit 0,(hl)
+.smc3:=$-1
+    jq z, .next3
+    inc de
+.next3:
+    bit 0,(hl)
+.smc4:=$-1
+    jq nz,.next4    ; notice the inverted logic !
+    dec de          ; and the dec instead of inc !
+.next4:
+    djnz .loop
+ 
+    ; return |DE|
+    or a,a
+    sbc hl,hl
+    sbc hl,de
+    ret nc
+    ex de,hl
+    or a, a  ; return with carry reset
+    ret

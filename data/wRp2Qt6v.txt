@@ -1,0 +1,38 @@
+/// <summary>
+/// Enqueue render pass for processing in graphics context
+/// </summary>
+/// <param name="heap">Memory heap</param>
+/// <param name="context">Graphics context</param>
+void RenderPassWireframe::Process(Engine::Entity* camera, Engine::DescriptorHeap* heap, Engine::GraphicsContext* context, Engine::RenderNodeList* renderNodes)
+{
+	if (camera->GameObject().Has<Engine::CameraComponent>() && renderNodes->GetIndirectDrawCount() > 0)
+	{
+		Engine::Camera* cam = camera->GameObject().Get<Engine::CameraComponent>()->Get();
+
+		Engine::mat4 viewMatrix = cam->GetViewMatrix();
+		Engine::mat4 projectionMatrix = cam->GetProjectionMatrix();
+
+		memcpy(mCameraBufferPtr, &viewMatrix, sizeof(float) * 16);
+		memcpy((float*)mCameraBufferPtr + 16, &projectionMatrix, sizeof(float) * 16);
+
+		context->SetPipelineState(mPipelineState);
+		context->SetRootSignature(mRootSignature);
+		context->SetDescriptorHeap(Engine::DescriptorHeap::CBV_SRV_UAV, heap);
+		context->SetViewport(0.0f, 0.0f, (float)mWidth, (float)mHeight);
+		context->SetScissorRect(0.0f, 0.0f, (float)mWidth, (float)mHeight);
+		context->TransitionResource(mColorBuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, false);
+		context->TransitionResource(mDepthBuffer, D3D12_RESOURCE_STATE_DEPTH_WRITE, true);
+		context->SetRenderTargets(mColorBuffer, mDepthBuffer);
+		context->ClearColor(mColorBuffer, 0.0f, 0.0f, 0.0f, 1.0f);
+		context->ClearDepth(mDepthBuffer, 1.0f, 0);
+		context->SetPrimitiveTopology(Engine::Graphics::TRIANGLELIST);
+
+		context->SetConstantBuffer(2, mCameraBuffer->GetGpuVirtualAddress());
+		context->GetCommandList()->Get()->SetGraphicsRootDescriptorTable(1, renderNodes->GetBuffer()->GetSRV().mGpuHandle);
+
+		context->ExecuteIndirect(*(renderNodes->GetCommandSignature()), *(renderNodes->GetIndirectArgsBuffer()), 0, renderNodes->GetIndirectDrawCount());
+
+		context->TransitionResource(mColorBuffer, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, false);
+		context->TransitionResource(mDepthBuffer, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, true);
+	}
+}
