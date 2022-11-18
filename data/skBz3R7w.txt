@@ -1,0 +1,331 @@
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace ConsoleApp1
+{
+    internal class Program
+    {
+        static void Main(string[] args)
+        {
+            var targetJson = """
+                {
+                    "Id": 1,
+                    "Name": "Arman",
+                    "StringsObject": {
+                        "String1": "value 1",
+                        "String2": "value 2"
+                    },
+                    "Data": {
+                        "Property1": "value 1",
+                        "Subobject": {
+                            "SubProperty": "subvalue 1"
+                        }
+                    },
+                    "Integers": [ 1, 2, 3 ],
+                    "Dictionary": [
+                        {
+                            "Id": 15,
+                            "Value": "Value 15"
+                        },
+                        {
+                            "Id": 16,
+                            "Value": "Value 16"
+                        }
+                    ]
+                }
+                """;
+
+            var patch = """
+                {
+                    "Id": 42,
+                    "LastName": "Ossi Loko",
+                    "StringsObject": {
+                        "String1": "new value 1",
+                        "String3": "value 3"
+                    },
+                    "Data": {
+                        "Subobject": {
+                            "SubProperty": "subvalue 1",
+                            "SubProperty2": "subvalue 2"
+                        }
+                    },
+                    "Integers": [ 1, 2, 3, 4, 5 ],
+                    "Dictionary": [
+                        {
+                            "Id": 15,
+                            "Value": "new Value 15"
+                        },
+                        {
+                            "Id": 17,
+                            "Value": "Value 17"
+                        }
+                    ]
+                }
+                """;
+
+            var targetDict = targetJson.ToDictionary();
+            var patchDict = patch.ToDictionary();
+
+            //Print(targetDict);
+            //Print(patchDict);
+
+            var patched = patchDict.PatchOnto(targetDict, new JsonPatchOptions
+            {
+                SkipArrays = false,
+                SkipObjects = false,
+            });
+
+            Print(patched);
+        }
+
+        private static void Print(Dictionary<string, object> dict)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(dict, dict.GetType(), new JsonSerializerOptions
+            {
+                AllowTrailingCommas = true,
+                WriteIndented = true,
+            }));
+        }
+
+    }
+
+    public static class JsonExtensions
+    {
+        /// <summary>
+        /// Converts a JSON string to a dictionary of its properties and values
+        /// </summary>
+        public static Dictionary<string, object> ToDictionary(this string json)
+        {
+            var dictionary = json.ToNodeDictionary();
+            var obj = dictionary.ToObjectDictionary();
+            return obj;
+        }
+
+        private static Dictionary<string, JsonNode> ToNodeDictionary(this string json)
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, JsonNode>>(json)!;
+        }
+
+        private static Dictionary<string, object> ToObjectDictionary(this Dictionary<string, JsonNode> properties)
+        {
+            var dictionary = new Dictionary<string, object>();
+            foreach (var property in properties)
+            {
+                var propertyName = property.Key;
+                var propertyValue = property.Value;
+
+                switch (propertyValue)
+                {
+                    case JsonObject @object:
+                        {
+                            var props = BuildNodeObject(@object);
+                            dictionary[propertyName] = ToObjectDictionary(props);
+                            break;
+                        }
+                    case JsonArray array:
+                        {
+                            var list = new List<object>();
+                            foreach (var item in array)
+                            {
+                                if (item is JsonObject obj)
+                                {
+                                    var props = BuildNodeObject(obj);
+                                    list.Add(ToObjectDictionary(props));
+                                }
+                                else
+                                {
+                                    list.Add(item);
+                                }
+                            }
+                            dictionary[propertyName] = list;
+                            break;
+                        }
+                    default:
+                        dictionary[propertyName] = propertyValue;
+                        break;
+                }
+            }
+            return dictionary;
+        }
+
+        private static Dictionary<string, JsonNode?> BuildNodeObject(JsonObject @object)
+        {
+            var props = @object.ToDictionary(x => x.Key, y => y.Value);
+            return props;
+        }
+    }
+
+    public static class JsonPatchExtensions
+    {
+        public static Dictionary<string, object> PatchOnto(
+            this Dictionary<string, object> patchData,
+            Dictionary<string, object> patchTarget,
+            JsonPatchOptions patchOptions
+            )
+        {
+            int currentDepth = 0;
+            foreach (var property in patchData)
+            {
+                if (!patchTarget.ContainsKey(property.Key))
+                {
+                    if (property.Value is Dictionary<string, object> && patchOptions.SkipObjects)
+                    {
+                        continue;
+                    }
+
+                    if (property.Value is List<object> && patchOptions.SkipArrays)
+                    {
+                        continue;
+                    }
+
+                    patchTarget[property.Key] = property.Value;
+                    continue;
+                }
+
+                var destinationNode = patchTarget[property.Key];
+
+                var isObject = destinationNode is Dictionary<string, object>;
+                var isArray = destinationNode is List<object>;
+
+                var currentDestinationObject = destinationNode as Dictionary<string, object>;
+                var currentDestinationArray = destinationNode as List<object>;
+
+                if (isObject)
+                {
+                    if (patchOptions.SkipObjects)
+                    {
+                        continue;
+                    }
+
+                    PatchObject((Dictionary<string, object>)property.Value, currentDestinationObject, patchOptions);
+                }
+                else if (isArray)
+                {
+                    if (patchOptions.SkipArrays)
+                    {
+                        continue;
+                    }
+
+                    PatchArray((List<object>)property.Value, currentDestinationArray, patchOptions);
+                }
+                else
+                {
+                    patchTarget[property.Key] = property.Value;
+                }
+            }
+
+            return patchTarget;
+        }
+
+        private static void PatchArray(
+            List<object> source,
+            List<object> destinationArray,
+            JsonPatchOptions patchOptions
+            )
+        {
+            for (int i = 0; i < source.Count; i++)
+            {
+                var value = source[i];
+
+                if (value is Dictionary<string, object> srcProps)
+                {
+                    if (patchOptions.SkipObjects)
+                    {
+                        continue;
+                    }
+
+                    if (destinationArray[i] is not Dictionary<string, object> dest)
+                    {
+                        throw new ArgumentInvalidTypeException(nameof(dest));
+                    }
+
+                    PatchObject(srcProps, dest, patchOptions);
+                }
+                else
+                {
+                    if (destinationArray.Count == source.Count)
+                    {
+                        var currentElement = destinationArray[i];
+                        if (currentElement != value)
+                        {
+                            destinationArray[i] = value;
+                        }
+                    }
+                    else
+                    {
+                        destinationArray.Add(value);
+                    }
+                }
+            }
+        }
+
+        private static void PatchObject(
+            Dictionary<string, object> sourceObject,
+            Dictionary<string, object> destinationObject,
+            JsonPatchOptions patchOptions
+            )
+        {
+            foreach (var property in sourceObject)
+            {
+                if (!destinationObject.ContainsKey(property.Key))
+                {
+                    if (property.Value is Dictionary<string, object> && patchOptions.SkipObjects)
+                    {
+                        continue;
+                    }
+
+                    if (property.Value is List<object> && patchOptions.SkipArrays)
+                    {
+                        continue;
+                    }
+
+                    destinationObject[property.Key] = property.Value;
+                }
+
+                if (property.Value is Dictionary<string, object> src)
+                {
+                    if (patchOptions.SkipObjects)
+                    {
+                        continue;
+                    }
+
+                    var dest = destinationObject[property.Key] as Dictionary<string, object>;
+                    PatchObject(src, dest, patchOptions);
+                }
+                else if (property.Value is List<object> list)
+                {
+                    if (patchOptions.SkipArrays)
+                    {
+                        continue;
+                    }
+
+                    var dest = destinationObject[property.Key] as List<object>;
+                    PatchArray(list, dest, patchOptions);
+                }
+                else
+                {
+                    destinationObject[property.Key] = property.Value;
+                }
+            }
+        }
+    }
+
+    public class JsonPatchOptions
+    {
+        public bool SkipArrays { get; set; } = false;
+        public bool SkipObjects { get; set; } = false;
+        public int MaxDepth { get; set; } = int.MaxValue;
+    }
+
+    public class ArgumentInvalidTypeException : ArgumentException
+    {
+        public ArgumentInvalidTypeException(string? message) : base(message)
+        {
+        }
+
+        public ArgumentInvalidTypeException(string? message, string? paramName) : base(message, paramName)
+        {
+        }
+    }
+}
