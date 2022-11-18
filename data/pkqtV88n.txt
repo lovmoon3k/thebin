@@ -1,0 +1,80 @@
+using System;
+using System.Drawing;
+using System.Linq;
+using NUnit.Framework;
+
+namespace Manipulation
+{
+    struct PointD
+    {
+        public double X;
+        public double Y;
+
+        public PointD(double x, double y)
+        {
+            X = x;
+            Y = y;
+        }
+    }
+
+    public static class ManipulatorTask
+    {
+        public static double[] MoveManipulatorTo(double x, double y, double alpha)
+        {
+            var pointWrist = new PointD(x + Math.Cos(Math.PI - alpha) * Manipulator.Palm,
+                y + Math.Sin(Math.PI - alpha) * Manipulator.Palm);
+            var elbow = TriangleTask.GetABAngle(Manipulator.UpperArm, Manipulator.Forearm,
+                GetDistanceBetweenPoints(new PointD(0, 0), pointWrist));
+            var shoulder = TriangleTask.GetABAngle(Manipulator.UpperArm,
+                GetDistanceBetweenPoints(new PointD(0, 0), pointWrist),
+                Manipulator.Forearm) + Math.Atan2(pointWrist.Y, pointWrist.X);
+            var wrist = Math.PI * 2 - alpha - shoulder - elbow;
+            if (double.IsNaN(shoulder) || double.IsNaN(elbow) || double.IsNaN(wrist))
+                return new[] { double.NaN, double.NaN, double.NaN };
+            return new[] { shoulder, elbow, wrist };
+        }
+
+        private static double GetDistanceBetweenPoints(PointD firstPoint, PointD secondPoint)
+        {
+            return Math.Sqrt((secondPoint.X - firstPoint.X) * (secondPoint.X - firstPoint.X) +
+                             (secondPoint.Y - firstPoint.Y) * (secondPoint.Y - firstPoint.Y));
+        }
+    }
+
+    [TestFixture]
+    public class ManipulatorTask_Tests
+    {
+        private static Random random = new Random();
+
+        [Test]
+        public void TestMoveManipulatorTo()
+        {
+            for (var i = 0; i < 100; i++)
+            {
+                var x = random.NextDouble() * 100 - 50;
+                var y = random.NextDouble() * 100 - 50;
+                var alpha = random.NextDouble() * Math.PI * 2;
+                var angles = ManipulatorTask.MoveManipulatorTo(x, y, alpha);
+                var checkNaN = MassiveHaveNaN(angles);
+                var joints = AnglesToCoordinatesTask.GetJointPositions(angles[0], angles[1], angles[2]);
+                if (checkNaN)
+                {
+                    Assert.IsTrue(double.IsNaN(joints[2].X));
+                    Assert.IsTrue(
+                        double.IsNaN(joints[2].Y)); // NaN должен быть только когда GetJointPositions получает NaN
+                }
+                else
+                {
+                    Assert.AreEqual(joints[2].X, x, 1e-4);
+                    Assert.AreEqual(joints[2].Y, y,
+                        1e-4); // Пришлось снизить точность, так как В GetJointPositions на выходе точки типа float
+                }
+            }
+        }
+
+        private static bool MassiveHaveNaN(double[] massive)
+        {
+            return massive.Any(element => double.IsNaN(element));
+        }
+    }
+}
