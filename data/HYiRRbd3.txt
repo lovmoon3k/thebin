@@ -1,0 +1,162 @@
+using System.Collections;
+using System.Collections.Generic;
+using System.Threading;
+using UnityEngine;
+
+public class PlayerControls : MonoBehaviour
+{
+    // Components
+
+    [Header("Movement Variables")]
+    [SerializeField] private float movementSpeed = 36.8f;
+    [SerializeField] private float maxMovementSpeed = 14f;
+    [SerializeField] private float linearDrag = 8.9f;
+    private float baseMovementSpeed;
+    private float baseMaxMovementSpeed;
+
+    public float sprintMultiplier = 1.5f;
+    private bool isSprinting => Input.GetKeyDown(KeyCode.LeftShift);
+
+    [Header("Jump Variables")]
+    [SerializeField] private float jumpForce = 11f;
+    [SerializeField] private float aerialLinearDrag = 2.5f;
+    [SerializeField] private float fallMultiplier = 8f;
+    [SerializeField] private float lowFallMultiplier = 5f;
+    private bool canJump => Input.GetButtonDown("Jump") && isGrounded;
+
+
+    
+    // Gravity Components
+    [Header("Ground Collision Variables")]
+    [SerializeField] private LayerMask groundLayer;
+    [SerializeField] private float groundRaycastLength;
+    private bool isGrounded;
+
+
+
+    // Player RigidBodyControls
+
+    private Rigidbody2D plrBody;
+    private float horizontalDirection;
+    private bool directionChanged => (plrBody.velocity.x > 0f && horizontalDirection < 0f) || (plrBody.velocity.x < 0f && horizontalDirection > 0f);
+
+
+
+    // Raycast Functions
+
+    private void CheckCollisions()
+    {
+        isGrounded = Physics2D.Raycast(transform.position, Vector2.down * groundRaycastLength, groundRaycastLength, groundLayer);
+    }
+
+
+
+    // Player General Functions
+
+    private Vector2 GetInput() => new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
+
+    private void MoveCharacter()
+    {
+        plrBody.AddForce(new Vector2(horizontalDirection, plrBody.velocity.y) * (movementSpeed * sprintMultiplier));
+
+        if (Mathf.Abs(plrBody.velocity.x) > (maxMovementSpeed * sprintMultiplier))
+        {
+            plrBody.velocity = new Vector2(Mathf.Sign(plrBody.velocity.x) * (maxMovementSpeed * sprintMultiplier), plrBody.velocity.y);
+        }
+    }
+
+    private void ApplyGroundDrag()
+    {
+        if (Mathf.Abs(horizontalDirection) < 0.4 || directionChanged)
+        {
+            plrBody.drag = linearDrag;
+        } else
+        {
+            plrBody.drag = 0f;
+        }
+    }
+
+
+    // Player Mechanical Functions
+
+    private void ApplyAerialDrag()
+    {
+        plrBody.drag = aerialLinearDrag;
+    }
+    
+	// This might be another issue, the velocity after the execution would be (0, 5000) and not changing it's value.
+    private void Jump()
+    {
+        plrBody.velocity = new Vector2(plrBody.velocity.x, 0f);
+        plrBody.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+        print("Jumped!");
+    }
+    
+	// This is (what i believe is) part of the issue.
+    private void FallMultiplier()
+    {
+        if (!isGrounded)
+        {
+            if (!Input.GetKey(KeyCode.Space) && !isGrounded)
+            {
+                print("FallMultiplier");
+                plrBody.gravityScale = fallMultiplier;
+            }
+            else if (Input.GetKey(KeyCode.Space))
+            {
+                plrBody.gravityScale = lowFallMultiplier;
+                print("LowFallMultiplier");
+            }
+        }
+        else
+        {
+            plrBody.gravityScale = 1f;
+        }
+    }
+
+    // Initialized Functions
+
+    private void Awake()
+    {
+        plrBody = GetComponent<Rigidbody2D>();
+        baseMaxMovementSpeed = maxMovementSpeed;
+        baseMovementSpeed = movementSpeed;
+    }
+
+    private void FixedUpdate()
+    {
+        CheckCollisions();
+        MoveCharacter();
+        if (canJump) Jump();
+
+        if (isSprinting)
+        {
+            maxMovementSpeed *= sprintMultiplier;
+            movementSpeed *= sprintMultiplier;
+        } else
+        {
+            maxMovementSpeed = baseMaxMovementSpeed;
+            movementSpeed = baseMovementSpeed;
+        }
+
+        if (isGrounded)
+        {
+            ApplyGroundDrag();
+        } else
+        {
+            ApplyAerialDrag();
+            FallMultiplier();
+        }
+    }
+
+    private void Update()
+    {
+        horizontalDirection = GetInput().x;
+    }
+
+    private void OnDrawGizmos()
+    {
+        Gizmos.color = Color.red;
+        Gizmos.DrawLine(transform.position, transform.position + Vector3.down * groundRaycastLength);
+    }
+}
