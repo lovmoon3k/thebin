@@ -1,0 +1,65 @@
+using System.Linq;
+using System.Drawing;
+using System.Net.Sockets;
+using static RoutePlanning.PointExtensions;
+
+namespace RoutePlanning
+{
+    public static class PathFinderTask
+    {
+        public static int[] FindBestCheckpointsOrder(Point[] checkpoints)
+        {
+            var bestPath = MakeTrivialPath(checkpoints.Length);
+            var bestPathLength = checkpoints.GetPathLength(bestPath);
+            var startPath = new int[checkpoints.Length];
+            startPath[0] = 0;
+            FindBestPath(checkpoints, (int[])startPath.Clone(), 1, bestPath, bestPathLength, 0);
+
+            return bestPath;
+        }
+
+        private static int[] MakeTrivialPath(int size)
+        {
+            var bestOrder = new int[size];
+            for (var i = 0; i < bestOrder.Length; i++)
+                bestOrder[i] = i;
+            return bestOrder;
+        }
+
+        private static double FindBestPath(Point[] checkpoints, int[] currentPath, int position, int[] minPath,
+            double minLengthPath, double lastLengthPath)
+        {
+            var currentPathLength = UpdateLength(checkpoints, currentPath, position, lastLengthPath);
+
+            if (currentPathLength > minLengthPath)
+                return minLengthPath;
+
+            if (currentPathLength <= minLengthPath && position == currentPath.Length)
+            {
+                currentPath.CopyTo(minPath, 0);
+                return currentPathLength;
+            }
+
+            for (var i = 1; i < currentPath.Length; i++)
+            {
+                if (currentPath.Contains(i))
+                    continue;
+                var saveCheckpoint = currentPath[position];
+                currentPath[position] = i;
+                minLengthPath = FindBestPath(checkpoints, currentPath, position + 1, minPath, minLengthPath,
+                    currentPathLength);
+                currentPath[position] = saveCheckpoint;
+            }
+
+            return minLengthPath;
+        }
+
+        private static double UpdateLength(Point[] checkpoints, int[] currentPath, int position, double lastLengthPath)
+        {
+            return position != 1
+                ? lastLengthPath + checkpoints[currentPath[position - 2]]
+                    .DistanceTo(checkpoints[currentPath[position - 1]])
+                : lastLengthPath;
+        }
+    }
+}
