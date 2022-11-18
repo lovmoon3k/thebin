@@ -1,0 +1,90 @@
+from django.shortcuts import render, HttpResponse
+from django.views.generic import View
+from tablib import Dataset
+import pandas as pd
+import xlsxwriter
+import io
+from .utils import (
+    accounts_checker,
+    contacts_checker,
+    member_ship_checker,
+    cg_checker,
+    cgm_checker,
+    so_checker,
+    item_checker,
+    event_checker,
+    tt_checker,
+    si_checker,
+    att_checker
+)
+
+
+class HomeView(View):
+    def get(self, request, *args, **kwargs):
+        return render(request, "myapp/file-form.html")
+
+    def post(self, request, *args, **kwargs):
+        type = request.POST["type"]
+        file = request.FILES['file'].name
+        # file = request.FILES["file"].read().decode("utf-8")
+        name = request.POST["name"]
+        # dataset = Dataset().load(file, format="csv")
+        dataset = pd.read_csv(request.FILES['file'], encoding = "ISO-8859-1")
+
+        if type == "accounts":
+            errors = accounts_checker(dataset)
+        elif type == "contacts":
+            errors = contacts_checker(dataset)
+        elif type == "membership":
+            errors = member_ship_checker(dataset)
+        elif type == "cg":
+            errors = cg_checker(dataset)
+        elif type == "cgm":
+            errors = cgm_checker(dataset)
+        elif type == "so":
+            errors = so_checker(dataset)
+        elif type == "item":
+            errors = item_checker(dataset)
+        elif type == "event":
+            errors = event_checker(dataset)
+        elif type == "tt":
+            errors = tt_checker(dataset)
+        elif type == "si":
+            errors = si_checker(dataset)
+        elif type == "attendee":
+            errors = att_checker(dataset)
+        context = {
+            "results": errors,
+            "name": name,
+        }
+        return render(request, "myapp/results.html", context=context)
+
+
+class CsvView(View):
+    def post(self, request, *args, **kwargs):
+        output = io.BytesIO()
+        workbook = xlsxwriter.Workbook(output)
+        worksheet = workbook.add_worksheet()
+        data = request.POST["raees"]
+        name = request.POST["name"]
+        d_type = request.POST["type"]
+        data = list(data.split(","))
+        last = data[-1]
+        first = data[0]
+        data[0] = first.replace("[", "")
+        data[-1] = last.replace("]", "")
+        row = 0
+        col = 0
+        for i in data:
+            i = i.replace("'", "")
+            worksheet.write(row, col, i)
+            row = row + 1
+        workbook.close()
+        output.seek(0)
+        filename = f"{name} {d_type} Issue Tracker.xlsx"
+        response = HttpResponse(
+            output,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = "attachment; filename=%s" % filename
+        return response
