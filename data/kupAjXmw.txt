@@ -1,0 +1,648 @@
+import time, sys
+from random import randint, uniform, choice
+import pygame
+from pygame import gfxdraw
+from pygame import Vector2 as V, Rect as R, Color as C
+from pygame.locals import *
+
+def ball(color, radius):
+    surface = pygame.Surface((300, 300))
+    surface.fill(WHITE)
+    pygame.draw.circle(surface, color, (150, 150), 150)
+    pygame.gfxdraw.filled_circle(surface, 200, 100, 150, (255, 255, 255, 50))
+    pygame.gfxdraw.filled_circle(surface, 200, 65, 35, color + (50,))
+    pygame.gfxdraw.filled_circle(surface, 200, 65, 30, (255, 255, 255, 100))
+    pygame.gfxdraw.filled_circle(surface, 225, 115, 20, color + (50,))
+    pygame.gfxdraw.filled_circle(surface, 225, 115, 15, (255, 255, 255, 100))
+    scaled = pygame.transform.scale(surface, (radius * 2, radius * 2))
+    scaled.set_colorkey(WHITE)
+    return scaled
+
+def bang(radius, color):
+    surface = pygame.Surface((radius * 0.75 * 2, radius * 0.875 * 2))
+    surface.set_colorkey((0, 0, 0))
+    surface.fill(color)
+
+    pivot = V(surface.get_rect().center)
+    for degrees in range(0, 359, 60):
+        pygame.draw.circle(surface, (0, 0, 0), pivot + V(1, 0).rotate(degrees) * radius, radius // 2)
+    return pygame.transform.scale(surface, V(pivot.x * 2))
+
+def wrap(pos):
+    if pos.x > PDR.w:
+        pos.x -= PDR.w
+    elif pos.x < 0:
+        pos.x += PDR.w
+    if pos.y > PDR.h:
+        pos.y -= PDR.h
+    elif pos.y < 0:
+        pos.y += PDR.h
+
+class section:
+    def __init__(s, pivot, distance_from_pivot, angle_offset, radius, graphic=None):
+        s.pivot = pivot
+        s.dist = distance_from_pivot
+        s.dist_offset = 0
+        s.angle_offset = angle_offset
+        s.radius = radius
+
+        s.graphic = graphic
+        if type(s.graphic) == pygame.Surface:
+            s.draw_graphic = s.draw_surface
+            s.alpha = s.set_surface_alpha
+        else:
+            s.draw_graphic = s.draw_primitive
+            s.primitive_alpha = 255
+            s.alpha = s.set_primitive_alpha
+
+        s.update()
+
+    def update(s):
+        s.pos = s.pivot.pos + V(1, 0).rotate(s.pivot.angle + s.angle_offset) * (s.dist + s.dist_offset)
+
+        s.dimensions = [s.pos]
+
+        if s.pos.x < s.radius:
+            s.dimensions.append(s.pos + PDR.topright)
+            if s.pos.y < s.radius:
+                s.dimensions.append(s.pos + PDR.bottomright)
+            elif s.pos.y > PDR.h - s.radius:
+                s.dimensions.append(s.pos + (PDR.w, -PDR.h))
+        elif s.pos.x > PDR.w - s.radius:
+            s.dimensions.append(s.pos + (-PDR.w, 0))
+            if s.pos.y < s.radius:
+                s.dimensions.append(s.pos + (-PDR.w, PDR.h))
+            elif s.pos.y > PDR.h - s.radius:
+                s.dimensions.append(s.pos + (-PDR.w, -PDR.h))
+        if s.pos.y < s.radius:
+            s.dimensions.append(s.pos + PDR.bottomleft)
+        elif s.pos.y > PDR.h - s.radius:
+            s.dimensions.append(s.pos + (0, -PDR.h))
+
+    def draw_primitive(s, pos):
+        if s.radius > 0:
+            pygame.gfxdraw.filled_circle(PDS, int(pos.x), int(pos.y), int(s.radius), s.graphic + (s.primitive_alpha, ))
+
+    def set_primitive_alpha(s, value):
+        s.primitive_alpha = value
+
+    def draw_surface(s, pos):
+        PDS.blit(s.graphic, pos - s.graphic.get_rect().center)
+
+    def set_surface_alpha(s, value):
+        s.graphic.set_alpha(value)
+
+    def get_rear(s, offset=0):
+        pos = s.pos + V(-1, 0).rotate(s.pivot.angle + s.angle_offset) * (s.radius + offset)
+        wrap(pos)
+        return pos
+
+    def get_front(s, offset=0):
+        pos = s.pos + V(1, 0).rotate(s.pivot.angle + s.angle_offset) * (s.radius + offset)
+        wrap(pos)
+        return pos
+
+    def draw(s):
+        for dim in s.dimensions:
+            s.draw_graphic(dim)
+
+class pivot:
+    def __init__(s, pos, angle=0):
+        s.pos = V(pos)
+        s.angle = angle
+        s.sections = []
+
+    def add(s, _section):
+        s.sections.append(_section)
+    
+    def rel_move(s, offset):
+        s.pos += offset
+        wrap(s.pos)
+    
+    def draw(s, debug=False):
+        for section in s.sections:
+            section.draw()
+            if debug: pygame.draw.circle(PDS, RED, section.pos, 5)
+
+    def update(s):
+        for section in s.sections:
+            section.update()
+    
+    def collision(s, pivot):
+        for source in s.sections:
+            for sDim in source.dimensions:
+                for target in pivot.sections:
+                    for tDim in target.dimensions:
+                        if not (sDim.distance_to(tDim) < source.radius + target.radius): continue
+                        return True
+        return False
+    
+    def collision_radius(s, pos, radius=0):
+        for source in s.sections:
+            for sDim in source.dimensions:
+                if sDim.distance_to(pos) < radius + source.radius: return True
+        return False
+
+class explosions:
+    class explosion:
+        def __init__(s, pos, radius):
+            s.pivot = pivot(pos)
+            s.pivot.add(section(s.pivot, 0, 0, radius, bang(radius, WHITE)))
+            s.timestamp = NOW
+            s.dead = False
+        
+        def draw(s):
+            s.pivot.draw()
+        
+        def update(s):
+            if NOW - s.timestamp >= EXPLOSION_DURATION: s.dead = True
+
+    def __init__(s):
+        s.explosions = []
+    
+    def add(s, section):
+        s.explosions.append(s.explosion(section.pos, section.radius * 2))
+
+    def draw(s):
+        for explosion in s.explosions:
+            explosion.draw()
+
+    def update(s):
+        dead_explosions = []
+        for explosion in s.explosions:
+            explosion.update()
+            if explosion.dead:
+                dead_explosions.append(explosion)
+        for explosion in dead_explosions:
+            s.explosions.remove(explosion)
+
+class particles:
+    class particle:
+        def __init__(s, pos, color, velocity=V(), rVelocity=0, delay=0, alpha=255, speed=0.01):
+            s.pos = V(pos)
+            s.velocity = V(velocity)
+            s.rVelocity = rVelocity
+            s.speed = speed
+
+            s.lerp = 1
+            s.color = color
+            s.alpha = alpha
+
+
+            s.delay = delay
+            s.timestamp = NOW
+        
+        def update(s):
+            if NOW - s.timestamp <= s.delay: return
+            
+            s.pos += (s.velocity * s.lerp) * DELTA_TIME
+            if s.pos.x > PDR.w:
+                s.pos.x -= PDR.w
+            elif s.pos.x < 0:
+                s.pos.x += PDR.w
+            if s.pos.y > PDR.h:
+                s.pos.y -= PDR.h
+            elif s.pos.y < 0:
+                s.pos.y += PDR.h
+            
+            s.velocity.rotate_ip(s.rVelocity * DELTA_TIME)
+            
+            s.lerp -= s.speed * DELTA_TIME
+            if s.lerp < 0:
+                s.lerp = 0
+        
+        def draw(s):
+            if NOW - s.timestamp <= s.delay: return
+            pygame.gfxdraw.filled_circle(PDS, int(s.pos.x), int(s.pos.y), 2, s.color + (int(s.lerp * s.alpha),))
+
+    def __init__(s):
+        s.particles = []
+    
+    def add(s, particle):
+        s.particles.append(particle)
+    
+    def draw(s):
+        for particle in s.particles:
+            particle.draw()
+
+    def update(s):
+        dead_particles = []
+        for particle in s.particles:
+            particle.update()
+            if not particle.lerp: dead_particles.append(particle)
+        for particle in dead_particles:
+            s.particles.remove(particle)
+
+class bullets:
+    class bullet:
+        def __init__(s, pos, velocity, color):
+            s.pos = pos
+            s.velocity = velocity
+            s.distance_travelled = V()
+            s.color = color
+            s.lerp = 1
+            s.dead = False
+
+        def draw(s):
+            pygame.gfxdraw.filled_circle(PDS, int(s.pos.x), int(s.pos.y), 3, WHITE + (int(s.lerp * 255),))
+            
+        def update(s):
+            distance = s.velocity * DELTA_TIME
+            s.pos += distance
+            if s.pos.x > PDR.w:
+                s.pos.x -= PDR.w
+            if s.pos.x < 0:
+                s.pos.x += PDR.w
+            if s.pos.y > PDR.h:
+                s.pos.y -= PDR.h
+            if s.pos.y < 0:
+                s.pos.y += PDR.h
+            s.distance_travelled += distance
+            total_distance = s.distance_travelled.magnitude()
+            if total_distance > BULLET_MAX_DISTANCE * BULLET_FADE_OUT_MARGIN:
+                s.lerp = (BULLET_MAX_DISTANCE - total_distance) / BULLET_LERP_FACTOR
+            if total_distance >= BULLET_MAX_DISTANCE:
+                s.dead = True
+
+    def __init__(s):
+        s.pBullets = []
+        s.eBullets = []
+    
+    def player_bullet(s, pos, velocity, color):
+        s.pBullets.append(s.bullet(pos, velocity, color))
+    
+    def enemy_bullet(s, pos, velocity, color):
+        s.eBullets.append(s.bullet(pos, velocity, color))
+    
+    def draw(s):
+        for bullet in s.pBullets + s.eBullets:
+            bullet.draw()
+    
+    def update_bullets(s, bullets):
+        dead_bullets = []
+        for bullet in bullets:
+            bullet.update()
+            if bullet.dead: dead_bullets.append(bullet)
+        for bullet in dead_bullets:
+            bullets.remove(bullet)
+        
+    def update(s):
+        s.update_bullets(s.pBullets)
+        s.update_bullets(s.eBullets)
+
+class asteroids:
+    class asteroid:
+        def __init__(s, pos, radius):
+            s.pivot = pivot(pos)
+            s.radius = radius
+            s.pivot.add(section(s.pivot, 0, 0, radius, ball(choice(ASTEROID_COLORS), radius)))
+            s.velocity = V(ASTEROID_SPEED, 0).rotate(randint(0, 359))
+
+        def draw(s):
+            s.pivot.draw()
+        
+        def update(s):
+            s.pivot.rel_move(s.velocity * DELTA_TIME)
+            s.pivot.update()
+
+        def collision(s, target_asteroid):
+            for source in s.pivot.sections:
+                for sDim in source.dimensions:
+                    for target in target_asteroid.pivot.sections:
+                        for tDim in target.dimensions:
+                            if not (sDim.distance_to(tDim) < source.radius + target.radius): continue
+                            vector = tDim - sDim
+                            if vector.magnitude() < source.radius + target.radius:
+                                target_asteroid.pivot.rel_move(vector.normalize() * (source.radius + target.radius + 1 - vector.magnitude()))
+                                target_asteroid.pivot.update()
+                                s.velocity.reflect_ip(tDim - sDim)
+                                target_asteroid.velocity.reflect_ip(sDim - tDim)                                
+
+        def get_split(s, index):
+            return s.pivot.pos + V(1, 0).rotate(-90 + 120 * index) * s.radius / 2
+
+    def __init__(s, sizes):
+        s.asteroid_belt = []
+        for index, size in enumerate(sizes):
+            for _ in range(size):
+                while True:
+                    found_space = True
+                    new_asteroid = s.asteroid(V(randint(0, PDR.w), randint(0, PDR.h)), ASTEROID_SIZES[index])
+                    for asteroid in s.asteroid_belt:
+                        if new_asteroid.pivot.collision(asteroid.pivot):
+                            found_space = False
+                            break
+                    if found_space: break
+                s.asteroid_belt.append(new_asteroid)
+        s.spread = True
+        s.spread_size = 0
+        s.spread_particle_timestamp = NOW - ASTEROID_SPREAD_PARTICLE_DELAY
+
+    def draw(s):
+        for asteroid in s.asteroid_belt:
+            asteroid.draw()
+    
+    def update(s):
+        if s.spread:
+            if NOW - s.spread_particle_timestamp >= ASTEROID_SPREAD_PARTICLE_DELAY:
+                s.spread_particle_timestamp = NOW
+                new_particle = particles.particle(PDR.center, choice(ASTEROID_COLORS), V(3 + uniform(0, 2), 0).rotate(randint(0, 359)), delay=uniform(0, ASTEROID_SPREAD_PARTICLE_DELAY))
+                PARTICLES.add(new_particle)
+            s.spread_size += ASTEROID_SPREAD_SPEED * DELTA_TIME
+
+        intrusion = False
+
+        for asteroid1 in s.asteroid_belt:
+            if s.spread:
+                vector = asteroid1.pivot.pos - PDR.center
+                normal = vector.normalize()                
+                distance = vector.magnitude()
+                if distance < ASTEROID_EXCLUSION_RADIUS: intrusion = True
+                if distance < s.spread_size:
+                    asteroid1.pivot.rel_move(normal * (s.spread_size - distance) / 50 * DELTA_TIME)
+            asteroid1.update()
+            for asteroid2 in s.asteroid_belt:
+                if asteroid1 == asteroid2: continue
+                asteroid1.collision(asteroid2)
+        
+        if s.spread and not intrusion:
+            s.spread = False
+            s.spread_size = 0
+    
+    def split(s, asteroid):
+        EXPLOSIONS.add(asteroid.sections[0])
+        if asteroid.radius == ASTEROID_SIZES[2]:
+            pass
+            
+class ship:
+    def __init__(s):
+        s.update = s.moving
+        s.pivot = pivot(PDR.center, -90)
+        s.pivot.add(section(s.pivot, 20, -135, 10, ball(SHIP_COLOR1, 10)))
+        s.pivot.add(section(s.pivot, 20, 135, 10, ball(SHIP_COLOR1, 10)))
+        s.pivot.add(section(s.pivot, 18, 0, 10, ball(SHIP_COLOR2, 10)))
+        s.pivot.add(section(s.pivot, 0, 0, 20, ball(SHIP_COLOR3, 20)))
+        s.pivot.add(section(s.pivot, 17, 180, 0, SHIP_COLOR4))
+        s.pivot.add(section(s.pivot, 17, 180, 0, SHIP_COLOR4))
+
+        s.extra_sections = s.pivot.sections[:3]
+        s.nose_section = s.pivot.sections[2]
+        s.thrust_sections = s.pivot.sections[-2:]
+        s.body_section = s.pivot.sections[3]
+
+        s.velocity = V()
+
+        s.thrust_offset = 0
+        s.contrail_timestamp = time.perf_counter()
+        s.bullet_timestamp = time.perf_counter() - SHIP_BULLET_DELAY
+
+    def thrusters(s):
+        if KEYS[K_UP] and s.update != s.death:        
+            s.thrust_offset += SHIP_THRUST_EXPAND_RATE * DELTA_TIME
+            if s.thrust_offset > 1: s.thrust_offset = 1
+        else:            
+            s.thrust_offset -= SHIP_THRUST_CONTRACT_RATE * DELTA_TIME
+            if s.thrust_offset < 0: s.thrust_offset = 0        
+        s.thrust_sections[0].dist_offset = s.thrust_offset * SHIP_THRUST_RADIUS
+        s.thrust_sections[0].radius = s.thrust_offset * SHIP_THRUST_RADIUS
+        s.thrust_sections[1].dist_offset = s.thrust_sections[0].dist_offset + s.thrust_offset * SHIP_THRUST_RADIUS
+        s.thrust_sections[1].radius = s.thrust_offset * SHIP_THRUST_RADIUS // 2
+
+    def contrail(s):
+        if NOW - s.contrail_timestamp >= SHIP_CONTRAIL_DELAY:
+            new_particle = particles.particle(s.thrust_sections[1].pos, SHIP_CONTRAIL_COLOR)
+            PARTICLES.add(new_particle)
+            s.contrail_timestamp = NOW
+
+    def moving(s):
+        if KEYS[K_RIGHT]:
+            s.pivot.angle += SHIP_ROTATIONAL_SPEED * DELTA_TIME
+        elif KEYS[K_LEFT]:
+            s.pivot.angle -= SHIP_ROTATIONAL_SPEED * DELTA_TIME
+
+        if KEYS[K_UP]:
+            s.contrail()
+            s.velocity += V(SHIP_VELOCITY, 0).rotate(s.pivot.angle) * DELTA_TIME
+        
+        if KEYS[K_SPACE]:
+            if NOW - s.bullet_timestamp >= SHIP_BULLET_DELAY:
+                BULLETS.player_bullet(s.nose_section.get_front(), V(SHIP_BULLET_SPEED, 0).rotate(s.pivot.angle), WHITE)
+                s.bullet_timestamp = NOW
+                 
+        s.thrusters()
+        
+        s.pivot.rel_move(s.velocity * DELTA_TIME)
+        s.pivot.update()
+
+    def kill(s):
+        EXPLOSIONS.add(s.body_section)
+        s.body_section.alpha(0)
+        s.update = s.death
+        s.death_lerp = 1
+
+    def death(s):
+        s.death_lerp -= 0.01 * DELTA_TIME
+        if s.death_lerp < 0: s.death_lerp = 0
+
+        for section in s.extra_sections:
+            section.dist_offset += (s.death_lerp * 2) * DELTA_TIME
+            section.alpha(s.death_lerp * 255)
+        
+        s.thrusters()
+        s.pivot.update()
+
+        if NOW - s.contrail_timestamp >= SHIP_CONTRAIL_DELAY:
+            for section in s.extra_sections:
+                PARTICLES.add(particles.particle(section.get_rear(4), SHIP_CONTRAIL_COLOR, alpha=s.death_lerp * 255, speed=0.03))
+            s.contrail_timestamp = NOW
+
+    def collision(s, pivot_objects):
+        if s.update == s.death: return
+        for obj in pivot_objects:
+            if s.pivot.collision(obj.pivot):
+                s.kill()
+
+    def bullet_collision(s):
+        dead_asteroids = []
+        dead_bullets = []
+        for bullet in BULLETS.pBullets:
+            for asteroid in ASTEROIDS.asteroid_belt:
+                if not asteroid.pivot.collision_radius(bullet.pos): continue                
+                EXPLOSIONS.add(asteroid.pivot.sections[0])
+                dead_asteroids.append(asteroid)
+                dead_bullets.append(bullet)
+                for degrees in range(0, 359, 72):
+                    new_particle = particles.particle(asteroid.pivot.pos, WHITE, V(5, 0).rotate(degrees), uniform(-0.5, 0.5))
+                    PARTICLES.add(new_particle)
+                if not (asteroid.radius <= ASTEROID_SIZES[2]):
+                    for i in range(3):
+                        new_asteroid = asteroids.asteroid(asteroid.get_split(i), asteroid.radius / 2)
+                        ASTEROIDS.asteroid_belt.append(new_asteroid)
+                break
+        for bullet in dead_bullets:
+            BULLETS.pBullets.remove(bullet)
+        for asteroid in dead_asteroids:
+            ASTEROIDS.asteroid_belt.remove(asteroid)
+                
+    def draw(s):
+        s.pivot.draw()
+
+class grid:
+    class line:
+        class point:
+            def __init__(s, pos):
+                s.anchor = V(pos)
+                s.pos = V(pos)
+        
+        def __init__(s, p1, p2, steps):
+            s.vectors = []
+            s.points = []
+            vector = V(p2) - p1
+            dest = vector.magnitude()
+            chunk = dest / steps
+            normal = vector.normalize()
+            for i in range(steps + 1):
+                s.vectors.append(s.point(V(p1) + normal * chunk * i))
+                s.points.append(s.vectors[-1].pos)
+
+        def update(s, mass_point, mass_radius):
+            s.points = []
+            for v in s.vectors:
+                v1 = v.pos - mass_point
+                if v1 != V():a1 = v1.normalize()
+                else: a1 = V()                
+                d1 = v1.magnitude()
+                if d1 < mass_radius:
+                    v.pos += (a1 * (mass_radius - d1) / 50) * DELTA_TIME
+                v2 = v.anchor - v.pos
+                if v2 != V():a2 = v2.normalize()
+                else: a2 = V()
+                d2 = v2.magnitude()
+                v.pos += a2 * d2 / 50 * DELTA_TIME
+                s.points.append(v.pos)
+
+        def draw(s):
+            pygame.gfxdraw.bezier(PDS, s.points, 2, DARK_GRAY)
+
+    def __init__(s, size):
+        s.lines = []
+        for x in range(size, PDR.w, size):
+            s.lines.append(s.line((x, 0), (x, PDR.h), 10))
+        for y in range(size, PDR.h, size):
+            s.lines.append(s.line((0, y), (PDR.w, y), 10))
+    
+    def update(s, mass_point):
+        for l in s.lines:
+            l.update(mass_point, GRID_FORCE_RADIUS)
+    
+    def draw(s):
+        for l in s.lines:
+            l.draw()
+
+pygame.init()
+PDR = R(0, 0, 1280, 720)
+PDS = pygame.display.set_mode(PDR.size)#, FULLSCREEN | SCALED)
+FPS = 120
+NOW = time.perf_counter()
+
+WHITE = (255, 255, 255)
+REAL_BLACK = (0, 0, 0)
+BLACK = (10, 10, 10)
+RED = (255, 0, 0)
+DARK_GRAY = (64, 64, 64)
+
+ASTEROID_COLORS = [
+    (26, 28, 44),   #0
+    (93, 39, 93),   #1
+    (177, 62, 83),  #2
+    (239, 125, 87), #3
+    (56, 183, 100), #4
+    (37, 113, 121), #5
+    (41, 54, 111),  #6
+    (59, 93, 201),  #7
+    (65, 166, 246), #8
+    (86, 108, 134), #9
+    (51, 60, 87),   #10
+]
+ASTEROID_SPEED = 1
+ASTEROID_SIZES = [140, 70, 35]
+ASTEROID_EXCLUSION_RADIUS = 300
+ASTEROID_SPREAD_SPEED = 1
+ASTEROID_SPREAD_PARTICLE_DELAY = 0.01
+GRID_FORCE_RADIUS = 200
+
+EXPLOSION_DURATION = 0.1
+
+BULLET_MAX_DISTANCE = PDR.h
+BULLET_FADE_OUT_MARGIN = 0.80
+BULLET_LERP_FACTOR = BULLET_MAX_DISTANCE * (1 - BULLET_FADE_OUT_MARGIN)
+
+SHIP_COLOR1 = (15, 200, 87)
+SHIP_COLOR2 = (255, 120, 0)
+SHIP_COLOR3 = (203, 35, 35)
+SHIP_COLOR4 = (200, 234, 0)
+SHIP_CONTRAIL_COLOR = (219, 116, 2)
+SHIP_ROTATIONAL_SPEED = 2
+SHIP_VELOCITY = 0.05
+SHIP_THRUST_EXPAND_RATE = 0.01
+SHIP_THRUST_CONTRACT_RATE = 0.05
+SHIP_THRUST_RADIUS = 10
+SHIP_CONTRAIL_DELAY = 0.1
+SHIP_BULLET_DELAY = 0.5
+SHIP_BULLET_SPEED = V(5, 0)
+
+GRID = grid(80)
+ASTEROIDS = asteroids([1, 4, 4])
+EXPLOSIONS = explosions()
+PARTICLES = particles()
+BULLETS = bullets()
+SHIP = ship()
+
+BACKGROUND = pygame.image.load("background.jpg").convert()
+
+dts = time.perf_counter()
+DELTA_TIME = 0
+
+exit_demo = False
+while not exit_demo:
+    NOW = time.perf_counter()
+    DELTA_TIME = (NOW - dts) * FPS
+    dts = NOW
+
+    for e in pygame.event.get():
+        if e.type == KEYUP:
+            if e.key == K_ESCAPE:
+                exit_demo = True
+        if e.type == MOUSEBUTTONUP:
+            if e.button == 1:
+                EXPLOSIONS.add(ASTEROIDS.asteroid_belt[0].pivot.sections[0])
+
+    KEYS = pygame.key.get_pressed()
+
+    PDS.fill(BLACK)
+    GRID.draw()
+    PARTICLES.draw()
+    ASTEROIDS.draw()
+    if not ASTEROIDS.spread:
+        SHIP.draw()
+    BULLETS.draw()
+    EXPLOSIONS.draw()
+    pygame.display.update()
+    PARTICLES.update()
+    EXPLOSIONS.update()
+    BULLETS.update()
+    if not ASTEROIDS.spread:
+        SHIP.update()
+    ASTEROIDS.update()
+    GRID.update(SHIP.pivot.pos)
+    
+    if not ASTEROIDS.spread:
+        SHIP.collision(ASTEROIDS.asteroid_belt)
+        SHIP.bullet_collision()
+
+    if SHIP.update == SHIP.death:
+        if not SHIP.death_lerp:
+            ASTEROIDS.spread = True
+            SHIP = ship()
+pygame.quit()
+sys.exit()
