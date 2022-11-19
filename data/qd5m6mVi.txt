@@ -1,0 +1,111 @@
+using System;
+using System.Threading;
+
+namespace ConsoleApp19
+{
+    class Program
+    {
+        public static int CountElements;
+        public static int ThreadCount;
+        public static int[] arrayNumbers;
+        public static bool oper = true;
+        public static int result = 0;
+        public static object Locker = new object();
+        public static int TempEndIndex = 0;
+
+        static void Main(string[] args)
+        {
+            int subArrayLenght = 0;
+            Console.WriteLine("Введите размер массива: ");
+
+            if (!int.TryParse(Console.ReadLine(), out CountElements))
+            {
+                Console.WriteLine("Ошибка, количество элементов стало стандартным - 10");
+                CountElements = 10;
+            }
+            Console.WriteLine("Введите количество потоков: ");
+
+            if (!int.TryParse(Console.ReadLine(), out ThreadCount))
+            {
+                Console.WriteLine("Ошибка, количество потоков стало стандартным - 1");
+                ThreadCount = 1;
+            }
+            arrayNumbers = new int[CountElements];
+
+            for (int i = 1; i <= CountElements; i++)
+                arrayNumbers[i-1] = i;
+
+            foreach (int item in arrayNumbers)
+            {
+                Console.Write($"{item} ");
+            }
+
+            if (ThreadCount <= 0)
+                ThreadCount = 1;
+
+            if (ThreadCount > CountElements)
+                ThreadCount = CountElements;
+            subArrayLenght = CountElements / ThreadCount + 1;
+            Console.WriteLine(subArrayLenght);
+            Thread[] threads = new Thread[ThreadCount];
+            Console.WriteLine();
+
+            for (int i = 0; i < ThreadCount; i++) // Создание потоков
+            {
+                PartArray partArray = new PartArray
+                {
+                    StartIndex = i * subArrayLenght,
+                    EndIndex = (i + 1) * subArrayLenght
+                };
+                Console.WriteLine($"ст: {partArray.StartIndex} | {partArray.EndIndex}");
+                if (partArray.EndIndex > CountElements)
+                    partArray.EndIndex = CountElements;
+                threads[i] = new Thread(() => EvaluateExpression(partArray)); //Передача метода потоку
+                threads[i].Name = $"Поток №{i + 1}";
+            }
+            Console.WriteLine();
+
+            for (int i = 0; i < ThreadCount; i++)
+            {
+                Console.WriteLine($"{threads[i].Name} - запущен");
+                threads[i].Start(); //Запуск потока
+                threads[i].Join(); //Ожидание завершения потока
+                Console.WriteLine($"{threads[i].Name} - завершил");
+            }
+            Console.WriteLine($"Результат: {result}");
+        }
+        static void EvaluateExpression(PartArray partArray) //Метод расчета
+        {
+            if (partArray == null) //Проверка на пустоту класса
+                return;
+            int start = partArray.StartIndex;
+            int end = partArray.EndIndex;
+
+            for (int i = start; i < end; i++)
+            {
+                if (oper)
+                {
+                    lock (Locker) //блокирует объекты, чтобы не было конфликтов с потоками
+                    {
+                        result += arrayNumbers[i];
+                        oper = false;
+                    }
+                }
+                else
+                {
+                    lock (Locker)//блокирует объекты, чтобы не было конфликтов с потоками
+                    {
+                        result -= arrayNumbers[i];
+                        oper = true;
+                    }
+                }
+            }
+        }
+    }
+}
+
+public class PartArray //Класс для хранения интервала
+{
+    public int StartIndex;
+    public int EndIndex;
+}
