@@ -1,0 +1,216 @@
+#include "pch.h"
+#include <algorithm>
+#include <charconv>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <ranges>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+
+using namespace std::string_view_literals;
+using namespace std::string_literals;
+using std::string_view;
+using string_views = std::vector<string_view>;
+
+[[nodiscard]] int from_chars(string_view s) {
+  int number;
+  const std::from_chars_result res =
+      std::from_chars(s.data(), s.data() + s.size(), number);
+  // These two exceptions reflect the behavior of std::stoi.
+  if (res.ec == std::errc::invalid_argument) {
+    throw std::invalid_argument{"invalid_argument"};
+  } else if (res.ec == std::errc::result_out_of_range) {
+    throw std::out_of_range{"out_of_range"};
+  }
+  return number;
+};
+
+template <typename Container>
+[[nodiscard]] std::vector<int> from_chars(Container v) {
+  std::vector<int> results;
+  results.reserve(v.size());
+  for (auto &sv : v) {
+    if (sv.empty()) {
+      continue;
+    }
+    results.push_back(from_chars(sv));
+  }
+  return results;
+}
+
+[[nodiscard]] string_views split(string_view source, string_view delim) {
+  string_views values;
+  std::ranges::split_view outer_view{source, delim};
+  for (const auto &split : outer_view) {
+    if (split.empty()) {
+      continue;
+    }
+    values.emplace_back(split.begin(), split.end());
+  }
+  return values;
+}
+
+[[nodiscard]] int sum(auto values) noexcept {
+  return std::reduce(std::begin(values), std::end(values));
+}
+
+int splitAndSum(string_view s, string_view delim) {
+  const auto values = split(s, delim);
+  return sum(from_chars(values));
+};
+
+[[nodiscard]] std::string replace(string_view haystack, string_view from,
+                                  string_view to) {
+  auto clean = std::string(haystack);
+  if (from.empty()) {
+    return clean;
+  }
+  size_t pos = 0;
+  size_t offset = 0;
+  while ((pos = clean.find(from, offset)) != std::string::npos) {
+    clean.replace(pos, from.size(), to);
+    offset = pos + to.size();
+  }
+  return clean;
+}
+
+struct StringCalculator {
+  int add(string_view s) const {
+    if (s.empty()) {
+      return 0;
+    }    
+    const auto clean = replace(s, "\n", ",");
+    const auto strings = split(clean, ",");
+    const auto numbers = from_chars(strings);
+    return sum(numbers);    
+  }
+};
+
+TEST(StringCalculator, ReturnsZeroOnEmpty) {
+  StringCalculator c;
+  EXPECT_EQ(c.add(""), 0);
+};
+
+TEST(StringCalculator, ReturnsSameOnSingleNumber) {
+  StringCalculator c;
+  EXPECT_EQ(c.add("1"), 1);
+  EXPECT_EQ(c.add("9"), 9);
+  EXPECT_EQ(c.add("-9"), -9);
+  EXPECT_EQ(c.add("10000"), 10000);
+};
+
+TEST(StringCalculator, ThrowsOnBadInput) {
+  StringCalculator c;
+  EXPECT_THROW(c.add("p"), std::invalid_argument);
+  constexpr std::size_t largetThanInt =
+      std::numeric_limits<int>::max() + std::size_t(1);
+  EXPECT_THROW(c.add(std::to_string(largetThanInt)), std::out_of_range);
+};
+
+TEST(split, handlesNoDelimeter) {
+  auto values = split("123456", ",");
+  EXPECT_EQ(values.size(), 1);
+}
+TEST(split, canSplitTwo) {
+  auto values = split("1,2", ",");
+  EXPECT_EQ(values.size(), 2);
+}
+TEST(split, canSplitMany) {
+  auto values = split("1,2,3,4,5", ",");
+  EXPECT_EQ(values.size(), 5);
+  EXPECT_TRUE("4" == values[3]);
+}
+TEST(split, ignoresLeadingDelimeter) {
+  auto values = split(",12", ",");
+  EXPECT_EQ(values.size(), 1);
+  EXPECT_TRUE("12" == values[0]);
+}
+TEST(split, ignoresTrailingDelimeter) {
+  auto values = split("12,", ",");
+  EXPECT_EQ(values.size(), 1);
+  EXPECT_TRUE("12" == values[0]);
+}
+TEST(split, ignoresEmptyDelimeters) {
+  auto values = split("1,,,,,2", ",");
+  EXPECT_EQ(values.size(), 2);
+  EXPECT_TRUE("2" == values[1]);
+
+  values = split(",,,,,", ",");
+  EXPECT_TRUE(values.empty());
+}
+TEST(replace, canHandleMissingNeedle) {
+  const auto goal = "em-em-em"sv;
+  const auto haystack = "em-em-em"sv;
+  const auto needle = "lor"sv; // is not in the haystack!
+  const auto replacement = ""sv;
+  const auto cleaned = replace(haystack, needle, replacement);
+  EXPECT_EQ(cleaned, goal);
+}
+TEST(replace, canReplaceSingleChar) {
+  const auto goal = "lorem-ipsum-dolorer"sv;
+  const auto haystack = "lorem ipsum dolorer"sv;
+  const auto needle = " "sv;
+  const auto replacement = "-"sv;
+  const auto cleaned = replace(haystack, needle, replacement);
+  EXPECT_EQ(cleaned, goal);
+}
+
+TEST(replace, canReplaceNewline) {
+  const auto goal = "em,em,em"sv;
+  const auto haystack = "em\nem\nem"sv;
+  const auto needle = "\n"sv;
+  const auto replacement = ","sv;
+  const auto cleaned = replace(haystack, needle, replacement);
+  EXPECT_EQ(cleaned, goal);
+}
+TEST(replace, canReplaceSubstrings) {
+  const auto goal = "em-em-em"sv;
+  const auto haystack = "lorem-lorem-lorem"sv;
+  const auto needle = "lor"sv;
+  const auto replacement = ""sv;
+  const auto cleaned = replace(haystack, needle, replacement);
+  EXPECT_EQ(cleaned, goal);
+}
+
+TEST(replace, canReplaceWithLonger) {
+  const auto goal = "ipsum-ipsum-ipsum"sv;
+  const auto haystack = "em-em-em"sv;
+  const auto needle = "em"sv;
+  const auto replacement = "ipsum"sv; // replacement is longer than needle.
+  const auto cleaned = replace(haystack, needle, replacement);
+  EXPECT_EQ(cleaned, goal);
+}
+
+TEST(replace, handlesReplacemntContainsNeedle) {
+  const auto goal = "lorem-lorem-lorem"sv;
+  const auto haystack = "em-em-em"sv;
+  const auto needle = "em"sv;
+  const auto replacement =
+      "lorem"sv; // the replacement contains the needle, "em"
+  const auto cleaned = replace(haystack, needle, replacement);
+  EXPECT_EQ(cleaned, std::string(goal));
+}
+
+TEST(StringCalculator, AddsTwoCommaDelimitedNumbers) {
+  StringCalculator c;
+  EXPECT_EQ(c.add(",1,2"), 3);
+  EXPECT_EQ(c.add("1,2"), 3);
+  EXPECT_EQ(c.add(",1,2,"), 3);
+};
+
+TEST(StringCalculator, AddsTwoNewlineDelimitedNumbers) {
+  StringCalculator c;
+  EXPECT_EQ(c.add("\n1\n2"), 3);
+  EXPECT_EQ(c.add("\n1\n2\n"), 3);
+  EXPECT_EQ(c.add("\n"), 0);
+};
+
+TEST(StringCalculator, HandlesMultipleDelimiterTypes) {
+  StringCalculator c;
+  EXPECT_EQ(c.add("\n1\n2,3,4"), 10);
+  EXPECT_EQ(c.add("1,2\n3\n4"), 10);
+  EXPECT_EQ(c.add("\n\n1,2,\n3\n,4"), 10);
+};
