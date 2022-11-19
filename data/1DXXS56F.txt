@@ -1,0 +1,110 @@
+using System;
+using System.Threading;
+
+namespace ConsoleApplication1
+{
+    class Program
+    {
+        public static int[] A;
+        public static int countElements = 1;
+        public static int countThreads = 1;
+        public static int subArrayLength;
+        public static int sum = 0;
+        public static object Locker = new object();
+
+        static void Main(string[] args)
+        {
+            string userInput;
+            Console.WriteLine("Размерность A: ");
+            userInput = Console.ReadLine();
+
+            if (int.TryParse(userInput,out countElements) == false || countElements <= 0)
+            {
+                countElements = 10;
+                Console.WriteLine($"Не вводите буквы или значения <= 0. Количество элементов - {countElements}");
+            }
+            A = new int[countElements];
+            FillArray(ref A);
+            ViewArray(A);
+            Console.WriteLine("\nКоличество потоков: ");
+            userInput = Console.ReadLine();
+
+            if (int.TryParse(userInput,out countThreads) == false || countThreads <= 0)
+            {
+                countThreads = 1;
+                Console.WriteLine($"Не вводите буквы или значения <= 0. Количество потоков - {countThreads}");
+            }
+
+            if (countThreads > countElements)
+                countThreads = countElements;
+            subArrayLength = countElements / countThreads + 1;
+
+            Thread[] flows = new Thread[countThreads];
+
+            for (int i = 0; i < countThreads; i++)
+            {
+                PartArray partArray = new PartArray
+                {
+                    StartIndex = i * subArrayLength,
+                    EndIndex = (i + 1) * subArrayLength
+                };
+
+                if (partArray.EndIndex > countElements)
+                    partArray.EndIndex = countElements;
+                flows[i] = new Thread(() => Sum(partArray));
+                flows[i].Name = $"Поток №{i + 1}";
+                flows[i].Start();
+            }
+
+            WaitFlows(flows);
+            Console.WriteLine($"Результат: {sum}");
+        }
+
+        public static void WaitFlows(Thread[] threads)
+        {
+            for (int i = 0; i < threads.Length; i++)
+            {
+                Console.WriteLine($"{threads[i].Name} - on");
+                threads[i].Join();
+                Console.WriteLine($"{threads[i].Name} - off");
+            }
+        }
+
+        public static void FillArray(ref int[] array)
+        {
+            Random random = new Random();
+
+            for(int i = 0; i < array.Length; i++)
+                array[i] = random.Next(countElements);
+        }
+
+        public static void ViewArray(int[] array)
+        {
+            foreach (int item in array)
+                Console.Write($"{item} ");
+        }
+
+        public static void Sum(PartArray partArray)
+        {
+            int startIndex = partArray.StartIndex;
+            int endIndex = partArray.EndIndex;
+
+            for (int i = startIndex; i < endIndex; i++)
+            {
+                if (A[i] % 2 == 0)
+                {
+                    lock (Locker)
+                    {
+                        sum += A[i];
+                    }
+                }
+            }
+        }
+    }
+
+    public class PartArray 
+    {
+        public int StartIndex;
+        public int EndIndex;
+    }
+}
