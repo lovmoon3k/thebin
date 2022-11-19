@@ -1,0 +1,51 @@
+//Script per analizzare i bias orari in termini di PnL
+
+// © Quant Trader Academy
+//@version=5
+indicator("QTA Trading Bias Analyzer chart", overlay=false)
+
+fattoreArrotondamento = input.int(1, "Fattore di arrotondamento",options = [1,10,100,1000,10000,100000, 1000000, 10000000])
+
+offset = input.int(1, "Distanza barre", 1, 9999, 1)
+spessoreBarre = input.int(20, "Spessore Barre", 1, 9999, 1)
+
+coloreBarreBullish = input.color(color.rgb(47, 159, 68), "Colore barre bullish") 
+coloreBarreBearish = input.color(color.rgb(227, 65, 65), "Colore barre bearish") 
+coloreEtichetteSfondo = input.color(color.rgb(19, 50, 70), "Colore sfondo etichetta")
+coloreEtichetteTesto = input.color(color.rgb(255, 255, 255), "Colore testo etichetta")
+
+dimensioneTesto = input.string("tiny", "Dimensione Carattere", options=["tiny", "small", "normal", "large", "huge"])
+
+var orari = array.new_float(24, 0)
+var countPerHour = array.new_float(24, 0)
+var totalLongBarWinPerHour = array.new_float(24, 0)
+var minVal = 0.0
+
+disegnaBarra(offset, volMedio, etichetta, minVal) =>
+    line.new(last_bar_index-offset, 0, last_bar_index - offset, volMedio, color=volMedio > 0 ? coloreBarreBullish : coloreBarreBearish, width=spessoreBarre)
+    label.new(x=last_bar_index-offset, y=minVal, color=coloreEtichetteSfondo, textcolor=coloreEtichetteTesto, style=label.style_label_up, size=dimensioneTesto, text=etichetta)
+
+calcolaAmpiezzaBarra(ora) =>
+    ampiezzaBarra = close-open
+    array.set(orari, ora, array.get(orari, ora) + ampiezzaBarra)
+    array.set(totalLongBarWinPerHour, ora, ampiezzaBarra > 0 ? (array.get(totalLongBarWinPerHour, ora) + 1) : array.get(totalLongBarWinPerHour, ora))
+    array.set(countPerHour, ora, array.get(countPerHour, ora) + 1)
+
+calcolaAmpiezzaBarra(hour(time))
+
+if barstate.islastconfirmedhistory
+    
+    x = 24
+    minVal := array.min(orari) / array.avg(countPerHour)
+    listaBarre = array.size(line.all)
+    if listaBarre > x
+        for i = 0 to listaBarre - 1
+            line.delete(array.get(line.all, i))
+
+    for i=0 to array.size(orari)-1
+        avgPnlHour = math.round(array.get(orari, i) / array.get(countPerHour, i), int(math.log10(fattoreArrotondamento/syminfo.mintick)))
+        valPercSuccessLong = (array.get(totalLongBarWinPerHour, i)/array.get(countPerHour, i))*100
+        valPercSuccessShort = ((array.get(countPerHour, i) - array.get(totalLongBarWinPerHour, i))/array.get(countPerHour, i))*100
+        disegnaBarra(offset * x, avgPnlHour, str.tostring(i) + "\nPnL: " + str.tostring(avgPnlHour)+ "\nProb: " + str.tostring(avgPnlHour > 0 ? valPercSuccessLong : valPercSuccessShort , format.percent), minVal)
+
+        x := x-1

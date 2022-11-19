@@ -1,0 +1,42 @@
+//Script per analizzare i bias
+
+// © Quant Trader Academy
+//@version=5
+indicator("QTA Trading Bias Analyzer table", overlay=false)
+
+fattoreArrotondamento = input.int(1, "Fattore di arrotondamento",options = [1,10,100,1000,10000,100000, 1000000, 10000000])
+posizione = input.string("middle_center", "posizione tabella", ["bottom_left", "bottom_center", "bottom_right", "middle_left", "middle_center", "middle_right", "top_left", "top_center", "top_right"])
+coloreBarreBullish = input.color(color.rgb(47, 159, 68), "Colore celle bullish") 
+coloreBarreBearish = input.color(color.rgb(227, 65, 65), "Colore celle bearish") 
+coloreSfondoTabella = input.color(color.rgb(53, 61, 68), "Colore sfondo tabella")
+coloreEtichetteSfondo = input.color(color.rgb(19, 50, 70), "Colore sfondo etichetta")
+coloreEtichetteTesto = input.color(color.rgb(255, 255, 255), "Colore testo etichetta")
+dimensioneTesto = input.string("normal", "Dimensione Carattere", options=["tiny", "small", "normal", "large", "huge"])
+
+var tabellaInfo = table.new(position = posizione, columns = 26, rows = 3, bgcolor = coloreSfondoTabella)
+table.cell(tabellaInfo, 0, 0, "ore", text_color = coloreEtichetteTesto, text_size = dimensioneTesto, text_halign= text.align_center)
+table.cell(tabellaInfo, 0, 1, "PnL", text_color = coloreEtichetteTesto, text_size = dimensioneTesto, text_halign= text.align_center)
+table.cell(tabellaInfo, 0, 2, "Successo", text_color = coloreEtichetteTesto, text_size = dimensioneTesto, text_halign= text.align_center)
+
+var orari = array.new_float(24, 0)
+var countPerHour = array.new_float(24, 0)
+var totalLongBarWinPerHour = array.new_float(24, 0)
+
+calcolaAmpiezzaBarra(ora) =>
+    ampiezzaBarra = close-open
+    array.set(orari, ora, array.get(orari, ora) + ampiezzaBarra)
+    array.set(totalLongBarWinPerHour, ora, ampiezzaBarra > 0 ? (array.get(totalLongBarWinPerHour, ora) + 1) : array.get(totalLongBarWinPerHour, ora))
+    array.set(countPerHour, ora, array.get(countPerHour, ora) + 1)
+
+calcolaAmpiezzaBarra(hour(time))
+
+if barstate.islast
+    
+    for i=0 to array.size(orari)-1
+        avgPnlHour = math.round(array.get(orari, i) / array.get(countPerHour, i), int(math.log10(fattoreArrotondamento/syminfo.mintick)))
+        valPercSuccessLong = (array.get(totalLongBarWinPerHour, i)/array.get(countPerHour, i))*100
+        valPercSuccessShort = ((array.get(countPerHour, i) - array.get(totalLongBarWinPerHour, i))/array.get(countPerHour, i))*100
+
+        table.cell(tabellaInfo, i+1, 0, str.tostring(i), text_color = coloreEtichetteTesto, text_size = dimensioneTesto, text_halign=text.align_center)
+        table.cell(tabellaInfo, i+1, 1, str.tostring(avgPnlHour), text_color = coloreEtichetteTesto, bgcolor= avgPnlHour> 0 ? coloreBarreBullish: coloreBarreBearish , text_size = dimensioneTesto, text_halign=text.align_center)
+        table.cell(tabellaInfo, i+1, 2, str.tostring(avgPnlHour > 0 ? valPercSuccessLong : valPercSuccessShort, format.percent), text_color = coloreEtichetteTesto, bgcolor = (avgPnlHour > 0 and valPercSuccessLong > 50) or (avgPnlHour <= 0 and valPercSuccessShort > 50) ? coloreBarreBullish : coloreBarreBearish, text_size = dimensioneTesto, text_halign=text.align_center)
