@@ -1,0 +1,173 @@
+***SEE COMMENTS***
+
+using System.Collections;
+using System.Collections.Generic;
+
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+using AKB.Entities.Interactions;
+
+namespace AKB.Entities.Player
+{
+    [DefaultExecutionOrder(460)]
+    public class PlayerAttack : MonoBehaviour
+    {
+        [Header("Set in inspector")]
+        [SerializeField] int attackDamage;
+        [SerializeField] float attackCooldown = 0.2f;
+        [SerializeField, Range(0f, 1f)] float rotateToAttackDir = 0.5f;
+
+        [Header("Set attack animations in order of use")]
+        [SerializeField] List<AnimationClip> attackAnimations;
+
+        Queue<AnimationClip> attackAnimationsQueue;
+        AnimationClip currentAnimation;
+
+        PlayerEntity playerEntity;
+        InputAction attackAction;
+
+        float nextAttack;
+        float attackCooldownCache;
+
+        void Start()
+        {
+            playerEntity = transform.root.GetComponent<PlayerEntity>();
+
+            //Input setup
+            attackAction = playerEntity.PlayerInputs.Player.Fire;
+            attackAction.Enable();
+
+            attackCooldownCache = attackCooldown;
+
+            SetupAnimationsQueue();
+        }
+
+        void SetupAnimationsQueue()
+        {
+            attackAnimationsQueue = new Queue<AnimationClip>();
+
+            foreach (AnimationClip clip in attackAnimations)
+            {
+                attackAnimationsQueue.Enqueue(clip);
+            }
+        }
+
+        void Update()
+        {
+            if (!playerEntity.PlayerSpearThrow.GetHasSpear()
+                || playerEntity.PlayerDodgeRoll.GetIsDodging()) return;
+
+            if (IsHoldingAttack())
+            {
+                AttackBehaviour();
+            }
+        }
+
+        void AttackBehaviour()
+        {
+            if (Time.time >= nextAttack)
+            {
+                nextAttack = Time.time + attackCooldown;
+
+                playerEntity.PlayerMovement.SetCanMoveState(false);
+
+                PlayNextAnimation();
+
+                CallAttackInteraction();
+            }
+            else
+            {
+                if (!playerEntity.PlayerMovement.GetHasControllerConnected())
+                {
+                    playerEntity.PlayerMovement.MouseBasedOrbitRotation(rotateToAttackDir);
+                }
+            }
+        }
+
+        void PlayNextAnimation()
+        {
+            currentAnimation = attackAnimationsQueue.Dequeue();
+
+            playerEntity.PlayerAnimations.PlayAttackAnimation(currentAnimation.name);
+
+            StartCoroutine(CheckForNextAttackInput());
+
+            attackAnimationsQueue.Enqueue(currentAnimation);
+        }
+
+        IEnumerator CheckForNextAttackInput()
+        {
+            yield return new WaitForFixedUpdate();
+
+            while (playerEntity.PlayerAnimations.IsAnimationRunning(1, currentAnimation.name)
+                || playerEntity.PlayerAnimations.IsInTransition(1))
+            {
+                playerEntity.PlayerSpearThrow.SetHoldInputToZero();
+
+                if (IsHoldingAttack())
+                {
+                    AttackBehaviour();
+                }
+
+                yield return null;
+            }
+
+            playerEntity.PlayerMovement.SetCanMoveState(true);
+        }
+
+        void CallAttackInteraction()
+        {
+            List<Transform> hits = playerEntity.PlayerAttackFOV.GetHitsInsideFrustrum(0);
+
+            foreach (Transform hit in hits)
+            {
+                IInteractable interactable = hit.GetComponent<IInteractable>();
+                if (interactable != null)
+                {
+                    interactable.AttackInteraction(attackDamage);
+                }
+            }
+        }
+
+        #region UTILITIES
+        bool IsHoldingAttack()
+        {
+            return attackAction.ReadValue<float>() > 0.5f;
+        }
+
+        public void SetAttackDamage(int value) => attackDamage = value;
+        public void SetAttackCooldown(float value, bool cachePastValue = false)
+        {
+            if (cachePastValue) { attackCooldownCache = attackCooldown; }
+
+            attackCooldown = value;
+        }
+
+        public float GetAttackCooldown() => attackCooldown;
+        public float GetAttackCooldownCache() => attackCooldownCache;
+
+        public void SetInputsActiveState(bool value)
+        {
+            if (value)
+            {
+                attackAction.Enable();
+            }
+            else
+            {
+                attackAction.Disable();
+            }
+        }
+        #endregion
+
+        private void OnDisable()
+        {
+            attackAction.Disable();
+        }
+
+        private void OnDestroy()
+        {
+            attackAction.Disable();
+        }
+    }
+}
