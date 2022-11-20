@@ -1,0 +1,159 @@
+#pragma once
+
+#include <unordered_map>
+#include <mutex>
+#include <functional>
+#include <vector>
+#include <thread>
+#include <list>
+#include <deque>
+
+template <class K, class V, class Hash = std::hash<K>>
+class ConcurrentHashMap {
+public:
+    ConcurrentHashMap(const Hash &hasher = Hash())
+        : hasher_(hasher), capacity_(500), mutex_capacity_(35) {
+        mutex_ = std::deque<std::mutex>(mutex_capacity_);
+        table_.resize(capacity_);
+        size_ = 0;
+    }
+
+    explicit ConcurrentHashMap(int expected_size, const Hash &hasher = Hash())
+        : hasher_(hasher), capacity_(500), mutex_capacity_(35) {
+        mutex_ = std::deque<std::mutex>(mutex_capacity_);
+        table_.resize(capacity_);
+        size_ = 0;
+    }
+
+    ConcurrentHashMap(int expected_size, int expected_threads_count, const Hash &hasher = Hash())
+        : hasher_(hasher), capacity_(500), mutex_capacity_(35) {
+        mutex_ = std::deque<std::mutex>(mutex_capacity_);
+        table_.resize(capacity_);
+        size_ = 0;
+    }
+
+    bool ConcurentInsert(size_t index, const K &key, const V &value) {
+        auto it = table_[index].begin();
+        for (; it != table_[index].end(); ++it) {
+            if (it->first == key) {
+                return false;
+            }
+        }
+        table_[index].emplace_back(key, value);
+        return true;
+    }
+
+    bool Insert(const K &key, const V &value) {
+        global_mutex_.lock();
+        auto index = hasher_(key) % table_.size();
+        std::unique_lock<std::mutex> lock(mutex_[index % mutex_capacity_]);
+        global_mutex_.unlock();
+        if (ConcurentInsert(index, key, value)) {
+            size_ += 1;
+            if (size_ > 10 * capacity_) {
+                lock.unlock();
+                Rehash();
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    bool Erase(const K &key) {
+        global_mutex_.lock();
+        auto index = hasher_(key) % table_.size();
+        std::scoped_lock lock(mutex_[index % mutex_capacity_]);
+        global_mutex_.unlock();
+        auto it = table_[index].begin();
+        for (; it != table_[index].end(); ++it) {
+            if (it->first == key) {
+                break;
+            }
+        }
+        if (it == table_[index].end()) {
+            return false;
+        }
+        table_[index].erase(it);
+        size_ -= 1;
+        return true;
+    }
+
+    void Clear() {
+        global_mutex_.lock();
+        for (size_t i = 0; i < table_.size(); ++i) {
+            mutex_[i % mutex_capacity_].lock();
+            table_[i].clear();
+            mutex_[i % mutex_capacity_].unlock();
+        }
+        size_ = 0;
+        global_mutex_.unlock();
+    }
+
+    std::pair<bool, V> Find(const K &key) const {
+        global_mutex_.lock();
+        auto index = hasher_(key) % table_.size();
+        std::scoped_lock lock(mutex_[index % mutex_capacity_]);
+        global_mutex_.unlock();
+        auto it = table_[index].begin();
+        for (; it != table_[index].end(); ++it) {
+            if (it->first == key) {
+                return {true, it->second};
+            }
+        }
+        return {false, V{}};
+    }
+
+    const V At(const K &key) const {
+        global_mutex_.lock();
+        auto index = hasher_(key) % table_.size();
+        auto it = table_[index].begin();
+        std::scoped_lock lock(mutex_[index % mutex_capacity_]);
+        global_mutex_.unlock();
+        for (; it != table_[index].end(); ++it) {
+            if (it->first == key) {
+                return it->second;
+            }
+        }
+        throw std::out_of_range("bad at!");
+    }
+
+    size_t Size() const {
+        return size_;
+    }
+
+    static const int kDefaultConcurrencyLevel;
+    static const int kUndefinedSize;
+
+private:
+    std::vector<std::list<std::pair<K, V>>> table_;
+    mutable std::deque<std::mutex> mutex_;
+    mutable std::mutex global_mutex_;
+    int capacity_ = 500;
+    int mutex_capacity_ = 35;
+    std::atomic<int> size_;
+    Hash hasher_;
+
+    void Rehash() {
+        global_mutex_.lock();
+        capacity_ *= 4;
+        std::vector<std::list<std::pair<K, V>>> newtable(capacity_);
+        for (size_t i = 0; i < table_.size(); ++i) {
+            mutex_[i % mutex_capacity_].lock();
+            for (const auto &[k, v] : table_[i]) {
+                newtable[hasher_(k) % capacity_].emplace_back(k, v);
+            }
+            mutex_[i % mutex_capacity_].unlock();
+        }
+        std::swap(table_, newtable);
+        //        mutex_capacity_ *= 10;
+        //        mutex_ = std::deque<std::mutex>(mutex_capacity_);
+        global_mutex_.unlock();
+    }
+};
+
+template <class K, class V, class Hash>
+const int ConcurrentHashMap<K, V, Hash>::kDefaultConcurrencyLevel = 8;
+
+template <class K, class V, class Hash>
+const int ConcurrentHashMap<K, V, Hash>::kUndefinedSize = -1;
