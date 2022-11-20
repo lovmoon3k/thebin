@@ -1,9 +1,7 @@
-[**wjVTBtuk**](/data/wjVTBtuk.txt) (20/11/22 - 17:24)- 1471 bytes
+[**GZ9EA7ck**](/data/GZ9EA7ck.txt) (20/11/22 - 17:32)- 785 bytes
 
-[**wjVTBtuk**](/data/wjVTBtuk.txt) (20/11/22 - 17:24)- 1471 bytes
+[**GZ9EA7ck**](/data/GZ9EA7ck.txt) (20/11/22 - 17:32)- 785 bytes
 
-[**qMmaksfc**](/data/qMmaksfc.txt) (20/11/22 - 17:24)- 939 bytes
-
-**Total Datas**: 4009
+**Total Datas**: 4010
 
 **Total Size**: 21.93 MB / 21.9 MB
