@@ -1,0 +1,43 @@
+@echo off
+(NET FILE||(PowerShell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%0' -Verb RunAs")&(NET FILE||exit)) >nul 2>&1
+CD /D "%temp%"
+
+:: Set time and region
+::  Keyboard   : https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/default-input-locales-for-windows-language-packs?view=windows-10
+::  Geo ID     : https://docs.microsoft.com/en-us/windows/win32/intl/table-of-geographical-locations
+::  Timezone   : https://ss64.com/nt/timezones.html
+::  Timeformat : 24h | 12h | default
+:: ---------------------------- ::
+set PSLanguage=en-CA
+set PSKeyboard=1009:00000409
+set PSRegion=en-CA
+set PSGeoID=39
+set PSSystemLocale=en-CA
+set Timezone=Central Standard Time
+set Timeformat=default
+:: ---------------------------- ::
+PowerShell -NoProfile -Command "$UserLanguageList = New-WinUserLanguageList -Language '%PSLanguage%'; $UserLanguageList[0].InputMethodTips.Clear(); $UserLanguageList[0].InputMethodTips.Add('%PSKeyboard%'); Set-WinUserLanguageList -LanguageList $UserLanguageList -Force; Set-Culture -CultureInfo %PSRegion%; Set-WinCultureFromLanguageListOptOut -OptOut $True; Set-WinDefaultInputMethodOverride -InputTip '%PSKeyboard%'; Set-WinHomeLocation -GeoId %PSGeoID%; Set-WinSystemLocale -SystemLocale %PSSystemLocale%; Set-WinUILanguageOverride -Language %PSLanguage%"
+REG ADD "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Keyboard Layout" /v "IgnoreRemoteKeyboardLayout" /t REG_DWORD /d "1" /f
+REG ADD "HKEY_CURRENT_USER\Keyboard Layout\Toggle" /v "Language Hotkey" /t REG_SZ /d "3" /f
+REG ADD "HKEY_CURRENT_USER\Keyboard Layout\Toggle" /v "Hotkey" /t REG_SZ /d "3" /f
+REG ADD "HKEY_CURRENT_USER\Keyboard Layout\Toggle" /v "Layout Hotkey" /t REG_SZ /d "3" /f
+TZUTIL /s "%Timezone%"
+if /I "%Timeformat%"=="24h" (
+	REG ADD "HKEY_CURRENT_USER\Control Panel\International" /v "iTime" /t REG_SZ /d "1" /f
+	REG ADD "HKEY_CURRENT_USER\Control Panel\International" /v "sTime" /t REG_SZ /d ":" /f
+	REG ADD "HKEY_CURRENT_USER\Control Panel\International" /v "sTimeFormat" /t REG_SZ /d "H:mm:ss" /f
+	REG ADD "HKEY_CURRENT_USER\Control Panel\International" /v "sShortTime" /t REG_SZ /d "H:mm" /f
+)
+if /I "%Timeformat%"=="12h" (
+	REG ADD "HKEY_CURRENT_USER\Control Panel\International" /v "iTime" /t REG_SZ /d "0" /f
+	REG ADD "HKEY_CURRENT_USER\Control Panel\International" /v "sTime" /t REG_SZ /d ":" /f
+	REG ADD "HKEY_CURRENT_USER\Control Panel\International" /v "sTimeFormat" /t REG_SZ /d "h:mm:ss tt" /f
+	REG ADD "HKEY_CURRENT_USER\Control Panel\International" /v "sShortTime" /t REG_SZ /d "h:mm tt" /f
+)
+echo ^<gs:GlobalizationServices xmlns:gs="urn:longhornGlobalizationUnattend"^>^<gs:UserList^>^<gs:User UserID="Current" CopySettingsToDefaultUserAcct="true" CopySettingsToSystemAcct="true"/^>^</gs:UserList^>^</gs:GlobalizationServices^>>WelcomeScreenAndNewAccounts.xml
+rundll32.exe shell32.dll,Control_RunDLL intl.cpl,,/f:"WelcomeScreenAndNewAccounts.xml"
+del /Q WelcomeScreenAndNewAccounts.xml
+
+CHOICE /C yn /N /M "You need to logoff and then logon again for the changes to take effect. Logoff now (Y/N)? "
+if %ERRORLEVEL% EQU 1 shutdown -l
+exit
