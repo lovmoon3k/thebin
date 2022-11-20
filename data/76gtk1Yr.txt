@@ -1,0 +1,77 @@
+/*
+This file is used to configure and run a public node.
+The public node is used to listen/accept incoming connections.
+This public node can be reached by other nodes behind a NAT.
+ */
+
+import { createLibp2p } from 'libp2p'
+import { webSockets } from '@libp2p/websockets'
+import { noise } from '@chainsafe/libp2p-noise'
+import { mplex } from '@libp2p/mplex'
+import {publicIpv4} from 'public-ip';
+
+var myNode;
+
+async function startNode ()
+{
+    let publicIP = await publicIpv4();
+    let localIP = "127.0.0.1";
+    myNode = await createLibp2p({
+        addresses: { listen: ['/ip4/' + publicIP + '/tcp/0/ws', '/ip4/' + localIP + '/tcp/0/ws'] },
+        transports: [ webSockets() ],
+        connectionEncryption: [ noise() ],
+        streamMuxers: [ mplex() ]
+    })
+
+    await myNode.start()
+            .then(() =>
+            {
+                console.log("Node ID: " + myNode.peerId.toString())
+            })
+            .then(() =>
+            {
+                console.log("Listening:") // Display the listening addresses.
+                myNode.getMultiaddrs().forEach((ma) => console.log("\t" + ma.toString()))
+            })
+            .catch((err) => console.error(err))
+}
+
+function connectToNode(addr)
+{
+    // Try to connect to the node and return if the connection was successful.
+    try
+    {
+        myNode.dial(addr)
+        console.log("Connected to " + addr)
+        return true
+    }
+    catch (e)
+    {
+        console.log("Failed to connect to " + addr)
+        return false
+    }
+}
+
+async function sendMsg(msg, toAddr) {
+    // Send a message to the specified node.
+    try {
+        const {stream} = await myNode.dialProtocol(toAddr, '/echo/1.0.0')
+        await pipe(
+            [msg],
+            stream,
+            async function (source) {
+                for await (const msg of source) {
+                    console.log('Received:', msg.toString())
+                }
+            }
+        )
+        return true
+    } catch (e) {
+        console.log("Failed to send message to " + toAddr)
+        return false
+    }
+}
+
+startNode()
+    .then(() => connectToNode("/ip4/90.167.86.174/tcp/40189/ws/p2p/12D3KooWNxtRr8TRfD3tzE8M6De74bYk4UKivCUzb8LbbYMZ1KG2"))
+    .catch((err) => console.error(err))
