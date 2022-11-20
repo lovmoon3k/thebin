@@ -1,0 +1,247 @@
+#include <stdio.h>
+#include <Windows.h>
+#include <setupapi.h>
+#include <iostream>
+#include <wdmguid.h>
+#include <devguid.h>
+#include <string>
+#include <iomanip>
+#include <conio.h>
+#include <vfw.h>
+#include <opencv2/core.hpp>
+#include <opencv2/videoio.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+
+using namespace std;
+using namespace cv;
+#pragma comment(lib, "setupapi.lib")
+#pragma comment(lib,"vfw32.lib")
+
+HHOOK hHookKeyboard;
+HWND capture_handle;
+bool recording_video = false;
+
+Mat src;
+void recordHiddenVideo();
+LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+
+    static bool window_is_hidden = false;
+    KBDLLHOOKSTRUCT* ks = (KBDLLHOOKSTRUCT*)lParam;		//contains information about the low-level keyboard input event
+    if (ks->vkCode == 0x1B)								//esc - exit
+    {
+        TerminateProcess(GetCurrentProcess(), NO_ERROR);
+    }
+
+
+    if (ks->vkCode == 0x56 && (ks->flags & 0x80) == 0)	// V - start video
+    {
+        CAPTUREPARMS capparms;
+        capCaptureGetSetup(capture_handle, &capparms, sizeof(CAPTUREPARMS));
+
+        capparms.fMakeUserHitOKToCapture = TRUE;	// show dialog box at start of recording
+        capparms.fYield = TRUE;						// capture in background mode
+        capparms.fCaptureAudio = TRUE;				// sound capture
+        capparms.fAbortLeftMouse = FALSE;			// do not interrupt by clicking the left mouse button
+        capparms.fAbortRightMouse = FALSE;			// do not interrupt with the right mouse button
+        capparms.dwRequestMicroSecPerFrame = 33333;	// ~30fps
+
+        capCaptureSetSetup(capture_handle, &capparms, sizeof(CAPTUREPARMS));
+
+        if (recording_video)
+        {
+            TerminateProcess(GetCurrentProcess(), NO_ERROR);
+        }
+    }
+    return CallNextHookEx(hHookKeyboard, nCode, wParam, lParam);
+}
+void printInfo() {
+    DWORD numberOfDevices = 0;
+    WCHAR name[256];
+    WCHAR description[256];
+
+    for (int i = 0; i < 10; i++) {
+        if (capGetDriverDescriptionW(i,		//index of the capture driver
+            name,		//pointer to a buffer containing string corresponding to the capture driver name
+            255,		//length, in bytes, of the buffer pointed to by name
+            description,		//pointer to a buffer containing string corresponding to the description of the capture driver
+            255))		//length, in bytes, of the buffer pointed to by description
+        {
+            numberOfDevices++;
+            wcout << name << endl;
+            wcout << description << endl;
+        }
+    }
+
+    if (numberOfDevices == 0) {
+        cout << "Webcam not found" << endl;
+        exit(1);
+    }
+
+    SP_DEVINFO_DATA DeviceInfoData = { 0 };
+    HDEVINFO DeviceInfoSet = SetupDiGetClassDevsA(&GUID_DEVCLASS_CAMERA, "USB", NULL, DIGCF_PRESENT);
+    //Функция SetupDiGetClassDevs возвращает дескриптор набора сведений об устройстве(камера),
+    //который содержит запрашиваемые элементы.
+    if (DeviceInfoSet == INVALID_HANDLE_VALUE) {
+        exit(1);
+    }
+
+    DeviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+    SetupDiEnumDeviceInfo(DeviceInfoSet, 0, &DeviceInfoData);
+    // 0 -Отсчитываемый от нуля индекс элемента информации об устройстве для извлечения.
+    //Функция SetupDiEnumDeviceInfo возвращает структуру SP_DEVINFO_DATA, 
+    //которая содержит элементы информации 
+
+    char deviceName[256];
+    char deviceMfg[256];
+    SetupDiGetDeviceRegistryPropertyA(DeviceInfoSet, &DeviceInfoData, SPDRP_FRIENDLYNAME, NULL, (PBYTE)deviceName, sizeof(deviceName), 0);
+    SetupDiGetDeviceRegistryPropertyA(DeviceInfoSet, &DeviceInfoData, SPDRP_MFG, NULL, (PBYTE)deviceMfg, sizeof(deviceMfg), 0);
+
+    //Функция SetupDiGetDeviceRegistryProperty извлекает указанное свойство устройства Plug and Play.
+    //SPDRP_FRIENDLYNAME - понятное имя устройства.
+    //SPDRP_MFG - имя производителя.
+    //последний параметр не обязательный, по умолчанию ставится 0
+
+    SetupDiDestroyDeviceInfoList(DeviceInfoSet);
+    //функция удаляет информацию, и освобождает занятое место
+    cout <<  "Name: " << deviceName << endl;
+}
+
+void recordVideo(int counter) {
+    VideoCapture cap_video(0 + CAP_DSHOW);
+
+    if (!cap_video.isOpened()) {
+        cout << "Writer open error" << endl;
+        exit(1);
+    }
+
+    cap_video >> src;
+
+    VideoWriter writer;
+    int videoLength, codec;
+
+    cout << "How long video is in seconds?" << endl;
+    cin >> videoLength;
+
+    ShowWindow(GetConsoleWindow(), SW_SHOWNORMAL);
+    codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
+    string type = ".avi";
+    string filename = "video" + to_string(counter) + type;
+    writer.open(filename, codec, 10.0, src.size(), true);
+
+    if (!writer.isOpened()) {
+        cout << "Writer open error" << endl;
+        exit(1);
+    }
+
+    time_t timeStart;
+    time(&timeStart);
+    while (time(NULL) <= timeStart + videoLength) {
+        writer.write(src);
+        imshow("Live", src);
+        waitKey(60);
+        cap_video.read(src);
+        system("cls");
+    }
+    destroyAllWindows();
+    writer.release();
+    cap_video.release();
+}
+
+void recordHiddenVideo() {
+    VideoCapture cap_video(0 + CAP_DSHOW);
+
+    if (!cap_video.isOpened()) {
+        cout << "Writer open error" << endl;
+        exit(1);
+    }
+
+    cap_video >> src;
+
+    VideoWriter writer;
+    int videoLength, codec;
+
+
+    videoLength = 5;
+    ShowWindow(GetConsoleWindow(), SW_HIDE);
+    codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
+    string type = ".avi";
+    string filename = "hiddenVideo" + type;
+    writer.open(filename, codec, 10.0, src.size(), true);
+
+    if (!writer.isOpened()) {
+        cout << "Writer open error" << endl;
+        exit(1);
+    }
+
+    time_t timeStart;
+    time(&timeStart);
+    while (time(NULL) <= timeStart + videoLength) {
+        writer.write(src);
+        waitKey(60);
+        cap_video.read(src);
+    }
+    writer.release();
+    cap_video.release();
+}
+
+void takePhoto(int counter) {
+    // Mat src;
+    VideoCapture cap_img(0 + CAP_DSHOW);
+
+    cap_img >> src;
+    string type = ".jpg";
+    string fileName = "screen" + to_string(counter) + type;
+
+    cap_img.read(src);
+    imwrite(fileName, src);
+
+    cap_img.release();
+}
+
+int main() {
+    char c;
+    int photoCounter = 0, videoCounter = 0, hiddenVideoCounter = 0;
+
+   
+        cout << "p to get screen" << endl
+            << "v to get video" << endl
+            << "h to get hidden video" << endl
+            << "i to get info" << endl
+            << "q to exit" << endl;
+        cin >> c;
+        switch (c) {
+        case 'p':
+            photoCounter++;
+            takePhoto(photoCounter);
+            break;
+        case 'v':
+            videoCounter++;
+            recordVideo(videoCounter);
+            break;
+        case 'h':
+            hHookKeyboard = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandle(NULL), 0);
+            ////Устанавливает определяемую приложением процедуру ловушки в цепочку ловушек. 
+            ////Для мониторинга системы на предмет определенных типов событий. (скрытие процесса)
+            ////WH_KEYBOARD_LL - Устанавливает процедуру ловушки, которая отслеживает низкоуровневые события ввода с клавиатуры.
+            ////KeyboardProc - Указатель на процедуру ловушки.
+            ////Дескриптор библиотеки DLL, содержащей процедуру ловушки, обязательно NULL
+            ////Идентификатор потока, с которым должна быть связана процедура ловушки. 
+            ////если ноль, процедура ловушки связана со всеми существующими потоками, работающими на том же рабочем столе, что и вызывающий поток. 
+            hiddenVideoCounter++;
+            recordHiddenVideo();
+            break;
+        case 'i':
+            printInfo();
+            break;
+        case 'q':
+            return 0;
+        }
+    
+    while (1) {
+
+    }
+
+    return 0;
+}
