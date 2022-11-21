@@ -1,0 +1,253 @@
+#include <iostream>
+
+struct Node {
+  ~Node();
+
+  int Data;
+  Node* Left = nullptr;
+  Node* Right = nullptr;
+  Node* Parent = nullptr;
+
+  explicit Node(int data, Node* parent = nullptr) : Data(data), Parent(parent) {}
+};
+
+Node::~Node() {
+  // std::cout << "Deleting " << Data << std::endl;
+  delete Left;
+  // Соответствует двум операциям
+  // Left->~Node();
+  // free(Left);
+  delete Right;
+  // std::cout << "Deleted " << Data << std::endl;
+}
+
+int main1() {
+  Node* root = new Node(3);
+  root->Right = new Node(5);
+  root->Right->Parent = root;
+  std::cout << root->Data << std::endl;
+  std::cout << root->Right->Data << std::endl;
+  delete root->Right;
+  delete root;
+  std::cout << "It's ok" << std::endl;
+  return 0;
+}
+
+//
+class Tree {
+ public:
+  ~Tree();
+  void Add(int key);
+  // Возвращает true, если успешно удалили
+  bool Remove(int key);
+  int GetDepth() const;
+  void Print() const;
+
+ private:
+  Node* root = nullptr;
+
+  int GetDepth(Node* node) const;
+  void Print(Node* node, int tabs) const;
+  void Print1(Node* node, int tabs) const;
+};
+
+Tree::~Tree() {
+  delete root;
+}
+
+void Tree::Add(int key) {
+  if (!root) {
+    root = new Node(key);
+    return;
+  }
+  Node* current = root;
+  while (true) {
+    if (current->Data > key) {
+      // Идем в Left
+      if (current->Left != nullptr)
+        current = current->Left;
+      else {
+        current->Left = new Node(key, current);
+        break;
+      }
+    } else {
+      // Идем в Right
+      if (current->Right != nullptr)
+        current = current->Right;
+      else {
+        current->Right = new Node(key, current);
+        break;
+      }
+    }
+  }
+}
+
+bool Tree::Remove(int key) {
+  Node* current = root;
+  while (current) {
+    if (current->Data < key) current = current->Right;
+    else if (current->Data > key) current = current->Left;
+    else break;
+  }
+  if (!current) return false;
+
+  if (!current->Right && !current->Left) {
+    if (current == root)
+      root = nullptr;
+    else if (current->Parent->Left == current)
+      current->Parent->Left = nullptr;
+    else
+      current->Parent->Right = nullptr;
+  } else if (current->Right && !current->Left) {
+    if (current == root)
+      root = current->Right;
+    else if (current->Parent->Left == current)
+      current->Parent->Left = current->Right;
+    else
+      current->Parent->Right = current->Right;
+    current->Right->Parent = current->Parent;
+  } else if (!current->Right && current->Left) {
+    if (current == root)
+      root = current->Left;
+    if (current->Parent->Left == current)
+      current->Parent->Left = current->Left;
+    else
+      current->Parent->Right = current->Left;
+    current->Left->Parent = current->Parent;
+  }
+  current->Left = nullptr;
+  current->Right = nullptr;
+  delete current;
+  return true;
+}
+
+int Tree::GetDepth() const {
+  return GetDepth(root);
+}
+
+int Tree::GetDepth(Node *node) const {
+  if (!node) return 0;
+  return std::max(GetDepth(node->Left), GetDepth(node->Right)) + 1;
+}
+
+void Tree::Print() const {
+  if (root) Print(root, 0);
+}
+
+void Tree::Print1(Node* node, int tabs) const {
+  if (!node) return;
+
+  std::cout << node->Data << "\t";
+  if (node->Right) {
+    Print(node->Right, tabs + 1);
+    std::cout << std::endl;
+  }
+  if (node->Left) {
+    for (int i = 0; i < tabs; ++i) std::cout << "\t";
+    Print(node->Left, tabs);
+  }
+}
+
+void Tree::Print(Node* node, int tabs) const {
+  if (node->Right) Print(node->Right, tabs + 1);
+  for (int i = 0; i < tabs; ++i) std::cout << "\t";
+  std::cout << node->Data << std::endl;
+  if (node->Left) Print(node->Left, tabs + 1);
+}
+
+int main2() {
+  Tree tree;
+  tree.Add(4);
+  tree.Add(2);
+  tree.Add(3);
+  tree.Add(1);
+  tree.Add(6);
+  tree.Add(7);
+  tree.Add(5);
+  tree.Add(10);
+  tree.Add(11);
+//  tree.Remove(1);
+//  tree.Remove(2);
+  // std::cout << sizeof(tree) << std::endl;
+  tree.Print();
+  std::cout << tree.GetDepth() << std::endl;
+  return 0;
+}
+
+// Декартовы деревья
+struct TreapNode {
+  int Key;
+  int Priority;
+  TreapNode* Left = nullptr;
+  TreapNode* Right = nullptr;
+
+  TreapNode(int key, int priority) : Key(key), Priority(priority) {}
+};
+
+class Treap {
+ public:
+  void Add(int key);
+  void Print() const { if (root) Print(root, 0); }
+
+ private:
+  TreapNode* root = nullptr;
+  std::pair<TreapNode*, TreapNode*> Split(int key, TreapNode* node);
+  TreapNode* Merge(TreapNode* t1, TreapNode* t2);
+
+  void Print(TreapNode* node, int tabs) const;
+};
+
+std::pair<TreapNode*, TreapNode*> Treap::Split(int key, TreapNode* node) {
+  if (!node) return {nullptr, nullptr};
+  if (node->Key < key) {
+    auto [t1, t2] = Split(key, node->Right);
+    node->Right = t1;
+    return {node, t2};
+  } else {
+    auto [t1, t2] = Split(key, node->Left);
+    node->Left = t2;
+    return {t1, node};
+  }
+}
+
+TreapNode* Treap::Merge(TreapNode* left, TreapNode* right) {
+  if (left == nullptr || right == nullptr) {
+    return left == nullptr ? right : left;
+  }
+  if (left->Priority > right->Priority) {
+    left->Right = Merge(left->Right, right);
+    return left;
+  } else {
+    right->Left = Merge(left, right->Left);
+    return right;
+  }
+}
+
+void Treap::Add(int key) {
+  auto [t1, t2] = Split(key, root);
+  int r = rand();
+  TreapNode* new_node = new TreapNode(key, r);
+  t1 = Merge(t1, new_node);
+  root = Merge(t1, t2);
+}
+
+void Treap::Print(TreapNode* node, int tabs) const {
+  if (node->Right) Print(node->Right, tabs + 1);
+  for (int i = 0; i < tabs; ++i) std::cout << "\t";
+  std::cout << node->Key << std::endl;
+  if (node->Left) Print(node->Left, tabs + 1);
+}
+
+int main() {
+  srand(clock());
+  Treap treap;
+  treap.Add(4);
+  treap.Add(5);
+  treap.Add(1);
+  treap.Add(8);
+  treap.Add(5);
+  treap.Add(3);
+  treap.Print();
+
+  return 0;
+}
