@@ -1,0 +1,64 @@
+public function syncdata()
+    {
+        $listKontingen = $this->db->order_by('kontingen_id', 'asc')->get_where('porprov_kontingen', array('kontingen_status' => 'A'))->result();
+        foreach ($listKontingen as $r) {
+            $kontingen_id = $r->kontingen_id;
+            // Tipe Cabor Medali per Nomor
+            $dataEmasNomor     = $this->db->group_by('kontingen_id')->group_by('medali_id')->group_by('cabor_nomor_id')->get_where('v_medali_peserta', array('kontingen_id' => $kontingen_id, 'cabor_nomor_medali' => 'N', 'medali_id' => 1))->result();
+            $dataPerakNomor    = $this->db->group_by('kontingen_id')->group_by('medali_id')->group_by('cabor_nomor_id')->get_where('v_medali_peserta', array('kontingen_id' => $kontingen_id, 'cabor_nomor_medali' => 'N', 'medali_id' => 2))->result();
+            $dataPerungguNomor = $this->db->group_by('kontingen_id')->group_by('medali_id')->group_by('cabor_nomor_id')->get_where('v_medali_peserta', array('kontingen_id' => $kontingen_id, 'cabor_nomor_medali' => 'N', 'medali_id' => 3))->result();
+            // Tipe Cabor Medali per Medali
+            $queryEmas = "SELECT COUNT(medali_peserta_id) AS total FROM v_medali_peserta WHERE kontingen_id=$kontingen_id AND medali_id=1
+            AND cabor_nomor_medali='M' GROUP BY kontingen_id, cabor_nomor_id";
+            $dataEmasMedali = $this->db->query($queryEmas)->row();
+            $emasMedali     = $dataEmasMedali->total;
+            $queryPerak     = "SELECT COUNT(medali_peserta_id) AS total FROM v_medali_peserta WHERE kontingen_id=$kontingen_id AND medali_id=2
+            AND cabor_nomor_medali='M' GROUP BY kontingen_id, cabor_nomor_id";
+            $dataPerakMedali = $this->db->query($queryPerak)->row();
+            $perakMedali     = $dataPerakMedali->total;
+            $queryPerunggu   = "SELECT COUNT(medali_peserta_id) AS total FROM v_medali_peserta WHERE kontingen_id=$kontingen_id AND medali_id=3
+            AND cabor_nomor_medali='M' GROUP BY kontingen_id, cabor_nomor_id";
+            $dataPerungguMedali = $this->db->query($queryPerunggu)->row();
+            $perungguMedali     = $dataPerungguMedali->total;
+
+            // Total Medali
+            $emas          = (count($dataEmasNomor) + $emasMedali);
+            $perak         = (count($dataPerakNomor) + $perakMedali);
+            $perunggu      = (count($dataPerungguNomor) + $perungguMedali);
+            $total         = ($emas + $perak + $perunggu);
+            $checkKlasemen = $this->db->get_where('porprov_klasemen', array('kontingen_id' => $kontingen_id));
+            $num_klas      = $checkKlasemen->num_rows();
+            if ($num_klas == 0) {
+                $data = array(
+                    'kontingen_id'      => $kontingen_id,
+                    'klasemen_emas'     => $emas,
+                    'klasemen_perak'    => $perak,
+                    'klasemen_perunggu' => $perunggu,
+                    'klasemen_total'    => $total,
+                    'klasemen_update'   => date('Y-m-d H:i:s'),
+                );
+
+                $this->db->insert('porprov_klasemen', $data);
+            } else {
+                $klas = $checkKlasemen->row();
+                $data = array(
+                    'klasemen_emas'     => $emas,
+                    'klasemen_perak'    => $perak,
+                    'klasemen_perunggu' => $perunggu,
+                    'klasemen_total'    => $total,
+                    'klasemen_update'   => date('Y-m-d H:i:s'),
+                );
+
+                $this->db->where('klasemen_id', $klas->klasemen_id);
+                $this->db->update('porprov_klasemen', $data);
+            }
+        }
+
+        // Update Klasemen di Event
+        $dataUpdate = array(
+            'meta_update_klasemen' => date('Y-m-d H:i:s'),
+        );
+
+        $this->db->where('meta_id', 1);
+        $this->db->update('porprov_meta', $dataUpdate);
+    }
