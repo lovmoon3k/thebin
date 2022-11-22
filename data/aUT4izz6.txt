@@ -1,0 +1,38 @@
+public async setLens(lens: ILensSDK['Lens']): Promise<boolean> {
+  await this.setupSessionIfNeeded();
+
+  const { session, lenses, cameraKit, isApplyingLens, usedGroupID, telemetryCallbacks, logger } = this;
+
+  if (!session) return false;
+
+  logger.log('setLens', {
+    lens,
+    activeLens: session.lensContext.activeLens?.id,
+    loadedLenses: lenses,
+    isApplyingLens,
+  });
+
+  if (session.lensContext.activeLens?.id === lens.id || isApplyingLens) return false;
+
+  this.isApplyingLens = true;
+  console.log('<<<ISAPPLYING-START>>>', { isApplyingLens: this.isApplyingLens });
+
+  const neededLoading = !lenses;
+  if (!lenses) {
+    await cameraKit.lenses.repository.loadLens(lens.id, usedGroupID);
+  }
+
+  this.lastLensApply = performance.now();
+  await session.applyLens(lens);
+
+  telemetryCallbacks?.onLensActivation?.({
+    time: Math.ceil(performance.now() - this.lastLensApply) / 1000,
+    lensID: lens.id as string,
+    neededLoading,
+  });
+
+  this.isApplyingLens = false;
+  console.log('<<<ISAPPLYING-END>>>', { isApplyingLens: this.isApplyingLens });
+  this.lastAvgFPSTelemetryCall = performance.now();
+  return true;
+}
