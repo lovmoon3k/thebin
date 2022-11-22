@@ -1,0 +1,124 @@
+using System;
+using System.Threading;
+
+namespace ConsoleApp19
+{
+    class Program
+    {
+        public static int CountElements;
+        public static int ThreadCount;
+        public static int[] ArrayNumbers;
+        public static bool Switcher = true;
+        public static int Result = 0;
+        public static object Locker = new object();
+        public static int TempEndIndex = 0;
+
+        static void Main(string[] args)
+        {
+            int subArrayLenght = 0;
+            string userInput;
+            Random random = new Random();
+            Console.Write("Array lenght: ");
+
+            if (!int.TryParse(Console.ReadLine(), out CountElements) || CountElements < 1)
+            {
+                Console.WriteLine("Error. Array lenght - 10");
+                CountElements = 10;
+            }
+            Console.Write("Threads count: ");
+
+            if (!int.TryParse(Console.ReadLine(), out ThreadCount) || CountElements < 1)
+            {
+                Console.WriteLine("Error. Threads count - 1");
+                ThreadCount = 1;
+            }
+            ArrayNumbers = new int[CountElements];
+
+            for (int i = 0; i < CountElements - 1; i++)
+            {
+                Console.Write($"{i + 1}:");
+                userInput = Console.ReadLine();
+
+                if (!int.TryParse(userInput, out ArrayNumbers[i]) || ArrayNumbers[i] < 1)
+                {
+                    Console.WriteLine($"Error. {i} value must be numeric");
+                    i--;
+                }
+            }
+            Console.WriteLine("Array elements: ");
+
+            foreach (int item in ArrayNumbers)
+            {
+                Console.Write($"{item} ");
+            }
+
+            if (ThreadCount <= 0)
+                ThreadCount = 1;
+
+            if (ThreadCount > CountElements)
+                ThreadCount = CountElements;
+            subArrayLenght = CountElements / ThreadCount + 1;
+            Thread[] threads = new Thread[ThreadCount];
+            Console.WriteLine();
+
+            for (int i = 0; i < ThreadCount; i++) // Создание потоков
+            {
+                PartArray partArray = new PartArray
+                {
+                    StartIndex = i * subArrayLenght,
+                    EndIndex = (i + 1) * subArrayLenght
+                };
+
+                if (partArray.EndIndex > CountElements)
+                    partArray.EndIndex = CountElements;
+                threads[i] = new Thread(() => EvaluateExpression(partArray)); //Передача метода потоку
+                threads[i].Name = $"Поток №{i + 1}";
+            }
+            Console.WriteLine();
+
+            for (int i = 0; i < ThreadCount; i++)
+            {
+                Console.WriteLine($"{threads[i].Name} - start");
+                threads[i].Start(); //Запуск потока
+                threads[i].Join(); //Ожидание завершения потока
+                Console.WriteLine($"{threads[i].Name} - finish");
+            }
+            Console.WriteLine($"Result: {Result}");
+            Console.ReadLine();
+        }
+
+        static void EvaluateExpression(PartArray partArray) //Метод расчета
+        {
+            if (partArray == null) //Проверка на пустоту класса
+                return;
+            int start = partArray.StartIndex;
+            int end = partArray.EndIndex;
+
+            for (int i = start; i < end; i++)
+            {
+                if (Switcher)
+                {
+                    lock (Locker) //блокирует объекты, чтобы не было конфликтов с потоками
+                    {
+                        Result += ArrayNumbers[i];
+                        Switcher = false;
+                    }
+                }
+                else
+                {
+                    lock (Locker)//блокирует объекты, чтобы не было конфликтов с потоками
+                    {
+                        Result -= ArrayNumbers[i];
+                        Switcher = true;
+                    }
+                }
+            }
+        }
+    }
+}
+
+public class PartArray //Класс для хранения интервала
+{
+    public int StartIndex;
+    public int EndIndex;
+}
