@@ -1,0 +1,68 @@
+/**
+ * Detect products & categories
+ */
+function bis_detect_product_permalink($query) {
+    global $wpdb, $pm_query, $wp;
+
+    // Do not run when Elementor is opened
+    if((!empty($_REQUEST['action']) && strpos($_REQUEST['action'], 'elementor') !== false) || isset($_REQUEST['elementor-preview'])) {
+      return $query;
+    }
+
+    // Do not run if custom permalink was detected
+    if(!empty($pm_query['id'])) {
+      return $query;
+    }
+
+    // 1. Get the slug
+    if(!empty($wp->request) && strpos($wp->request, '.html') !== false) {
+        $slug = basename($wp->request);
+
+				// 2. Get rid off .html extension
+				$slug = str_replace('.html', '', $slug);
+
+        // 3. Check if the slug is assigned to any post item
+        $sql_query = "SELECT post_name, post_type FROM {$wpdb->posts} WHERE 1=1 AND post_name = %s AND post_type = 'product'";
+        $post = $wpdb->get_row($wpdb->prepare($sql_query, array($slug)));
+
+        if(!empty($post->post_name)) {
+            $page = (!empty($query['page'])) ? $query['page'] : 1;
+
+            $new_query = array(
+                'post_type' => $post->post_type,
+                $post->post_type => $post->post_name,
+                'name' => $post->post_name,
+                'do_not_redirect' => 1,
+            );
+        }
+
+        // 4. Overwrite the query object & Disable canonical redirect
+        if(!empty($new_query)) {
+            remove_action('template_redirect', 'wp_old_slug_redirect');
+            remove_action('template_redirect', 'redirect_canonical');
+            add_filter('wpml_is_redirected', '__return_false', 99, 2);
+            add_filter('pll_check_canonical_url', '__return_false', 99, 2);
+
+            $query = $new_query;
+        }
+    }
+
+		if(isset($_GET['debug_query'])) {
+        echo sprintf('<pre>Old query: %s</pre>', print_r($query, true));
+				echo (!empty($new_query)) ? sprintf('<pre>New query: %s</pre>', print_r($new_query, true)) : '';
+        echo (!empty($post)) ? sprintf('<pre>Element: %s</pre>', print_r($post, true)) : '';
+        die();
+    }
+
+    return $query;
+}
+add_filter('request', 'bis_detect_product_permalink', 9999);
+
+function bis_filter_product_permalink($url, $element) {
+	if(!empty($element->post_type) && ($element->post_type == 'product')) {
+		$new_url = preg_replace('/(http(s):\/\/[^\/]+)\/(.*)/', '$1/' . $element->post_name . '.html', $url);
+	}
+
+	return (!empty($new_url)) ? $new_url : $url;
+}
+add_filter('post_type_link', 'bis_filter_product_permalink', 999, 2);
