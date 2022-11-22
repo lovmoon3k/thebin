@@ -1,0 +1,126 @@
+using System;
+using System.Threading;
+
+namespace ConsoleApplication1
+{
+    class Program
+    {
+        public static int[] A;
+        public static int[] C;
+        public static int CountElements;
+        public static int CountThreads;
+        public static int Result = 0;
+        public static object Locker = new object();
+
+        static void Main(string[] args)
+        {
+            string input;
+            int subArrayLen = 0;
+            Console.Write("Arrays count elements: ");
+            input = Console.ReadLine();
+
+            if (!int.TryParse(input,out CountElements) || CountElements <= 0)
+            {
+                CountElements = 10;
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Input error. count elements - {CountElements}");
+                Console.ResetColor();
+            }
+            A = new int[CountElements];
+            C = new int[CountElements];
+            Console.Write("Threads count: ");
+            input = Console.ReadLine();
+
+            if (!int.TryParse(input,out CountThreads) || CountThreads <= 0)
+            {
+                CountThreads = 1;
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Input error. count threads - {CountThreads}");
+                Console.ResetColor();
+            }
+
+            if (CountThreads > CountElements)
+            {
+                CountThreads = CountElements;
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Threads count bigger then count elements. Threads count - {CountThreads}");
+                Console.ResetColor();
+            }
+            subArrayLen = CountElements / CountThreads + 1;
+            Console.WriteLine("Fill array A:");
+            FillArray(ref A);
+            Console.WriteLine("Fill array C:");
+            FillArray(ref C);
+            Console.WriteLine("A:");
+            ShowArray(A);
+            Console.WriteLine("\nC:");
+            ShowArray(C);
+            Thread[] threads = new Thread[CountThreads];
+
+            for (int i = 0; i < CountThreads; i++)
+            {
+                PartArray partArray = new PartArray
+                {
+                    StartIndex = i * subArrayLen,
+                    EndIndex = (i + 1) * subArrayLen
+                };
+
+                if (partArray.EndIndex > CountElements)
+                    partArray.EndIndex = CountElements;
+                threads[i] = new Thread(() => GetProductNumbers(partArray));
+                threads[i].Name = $"Поток№{i + 1}";
+                threads[i].Start();
+            }
+            Console.WriteLine();
+
+            foreach (Thread thread in threads)
+            {
+                Console.WriteLine($"{thread.Name} - on");
+                thread.Join();
+                Console.WriteLine($"{thread.Name} - off");
+            }
+            Console.WriteLine($"Result of product: {Result}");
+            Console.ReadLine();
+        }
+
+        private static void FillArray(ref int[] A)
+        {
+            Random random = new Random();
+
+            for (int i = 0; i < A.Length; i++)
+            {
+                Console.Write($"{i + 1} element:");
+
+                if (!int.TryParse(Console.ReadLine(), out A[i]))
+                {
+                    A[i] = random.Next(1, 10);
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"Input error. element - {A[i]}");
+                    Console.ResetColor();
+                }
+            }
+        }
+
+        private static void ShowArray(int[] array)
+        {
+            foreach (int item in array)
+                Console.Write($"{item} ");
+        }
+
+        private static void GetProductNumbers(PartArray partArray)
+        {
+            int start = partArray.StartIndex;
+            int end = partArray.EndIndex;
+
+            for (int i = start; i < end; i++)
+                lock (Locker)
+                    Result += A[i] * C[i];
+        }
+    }
+
+    class PartArray
+    {
+        public int StartIndex;
+        public int EndIndex;
+    }
+}
