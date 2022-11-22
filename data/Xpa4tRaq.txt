@@ -1,0 +1,77 @@
+function string.starts(String, Start)
+    return string.sub(String, 1, string.len(Start)) == Start
+end
+function string.split(inputstr, sep)
+    if sep == nil then
+        sep = '%s'
+    end
+    local t = {}
+    for str in string.gmatch(inputstr, '([^' .. sep .. ']+)') do
+        table.insert(t, str)
+    end
+    return t
+end
+
+local chat = peripheral.wrap('left')
+local player = peripheral.wrap('right')
+
+rednet.open('back')
+
+local whitelist = {
+    ['User9684'] = true
+}
+
+local whitelistedSenderIds = {
+    [21] = true
+}
+
+local prefix = '%'
+local name = 'robot'
+
+local commands = {}
+
+function commands.say(caller, args)
+    local includeName = (args[1]=='1')
+    table.remove(args, 1)
+
+    local text = table.concat(args, ' ')
+    if includeName then 
+        text=caller..': '..text
+    end
+    print(caller .. ': ' .. table.concat(args, ' '))
+    chat.sendMessage(text, name)
+end
+
+function commands.rename(caller, args) 
+    name = table.concat(args, ' ')
+end
+
+local function execCommand(caller, text) 
+    if whitelist[caller] then
+        for commandName, commandFunc in next, commands do
+            if string.starts(string.lower(text), prefix..commandName) then
+                local args = string.split(text, ' ')
+                table.remove(args, 1)
+                commandFunc(caller, args)
+            end
+        end
+    end
+end
+coroutine.wrap(function()
+    while true do
+        local event, m, n, t = os.pullEvent()
+        if event == 'chat' then
+            execCommand(m, n)
+        elseif event == 'rednet_message' then
+            print(m, n, t)
+            if whitelistedSenderIds[m] and t == 'computercmd' then
+                execCommand(m, n)
+            end
+        end
+    end
+end)()
+
+-- Keep alive
+while true do
+    os.sleep(1)
+end
