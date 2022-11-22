@@ -1,13 +1,7 @@
-[**CfZmLXBe**](/data/CfZmLXBe.txt) (22/11/22 - 22:38)- 7396 bytes
+[**8G7cG4B7**](/data/8G7cG4B7.txt) (22/11/22 - 22:46)- 1848 bytes
 
-[**CfZmLXBe**](/data/CfZmLXBe.txt) (22/11/22 - 22:38)- 7396 bytes
+[**8G7cG4B7**](/data/8G7cG4B7.txt) (22/11/22 - 22:46)- 1848 bytes
 
-[**w0sYZpwq**](/data/w0sYZpwq.txt) (22/11/22 - 22:38)- 84 bytes
-
-[**qEq3Z8Hj**](/data/qEq3Z8Hj.txt) (22/11/22 - 22:38)- 33379 bytes
-
-[**qEq3Z8Hj**](/data/qEq3Z8Hj.txt) (22/11/22 - 22:38)- 33379 bytes
-
-**Total Datas**: 4407
+**Total Datas**: 4408
 
 **Total Size**: 23.92 MB / 23.9 MB
