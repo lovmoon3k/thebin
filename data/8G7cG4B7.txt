@@ -1,0 +1,67 @@
+#include <NewPing.h>
+#define ECHO_PIN DD5
+#define TRIG_PIN DD4
+#define RELAY_PIN LED_BUILTIN
+#define SENSOR_MIN_DISTANCE 10  // cm
+#define DEBUG
+
+class UltrasonicSensor {
+   private:
+    uint8_t trig_pin;
+    uint8_t echo_pin;
+    unsigned long _duration;
+
+   public:
+    UltrasonicSensor(uint8_t trig_pin, uint8_t echo_pin) {
+        this->trig_pin = trig_pin;
+        this->echo_pin = echo_pin;
+        pinMode(trig_pin, OUTPUT);
+        pinMode(echo_pin, INPUT);
+        digitalWrite(trig_pin, LOW);
+    }
+
+    static double durationToCentimeters(unsigned long duration) {
+        return duration * 0.017;
+    }
+
+    double getCentimetersDistance() {
+        digitalWrite(TRIG_PIN, LOW);
+        delayMicroseconds(2);
+        digitalWrite(TRIG_PIN, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(TRIG_PIN, LOW);
+        // Microseconds
+        _duration = pulseIn(ECHO_PIN, HIGH);
+        // Centimeters
+        return _duration * 0.017;
+    }
+
+    unsigned long lastDuration() const { return _duration; }
+};
+
+void setup() {
+    pinMode(RELAY_PIN, OUTPUT);
+#ifdef DEBUG
+    Serial.begin(9600);
+#endif
+}
+
+void loop() {
+    static NewPing sonar(TRIG_PIN, ECHO_PIN, SENSOR_MIN_DISTANCE + 30);
+    static unsigned long previous_turn = millis();
+    unsigned long distance;
+    if (millis() - previous_turn > 1000 &&
+        (distance = sonar.convert_cm(sonar.ping_median())) <
+            SENSOR_MIN_DISTANCE &&
+        distance > 0) {
+        digitalWrite(RELAY_PIN, digitalRead(RELAY_PIN) == HIGH ? LOW : HIGH);
+        previous_turn = millis();
+#ifdef DEBUG
+        Serial.println("-------------------\nDistance = " + String(distance) +
+                       " см");
+#endif
+    }
+#ifdef DEBUG
+    Serial.println("Distance = " + String(distance) + " см");
+#endif
+}
