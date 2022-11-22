@@ -1,0 +1,94 @@
+using System;
+using System.Threading;
+
+namespace ConsoleApp23
+{
+    class Program
+    {
+        public static string[] A = new string[0]; //Массив чисел
+        public static int CountElements; //Количество элементов
+        public static int CountThreads; //Количество потоков
+        public static int SubArrayLen; //Длина части массива
+        public static int CountWords = 0; //результат
+        public static object Locker = new object();
+
+        static void Main(string[] args)
+        {
+            string userInput; // переменная хранит пользовательский ввод
+
+            while (A.Length <= 1)
+            {
+                Console.Write("Напишите текст более одного слова: ");
+                userInput = Console.ReadLine();
+                A = userInput.Split();
+            }
+            CountElements = A.Length;
+            ShowArray(A);
+            Console.WriteLine("\nКоличество потоков: ");
+            userInput = Console.ReadLine();
+            
+            if (int.TryParse(userInput, out CountThreads) == false || CountThreads < 1)//Проверка на ввод пользователя
+            {
+                CountThreads = 1;
+                Console.WriteLine($"Количество потоков заданы не правильно: {CountThreads}");
+            }
+
+            if (CountThreads > CountElements) //Проверка, чтобы количество потоков не было больше количества элементов
+                CountThreads = CountElements;
+            Console.WriteLine();
+            SubArrayLen = CountElements / CountThreads + 1; //Длина части массива
+            Thread[] threads = new Thread[CountThreads]; //Массив потоков
+
+            for (int i = 0; i < CountThreads; i++) //Цикл, который пробегает по потокам, дает им часть массива, имя и запускает их
+            {
+                PartArray partArray = new PartArray
+                {
+                    StartIndex = i * SubArrayLen,
+                    EndIndex = (i + 1) * SubArrayLen
+                };
+
+                if (partArray.EndIndex > CountElements) //Проверка на выход за границы массива
+                    partArray.EndIndex = CountElements;
+                threads[i] = new Thread(() => FindWithSimbol(partArray));
+                threads[i].Name = "Поток№" + (i + 1);
+                threads[i].Start();
+            }
+
+            foreach (Thread thread in threads) //Цикл ожидания заверщения потоков
+            {
+                Console.WriteLine($"{thread.Name} - on");
+                thread.Join();
+                Console.WriteLine($"{thread.Name} - off");
+            }
+            Console.WriteLine($"Слов начинающихся на 'b': {CountWords}"); //Вывод результата
+            Console.ReadLine();
+        }
+
+        private static void ShowArray(string[] array)
+        {
+            foreach (string word in array)
+                Console.WriteLine(word);
+        }
+        /*
+            Метод, который перебирает слова по части массива
+            проверяет содержание нужной буквы и если так, то добовляет в счетчик
+         */
+        private static void FindWithSimbol(PartArray partArray)
+        {
+            char simbol = 'b';
+            int start = partArray.StartIndex;
+            int end = partArray.EndIndex;
+
+            for (int i = start; i < end; i++)
+                if (A[i].Contains(simbol))
+                    lock (Locker)
+                        CountWords++;
+        }
+    }
+
+    class PartArray //Класс хранит 2 переменные, начальный и конечный индекс части массива
+    {
+        public int StartIndex;
+        public int EndIndex;
+    }
+}

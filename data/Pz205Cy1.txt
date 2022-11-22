@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>Bet Planner</title>
+        <script>
+            window.onload = () => {
+                const TOTAL = document.getElementById("total");
+                const CHOICE_NUM = document.getElementById("choiceNum");
+                const ALL_BET_CHOICE_HARMONIC_ODDS = document.getElementById("allBetChoiceHarmonicOdds");
+                const ALL_CHOICE_HARMONIC_ODDS = document.getElementById("allChoiceHarmonicOdds");
+                const EXPECTED_WINNING_CHANCE = document.getElementById("expectedWinningChance");
+                const EXPECTED_NET_GAIN = document.getElementById("expectedNetGain");
+                const EXPECTED_NET_GAIN_RATIO = document.getElementById("expectedNetGainRatio");
+                const CHOICES = document.getElementById("choices");
+                const BET_AMOUNT_TEXT_PRE = "Bet Amount: ";
+                const NET_GAIN_TEXT_PRE = "Net Gain: ";
+                const NET_GAIN_RATIO_TEXT_PRE = "Net Gain Ratio: ";
+                TOTAL.onchange = () => {
+                    if (+CHOICE_NUM.value !== 0) updateChoiceBets();
+                }, CHOICE_NUM.onchange = () => {
+                    if (+TOTAL.value !== 0) updateChoiceNums();
+                };
+                const updateChoiceNums = () => {
+                    const { childElementCount } = CHOICES;
+                    const choiceNum = +CHOICE_NUM.value;
+                    if (choiceNum === childElementCount) return;
+                    if (choiceNum > childElementCount) {
+                        addChoices(choiceNum - childElementCount);
+                    } else removeChoices(childElementCount - choiceNum);
+                    updateChoiceBets();
+                }, addChoices = newChoiceNum => {
+                    for (let count = 1; count <= newChoiceNum; count++) {
+                        addChoice();
+                    }
+                }, addChoice = () => CHOICES.appendChild(newChoice());
+                const newChoice = () => {
+                    const choice = document.createElement("div");
+                    choice.appendChild(readOnlyText("Odds"));
+                    choice.appendChild(textInput());
+                    choice.appendChild(checkboxInput());
+                    choice.appendChild(readOnlyText(BET_AMOUNT_TEXT_PRE));
+                    choice.appendChild(readOnlyText(NET_GAIN_TEXT_PRE));
+                    choice.appendChild(readOnlyText(NET_GAIN_RATIO_TEXT_PRE));
+                    choice.appendChild(document.createElement("br"));
+                    return choice;
+                }, textInput = () => {
+                    const input = document.createElement("input");
+                    input.onchange = TOTAL.onchange, input.type = "text";
+                    return input;
+                }, checkboxInput = () => {
+                    const checkbox = document.createElement("input");
+                    checkbox.onchange = TOTAL.onchange;
+                    checkbox.type = "checkbox";
+                    return checkbox;
+                }, readOnlyText = value => {
+                    const text = document.createElement("input");
+                    text.readOnly = true;
+                    text.type = "text", text.value = value;
+                    return text;
+                }, removeChoices = oldChoiceNum => {
+                    for (let count = 1; count <= oldChoiceNum; count++) {
+                        removeChoice();
+                    }
+                }, removeChoice = () => {
+                    CHOICES.removeChild(CHOICES.lastElementChild);
+                }, updateChoiceBets = () => {
+                    const totalBetHarmonicOdds = allBetChoiceHarmonicOdds();
+                    updateAllBetChoiceHarmonicOdds(totalBetHarmonicOdds);
+                    const totalHarmonicOdds = allChoiceHarmonicOdds();
+                    updateAllChoiceHarmonicOdds(totalHarmonicOdds);
+                    const expectedWinningChance = totalBetHarmonicOdds / totalHarmonicOdds;
+                    updateExpectedWinningChance(expectedWinningChance);
+                    const expectedNetGainRatio = 1.0 / totalHarmonicOdds - 1;
+                    updateExpectedNetGain(expectedNetGainRatio * +TOTAL.value);
+                    updateExpectedNetGainRatio(expectedNetGainRatio);
+                    const { childElementCount } = CHOICES;
+                    // The 1st child of CHOICES is a text coming from nowhere
+                    for (let i = 1; i <= childElementCount; i++) {
+                        updateChoiceBet(totalBetHarmonicOdds, i);
+                    }
+                    //
+                }, allChoiceHarmonicOdds = () => {
+                    const { childElementCount } = CHOICES;
+                    let sum = 0;
+                    // The 1st child of CHOICES is a text coming from nowhere
+                    for (let i = 1; i <= childElementCount; i++) {
+                        const { childNodes } = CHOICES.childNodes.item(i);
+                        sum += 1.0 / inputtedOdds(childNodes);
+                    }
+                    //
+                    return sum;
+                }, allBetChoiceHarmonicOdds = () => {
+                    const { childElementCount } = CHOICES;
+                    let sum = 0;
+                    // The 1st child of CHOICES is a text coming from nowhere
+                    for (let i = 1; i <= childElementCount; i++) {
+                        const { childNodes } = CHOICES.childNodes.item(i);
+                        if (!isBet(childNodes)) continue;
+                        sum += 1.0 / inputtedOdds(childNodes);
+                    }
+                    //
+                    return sum;
+                }, updateAllBetChoiceHarmonicOdds = totalBetHarmonicOdds => {
+                    ALL_BET_CHOICE_HARMONIC_ODDS.value = totalBetHarmonicOdds;
+                }, updateAllChoiceHarmonicOdds = totalHarmonicOdds => {
+                    ALL_CHOICE_HARMONIC_ODDS.value = totalHarmonicOdds;
+                }, updateExpectedWinningChance = expectedWinningChance => {
+                    EXPECTED_WINNING_CHANCE.value = expectedWinningChance;
+                }, updateExpectedNetGain = expectedNetGain => {
+                    EXPECTED_NET_GAIN.value = expectedNetGain.toFixed(1);
+                }, updateExpectedNetGainRatio = expectedNetGainRatio => {
+                    EXPECTED_NET_GAIN_RATIO.value = expectedNetGainRatio;
+                }, updateChoiceBet = (totalBetHarmonicOdds, i) => {
+                    const { childNodes } = CHOICES.childNodes.item(i);
+                    const odds = inputtedOdds(childNodes);
+                    const isChoiceBet = isBet(childNodes);
+                    const bet = isChoiceBet ? updatedBet(totalBetHarmonicOdds, odds) : 0;
+                    childNodes.item(3).value = updatedChoiceBet(bet);
+                    const total = +TOTAL.value, netGain = isChoiceBet ? odds * bet - total : 0;
+                    childNodes.item(4).value = updatedChoiceNetGain(netGain);
+                    childNodes.item(5).value = `${NET_GAIN_RATIO_TEXT_PRE}${isChoiceBet ? netGain * 1.0 / total : 0}`;
+                }, updatedChoiceBet = bet => {
+                    return `${BET_AMOUNT_TEXT_PRE}${bet.toFixed(1)}`;
+                }, updatedChoiceNetGain = netGain => {
+                    return `${NET_GAIN_TEXT_PRE}${netGain.toFixed(1)}`;
+                }, inputtedOdds = choiceChildNodes => {
+                    return +choiceChildNodes.item(1).value;
+                }, isBet = choiceChildNodes => {
+                    return choiceChildNodes.item(2).checked;
+                }, updatedBet = (totalBetHarmonicOdds, odds) => {
+                    return +TOTAL.value / totalBetHarmonicOdds / odds;
+                };
+            };
+        </script>
+    </head>
+    <body>
+        <text>Total Amount</text>
+        <input id="total" type="text" />
+        <text>No. Of Choices</text>
+        <input id="choiceNum" type="text" />
+        <br>
+        <text>All Bet Choice Harmonic Odds</text>
+        <input id="allBetChoiceHarmonicOdds" readOnly=true type="text" />
+        <text>All Choice Harmonic Odds</text>
+        <input id="allChoiceHarmonicOdds" readOnly=true type="text" />
+        <br>
+        <text>Expected Winning Chance</text>
+        <input id="expectedWinningChance" readOnly=true type="text" />
+        <text>Expected Net Gain</text>
+        <input id="expectedNetGain" readOnly=true type="text" />
+        <text>Expected Net Gain Ratio</text>
+        <input id="expectedNetGainRatio" readOnly=true type="text" />
+        <div id ="choices" />
+    </body>
+</html>
