@@ -1,0 +1,273 @@
+#include <iostream>
+#include <immintrin.h>
+#include <chrono>
+#include <thread>
+
+using namespace std;
+
+const int M = 4096, N = 4096, _AVX = 4, THREAD_NUMBER = 6;
+
+double matrixMultSc(double** mFirst, double** mSecond, double** mResult);
+double matrixMulVec(double** mFirst, double** mSecond, double** mSecondT, double** mResult);
+double matrixMultScThread(double** mFirst, double** mSecond, double** mResult, int start, int end);
+double matrixMulVecThread(double** mFirst, double** mSecond, double** mSecondT, double** mResult, int start, int end);
+void matrixMulThreadStarter(double** mFirst, double** mSecond, double** mSecondT, double** mResultSc, double** mResultVec, bool type);
+void matrixPrint(double** matrix);
+double matrixReset(double** matrix);
+bool matrixComp(double** a, double** b, double** c, double** d);
+
+int main()
+{
+    // Задание двумерных массивов через указатели
+    double** a = new double* [M];
+    double** b = new double* [M];
+    double** bt = new double* [M];
+    double** cSc = new double* [M];
+    double** cVec = new double* [M];
+    double** cScTh = new double* [M];
+    double** cVecTh = new double* [M];
+
+    for (int i = 0; i < M; i++)
+    {
+        a[i] = new double[N];
+        b[i] = new double[N];
+        bt[i] = new double[N];
+        cSc[i] = new double[N];
+        cVec[i] = new double[N];
+        cScTh[i] = new double[N];
+        cVecTh[i] = new double[N];
+    }
+
+    // Заполняем матрицы порядковычи числами (в первой всё по порядку с 0, во второй с 10), а результирующую зануляем
+    for (int i = 0; i < M; i++)
+    {
+        for (int j = 0; j < N; j++)
+        {
+            a[i][j] = j;
+            b[i][j] = j + 1;
+            bt[j][i] = b[i][j];
+            cSc[i][j] = 0;
+            cVec[i][j] = 0;
+            cScTh[i][j] = 0;
+            cVecTh[i][j] = 0;
+        }
+    }
+
+    cout << "Fadeev 8V91 LW1" << endl;
+    cout << "Size of the matrices: " << M << "x" << N << endl;
+
+    //cout << "First matrix:" << endl;
+    //matrixPrint(a);
+    //cout << "Second matrix:" << endl;
+    //matrixPrint(b);
+
+    cout << "Scalar multi" << endl;
+    auto start = chrono::high_resolution_clock::now();
+    matrixMultSc(a, b, cSc);
+    auto end = chrono::high_resolution_clock::now();
+    chrono::duration<double> elapsed_seconds = end - start;
+    double timer = elapsed_seconds.count();
+    cout << "Time taken: " << timer << " sec" << endl;
+
+    cout << "Vector multi" << endl;
+    start = chrono::high_resolution_clock::now();
+    matrixMulVec(a, b, bt, cVec);
+    end = chrono::high_resolution_clock::now();
+    elapsed_seconds = end - start;
+    timer = elapsed_seconds.count();
+    cout << "Time taken: " << timer << " sec" << endl;
+
+    cout << "<<<" << THREAD_NUMBER << "_THREADS>>>" << endl;
+
+    cout << "Scalar multi with " << THREAD_NUMBER << " threads" << endl;
+    start = chrono::high_resolution_clock::now();
+    matrixMulThreadStarter(a, b, bt, cScTh, cVecTh, false);
+    end = chrono::high_resolution_clock::now();
+    elapsed_seconds = end - start;
+    timer = elapsed_seconds.count();
+    cout << "Time taken: " << timer << " sec" << endl;
+
+    cout << "Vector multi with " << THREAD_NUMBER << " threads" << endl;
+    start = chrono::high_resolution_clock::now();
+    matrixMulThreadStarter(a, b, bt, cScTh, cVecTh, true);
+    end = chrono::high_resolution_clock::now();
+    elapsed_seconds = end - start;
+    timer = elapsed_seconds.count();
+    cout << "Time taken: " << timer << " sec" << endl;
+
+    //matrixPrint(c2);
+    cout << "DONE" << endl;
+    if (matrixComp(cSc, cVec, cScTh, cVecTh))
+    {
+        cout << "Matrices are the same!";
+    }
+    //cout << endl << &c[0][3] << " = " << c[0][3];
+    //cout << endl << &c[0][4] << " = " << c[0][4] << endl;
+}
+
+// Функция скалярного перемножения матриц
+double matrixMultSc(double** mFirst, double** mSecond, double** mResult)
+{
+    for (int i = 0; i < M; i++)
+    {
+        for (int j = 0; j < N; j++)
+        {
+            for (int k = 0; k < M; k++)
+            {
+                mResult[i][j] = mResult[i][j] + mFirst[i][k] * mSecond[k][j];
+            }
+        }
+    }
+    return **mResult;
+}
+
+// Функция вектороного перемножения матриц
+double matrixMulVec(double** mFirst, double** mSecond, double** mSecondT, double** mResult)
+{
+    __m256d c_line = _mm256_setzero_pd();
+    for (int i = 0; i < M; i++)
+    {
+        for (int j = 0; j < N; j++)
+        {
+            c_line = _mm256_setzero_pd();
+            for (int k = 0; k < N; k += _AVX)
+            {
+                __m256d a_line = _mm256_loadu_pd(&mFirst[i][k]);
+                __m256d b_line = _mm256_loadu_pd(&mSecondT[j][k]);
+
+                __m256d t_line = _mm256_mul_pd(a_line, b_line);
+                c_line = _mm256_add_pd(t_line, c_line);
+            }
+
+            __m256d t1 = _mm256_hadd_pd(c_line, c_line);
+            __m128d t2 = _mm256_extractf128_pd(t1, 0);
+            __m128d t3 = _mm256_extractf128_pd(t1, 1);
+            __m128d t4 = _mm_add_pd(t2, t3);
+
+            _mm_store_sd(&mResult[i][j], t4);
+            //cout << endl << "i: " << i << " j: " << j << endl;
+            //cout << endl << &mResult[0][3] << " = " << mResult[0][3];
+            //cout << endl << &mResult[0][4] << " = " << mResult[0][4] << endl;
+            //matrixPrint(mResult);
+        }
+    }
+    return **mResult;
+}
+
+// Функция скалярного перемножения матриц для многопоточности
+double matrixMultScThread(double** mFirst, double** mSecond, double** mResult, int start, int end)
+{
+    for (int i = start; i < end; i++)
+    {
+        for (int j = 0; j < N; j++)
+        {
+            for (int k = 0; k < M; k++)
+            {
+                mResult[i][j] = mResult[i][j] + mFirst[i][k] * mSecond[k][j];
+            }
+        }
+    }
+    return **mResult;
+}
+
+// Функция вектороного перемножения матриц для многопоточности
+double matrixMulVecThread(double** mFirst, double** mSecond, double** mSecondT, double** mResult, int start, int end)
+{
+    __m256d c_line = _mm256_setzero_pd();
+    for (int i = start; i < end; i++)
+    {
+        for (int j = 0; j < N; j++)
+        {
+            c_line = _mm256_setzero_pd();
+            for (int k = 0; k < N; k += _AVX)
+            {
+                __m256d a_line = _mm256_loadu_pd(&mFirst[i][k]);
+                __m256d b_line = _mm256_loadu_pd(&mSecondT[j][k]);
+
+                __m256d t_line = _mm256_mul_pd(a_line, b_line);
+                c_line = _mm256_add_pd(t_line, c_line);
+            }
+
+            __m256d t1 = _mm256_hadd_pd(c_line, c_line);
+            __m128d t2 = _mm256_extractf128_pd(t1, 0);
+            __m128d t3 = _mm256_extractf128_pd(t1, 1);
+            __m128d t4 = _mm_add_pd(t2, t3);
+
+            _mm_store_sd(&mResult[i][j], t4);
+            //cout << endl << "i: " << i << " j: " << j << endl;
+            //cout << endl << &mResult[0][3] << " = " << mResult[0][3];
+            //cout << endl << &mResult[0][4] << " = " << mResult[0][4] << endl;
+            //matrixPrint(mResult);
+        }
+    }
+    return **mResult;
+}
+
+// Функция для запуска потоков
+void matrixMulThreadStarter(double** mFirst, double** mSecond, double** mSecondT, double** mResultSc, double** mResultVec, bool type) {
+    thread threads[THREAD_NUMBER];
+    int step = M / THREAD_NUMBER;
+
+    for (int i = 0; i < THREAD_NUMBER; i++) {
+        int start = i * step;
+        int end = step + step * i;
+        if (i == THREAD_NUMBER - 1) {
+            end = M;
+        }
+        if (type) {
+            threads[i] = thread(matrixMulVecThread, mFirst, mSecond, mSecondT, mResultVec, start, end);
+        }
+        else {
+            threads[i] = thread(matrixMultScThread, mFirst, mSecond, mResultSc, start, end);
+        } 
+    }
+    for (int i = 0; i < THREAD_NUMBER; i++) {
+        threads[i].join();
+    }
+}
+
+// Функция вывода матрицы
+void matrixPrint(double** matrix)
+{
+    for (int i = 0; i < M; i++)
+    {
+        for (int j = 0; j < N; j++)
+        {
+            // cout << &matrix[i][j] << " = " << matrix[i][j] << " ";
+            cout << matrix[i][j] << " ";
+        }
+        cout << endl;
+    }
+    cout << endl;
+}
+
+// Функция обнуления матрицы
+double matrixReset(double** matrix)
+{
+    for (int i = 0; i < M; i++)
+    {
+        for (int j = 0; j < N; j++)
+        {
+            matrix[i][j] = 0;
+        }
+    }
+    return **matrix;
+}
+// Функция сравнения матриц
+bool matrixComp(double** a, double** b, double** c, double** d)
+{
+    bool if_equal = true;
+    for (int i = 0; i < M; i++)
+    {
+        for (int j = 0; j < N; j++)
+        {
+            if ((a[i][j] != b[i][j]) && (b[i][j] != c[i][j]) && (c[i][j] != d[i][j]))
+            {
+                if_equal = false;
+                break;
+            }
+        }
+    }
+    return if_equal;
+}
+
