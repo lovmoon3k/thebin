@@ -1,0 +1,49 @@
+#include <stdio.h>
+#include "mpi.h"
+#include <cmath>
+int main(int argc, char** argv) {
+
+	int size, rank, a, b;
+	MPI_Status status;
+	MPI_Init(&argc, &argv);
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	a = rank;
+	b = -1;
+	if (rank == 0) {
+		int s;
+		scanf_s("%d", &s);
+		printf("%d\n", s);
+		double start = MPI_Wtime();
+		for (int i = 0; i < size - 1; i++) {
+			MPI_Send(&s, 1, MPI_INT, i + 1, 5, MPI_COMM_WORLD);
+		}
+		int n = s / size + 1;
+		int ibeg = rank * n + 1;
+		int iend = (rank + 1) * n;
+		double sum = 0;
+		for (int i = ibeg; i <= ((iend > s) ? s : iend); i++)
+			sum += pow(-1, i) * log(i) / i;
+
+		for (int i = 0; i < size - 1; i++) {
+			double local_sum;
+			MPI_Recv(&local_sum, 1, MPI_DOUBLE, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+			sum += local_sum;
+		}
+		double end = MPI_Wtime();
+		printf("total sum = %f\n", sum);
+		printf("time = %f", end - start);
+	}
+	else {
+		int n;
+		MPI_Recv(&n, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+		n = n / size + 1;
+		int ibeg = rank * n + 1;
+		int iend = (rank + 1) * n;
+		double sum = 0;
+		for (int i = ibeg; i <= ((iend > n) ? n : iend); i++)
+			sum += pow(-1, i) * log(i) / i;
+		MPI_Send(&sum, 1, MPI_DOUBLE, 0, 5, MPI_COMM_WORLD);
+	}
+	MPI_Finalize();
+}
