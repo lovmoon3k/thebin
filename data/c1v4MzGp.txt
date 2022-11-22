@@ -1,0 +1,144 @@
+using System;
+using System.Threading;
+
+namespace ConsoleApplication1
+{
+    class Program
+    {
+        public static int[] A; //Числовой массив А
+        public static int[] C; //Числовой массив C
+        public static int CountElements; //поле, которое хранит в себе какое количество элементов будет в массивах
+        public static int CountThreads; //поле, которое хранит в себе количество потоков
+        public static int Result = 0; //поле где будет хранится итоговый результат
+        public static object Locker = new object(); //Объект чтобы предеать в Lock, ниже написано что такое Lock
+
+        static void Main(string[] args)
+        {
+            string input; //переменная для хранения пользовательского ввода
+            int subArrayLen = 0; //длина части массива, ниже пояснение будет для чего она
+            Console.Write("Arrays count elements: ");
+            input = Console.ReadLine(); //Сбор пользовательского ввода
+
+            /*int.TryParse() пытается конвертировать переменную в число, возвращает true false
+             * true - если получилось конвертировать
+             * false - если нет
+             * 
+             * ниже условие, пробует конвертировать пользовательский ввод в переменную CountElements
+             * а так же проверяет, чтобы количество не было меньше 1
+             * если что-то пошло не так, пользователю выдаст ошибку, CountElements станет стандартным значением: 10
+             */
+            if (!int.TryParse(input,out CountElements) || CountElements < 1)
+            {
+                CountElements = 10;
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Input error. count elements - {CountElements}");
+                Console.ResetColor();
+            }
+            A = new int[CountElements]; //Инициализируется массив А, где его размер задается CountElements
+            C = new int[CountElements]; //Инициализируется массив C, где его размер задается CountThreads
+            Console.Write("Threads count: ");
+            input = Console.ReadLine(); //Сбор пользовательского ввода
+
+
+            /*
+             ниже условие делает то же самое что и на 30 строчке условие, но уже с CountThreads
+             */
+            if (!int.TryParse(input,out CountThreads) || CountThreads <= 1)
+            {
+                CountThreads = 1;
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Input error. count threads - {CountThreads}");
+                Console.ResetColor();
+            }
+            /*
+             * ниже условие проверяет, чтобы количество потоков не было больше количества элементов
+             * если все таки больше, то количество потоков становится равна количеству элементов в массиве
+             */
+            if (CountThreads > CountElements)
+            {
+                CountThreads = CountElements;
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Threads count bigger then count elements. Threads count - {CountThreads}");
+                Console.ResetColor();
+            }
+            subArrayLen = CountElements / CountThreads + 1; //Делим количество элементов на количество потоков, таким образом мы найдем длину одной части массива
+            Console.WriteLine("Fill array A:");
+            FillArray(ref A); // Вызов метода, который делает пользовательский ввод массива А
+            Console.WriteLine("Fill array C:");
+            FillArray(ref C); // Вызов метода, который делает пользовательский ввод массива С
+            Console.WriteLine("A:");
+            ShowArray(A); // Вызов метода, который показывает все элементы массива А
+            Console.WriteLine("\nC:");
+            ShowArray(C); // Вызов метода, который показывает все элементы массива С
+            Thread[] threads = new Thread[CountThreads]; //Массив потоков
+
+            for (int i = 0; i < CountThreads; i++) // Цикл запускает все потоки
+            {
+                /*
+                 PartArray хранит в себе StartIndex и EndIndex
+                StartIndex и EndIndex - это начальный и конечный индекс части, который пройдет поток
+                 */
+                PartArray partArray = new PartArray
+                {
+                    StartIndex = i * subArrayLen,
+                    EndIndex = (i + 1) * subArrayLen
+                };
+
+                if (partArray.EndIndex > CountElements)
+                    partArray.EndIndex = CountElements;
+                threads[i] = new Thread(() => GetProductNumbers(partArray));
+                threads[i].Name = $"Поток№{i + 1}";
+                threads[i].Start();
+            }
+            Console.WriteLine();
+
+            foreach (Thread thread in threads)
+            {
+                Console.WriteLine($"{thread.Name} - on");
+                thread.Join();
+                Console.WriteLine($"{thread.Name} - off");
+            }
+            Console.WriteLine($"Result of product: {Result}");
+        }
+
+        private static void FillArray(ref int[] A)
+        {
+            Random random = new Random();
+
+            for (int i = 0; i < A.Length; i++)
+            {
+                Console.Write($"{i + 1} element:");
+
+                if (!int.TryParse(Console.ReadLine(), out A[i]))
+                {
+                    A[i] = random.Next(1, 10);
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"Input error. element - {A[i]}");
+                    Console.ResetColor();
+                }
+            }
+        }
+
+        private static void ShowArray(int[] array)
+        {
+            foreach (int item in array)
+                Console.Write($"{item} ");
+        }
+
+        private static void GetProductNumbers(PartArray partArray)
+        {
+            int start = partArray.StartIndex;
+            int end = partArray.EndIndex;
+
+            for (int i = start; i < end; i++)
+                lock (Locker)
+                    Result += A[i] * C[i];
+        }
+    }
+
+    class PartArray
+    {
+        public int StartIndex;
+        public int EndIndex;
+    }
+}
