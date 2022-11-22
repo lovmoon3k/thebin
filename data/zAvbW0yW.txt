@@ -1,0 +1,109 @@
+Path Insights Implementation Guide – Bigcommerce Stencil for WeldingMart
+-----------------------------------------------------
+Part One
+•	Navigate to Storefront > Script Manager > Create a Script button
+•	Name first script “PriceSpider Path Insights - Header Code”
+•	For Location on Page, select “Head”
+•	Select “All Pages” for where the script will be added
+•	Select “Essential” for Script Category
+•	Select “Script” for Script Type
+•	In Script Contents, paste in the following code and save:
+
+<!-- PriceSpider Path Insights -->
+<script src="//cdn.pricespider.com/pathinsights/ps-pi-ps.min.js"></script>
+<script>
+    var psSaveCookie = function (value) {
+        if (typeof window !== "undefined" && window.sessionStorage) {
+            sessionStorage.setItem('psrid', value);
+            sessionStorage.setItem('pswtb.psrid', value);
+        }
+    }
+    var search = typeof window !== "undefined" && window.location && window.location.search ? window.location.search : undefined;
+    if (search && search.length) {
+        search = search.substr(1);
+        var params = search.split('&');
+        for (var i = 0; i < params.length; i++) {
+            var param = params[i];
+            var parts = param.split('=');
+            if (parts && parts.length) {
+                var key = parts[0];
+                var value = parts[1];
+                if (key === 'psrid' || key === 'redirectToken') {
+                    psSaveCookie(value);
+                }
+            }
+        }
+    }
+</script>
+
+-----------------------------------------------------
+
+Part Two
+•	Navigate to Storefront > Script Manager > Create a Script button
+•	Name script “PriceSpider Path Insights - Successful Checkout Code”
+•	For Location on Page, select “Footer”
+•	Select “Order Confirmation” for where the script will be added
+•	Select “Essential” for Script Category
+•	Select “Script” for Script Type
+•	In Script Contents, paste in the following code and save:
+
+<script>
+function getCart(url) {
+    return fetch(url, {
+        method: "GET",
+        credentials: "same-origin"
+    })
+        .then(response => response.json());
+};
+if (location.href.includes(".com/checkout")) {
+    getCart('/api/storefront/carts?include=lineItems.digitalItems.options,lineItems.physicalItems.options')
+        .then((data) => {
+            if (data && data.length > 0 && data[0]) {
+                cart = data[0];
+                const cartItems = cart.lineItems.physicalItems.concat(cart.lineItems.digitalItems, cart.lineItems.giftCertificates, cart.lineItems.customItems);
+                const orderDetails = {};
+                orderDetails["subTotal"] = cart.baseAmount;
+                orderDetails["currencyType"] = cart.currency.code;
+                orderDetails["discount"] = cart.discountAmount;
+                orderDetails["items"] = [];
+                for (item of cartItems) {
+                    orderDetails["items"].push({
+                        id: item.id,
+                        sku: item.sku, 
+                        manufacturer: item.brand,
+                        productName: item.name, 
+                        unitPrice: item.listPrice, 
+                        quantity: item.quantity 
+                    })
+                }
+                sessionStorage.getItem('psrid')
+                    ? sessionStorage.setItem('ps-cart', JSON.stringify(orderDetails))
+                    : {}
+            }
+        })
+        .catch(
+            error => console.error(error)
+        );
+}
+</script>
+
+<script src="//cdn.pricespider.com/pathinsights/ps-pi-ps.min.js"></script>
+<script>
+    setTimeout(() => {
+        if (location.href.includes(".com/checkout/order-confirmation")) {
+            if (sessionStorage.getItem('psrid') && sessionStorage.getItem('ps-cart')) {
+                let psCart = JSON.parse(sessionStorage.getItem('ps-cart'))
+                var order = pswtb.purchaseTracking.createOrder();
+                order.redirectToken = sessionStorage.getItem("psrid");
+                order.purchaseTotal = psCart.subTotal
+                order.currencyCode = psCart.currencyType
+                order.purchaseDiscount = psCart.discount
+                order.details = psCart.items;
+                order.submit();
+            }
+        }
+    }, 1000)
+</script>
+
+
+
