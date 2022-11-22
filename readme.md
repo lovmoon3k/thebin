@@ -1,19 +1,9 @@
-[**aEBJvEBE**](/data/aEBJvEBE.txt) (22/11/22 - 18:26)- 4290 bytes
+[**AQi7XwFz**](/data/AQi7XwFz.txt) (22/11/22 - 18:39)- 2456 bytes
 
-[**uqrRegTX**](/data/uqrRegTX.txt) (22/11/22 - 18:26)- 1181 bytes
+[**L38CiCNg**](/data/L38CiCNg.txt) (22/11/22 - 18:39)- 18799 bytes
 
-[**uqrRegTX**](/data/uqrRegTX.txt) (22/11/22 - 18:26)- 1181 bytes
+[**L38CiCNg**](/data/L38CiCNg.txt) (22/11/22 - 18:39)- 18799 bytes
 
-[**YBJDQCgF**](/data/YBJDQCgF.txt) (22/11/22 - 18:26)- 3543 bytes
+**Total Datas**: 4364
 
-[**aEBJvEBE**](/data/aEBJvEBE.txt) (22/11/22 - 18:26)- 4290 bytes
-
-[**YBJDQCgF**](/data/YBJDQCgF.txt) (22/11/22 - 18:26)- 3543 bytes
-
-[**Lejhfq5T**](/data/Lejhfq5T.txt) (22/11/22 - 18:26)- 117298 bytes
-
-[**Lejhfq5T**](/data/Lejhfq5T.txt) (22/11/22 - 18:26)- 117298 bytes
-
-**Total Datas**: 4362
-
-**Total Size**: 23.77 MB / 23.8 MB
+**Total Size**: 23.79 MB / 23.8 MB
