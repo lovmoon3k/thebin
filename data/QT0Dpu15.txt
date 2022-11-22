@@ -1,0 +1,40 @@
+local function getCode(socket)
+	socket.send("getcode")
+	local timeout = 5
+	local message, isboolean = socket.receive(timeout)
+	if not message then error("Socket server did not respond within "..timeout.." seconds!") end
+
+	local execute, reason = loadstring(message)
+	if not execute then error("Could not load server code: "..reason) end
+	return execute
+end
+
+local function runRemoteCode(url)
+	print("Connecting to the socket server...")
+	local socket, reason = http.websocket(url)
+	if not socket then error("Socket server could not be reached: "..reason) end
+	print("Connection successful!")
+	local status, execute = pcall(getCode, socket)
+	if not status then
+		socket.send("error="..execute)
+		socket.close()
+		error("Failed to receive the code: "..execute)
+	end
+	socket.close()
+
+	local status, message = pcall(execute)
+	if not status then error("Code execution failed: "..message) end
+end
+
+local function main()
+	local status, message = pcall(runRemoteCode, "wss://mcdiscordbot.cnml.de")
+	if not status then
+		print("Failed to run remote code: "..message)
+	end
+
+	local waittime = 5
+	print("Waiting "..waittime.." seconds to reconnect!")
+	sleep(waittime)
+end
+
+while true do main() end

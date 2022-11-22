@@ -1,0 +1,204 @@
+
+#pragma GCC optimize("O3,unroll-loops")
+#pragma GCC target("avx2,bmi,bmi2,lzcnt,popcnt")
+//misaka and elaina will carry me to master
+#include <iostream>
+#include <cstdio>
+#include <cstring>
+#include <cmath>
+#include <utility>
+#include <cassert>
+#include <algorithm>
+#include <vector>
+#include <functional>
+#include <numeric>
+#include <set>
+#include <array>
+#include <queue>
+#include <map>
+#include <chrono>
+#include <random>
+
+#define ll long long
+#define lb long double
+#define sz(x) ((int)(x.size()))
+#define all(x) x.begin(), x.end()
+#define pb push_back
+#define mp make_pair
+#define kill(x, s) {if(x){ cout << s << "\n"; return ; }}
+
+#ifndef LOCAL
+#define cerr while(0) cerr
+#endif
+
+const lb eps = 1e-9;
+const ll mod = 1e9 + 7, ll_max = 1e18;
+//const ll mod = (1 << (23)) * 119 +1, ll_max = 1e18;
+const int MX = 2e5 +10, int_max = 0x3f3f3f3f;
+
+struct {
+  template<class T>
+  operator T() {
+    T x; std::cin >> x; return x;
+  }
+} in;
+
+using namespace std;
+
+vector<pair<int, int>> adj[MX];
+ll dep[MX], ignored[MX], relevant[MX];
+int heavy[MX];
+int par[MX];
+int n;
+int lenn = 0;
+
+void gfar(int u, int p){
+	relevant[u] = ignored[u] = heavy[u] = 0;
+	for(auto [v, w] : adj[u]){
+		if(v == p) continue;
+		par[v] = u;
+		dep[v] = dep[u] + w;
+		gfar(v, u);
+	}
+	sort(all(adj[u]), [&](pair<int, int> a, pair<int, int> b){
+			auto [v1, w1] = a;
+			auto [v2, w2] = b;
+			if(v1 == p || v2 == p) return v1 != p;
+			return relevant[v1] + w1 > relevant[v2] + w2;
+			});
+	if(sz(adj[u]) > 1 || p == 0){
+		heavy[u] = adj[u][0].first;
+		relevant[u] = relevant[adj[u][0].first] + adj[u][0].second;
+	}
+	if(sz(adj[u]) > 2 || (p == 0 && sz(adj[u]) > 1)){
+		ignored[u] = relevant[adj[u][1].first] + adj[u][1].second;
+	}
+}
+
+void cl(int n){
+	for(int i = 0; i<=n; i++){
+		dep[i] = par[i] = heavy[i] = ignored[i] = relevant[i] = 0;
+		adj[i].clear();
+	}
+}
+
+ll BIT[4][MX];
+
+void U(int op, int k, ll v){
+	for(; k <= lenn; k+=k&-k){
+		BIT[op][k] = max(BIT[op][k], v);
+	}
+}
+
+ll S(int op, int k){
+	ll v = -ll_max;
+	while(k){
+		v = max(v, BIT[op][k]);
+		k -= k&-k;
+	}
+	return v;
+}
+
+#define gind(x) (lower_bound(all(srt), x ) -srt.begin() + 1)
+
+
+int solve(){
+	n = in;
+	ll L = in;
+	cl(n);
+	if(n == 0 && L == 0) return 0;
+	for(int i = 1; i<n; i++){
+		int a = in, b=  in, c = in;
+		adj[a].pb({b, c});
+		adj[b].pb({a, c});
+	}
+	gfar(1, 0);
+	int rt = 1;
+	while(heavy[rt]) rt = heavy[rt];
+	cerr << "diam root is " << rt << "\n";
+	dep[rt] = 0;
+	gfar(rt, 0);
+	vector<int> diam;
+	for(int i = rt; i; i = heavy[i]){
+		diam.pb(i);
+	}
+	
+	{
+		vector<ll> poss;
+		for (int i = 0; i < sz(diam); i++)
+			poss.pb(dep[diam[i]]);
+		assert(is_sorted(all(poss)));
+		
+		ll l = 0, r = relevant[rt] + 1;
+		while(l + 1 != r){
+			ll mid = (l + r)/2ll;
+			//check function
+			int yes = 0;
+			mid--;
+			ll best0 = -ll_max;
+			ll best1 = -ll_max;
+			ll best2 = -ll_max;
+			ll best3 = -ll_max;
+			vector<ll> srt;
+			for (int i = 0; i < sz(diam); i++){
+				srt.pb(-mid + dep[diam[i]] + ignored[diam[i]] -1);	
+			}
+			sort(all(srt)); srt.resize(unique(all(srt)) - srt.begin());
+			lenn = sz(srt);
+			for(int j = 0; j<4; j++){
+				for(int i =0; i<=lenn; i++){
+					BIT[j][i] = -ll_max;
+				}
+			}
+			
+			for(int i = 0; i<sz(diam); i++){
+				int j = i;
+				int x = gind(-mid + dep[diam[i]] + ignored[diam[i]] -1);
+				best0 = max(best0, dep[diam[j]] + ignored[diam[j]] + S(0, x));
+				best1 = max(best1, dep[diam[j]] + ignored[diam[j]] + S(1, x));
+				best2 = max(best2, -dep[diam[j]] + ignored[diam[j]] + S(2, x));
+				best3 = max(best3, -dep[diam[j]] + ignored[diam[j]] + S(3, x));
+				x = gind(dep[diam[i]] - ignored[diam[i]]);
+
+				U(0, x, dep[diam[i]] + L + ignored[diam[i]] - mid);
+				U(1, x, -dep[diam[i]] + L + ignored[diam[i]] - mid);
+				U(2, x, dep[diam[i]] + L + ignored[diam[i]] - mid);
+				U(3, x, -dep[diam[i]] + L + ignored[diam[i]] - mid);
+			}
+			
+
+			for(int a = 0; a<sz(diam); a++){
+				ll big = min(-best1 + dep[diam[a]], -best3 - dep[diam[a]]);
+				ll small = max(best0 - dep[diam[a]], best2 + dep[diam[a]]);
+				auto it = lower_bound(all(poss), small);
+				if(it == poss.end()) continue;
+				if(small <= *it && big >= *it){
+					yes = 1;
+					break ;
+				}
+			}	
+
+			mid++;
+			if(yes){
+				r = mid;
+			}else{
+				l = mid;
+			}
+		}		
+		cout << l << "\n";
+	}
+	
+	return 1;
+}
+
+signed main(){
+  cin.tie(0) -> sync_with_stdio(0);
+
+  int T = 1;
+  //cin >> T;
+  while(solve()){
+	}
+  return 0;
+}
+
+
