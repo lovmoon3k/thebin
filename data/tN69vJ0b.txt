@@ -1,0 +1,7 @@
+#!/bin/sh
+yum -y install httpd php
+chkconfig httpd on
+systemctl start httpd.service
+cd /var/www/html
+wget https://s3-us-west-2.amazonaws.com/us-west-2-aws-training/awsu-spl/spl-03/scripts/examplefiles-elb.zip
+unzip examplefiles-elb.zip
