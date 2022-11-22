@@ -1,0 +1,102 @@
+Porting C structs into Python, because... speed!
+
+Why use C with Python?
+Python is a really fun and friendly language, it offers so many cool features, has a great supportive community and has modules of pretty much everything you can think of. Programs that would be written in 10-20 lines in other languages, can sometimes be written in just a single line in Python.
+
+But all that comes at a major cost, Performance.
+
+It's no coincident that so many libraries/frameworks and even compilers for python exist that focus on improving python's performance. PyPy, Numba being only a few of them. Performance is crucial for pushing the limits of a program. Luckily python has an inbuilt module called ctypes, which allows us to port/wrap C code with python. This is incredibly useful in any advanced tasks as, by nature, C is very fast.
+
+Now, ctypes is a vast and advanced topic of python. So I'll only be covering one of the more useful features, using C structs in Python. I'll be using a C program to calculate the Cartesian product of a large order and port it to python!
+
+Sounds cool, but how?
+Ok so first, we're gonna need some C code. You'll be able to find a lot examples using basic C programs but I want to give a practical example. Infact, I actually used this very program as I was learning ctypes.
+
+Ideally, you'll want to use a C program that performs tasks that'd otherwise be extremely slow or downright impossible in python. Cartesian product is one such example. The cartesian product using itertools that would take you multiple seconds in Python will only take you a few hundred milliseconds in C.
+
+So, let's represent this piece of code ls = list(itertools.product(range(0, 256), repeat = 3)) in C.
+
+The C code!
+First we need to figure out what kind of datatype we would want. Ofcourse the above python code returns a list of tuples of integers ranging from 0 - 255. Now we could use multi-dimension arrays but I think the most efficient way of representing this in C is by using struct. So let's declare a struct containing 3 int values, each corresponding to Red, Green, and Blue. Let's name it PixelTuple, because this was originally intended to represent pixel values.
+struct PixelTuple
+{
+    int red;
+    int green;
+    int blue;
+};
+(optional) We might as well name it something easier to type...
+typedef struct PixelTuple pxtup
+
+Now we can allocate an array of struct PixelTuple variables in our main function. A Cartesian product of 3 sets of length 256 yields a total number of 256^3 elements. So the array will contain that number of struct PixelTuple type variables. Now such a large variable should be stored in the data segment of your system memory. To do that, you can either make the array global or declare the array with the static keyword.
+
+Note: I highly recommend reading up on C's memory layout as well as static variables to get a clear idea. But TL;DR: the static keyword allocates memory for a variable in the data segment which allows for larger variables to be stored. They are also kept in memory as long as the program runs as opposed to other variables which are destroyed outside of the scope/function.
+
+So let's declare our array in main():
+static pxtup pxarray[256*256*256];
+
+Now we will need some other variables, specifically one array of integers from 0 to 255 (valuearray), 3 variables (i, j, and k) to iterate through the 0 to 255 3 times, 1 variable (pxindex) to keep track of the index of the pxarray variable and a FILE pointer variable to open the file where we'll store the struct array in the end. Let's declare these first too:
+int i, j, k, l, pxindex = 0;
+FILE* pxF;
+for (i = 0; i < 256; i++)
+{
+    valuearray[i] = i;
+}
+
+Now we need to write a function to actually calculate the Cartesian Product itself, let's do that!
+for (i = 0; i < 256; i++)
+{
+    for (j = 0; j < 256; j++)
+    {
+        for (k = 0; k < 256; k++)
+        {
+            pxarray[pxindex].red = valuearray[i];
+            pxarray[pxindex].green = valuearray[j];
+            pxarray[pxindex++].blue = valuearray[k];
+        }
+    }
+}
+So yeah... all that code could literally be represented by a single line in python. But! on the bright side, this code is significantly faster than the python code. In my opinion, speed is what really matters.
+
+Now we have to save our pxarray in a file so python can read from it later. Let's use our previously declared pxF pointer to create a .bin file, then we can simply use fwrite(const void * ptr, size_t size, size_t count, FILE * stream) to write the struct array inside.
+pxF = fopen("PixelTuples.bin", "wb");
+if (allcF == NULL)
+{
+    printf("File cannot be created\n");
+    return;
+}
+fwrite(&pxarray, sizeof(pxtup), 256*256*256, pxF);
+fclose(pxF);
+The first size_t argument in fwrite() i.e size_t size should be the size of the data type and the next size_t argument i.e size_t count should be the number of datatypes present in the first argument i.e const void * ptr. Obviously, there are exactly 256^3 number of pxtup or struct PixelTuple elements in pxarray.
+
+To recap, here's the full code
+
+There we go! The .bin file is ready to be used by Python! But before we move on, I'd just like to mention that if you'd like to import this .bin file back to a C struct array, you can simply open the File (PixelTuples.bin) in rb mode and use fread(const void * ptr, size_t size, size_t count, FILE * stream), which works much like fwrite(). So to read the data into the variable pxarray_read of size 256^3 you'd use:
+fread(&pxarray_read, sizeof(pxtup), 256*256*256, pxF);
+
+Ok! Now for ctypes!
+
+The Python code!
+The python code is actually pretty small and straightforward, as always...
+
+First we have to make sure Python knows the structure/arrangement of the C struct we are porting, to do that, we make a Python class and pass the Structure parameter for ctypes into it. Then we have to declare the __fields__. Since our C struct had 3 int values we will refer to these with c_int in python. I name them 'red', 'green', and 'blue' but it doesn't really matter what you name them. Just make sure the datatypes are correct and there are exactly the same number of variables in __fields__ list as there were in our actual C struct.
+from ctypes import *
+
+class pxtup(Structure):
+    _fields_ = [('red', c_int),
+                ('green', c_int),
+                ('blue', c_int)]
+Now all we have to do is open the .bin file we saved earlier, open it in rb mode and keep importing all the struct variables that are of the same size as pxtup() until we reach EOF.
+
+We use the python function file.readinto() to read the file stream and append all the structures into a list. The end result is a list of tuples of 3 integers, exactly what we wanted!
+with open('allc.bin', 'rb') as file:
+    result = []
+    allc = pxtup()
+    while file.readinto(allc) == sizeof(allc):
+        result.append((allc.red, allc.green, allc.blue))
+
+This is what the result will look like-
+Alt Text
+
+Aaand that's it! That's how you port your C structs into Python. With performance improvements and efficiency guaranteed! I hope you learned something from this guide, thanks for reading!
+
+Special thanks to the pixcryption project on GitHub to motivate me to find a way to improve Cartesian Product performance which eventually led me to learn about ctypes!
