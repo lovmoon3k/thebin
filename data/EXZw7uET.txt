@@ -1,0 +1,100 @@
+// get posts in php
+$blog_posts = Artikel::get_posts( 2, [ IbTaxonomies::CONTENT_TYPE => [ 'blog' ] ] );
+
+// function for each post type which calls a helper
+/**
+ * Class Artikel
+ */
+class Artikel {
+
+    /**
+     * Get articles
+     *
+     * @param $amount
+     * @param $taxonomy
+     * @param $meta
+     * @param $add_to_ignore
+     */
+    public static function get_posts( $amount = 24, $taxonomy = [], $meta = [], $add_to_ignore = true ) : array {
+        return PostsHelper::get_posts( IbPostTypes::ARTICLE, $amount, $taxonomy, $meta, $add_to_ignore );
+    }
+}
+
+
+/**
+ * Class PostsHelper
+ */
+class PostsHelper {
+
+    /**
+     * Get articles
+     *
+     * @param $post_type
+     * @param $amount
+     * @param $taxonomy
+     * @param $meta
+     * @param $add_to_ignore
+     */
+    public static function get_posts( $post_type = IbPostTypes::ARTICLE, $amount = 24, $taxonomy = [], $meta = [], $add_to_ignore = true ) : array {
+        $exclude    = [];
+        $meta_query = [];
+        $tax_query  = [];
+
+        global $used_post_ids;
+        if ( ! empty( $used_post_ids ) ) {
+            $exclude = $used_post_ids;
+        }
+
+        $post_args = array(
+            'post_type'      => $post_type,
+            'posts_per_page' => $amount,
+            'exclude'        => $exclude,
+            'fields'         => 'ids',
+        );
+
+        if ( ! empty( $meta ) ) {
+            foreach( $meta as $meta_key => $meta_values ) {
+                if ( empty( $meta_values ) ) {
+                    $meta_query[] = [
+                        'key'     => $meta_key,
+                        'compare' => 'EXISTS',
+                    ];
+                } else {
+                }
+            }
+        }
+
+        if ( ! empty( $taxonomy ) ) {
+            foreach( $taxonomy as $tax_slug => $terms ) {
+                $tax_query[] = [
+                    'taxonomy' => $tax_slug,
+                    'field'    => 'slug',
+                    'terms'    => $terms,
+                ];
+            }
+        }
+        if ( ! empty( $meta_query ) ) {
+            $post_args[ 'meta_query' ] = $meta_query;
+        }
+        if ( ! empty( $tax_query ) ) {
+            $post_args[ 'tax_query' ] = $tax_query;
+        }
+
+        $posts = get_posts( $post_args );
+
+        if ( true == $add_to_ignore && is_array( $posts ) && ! empty( $posts ) ) {
+            foreach ( $posts as $post ) {
+                add_id_to_global_ignore( $post );
+            }
+        }
+
+        // @TODO: maybe return IDs only or immediately transients
+        if ( ! empty( $posts ) ) {
+            return $posts;
+        }
+
+        return [];
+
+    }
+
+}
