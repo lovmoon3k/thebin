@@ -1,13 +1,7 @@
-[**WA6MRcWD**](/data/WA6MRcWD.txt) (24/11/22 - 02:32)- 1845 bytes
+[**6Nj59eLQ**](/data/6Nj59eLQ.txt) (24/11/22 - 02:44)- 34 bytes
 
-[**CRuXnDmN**](/data/CRuXnDmN.txt) (24/11/22 - 02:32)- 2003 bytes
+[**6Nj59eLQ**](/data/6Nj59eLQ.txt) (24/11/22 - 02:44)- 34 bytes
 
-[**WA6MRcWD**](/data/WA6MRcWD.txt) (24/11/22 - 02:32)- 1845 bytes
-
-[**q5YzLGKK**](/data/q5YzLGKK.txt) (24/11/22 - 02:32)- 143 bytes
-
-[**q5YzLGKK**](/data/q5YzLGKK.txt) (24/11/22 - 02:32)- 143 bytes
-
-**Total Datas**: 4599
+**Total Datas**: 4600
 
 **Total Size**: 25.27 MB / 25.3 MB
