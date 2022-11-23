@@ -1,0 +1,359 @@
+Command.s = ProgramParameter()  ; e.g.: "SET varname="
+
+EnableExplicit
+
+Structure STRUC_DirInfo
+  sName.s
+  sFullName.s
+EndStructure
+
+Structure opcode
+  CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
+    mov.u
+  CompilerElse
+    mov.a
+  CompilerEndIf
+  addr.i
+  push.a
+  ret.a
+EndStructure
+
+Structure hookstruct
+  addr.i
+  hook.opcode
+  orig.a[SizeOf(opcode)]
+EndStructure
+
+Procedure Hook(*OldFunctionAddress, *NewFunctionAddress)
+  Protected *hook_ptr.hookstruct
+  
+  If *OldFunctionAddress = 0 Or *NewFunctionAddress = 0
+    ProcedureReturn #Null
+  EndIf
+  
+  *hook_ptr = AllocateMemory(SizeOf(hookstruct), #PB_Memory_NoClear)
+  *hook_ptr\addr = *OldFunctionAddress
+  CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
+    *hook_ptr\hook\mov = $B848
+  CompilerElse
+    *hook_ptr\hook\mov = $B8
+  CompilerEndIf
+  *hook_ptr\hook\addr = *NewFunctionAddress
+  *hook_ptr\hook\push = $50
+  *hook_ptr\hook\ret = $C3
+  
+  CopyMemory(*OldFunctionAddress, @*hook_ptr\orig, SizeOf(opcode))
+  If WriteProcessMemory_(GetCurrentProcess_(), *OldFunctionAddress, @*hook_ptr\hook, SizeOf(opcode), #Null)=0
+    FreeMemory(*hook_ptr)
+    ProcedureReturn #Null
+  Else
+    ProcedureReturn *hook_ptr
+  EndIf
+EndProcedure
+
+Procedure UnHook(*hook_ptr.hookstruct)
+  Protected retValue.i
+  
+  If *hook_ptr
+    If *hook_ptr\addr
+      If WriteProcessMemory_(GetCurrentProcess_(), *hook_ptr\addr, @*hook_ptr\orig, SizeOf(opcode), #Null)
+        retValue = *hook_ptr\addr
+        FreeMemory(*hook_ptr)
+        ProcedureReturn retValue
+      EndIf
+    EndIf
+  EndIf
+  
+  ProcedureReturn #Null
+EndProcedure
+
+Procedure Block_FindFirstChangeNotification(lpPathName, bWatchSubtree, dwNotifyFilter.l)
+  ProcedureReturn #INVALID_HANDLE_VALUE
+EndProcedure
+
+Procedure Event_ResizeWindow()
+  Protected Window = EventWindow()
+  Protected exlFiles = GetWindowData(Window)
+  SetGadgetItemAttribute(exlFiles, 0, #PB_Explorer_ColumnWidth, GadgetWidth(exlFiles) - 25)
+EndProcedure
+
+Procedure FillDirList(Gadget, IconImg, sParentDir.s, List Dirs.STRUC_DirInfo())
+  Protected Dir, i, MaxIndex, ItemIndex, sCurDirPart.s, sDirPart.s, sName.s, Count, lvi.LV_ITEM
+  
+  If sParentDir And IsGadget(Gadget) And GadgetType(Gadget) = #PB_GadgetType_ListIcon
+    If Right(sParentDir, 1) <> "\" : sParentDir + "\" : EndIf
+    ClearList(Dirs())
+    SendMessage_(GadgetID(Gadget), #WM_SETREDRAW, 0, 0)
+    ClearGadgetItems(Gadget)
+    lvi\mask = #LVIF_INDENT
+    
+    MaxIndex = CountString(sParentDir, "\") - 1
+    For i = 0 To MaxIndex
+      sDirPart = StringField(sParentDir, i + 1, "\")
+      sCurDirPart + sDirPart + "\"
+      If AddElement(Dirs())
+        Dirs()\sFullName = sCurDirPart
+        If i = 0
+          AddGadgetItem(Gadget, -1, sCurDirPart, ImageID(IconImg))
+        Else
+          AddGadgetItem(Gadget, -1, sDirPart, ImageID(IconImg))
+        EndIf
+        lvi\iItem = i
+        SendMessage_(GadgetID(Gadget), #LVM_GETITEM, 0, lvi)
+        lvi\iIndent = i
+        SendMessage_(GadgetID(Gadget), #LVM_SETITEM, 0, lvi)
+      EndIf
+    Next
+    ;Get the child directories.
+    Dir = ExamineDirectory(#PB_Any, sParentDir, "*.*")
+    If Dir
+      While NextDirectoryEntry(Dir)
+        If DirectoryEntryType(Dir) = #PB_DirectoryEntry_Directory
+          sName = DirectoryEntryName(Dir)
+          If sName <> "." And sName <> ".."
+            If AddElement(Dirs())
+              Dirs()\sName = sName
+              Dirs()\sFullName = sParentDir + sName + "\"
+              Count + 1
+            EndIf
+          EndIf
+        EndIf
+      Wend
+      FinishDirectory(Dir)
+      
+      If Count > 0
+        i = MaxIndex + 1
+        Count = ListSize(Dirs()) - 1
+        SortStructuredList(Dirs(), #PB_Sort_Ascending | #PB_Sort_NoCase, OffsetOf(STRUC_DirInfo\sName), #PB_String, i, Count)
+        SelectElement(Dirs(), i)
+        Repeat
+          AddGadgetItem(Gadget, -1, Dirs()\sName, ImageID(IconImg))
+          lvi\iItem = i
+          SendMessage_(GadgetID(Gadget), #LVM_GETITEM, 0, lvi)
+          lvi\iIndent = MaxIndex + 1
+          SendMessage_(GadgetID(Gadget), #LVM_SETITEM, 0, lvi)
+          i + 1
+        Until NextElement(Dirs()) = 0
+      EndIf
+    EndIf
+    SetGadgetState(Gadget, MaxIndex)    ;Select the last directory item of "sParentDir" var.
+    SendMessage_(GadgetID(Gadget), #WM_SETREDRAW, 1, 0)
+    RedrawWindow_(GadgetID(Gadget), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_UPDATENOW)
+  EndIf
+EndProcedure
+
+Procedure WndProc_ExplorerList(hWnd, uMsg, wParam, lParam)
+  Protected Gadget, old = GetProp_(hWnd, "OldWndProc")
+  Static IsRedrawingBlocked
+  
+  If uMsg = #WM_SETREDRAW
+    IsRedrawingBlocked = 1 - wParam
+    
+  ElseIf uMsg = #WM_ERASEBKGND
+    If IsRedrawingBlocked
+      Gadget = GetProp_(hWnd, "PB_ID")
+      If IsGadget(Gadget)
+        PostEvent(#PB_Event_Gadget, 0, Gadget, #PB_EventType_FirstCustomValue)
+      EndIf
+    Else
+      ProcedureReturn 1
+    EndIf
+    
+  ElseIf uMsg = #WM_NCDESTROY
+    RemoveProp_(hWnd, "OldWndProc")
+  EndIf
+  ProcedureReturn CallWindowProc_(old, hWnd, uMsg, wParam, lParam)
+EndProcedure
+
+Procedure.s OpenSelectDirWindow(sInitDir.s, ParentWindow)
+  Protected Event, EventType, sXML.s, Xml, Dialog, Window, hWndMain, Img, sCurDir.s, sPrevDrive.s, sResult.s
+  Protected strPath, exlFiles, excDrive, liFolders, btnOK, btnCancel, hLiFolders, sfi.SHFILEINFO, Index
+  Protected *FindFirstChangeNotificationW, *FindFirstChangeNotificationA, LibKernel32
+  Protected NewList Dirs.STRUC_DirInfo()
+  sXML = "<dialogs>" +
+         "  <window name='SelDir' text='Select Directory' minwidth='330' minheight='350' flags='#PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_SizeGadget | #PB_Window_Invisible'>" +
+         "    <gridbox columns='2' colexpand='yes' rowexpand='item:3'>" +
+         "      <text name='txtFolder' text='Folder name:' colspan='2' height='10'/>" +
+         "      <string name='strPath' colspan='2' flags='#PB_String_ReadOnly' height='10'/>" +
+         "      <listicon name='liFolders' text='Folders' width='150' flags='#PB_ListIcon_AlwaysShowSelection'/>" +
+         "      <vbox expand='item:2'>" +
+         "        <text name='txtType' text='File type: *.*' height='10'/>" +
+         "        <explorerlist name='exlFiles' height='150' flags='#PB_Explorer_FullRowSelect | #PB_Explorer_NoFolders | #PB_Explorer_NoParentFolder | #PB_Explorer_NoDirectoryChange | #PB_Explorer_NoDriveRequester | #PB_Explorer_NoMyDocuments | #PB_Explorer_AutoSort'/>" +
+         "        <text name='txtDrive' text='Drives:' height='10'/>" +
+         "        <explorercombo name='excDrive' height='22' flags='#PB_Explorer_DrivesOnly | #PB_Explorer_NoMyDocuments'/>" +
+         "      </vbox>" +
+         "      <empty/>" +
+         "      <singlebox expand='no' align='right' margin='left:0,right:0,horizontal:0'>" +
+         "        <hbox expand='equal' spacing='8' height='13'>" +
+         "          <button name='btnOK' text='OK' width='75' height='12'/>" +
+         "          <button name='btnCancel' text='Cancel' width='75' height='12'/>" +
+         "        </hbox>" +
+         "      </singlebox>" +
+         "    </gridbox>" +
+         "  </window>" +
+         "</dialogs>"
+  If sInitDir = "" : sInitDir = "C:\" : EndIf
+  If Right(sInitDir, 1) <> "\" : sInitDir + "\" : EndIf
+  If ParentWindow <> -1 : DisableWindow(ParentWindow, 1) : EndIf
+    
+  Xml = ParseXML(#PB_Any, sXML)
+  If Xml And XMLStatus(Xml) = #PB_XML_Success
+    Dialog = CreateDialog(#PB_Any)
+    If Dialog And OpenXMLDialog(Dialog, Xml, "SelDir", 0, 0, 500, 450)
+      strPath = DialogGadget(Dialog, "strPath")
+      btnOK = DialogGadget(Dialog, "btnOK")
+      btnCancel = DialogGadget(Dialog, "btnCancel")
+      exlFiles = DialogGadget(Dialog, "exlFiles")
+      excDrive = DialogGadget(Dialog, "excDrive")
+      liFolders = DialogGadget(Dialog, "liFolders")
+      
+      ;Remove the window icon.
+      Window = DialogWindow(Dialog)
+      hWndMain = WindowID(Window)
+      SendMessage_(hWndMain, #WM_SETICON, 0, 0)   ;for the old version of Windows.
+      SetWindowLongPtr_(hWndMain, #GWL_STYLE, GetWindowLong_(hWndMain, #GWL_STYLE) | #WS_CLIPCHILDREN)
+      SetWindowLongPtr_(hWndMain, #GWL_EXSTYLE, GetWindowLong_(hWndMain, #GWL_EXSTYLE) | #WS_EX_DLGMODALFRAME)
+      SetWindowData(Window, exlFiles)
+      
+      hLiFolders = GadgetID(liFolders)
+      SetWindowLongPtr_(hLiFolders, #GWL_STYLE, GetWindowLongPtr_(hLiFolders, #GWL_STYLE) | #LVS_NOSORTHEADER);#LVS_NOCOLUMNHEADER)
+      SetWindowPos_(hLiFolders, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
+      
+      For Index = 1 To 3
+        RemoveGadgetColumn(exlFiles, 1)
+      Next
+      
+      ;Get a directory icon.
+      Img = CreateImage(#PB_Any, 16, 16, 32, #PB_Image_Transparent)
+      If Img
+        If SHGetFileInfo_(GetTemporaryDirectory(), 0, sfi, SizeOf(SHFILEINFO), #SHGFI_ICON | #SHGFI_SMALLICON)
+          If StartDrawing(ImageOutput(Img))
+            DrawImage(sfi\hIcon, 0, 0)
+            StopDrawing()
+          EndIf
+          DestroyIcon_(sfi\hIcon)
+        EndIf
+      EndIf
+      
+      ;Block automatic updates of the ExplorerList gadget.
+      LibKernel32 = OpenLibrary(#PB_Any, "Kernel32.dll")
+      If LibKernel32
+        *FindFirstChangeNotificationW = Hook(GetFunction(LibKernel32, "FindFirstChangeNotificationW"), @Block_FindFirstChangeNotification())
+        *FindFirstChangeNotificationA = Hook(GetFunction(LibKernel32, "FindFirstChangeNotificationA"), @Block_FindFirstChangeNotification())
+      EndIf
+      
+      SetProp_(GadgetID(exlFiles), "OldWndProc", SetWindowLongPtr_(GadgetID(exlFiles), #GWLP_WNDPROC, @WndProc_ExplorerList()))
+      
+      ;Set the initial directory.
+      If FileSize(sInitDir) = -2
+        SetGadgetText(excDrive, sInitDir)
+        sPrevDrive = GetGadgetText(excDrive)
+        FillDirList(liFolders, Img, sInitDir, Dirs())
+        SendMessage_(GadgetID(exlFiles), #WM_SETREDRAW, 0, 0)
+        SetGadgetText(exlFiles, sInitDir)
+        If Right(sInitDir, 2) <> ":\"
+          sInitDir = RTrim(sInitDir, "\")
+        EndIf
+        SetGadgetText(strPath, sInitDir)
+      EndIf
+      
+      BindEvent(#PB_Event_SizeWindow, @Event_ResizeWindow(), Window)
+      HideWindow(Window, 0)
+      
+      Repeat
+        Event = WaitWindowEvent()
+        If Event = #PB_Event_ActivateWindow
+          RedrawWindow_(hWndMain, 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ERASE | #RDW_INTERNALPAINT | #RDW_ALLCHILDREN)
+          
+        ElseIf Event = #PB_Event_Gadget
+          EventType = EventType()
+          Select EventGadget()
+            Case excDrive
+              sCurDir = GetGadgetText(excDrive)
+              If sPrevDrive <> sCurDir       ;The ExplorerCombo gadget has no #PB_EventType_Change event.
+                SetGadgetText(strPath, sCurDir)
+                FillDirList(liFolders, Img, sCurDir, Dirs())
+                SetGadgetText(exlFiles, sCurDir)
+                sPrevDrive = sCurDir
+              EndIf
+              
+            Case exlFiles
+              If EventType = #PB_EventType_FirstCustomValue
+                SendMessage_(GadgetID(exlFiles), #WM_SETREDRAW, 1, 0)
+                RedrawWindow_(GadgetID(exlFiles), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_NOERASE | #RDW_INTERNALPAINT)
+              EndIf
+              
+            Case liFolders
+              If EventType = #PB_EventType_LeftDoubleClick
+                Index = GetGadgetState(liFolders)
+                If Index >= 0
+                  SelectElement(Dirs(), Index)
+                  sCurDir = Dirs()\sFullName
+                  FillDirList(liFolders, Img, sCurDir, Dirs())
+                  SendMessage_(GadgetID(exlFiles), #WM_SETREDRAW, 0, 0)
+                  SetGadgetText(exlFiles, sCurDir)
+                  If Right(sCurDir, 2) <> ":\"
+                    sCurDir = RTrim(sCurDir, "\")
+                  EndIf
+                  SetGadgetText(strPath, sCurDir)
+                EndIf
+              EndIf
+              
+            Case btnOK
+              sResult = GetGadgetText(strPath)
+              Break
+            Case btnCancel
+              Break
+          EndSelect
+        EndIf
+      Until Event = #PB_Event_CloseWindow And EventWindow() = Window
+      
+      If LibKernel32
+        UnHook(*FindFirstChangeNotificationW)
+        UnHook(*FindFirstChangeNotificationA)
+        CloseLibrary(LibKernel32)
+      EndIf
+      
+      CloseWindow(Window)
+      
+      While WindowEvent() : Wend
+    EndIf
+  EndIf
+  If ParentWindow <> -1 : DisableWindow(ParentWindow, 0) : SetActiveWindow(ParentWindow) : EndIf
+  ProcedureReturn sResult
+EndProcedure
+
+If Result
+  
+  Path$ = Space(#MAX_PATH)       ;Create a buffer to receive the string as a result of SHGetPathFromIDList function.
+  
+  SHGetPathFromIDList_(Result, @Path$)   ;Convert the returned result to a file system path.
+  
+  If Path$
+    ; The converted path string is as follows.
+    ; C:\
+    ; C:\Windows
+    
+    Path$ = Chr('"')+Path$+Chr('"')
+    
+    If command And Right(command,1) <> "=" : command + " " : EndIf 
+    
+    OpenConsole()
+    PrintN(command + Path$)
+    
+    Sleep_(5000)
+    
+  EndIf
+EndIf
+
+Define e
+If OpenWindow(0, 0, 0, 222, 200, "", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  ButtonGadget(0, 10, 10, 160, 23, "Show window")
+  
+  Repeat
+    e = WaitWindowEvent()
+    If e = #PB_Event_Gadget And EventGadget() = 0
+      Debug OpenSelectDirWindow("C:\windows\", 0)
+    EndIf
+  Until e = #PB_Event_CloseWindow
+EndIf
