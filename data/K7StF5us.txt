@@ -1,0 +1,25 @@
+with reg as (
+    select userid, date(eventtime) as reg_dt
+    from "public"."table1"
+    where eventname = 'registration'
+),
+visits as (
+    select reg_dt, date(t1.eventtime) as visit_dt, count(distinct t1.userid) as visit_cnt
+    from "public"."table1" t1
+    join reg
+    on t1.userid = reg.userid and date(t1.eventtime) > reg.reg_dt
+    where eventname = 'visit'
+    group by reg_dt, date(t1.eventtime)
+)
+select r.reg_dt, dd.dt as visit_dt, r.reg_cnt, coalesce(v.visit_cnt, 0) as visit_cnt,
+       1.0*coalesce(v.visit_cnt, 0)/r.reg_cnt as share
+from 
+    (
+       select reg_dt, count(distinct userid) as reg_cnt
+       from reg
+       group by reg_dt
+    ) r
+join "public"."dim_dates" dd
+on dd.dt > r.reg_dt
+left join visits v
+on r.reg_dt = v.reg_dt and dd.dt = v.visit_dt
