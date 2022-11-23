@@ -1,0 +1,166 @@
+//
+// pch.h
+//
+#pragma once
+#include <codeanalysis\warnings.h>
+#pragma warning(push)
+#pragma warning(disable : ALL_CODE_ANALYSIS_WARNINGS)
+#include "gtest/gtest.h"
+#pragma warning(pop)
+#include <algorithm>
+#include <chrono>
+#include <iostream>
+#include <string>
+#include <string_view>
+//
+//
+//
+
+//test.cpp
+#include "pch.h"
+using namespace std::chrono;
+using namespace std::string_view_literals;
+using namespace std::string_literals;
+using std::string_view;
+using TimeOfDay = int;
+constexpr string_view WHITE_SPACE = " \f\n\r\t\v"sv;
+
+constexpr string_view trimLeft(string_view in,
+                               string_view delims = WHITE_SPACE) noexcept {
+  const auto countFromTheLeft = in.find_first_not_of(delims);
+  if (countFromTheLeft != in.npos) {
+    in.remove_prefix(countFromTheLeft);
+  }
+  return in;
+};
+constexpr string_view trimRight(string_view in,
+                                string_view delims = WHITE_SPACE) noexcept {
+  const auto lastValidPos = in.find_last_not_of(delims);
+  const auto countFromTheRight = in.size() - lastValidPos - 1;
+  in.remove_suffix(countFromTheRight);
+  return in;
+};
+constexpr string_view trim(string_view in,
+                           string_view delims = WHITE_SPACE) noexcept {
+  return trimRight(trimLeft(in, delims), delims);
+}
+
+constexpr std::string to_string(string_view s) { return std::string(s); }
+
+constexpr std::string capitalize(std::string s) {
+  if (s.empty()) {
+    return s;
+  }
+  s[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(s[0])));
+  return s;
+}
+
+constexpr bool isBetween(TimeOfDay in, TimeOfDay min, TimeOfDay max) noexcept {
+  return in >= min && in <= max;
+}
+constexpr bool isMorning(TimeOfDay in) noexcept { return isBetween(in, 6, 12); }
+constexpr bool isEvening(TimeOfDay in) noexcept {
+  return isBetween(in, 18, 22);
+}
+constexpr bool isNight(TimeOfDay in) noexcept {
+  return isBetween(in, 22, 24) || isBetween(in, 0, 6);
+}
+
+constexpr std::string_view getGreetingFor(TimeOfDay time) noexcept {
+  if (isMorning(time)) {
+    return "Good morning "sv;
+  }
+  if (isEvening(time)) {
+    return "Good evening "sv;
+  }
+  if (isNight(time)) {
+    return "Good night "sv;
+  }
+  return "Hello "sv;
+}
+
+struct Greeter {
+  constexpr void time(TimeOfDay time) noexcept { _time = time; }
+  constexpr TimeOfDay time() const noexcept { return _time; }
+
+  constexpr std::string greet(string_view name) {
+    const auto clean_name = to_string(trim(name));
+    const auto greeting = to_string(getGreetingFor(time()));
+    return greeting + capitalize(clean_name);
+  }
+
+private:
+  TimeOfDay _time = TimeOfDay(14);
+};
+
+TEST(Greeter, canReturnInput) {
+  Greeter g;
+  EXPECT_EQ(g.greet("Ulf"), "Hello Ulf");
+}
+
+TEST(Greeter, canTrimInput) {
+  Greeter g;
+  EXPECT_EQ(g.greet("   Ulf    "), "Hello Ulf");
+}
+
+TEST(Greeter, canCapitalizeFirst) {
+  Greeter g;
+  EXPECT_EQ(g.greet("   ulf    "), "Hello Ulf");
+}
+
+TEST(Greeter, saysGoodMorningInTheMorning) {
+  Greeter g;
+  g.time(11);
+  EXPECT_EQ(g.greet("   ulf    "), "Good morning Ulf");
+}
+
+TEST(Greeter, saysGoodEveningInTheEvening) {
+  Greeter g;
+  g.time(20);
+  EXPECT_EQ(g.greet("   ulf    "), "Good evening Ulf");
+}
+
+TEST(Greeter, saysGoodNightAtNight) {
+  Greeter g;
+  g.time(2);
+  EXPECT_EQ(g.greet("   ulf    "), "Good night Ulf");
+}
+
+constexpr auto clean = "foo"sv;
+constexpr auto whitespace_left = "     foo"sv;
+constexpr auto whitespace_right = "foo     "sv;
+
+TEST(trim, canTrimLeft) {
+  EXPECT_EQ(trim(whitespace_left), clean);
+  EXPECT_EQ(trimLeft(whitespace_right),
+            whitespace_right); // don't touch the right side
+}
+TEST(trim, canTrimEmpty) {
+  EXPECT_EQ(trimLeft(""), ""sv);
+  EXPECT_EQ(trimRight(""), ""sv);
+  EXPECT_EQ(trim(""), ""sv);
+}
+
+TEST(trim, canTrimPreTrimmed) {
+  EXPECT_EQ(trim(clean), clean);
+  EXPECT_EQ(trimRight(clean), clean);
+  EXPECT_EQ(trimLeft(clean), clean);
+}
+TEST(trim, canTrimRight) {
+  EXPECT_EQ(trim(whitespace_right), clean);
+  EXPECT_EQ(trimRight(whitespace_left),
+            whitespace_left); // don't touch the left side
+}
+
+TEST(trim, canTrimBoth) {
+  string_view input = "      foo     "sv;
+  EXPECT_EQ(trim(input), clean);
+}
+
+TEST(trim, canTrimWithSpaceInMiddle) {
+  string_view input = "      f o o b a r     "sv;
+  EXPECT_EQ(trim(input), "f o o b a r"sv);
+
+  string_view notrim = "f o o b a r"sv;
+  EXPECT_EQ(trim(notrim), "f o o b a r"sv);
+}
