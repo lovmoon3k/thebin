@@ -1,0 +1,234 @@
+version: "3.7"
+
+volumes:
+  api-proxy-config:
+  prometheus_data: {}
+  grafana-data:
+    driver: local
+services:
+  # node-exporter:
+  #   image: quay.io/prometheus/node-exporter:latest
+  #   volumes:
+  #     - /proc:/host/proc:ro
+  #     - /sys:/host/sys:ro
+  #     - /:/rootfs:ro
+  #     - /:/host:ro,rslave
+  #   command: 
+  #     - '--path.rootfs=/host'
+  #     - '--path.procfs=/host/proc' 
+  #     - '--path.sysfs=/host/sys'
+  #     - --collector.filesystem.ignored-mount-points
+  #     - "^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)"
+  #   ports:
+  #     - 9100:9100
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - /etc/prometheus:/etc/prometheus
+  #     - prometheus_data:/prometheus
+  #   restart: unless-stopped
+  #   command:
+  #     - "--config.file=/etc/prometheus/prometheus.yml"
+  # grafana:
+  #   image: grafana/grafana-oss:latest
+  #   container_name: grafana
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - grafana-data:/var/lib/grafana
+  #   restart: unless-stopped
+  # cadvisor:
+  #   image: google/cadvisor:latest # latest tag is not updated...
+  #                                           # https://github.com/google/cadvisor/issues/3066    
+  #                                           # To manual check versions: https://github.com/google/cadvisor/releases      
+  #   volumes:
+  #     - /:/rootfs:ro
+  #     - /var/run:/var/run:ro
+  #     - /sys:/sys:ro
+  #     - /var/lib/docker/:/var/lib/docker:ro
+  #     - /dev/disk/:/dev/disk:ro
+  #   devices:
+  #     - /dev/kmsg
+  #   restart: unless-stopped
+  #   # ports:
+  #   #   - "3400:3400"
+  rabbitmq:
+    image: rabbitmq:3.9-management
+    ports:
+      - 5673:5672
+      - 15673:15672
+  mongodb:
+    image: mongo
+    ports:
+      - 27017:27017
+    volumes: # if persistence required
+      - ./local-database:/data/db
+  users-ms:
+    build:
+      context: ./backend/microservices/dgoods-ms-users
+      target: development
+    volumes:
+      - ./backend/microservices/dgoods-ms-users/lib:/usr/app/src/lib
+      - ./backend/microservices/DGoods-094895d003e6.json:/usr/app/DGoods-094895d003e6.json
+    env_file:
+      - ./backend/microservices/dgoods-ms-users/.env.development
+    environment:
+      - MICROSERVICE_NAME=users
+        # requestst to /api/example/** will be proxied to this MS
+        #- DEBUG=*
+    depends_on:
+      - mongodb
+      - rabbitmq
+  
+  analytics-ms:
+    build:
+      context: ./backend/microservices/dgoods-ms-analytics
+      target: development
+    volumes:
+      - ./backend/microservices/dgoods-ms-analytics/lib:/usr/app/src/lib
+      - ./backend/microservices/DGoods-094895d003e6.json:/usr/app/DGoods-094895d003e6.json
+    env_file:
+      - ./backend/microservices/dgoods-ms-analytics/.env.development
+    environment:
+      - MICROSERVICE_NAME=analytics
+  session-ms:
+    build:
+      context: ./backend/microservices/dgoods-ms-session
+      target: development
+    volumes:
+      - ./backend/microservices/dgoods-ms-session/lib:/usr/app/src/lib
+      - ./backend/microservices/dgoods-0c44823fe0ea.json:/usr/app/dgoods-0c44823fe0ea.json
+      - ./backend/microservices/DGoods-094895d003e6.json:/usr/app/DGoods-094895d003e6.json
+    env_file:
+      - ./backend/microservices/dgoods-ms-session/.env.development
+    environment:
+      - MICROSERVICE_NAME=session
+      - DEBUG=modeso:*
+       # requestst to /api/example/** will be proxied to this MS
+        #- DEBUG=*
+    depends_on:
+      - mongodb
+      - rabbitmq
+      - users-ms
+  cart-ms:
+    build:
+      context: ./backend/microservices/dgoods-ms-cart 
+      dockerfile: ./Dockerfile.dev
+      target: development
+    volumes:
+      - ./backend/microservices/dgoods-ms-cart/lib:/usr/app/src/lib
+      - ./backend/microservices/dgoods-ms-cart/types:/usr/app/src/types
+      - ./backend/microservices/DGoods-094895d003e6.json:/usr/app/DGoods-094895d003e6.json
+    env_file:
+      - ./backend/microservices/dgoods-ms-cart/.env.development
+    environment:
+      - MICROSERVICE_NAME=cart
+        # requestst to /api/example/** will be proxied to this MS
+        #- DEBUG=*
+    depends_on:
+      - mongodb
+      - rabbitmq
+  admin-ms:
+    build:
+      context: ./backend/microservices/dgoods-ms-admin
+      target: development
+    volumes:
+      - ./backend/microservices/dgoods-ms-admin/lib:/usr/app/src/lib
+      - ./backend/microservices/DGoods-094895d003e6.json:/usr/app/DGoods-094895d003e6.json
+    env_file:
+      - ./backend/microservices/dgoods-ms-admin/.env.development
+    environment:
+      - MICROSERVICE_NAME=admin
+        # requestst to /api/example/** will be proxied to this MS
+        #- DEBUG=*
+    depends_on:
+      - mongodb
+      - rabbitmq
+  products-ms:
+    build:
+      context: ./backend/microservices/dgoods-ms-products
+      dockerfile: ./Dockerfile.dev
+      target: development
+    volumes:
+      - ./backend/microservices/dgoods-ms-products/lib:/usr/app/src/lib
+      - ./backend/microservices/dgoods-ms-products/types:/usr/app/src/types
+      - ./backend/microservices/DGoods-094895d003e6.json:/usr/app/DGoods-094895d003e6.json
+    env_file:
+      - ./backend/microservices/dgoods-ms-products/.env.development
+    environment:
+      - MICROSERVICE_NAME=products
+    depends_on:
+      - mongodb
+      - rabbitmq
+    # ports: 
+    #   - "9229:9229"
+  email-ms:
+    build:
+      context: ./backend/microservices/dgoods-ms-email
+    volumes:
+      - ./backend/microservices/dgoods-ms-email/lib:/usr/app/src/lib
+      - ./backend/microservices/DGoods-094895d003e6.json:/usr/app/DGoods-094895d003e6.json
+    env_file:
+      - ./backend/microservices/dgoods-ms-email/.env.development
+    environment:
+      - MICROSERVICE_NAME=email
+    depends_on:
+      - mongodb
+      - rabbitmq
+  localization-ms:
+    image: ghcr.io/modesoventures/modeso-ms-localization:master                                                                              
+    volumes:
+      - ./backend/microservices/dgoods-ms-localization/data:/usr/app/data
+      - ./backend/microservices/dgoods-ms-localization/public.key:/usr/app/public.key
+      - ./backend/microservices/DGoods-094895d003e6.json:/usr/app/DGoods-094895d003e6.json
+      - ~/.config/:/root/.config
+    environment:
+      - MICROSERVICE_NAME=localization
+      #- DEBUG=*
+    env_file:
+      - ./backend/microservices/dgoods-ms-localization/.env.development
+  payment-ms:
+    build:
+      context: ./backend/microservices/dgoods-ms-payment
+    volumes:
+      - ./backend/microservices/dgoods-ms-payment/lib:/usr/app/src/lib
+      - ./backend/microservices/dgoods-ms-payment/data:/usr/app/data
+      - ./backend/microservices/DGoods-094895d003e6.json:/usr/app/DGoods-094895d003e6.json
+    environment:
+      - MICROSERVICE_NAME=payment
+      #- DEBUG=*
+    env_file:
+      - ./backend/microservices/dgoods-ms-payment/.env.development
+
+  api-gateway:
+    image: nginx
+    container_name: dgoods-api-gateway
+    ports:
+      - "3000:80"
+    volumes:
+      - api-proxy-config:/etc/nginx/conf.d
+
+  api-proxy-dockergen:
+    build: 
+      context: ./backend/microservices/modeso-api-gateway
+    command: -notify-sighup dgoods-api-gateway -watch /usr/app/nginx.tmpl /etc/nginx/conf.d/default.conf
+    volumes:
+      - api-proxy-config:/etc/nginx/conf.d
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+  swagger-ui:
+    container_name: swagger
+    image: swaggerapi/swagger-ui
+    environment:
+      URLS: "[{ url: 'doc/cart-api.yaml', name: 'CartMS'},
+        { url: 'doc/product-api.yaml', name: 'ProductMs'},
+        { url: 'doc/admin-api.yaml', name: 'AdminMs'},
+        { url: 'doc/session-api.yaml', name: 'SessionMs'}]"
+    volumes:
+      - ./doc/:/usr/share/nginx/html/doc
+    ports:
+      - "8080:8080"
+
+  
