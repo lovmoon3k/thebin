@@ -1,0 +1,90 @@
+using UnityEngine;
+
+public class TestShader : MonoBehaviour
+{
+    public ComputeShader shader;
+    public MeshRenderer meshRenderer;
+    public MeshRenderer meshRenderer2;
+    public MeshFilter meshFilter;
+    public NoiseConfig noiseConfig;
+
+    private int kernelIndex;
+
+    public RenderTexture texture;
+
+    void Start()
+    {
+        RunShader();
+        RunNoise();
+    }
+
+    public void RunShader()
+    {
+        kernelIndex = shader.FindKernel("CSMain");
+
+        ComputeBuffer gradients3DBuffer = new ComputeBuffer(Noise.gradients3D.Length, sizeof(float) * 3);
+        gradients3DBuffer.SetData(Noise.gradients3D);
+        ComputeBuffer hashBuffer = new ComputeBuffer(Noise.hash.Length, sizeof(int) * 1);
+        hashBuffer.SetData(Noise.hash);
+
+        float[,] resFloatArray = new float[noiseConfig.resolution, noiseConfig.resolution];
+        ComputeBuffer resBuffer = new ComputeBuffer(noiseConfig.resolution * noiseConfig.resolution, sizeof(float) * 1);
+        resBuffer.SetData(resFloatArray);
+
+
+        texture = new RenderTexture(noiseConfig.resolution, noiseConfig.resolution, 0, RenderTextureFormat.RFloat)
+        {
+            enableRandomWrite = true
+        };
+        texture.Create();
+
+        kernelIndex = shader.FindKernel("CSMain");
+        shader.SetTexture(kernelIndex, "Result", texture);
+        shader.SetBuffer(kernelIndex, "gradients3D", gradients3DBuffer);
+        shader.SetBuffer(kernelIndex, "hash", hashBuffer);
+        shader.SetBuffer(kernelIndex, "resfloat", resBuffer);
+
+        shader.SetFloat("res", noiseConfig.resolution);
+        shader.SetFloat("frequency", noiseConfig.frequency);
+        shader.SetFloat("octaves", noiseConfig.octaves);
+        shader.SetFloat("lacunarity", noiseConfig.lacunarity);
+        shader.SetFloat("persistence", noiseConfig.persistence);
+
+        shader.Dispatch(kernelIndex, noiseConfig.resolution / 8, noiseConfig.resolution / 8, 1);
+        resBuffer.GetData(resFloatArray);
+
+        meshRenderer.material.mainTexture = texture;
+    }
+
+    private void RunNoise()
+    {
+        Texture2D tex = new Texture2D(noiseConfig.resolution, noiseConfig.resolution);
+        Color[] colors = tex.GetPixels();
+        for (int x = 0; x < noiseConfig.resolution; x++)
+        {
+            for (int y = 0; y < noiseConfig.resolution; y++)
+            {
+                float sample = Noise.Sum(Noise.methods[(int)1][3 - 1],
+                    new Vector3((float)x / (float)noiseConfig.resolution, (float)y / (float)noiseConfig.resolution, 0),
+                    noiseConfig.frequency, noiseConfig.octaves, noiseConfig.lacunarity, noiseConfig.persistence);
+                colors[x + y * noiseConfig.resolution] = new Color(sample, 0f, 0f, 1f);
+            }
+        }
+        tex.SetPixels(colors);
+        tex.Apply();
+
+        meshRenderer2.material.mainTexture = tex;
+    }
+
+    private void FixedUpdate()
+    {
+
+        shader.SetFloat("res", noiseConfig.resolution);
+        shader.SetFloat("frequency", noiseConfig.frequency);
+        shader.SetFloat("octaves", noiseConfig.octaves);
+        shader.SetFloat("lacunarity", noiseConfig.lacunarity);
+        shader.SetFloat("persistence", noiseConfig.persistence);
+
+        shader.Dispatch(kernelIndex, noiseConfig.resolution / 8, noiseConfig.resolution / 8, 1);
+    }
+}

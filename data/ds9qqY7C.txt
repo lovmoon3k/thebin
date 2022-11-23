@@ -1,0 +1,162 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <time.h>
+#include <sys/time.h>
+#include <openssl/rand.h>
+#include <stdint.h>
+#include "array.h"
+#include "list.h"
+#include "errors.h"
+#include "menu.h"
+
+//#define T1_0    0
+//#define T1_1    6
+//#define T2_0    1
+//#define T2_1    8
+#define CHANCE  0.7
+#define EPS     1e-5
+
+struct timeval tm;
+
+double random_double() 
+{
+    union 
+    {
+        uint64_t i;
+        unsigned char c[sizeof(uint64_t)];
+    } u;
+
+    if (!RAND_bytes(u.c, sizeof(u.c))) 
+        exit(1);
+    return (u.i >> 11) * (1.0/9007199254740992.0);
+}
+
+double random_float(double a, double b)
+{ 
+    return random_double() * (b - a) + a;
+}
+
+double min(double a, double b)
+{
+    return (a - b) > EPS ? b : a;
+}
+
+
+void array_task(bool print, double T1_0, double T1_1, double T2_0, double T2_1)
+{
+    array_queue *queue1 = array_init(), *queue2 = array_init();
+
+    /*
+        downtime_1 - Время простоя второй очереди
+        downtime_2 - Время простоя второй очереди
+        total_time - Общее время работы
+        chance - P, вероятность перейти в следующую очередь
+        time1 - Время в ОА1
+        time2 - Время в ОА2
+        min_time - Минимальное из двух времен на итерации
+        avg_time - Среднее время пребывания заявок в очереди 2
+    */
+    double downtime_2 = 0, total_time = 0, chance, time_1 = 0, time_2 = 0, min_time = 0, avg_time_2 = 0;
+
+    /*
+        total_out - Количество вышедших из ОА2
+        total_first - Текущее количество в 1 очереди
+        total_second - Текущее количество во 2 очереди
+        counter_1 - Количество изменений первой очереди
+        counter_2 - Количество изменений второй очереди
+        trigger_1 - Количество срабатываний ОА1
+    */
+    size_t total_out = 0, total_first = 100, total_second = 0, counter_1 = 1, counter_2 = 1, trigger_1 = 0;
+
+    /*
+        sum_1 - Сумма размеров первой очереди каждого изменения
+        sum_2 - Сумма размеров второй очереди каждого изменения
+    */
+    double sum_1 = 100, sum_2 = 0;
+
+    int *address, x;
+
+    // Начальная инициализация 100 заявок
+    for (size_t i = 0; i < 100; ++i)
+        array_push(queue1, 1);
+
+    // Основной цикл
+    while (total_out < 1000)
+    {
+        if (time_1 < EPS && !array_is_empty(queue1))
+            time_1 = random_float(T1_0, T1_1);
+
+        if (time_2 < EPS && !array_is_empty(queue2))
+        {
+            time_2 = random_float(T2_0, T2_1);
+            avg_time_2 += time_2;
+        }
+
+        //  printf("1. SIZES: %zu %zu, COUNTER: %zu %zu, TIME: %lf %lf\n", queue1->size, queue2->size, counter_1, counter_2, time_1, time_2);
+
+        if (!array_is_empty(queue1) && array_is_empty(queue2))
+        {
+            downtime_2 += time_1;
+            min_time = time_1;
+        }
+        else if (!array_is_empty(queue2) && array_is_empty(queue1))
+            min_time = time_2;
+        else
+            min_time = min(time_1, time_2);
+        
+        total_time += min_time;
+        time_1 -= min_time;
+        time_2 -= min_time;
+
+        //  printf("2. SIZES: %zu %zu, COUNTER: %zu %zu, TIME: %lf %lf\n", queue1->size, queue2->size, counter_1, counter_2, time_1, time_2);
+
+        if (time_1 < EPS && queue1->size)
+        {
+            trigger_1++;
+            array_pop(queue1, &address, &x);
+            chance = random_float(0, 1);
+            if (chance - CHANCE > EPS)
+            {
+                array_push(queue2, x);
+                if (time_2 < EPS && queue2->size == 1)
+                {
+                    time_2 = random_float(T2_0, T2_1);
+                    avg_time_2 += time_2;
+                }
+                sum_2 += queue2->size;
+                counter_2++;
+                sum_1 += queue1->size;
+                counter_1++;
+                total_second++;
+            }
+            else
+            {
+                array_push(queue1, x);
+                total_first++;
+            }
+        }
+        //  printf("3. SIZES: %zu %zu, COUNTER: %zu %zu, TIME: %lf %lf, CHANCE: %lf\n", queue1->size, queue2->size, counter_1, counter_2, time_1, time_2, chance);
+
+
+        if (time_2 < EPS && queue2->size)
+        {
+            array_pop(queue2, &address, &x);
+            array_push(queue1, x);
+            total_out++;
+            sum_1 += queue1->size;
+            counter_1++;
+            sum_2 += queue2->size;
+            counter_2++;
+
+            if (total_out % 100 == 0 && print)
+               output_inter_result(queue1->size, queue2->size, sum_1 / (double)counter_1, sum_2 / (double)counter_2, total_out);
+        }
+            //  printf("4. SIZES: %zu %zu, COUNTER: %zu %zu, TIME: %lf %lf, CHANCE: %lf\n", queue1->size, queue2->size, counter_1, counter_2, time_1, time_2, chance);
+    }
+    avg_time_2 /= total_out;
+    if (print)
+        output_full_result(total_time, downtime_2, trigger_1, avg_time_2, T1_0, T1_1, T2_0, T2_1);
+    array_free(queue1);
+    array_free(queue2);
+}
