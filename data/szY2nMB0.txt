@@ -1,0 +1,88 @@
+#include <stdexcept> // runtime_error
+#include <memory> // unique_ptr
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <initguid.h> // CLSID_DesktopWallpaper, IID_IDesktopWallpaper
+#include <shlobj.h> // COM nonsense
+
+/*
+	This requires linking against ole32 (pass `-lole32` if using GCC)
+
+	THIS WAS WRITTEN QUICK AND DIRTY!!
+
+	I tried to keep this example simple, but also not abandon best practices.
+
+	The error checks only tell you that things blew up. You shoud log the
+	error code along with other useful information (std::source_location, etc)
+	so can also find out _why_ it blew up.
+
+	I'm using a struct and a unique_ptr to automate lifetime management &
+	clean-up of the COM resources (RAII). If you were writing this as part
+	of a public API / library, you'd probably want to provide a more safe and
+	stable interface which would require a more well-designed COM abstraction.
+*/
+
+struct raii_com
+{
+	[[nodiscard]] explicit raii_com(
+		const tagCOINIT tag = COINIT_APARTMENTTHREADED)
+	{
+		if (CoInitializeEx(NULL, tag) != S_OK) throw std::runtime_error(
+			"A raii_com instance failed to initialize :(");
+	}
+
+	~raii_com() noexcept
+	{ CoUninitialize(); }
+};
+
+/*
+	This is a type alias for a unique_ptr that will hold our IDesktopWallpaper
+	resource, and a pointer to a custom deleter function. When the unique_ptr
+	is destroyed, it will pass the IDesktopWallpaper* to the deleter function
+	which will handle clean-up. Not perfect, but better than a raw pointer.
+*/
+using raii_desktop_wallpaper =
+	std::unique_ptr<IDesktopWallpaper, void(*)(IDesktopWallpaper*)>;
+
+// The `raii_com` argument just helps guarantee that one exists
+raii_desktop_wallpaper desktop_wallpaper_factory(const raii_com&)
+{
+	// Create an instance of the wallpaper thingy
+	IDesktopWallpaper* our_new_resource;
+	if (CoCreateInstance(
+			CLSID_DesktopWallpaper,
+			NULL,
+			CLSCTX_LOCAL_SERVER,
+			IID_IDesktopWallpaper,
+			reinterpret_cast<void**>(&our_new_resource))
+		!= S_OK)
+			throw std::runtime_error(
+				"desktop_wallpaper_factory() failed :(");
+
+	// Define the clean-up function (Lambda here, but could be normal func).
+	const auto our_custom_deleter{
+		[](IDesktopWallpaper* const p) noexcept
+		{
+			if (p != nullptr)
+				p->Release();
+		}
+	};
+
+	// Implicitly construct and return a `raii_desktop_wallpaper`
+	return {our_new_resource, our_custom_deleter};
+}
+
+int main()
+{
+	const raii_com com;
+	const auto wallpaper{ desktop_wallpaper_factory(com) };
+
+	if (wallpaper->AdvanceSlideshow(NULL, DSD_FORWARD) != S_OK)
+		throw std::runtime_error("AdvanceSlideshow failed :(");
+
+	// No need to call wallpaper->Release() or CoUninitialize() because
+	// clean-up is managed by the wrapper object lifetimes
+
+    return 0;
+}
