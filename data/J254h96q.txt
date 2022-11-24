@@ -1,0 +1,174 @@
+(defmacro out (&rest args) (print args))
+
+(defun default () t)
+(defun valof (x) x)
+
+(defun split (src d) 
+    (cond
+        ((null src) (list nil))
+        ((eq (car src) d) (cons nil (split (cdr src) d)))
+        (t (let ((x (split (cdr src) d))) (cons (cons (car src) (car x)) (cdr x))))
+    ))
+
+(defun split-once (src d) 
+    (cond
+        ((null src) (list nil))
+        ((eq (car src) d) (list nil (cdr src)))
+        (t (let ((x (split-once (cdr src) d))) (cons (cons (car src) (car x)) (cdr x))))
+    ))
+
+(defmacro sub (&rest src)
+    (let ((x (split-once (cdr src) ':)))
+        `(defun ,(car src) ,(car x) ,(cadr x))
+    ))
+    
+(defmacro save (&rest src)
+    (let ((x (split-once src 'as)))
+        `(let ((,(caadr x) ,(car x))) ,(cdadr x))
+    ))
+    
+(defmacro fn (&rest src)
+    (let ((sp=> (split-once src '=>))) (let  ((spas (split-once (cadr sp=>) 'as)))
+        `(let ((,(caadr spas) (lambda ,(car sp=>) ,(car spas)))) ,(cdadr spas))
+    )))
+    
+(defmacro switch (&rest src)
+    (let 
+        ((   y ( lambda(x)(split x ':) )   ))
+        (cons 'cond (mapcar y (split src '\\)))
+    ))
+    
+(defmacro exe (&rest src)
+    (let ((x (split-once src 'then)))
+        `(let ((~~dummy~~ ,(car x))) ,(cadr x))
+    ))
+    
+(defmacro assign (&rest src)
+    (let ((x (split-once src 'to)))
+        `(EXE setf ,(caadr x) ,(car x) THEN ,@(cdadr x))
+    ))
+    
+
+;(print (macroexpand '(ASSIGN valof 10 TO x fn a b c d e)))
+    
+(defmacro ?? (&rest src)
+    (SAVE split-once src 'y? AS s-y?
+    SAVE car s-y? AS predicate
+    SAVE split-once (cadr s-y?) 'n? AS s-n?
+    SAVE car  s-n? AS yes-fun
+    SAVE cadr s-n? AS no-fun
+    valof `(if ,predicate ,yes-fun ,no-fun)
+    ))
+    
+(sub exec-loop body-fn condition-fn :
+    ?? apply condition-fn nil
+    Y? SAVE apply body-fn nil AS no-breaks
+       valof (?? valof no-breaks Y? exec-loop body-fn condition-fn N? valof nil)
+    N? valof nil
+)
+    
+(defmacro while (&rest src)
+    (
+    SAVE split-once src 'cycle AS split-cycle
+    SAVE car   split-cycle  AS predicate
+    SAVE caadr split-cycle  AS body
+    SAVE cdadr split-cycle  AS ret
+    SAVE valof `(lambda () ,body)      AS body-fn
+    SAVE valof `(lambda () ,predicate) AS condition-fn
+    valof `(EXE exec-loop ,body-fn ,condition-fn THEN ,@ret)
+    ))
+    
+(sub stop-loop : valof nil)
+(sub next-iter : valof t)
+
+(sub whiletry :
+    SAVE valof 0 AS x
+    WHILE < x 10 CYCLE (EXE print x THEN ASSIGN + x 1 TO x NEXT-ITER)
+    * x 2
+)
+
+;(print(whiletry))
+;(print (macroexpand '(exe + a b then - x y)))
+    
+;(sub try src : fn x => + x 10 as f mapcar f src)
+;(print (try '(1 2 3 4 5))) 
+
+(defmacro match2 (&rest src) 
+(
+        FN x => split x ': AS split-colon
+        cons 'cond (mapcar split-colon (split src '\\))
+))
+    
+(SUB split2 src d :
+    SWITCH null src       : list nil
+        \\ eq (car src) d : cons nil (split2 (cdr src) d)
+        \\ default        : SAVE split (cdr src) d AS x
+                            cons (cons (car src) (car x)) (cdr x)
+)
+
+(SUB where< src pivot :
+    SAVE car src AS head
+    SAVE cdr src AS tail
+    SWITCH null src     : valof nil
+        \\ < head pivot : cons head (where< tail pivot) 
+        \\ default      : where< tail pivot
+)
+
+(SUB where>= src pivot :
+    SAVE car src AS head
+    SAVE cdr src AS tail
+    SWITCH null src      : valof nil
+        \\ >= head pivot : cons head (where>= tail pivot) 
+        \\ default       : where>= tail pivot
+)
+
+(SUB qsort src :
+    ?? null src 
+    Y? valof nil
+    N? SAVE car src AS pivot
+       SAVE cdr src AS observable
+       SAVE qsort (where<  observable pivot) AS low-src
+       SAVE qsort (where>= observable pivot) AS high-src
+       append low-src (list pivot) high-src
+                      
+)
+
+(SUB bubble src :
+    SAVE copy-list src AS xs
+    SAVE valof xs AS i
+    WHILE not (null i) CYCLE
+    (
+        SAVE cdr i AS next-i
+        
+        SAVE valof xs AS j
+        WHILE not (null (cdr j)) CYCLE
+        (
+            SAVE cdr j AS next-j
+        
+            SAVE car  j AS low-val
+            SAVE cadr j AS high-val
+            
+            EXE ?? > low-val high-val 
+                Y? SAVE valof low-val AS tmp
+                   ASSIGN cadr j    TO (car  j)
+                   ASSIGN valof tmp TO (cadr j)
+                   default
+                N? default
+            THEN
+            
+            ASSIGN valof next-j TO j
+            next-iter
+        )
+        
+        ASSIGN valof next-i TO i
+        next-iter
+    )
+    valof xs
+)
+
+(print (bubble '(2 8 31 6 0 0 1 88 6 1)))
+;(print (cdr nil))
+
+;(print (split2 '(1 2 3 ! 4 5 6) '!))    
+;(print (split2 '(1 2 3 4 ! a b c ! ! x nil z ! f ! ! h !) '!))
+;(print (list< '(2 8 31 6 0 0 1 88 6 1)))
