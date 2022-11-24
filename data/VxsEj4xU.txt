@@ -1,0 +1,181 @@
+// lab 6
+
+// strrev.c
+
+#include <stdio.h>
+#include <string.h>
+#include <pthread.h>
+#include <errno.h>
+
+void *
+reverse(void *v) {
+    char *str = (char *)v;
+    int n = strlen(str);
+    char strrev[1000];
+    for (int i = 0; i < 5; i++) {
+        strrev[i] = str[n - i - 1];
+    }
+    strrev[strlen(str)] = '\0';
+    printf("%s\n", strrev);    
+}
+
+int main(int argc, char **argv) {
+    char *str = argv[1];
+
+    pthread_t thr;
+    if (pthread_create(&thr, NULL, reverse, str)) {
+        perror(NULL);
+        return errno;
+    }   
+
+    void *result;
+    if (pthread_join(thr, &result)) {
+        perror(NULL);
+        return errno;
+    }
+}
+
+// matrice.c
+
+#include <stdio.h>
+#include <string.h>
+#include <pthread.h>
+#include <errno.h>
+#include <stdlib.h>
+
+int r1 = 3, c1 = 3;
+int mat1[10][10] = {
+    {2, 4, 1},
+    {2, 3, 9}, 
+    {3, 1, 8}
+};
+int r2 = 3, c2 = 3;
+int mat2[10][10] = {
+    {1, 2, 3},
+    {3, 6, 1},
+    {2, 4, 7}
+};
+int produs[10][10];
+
+struct pereche {
+    int i, j;
+};
+
+void *
+calcul(void *v) {
+    struct pereche *a = (struct pereche *)v;
+    for (int k = 0; k < c1; k++) {
+        produs[a->i][a->j] += mat1[a->i][k] * mat2[k][a->j];
+    }
+}
+
+int main() {
+    for (int i = 0; i < r1; i++)
+        for (int j = 0; j < c2; j++)
+            produs[i][j] = 0;
+
+    pthread_t thr[100];
+    for (int i = 0; i < r1; i++) {
+        for (int j = 0; j < c2; j++) {
+            struct pereche *a = malloc(sizeof(struct pereche));
+            a->i = i;
+            a->j = j;
+            
+            if (pthread_create(&thr[i * r1 + j], NULL, calcul, a)) {
+                perror(NULL);
+                return errno;
+            }  
+        }
+    }
+
+    for (int i = 0; i < r1 * c2; i++) {
+        if (pthread_join(thr[i], NULL)) {
+            perror(NULL);
+            return errno;
+        }
+    }
+    
+    for (int i = 0; i < r1; i++) {
+        for (int j = 0; j < c2; j++)
+            printf("%d ", produs[i][j]);
+        printf("\n");
+    }
+
+}
+
+// lab7
+
+// count.c
+#include <stdio.h>
+#include <pthread.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <time.h>
+
+#define MAX_RESOURCES 5
+int available_resources = MAX_RESOURCES;
+
+pthread_mutex_t mtx;
+
+int decrease_count(int count) {
+    pthread_mutex_lock(&mtx);
+    if (available_resources < count) {
+        return -1;
+        pthread_mutex_unlock(&mtx);
+    }
+    else {
+        available_resources -= count;
+        printf("Got %d resources, %d reamaining.\n", count, available_resources);
+        pthread_mutex_unlock(&mtx);
+    }
+    return 1;
+}
+
+int increase_count(int count) { 
+    pthread_mutex_lock(&mtx);
+    available_resources += count;
+    printf("Released %d resources, %d remaining.\n", count, available_resources);
+    pthread_mutex_unlock(&mtx);
+    return 0;
+}
+
+void *
+t_count(void* v) {
+    int count = *(int *)v;
+    if (decrease_count(count)) {
+        increase_count(count);
+    }
+}
+
+int main() {
+    srand(time(0));
+    if (pthread_mutex_init(&mtx, NULL)) {
+        perror(NULL);
+        return errno;
+    }
+
+    pthread_t thr[10];
+    
+    for (int i = 0; i < 10; i++) {
+        int *count = malloc(sizeof(int));
+        *count = rand() % 5 + 1;
+        if (pthread_create(&thr[i], NULL, t_count, count)) {
+            perror(NULL);
+            return errno;
+        }
+    }
+
+    for (int i = 0; i < 10; i++) {
+        if (pthread_join(thr[i], NULL)) {
+            perror(NULL);
+            return errno;
+        }
+    }
+
+    pthread_mutex_destroy(&mtx);
+}
+
+
+
+
+
