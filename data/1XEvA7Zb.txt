@@ -1,0 +1,98 @@
+@echo off
+setlocal EnableDelayedExpansion
+
+rem Update these paths as needed
+set FFMPEG=C:\bin\foobar2000\encoders\x64\ffmpeg.exe
+set SOX=c:\bin\foobar2000\encoders\sox\sox.exe
+
+rem Usage: slice.bat pathtofile.ext bpm bars
+rem Example: slice.bat music.wav 120 8
+
+rem calculate time from BPM/Bars
+set MaxQuadIndex=3
+call :SetToInteger SegmentTime %2
+call :DivideByInteger SegmentTime 60
+call :MultiplyByInteger SegmentTime %3
+call :Print SegmentTime
+
+
+rem clean old data
+del *.wav
+del *.flac
+
+echo Easy Cheesy Loopy Peasy
+echo Splitting %1 into slices (BPM: %2, Bars: %3, Segment Time: !PrintBuffer!) ...
+
+rem Convert to WAV
+%FFMPEG% -loglevel quiet -i %1 -c:a pcm_s24le -ac 2 -ar 48000 -af "silenceremove=start_periods=1:start_duration=1:start_threshold=-60dB:detection=peak,aformat=dblp,areverse,silenceremove=start_periods=1:start_duration=1:start_threshold=-60dB:detection=peak,aformat=dblp,areverse" temp.wav
+
+rem Use sox for accurate time splitting
+%SOX% temp.wav slice.wav trim 0 !PrintBuffer! : newfile : restart
+del temp.wav
+
+rem Encode FLAC
+for /f "delims=" %%D in ('dir /b *.wav') do (
+	echo Converting %%D to flac ...
+ 	C:\bin\foobar2000\encoders\x64\flac -8 --totally-silent %%D
+	del %%D
+)
+
+goto :EOF
+
+
+rem functions for floating point calculation, from https://thedailywtf.com/articles/Stupid-Coding-Tricks-A-Batch-of-Pi
+
+:Print
+    set PrintBuffer=x
+    REM  Omit a couple of least significant quads, because they will have roundoff errors.
+    if defined PiDebug (
+        set /a PrintMinQuadIndex=0
+    ) else (
+        set /a PrintMinQuadIndex=2
+    )
+    set /a PrintMaxQuadIndex = MaxQuadIndex - 1
+    for /L %%i in (!PrintMinQuadIndex!, 1, !PrintMaxQuadIndex!) do (
+        set PrintDigit=!%1_%%i!
+        if !PrintDigit! lss 1000 (
+            if !PrintDigit! lss 100 (
+                if !PrintDigit! lss 10 (
+                    set PrintDigit=000!PrintDigit!
+                ) else (
+                    set PrintDigit=00!PrintDigit!
+                )
+            ) else (
+                set PrintDigit=0!PrintDigit!
+            )
+        )
+        set PrintBuffer=!PrintDigit!!PrintBuffer!
+    )
+    set PrintBuffer=!%1_%MaxQuadIndex%!.!PrintBuffer:x=!
+    echo.%1 = !PrintBuffer!
+    goto :EOF
+
+:SetToInteger
+    for /L %%i in (0, 1, !MaxQuadIndex!) do (
+        set /a %1_%%i = 0
+    )
+    set /a %1_!MaxQuadIndex! = %2
+    goto :EOF
+
+:DivideByInteger
+    if defined PiDebug echo.DivideByInteger %1 %2
+    set /a DBI_Carry = 0
+    for /L %%i in (!MaxQuadIndex!, -1, 0) do (
+        set /a DBI_Digit = DBI_Carry*10000 + %1_%%i
+        set /a DBI_Carry = DBI_Digit %% %2
+        set /a %1_%%i = DBI_Digit / %2
+    )
+    goto :EOF
+
+:MultiplyByInteger
+    if defined PiDebug echo.MultiplyByInteger %1 %2
+    set /a MBI_Carry = 0
+    for /L %%i in (0, 1, !MaxQuadIndex!) do (
+        set /a MBI_Digit = %1_%%i * %2 + MBI_Carry
+        set /a %1_%%i = MBI_Digit %% 10000
+        set /a MBI_Carry = MBI_Digit / 10000
+    )
+    goto :EOF 
