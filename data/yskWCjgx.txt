@@ -1,0 +1,138 @@
+; designed for NASM generating .com file...
+
+cpu 386
+org 100h 
+
+section .text 
+Start:      
+
+	mov ax,0x13 ;SetVideoMode: 320x200x8
+	int 0x10
+		
+	;array assumes ds=ss
+	mov bp, LineArrayStart
+.NextLine:
+	xchg bp,sp    ; array <-> stack
+	pop si ;X0
+	pop di ;Y0
+	pop cx ;X1
+	pop dx ;Y1
+	pop ax ;Color	
+	xchg bp,sp    ; stack <-> array
+	call DrawLine
+	cmp bp, LineArrayEnd
+	jl .NextLine
+	mov sp, bp ;restore sp
+	
+	mov ah,0x7  ;wait for a key
+	int 0x21
+	
+	mov ax,0x3  ;SetVideoMode: 80x25 (text)
+	int 0x10
+	
+	int 0x20    ;end program
+
+LineArrayStart:
+	;   X0  Y0   X1  Y1  Color
+	dw   1,  0, 318,  0 , 9
+	dw 319,  1, 319,198 ,11
+	dw 318,199,   1,199 ,13
+	dw   0,198,   0,  1 ,15
+	dw   8,  8, 311,191 ,10
+	dw 311,  8,   8,191 ,14
+LineArrayEnd:
+;=========================================================================
+;=========================================================================
+;=========================================================================
+	
+;-----------------------------------------------
+; Draw Line (si,di) to (cx,dx) with color (al) ;
+; ----------------------------------------------
+; unused... AH,BP,SP (selfmod is using CS: to not assume CS=DS)
+DrawLine:
+	push ds                  ;save old DS
+	push 0xA000              ;make new DS to be screen segment
+	pop ds
+	
+	;   dx = abs(x1 - x0)
+	;   dy = abs(y1 - y0)
+	;   (x0 < x1) ? sx = 1 : sx = -1
+	;   (y0 < y1) ? sx = 1 : sx = -1
+	;   err = dx - dy
+	
+	mov bx, dx               ; bx = Y1*320+X1 
+	imul bx, 320             ; (end position)
+	add bx, cx               ; 
+	mov [cs:.EndOff-2], bx   ; self-mod ending offset for the line!
+	
+	mov bx, 1                ; SX = 1
+	sub cx,si                ; cx = (X1-X0)
+	jnb .ChkH                ; jump if not negative
+	neg bx                   ; SX = -1
+	neg cx                   ; cx = -cx (abs DX)
+.ChkH:
+	mov [cs:.SX-2], bx       ; self-mod setting (in code SX)
+	
+	mov bx, -320             ; SY = "-1"  (inverse because -DY , 320 because 'row')
+	sub dx,di                ; dx = (Y1-Y0)
+	jb .ChkV                 ; jump if negative
+	neg bx                   ; SY = "1"
+	neg dx                   ; dx = -dx (-abs DY)
+.ChkV: 
+	mov [cs:.SY-2], bx       ; self-mod setting (in code SY)	
+	
+	imul di, 320             ; di = Y0*320+X0
+	add di, si               ; (start position)
+	
+	;mov si, cx               ; ERR = DX+DY
+	;add si, dx               ; (add because DY was negated)		
+	lea bx,[ecx+edx]
+	add bx,bx
+
+;   loop
+;     printPixel(x0, y0, colour)
+;     if (x0 = x1) and (y0 = y1) exit loop
+;     e2 = 2 * err
+;     if (e2 > -dy) then
+;       err = err - dy
+;       x0 = x0 + sx
+;     end if
+;     if (e2 < dx) then
+;       err = err + dx
+;       y0 = y0 + sy
+;     end if
+;   end loop
+	
+.NextPixel:
+	mov [di], al             ; store pixel
+	cmp di, 0x5555           ; check if done drawing the line (SELF-MOD!)
+.EndOff:
+	je .Done
+	
+	;lea bx,[esi+esi]
+	;;mov bx, si               ; E2 = ERR*2
+	;;add bx, bx
+	
+	cmp bx, dx               ; if (E2 > -DY) then
+	jle .NoAddY              ; (inverse jump)
+	;add si, dx              ; ERR = ERR - DY (DY negativated)
+	add di, 0x5555           ; X0 = X0 + SX (Self-Mod SX (-1 or 1))
+.SX:
+	cmp bx, cx               ; if (E2 < DX) then
+	lea bx,[ebx+edx*2]	     ; duplicate code because both DX/DY comparsion must use the same BX
+	jl .DoAdd                ; so i do it before the lea (which does not change registers)
+	jmp .NextPixel           ; and jump to add part in positive case (better!!)
+.NoAddY:	                
+	cmp bx, cx               ; if (E2 < DX) then
+	jge .NextPixel           ; (inverse jump) (optimized jump)
+	;add si, cx               ; ERR = ERR + DX
+.DoAdd:	
+	lea bx,[ebx+ecx*2]	
+	add di, 0x5555           ; Y0 = Y0 + SY (Self-Mod SX {-1(-320) or 1(320)}
+.SY:
+	jmp .NextPixel           
+.Done:
+	pop ds                   ; restore previous DS
+	ret                      ; and return
+	
+;-----------------------------------------------
