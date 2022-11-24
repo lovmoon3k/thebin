@@ -1,0 +1,77 @@
+#!/bin/bash
+
+
+
+
+
+
+func_logger () {
+	# Common Log Format
+	# host ident authuser date request status bytes
+	# 127.0.0.1 user-identifier frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326
+	
+	local host=$(hostname -i)
+	local ident="-"
+	local authuser=$USER
+	local timestamp=$(date)
+	local request="$1"
+	local status="$2"			# codigo de error devuelto
+	local bytes="$3"			# tamaño en bytes del mensaje devuelto
+	echo "$host $ident $authuser [$timestamp] $request $status $bytes" >> /var/log/domain_admin.log
+}
+
+
+func_domain () {
+	local func_command=$1
+	local domain=$2
+	local output
+	local stat
+	case $func_command in
+
+		list)output="$(doctl compute domain list)"
+			echo $output
+
+			func_logger $func_command $? $(echo $output | wc -c) 
+			;;
+		create) doctl compute domain create $domain
+			;;
+		retrieve) if func_check $domain;then
+		       
+				output=$(doctl compute domain get $domain;stat=$?) 
+				echo $output
+				func_logger $func_command $stat $(echo $output | wc -c) 
+			else
+				func_logger $func_command $? $(echo $output | wc -c)
+
+			fi
+			;;
+	esac
+}
+
+
+func_check () {
+	local domain
+	local arg2
+
+	if doctl compute domain get $domain &> /dev/null; then
+
+		return 0
+	else
+		return 1
+	fi
+}
+
+script_context=$1		# domain|registers
+context_command=$2		# list|delete|retrieve|create
+domain=$3
+
+
+case $script_context in
+
+
+	domain)              # $1 en la funcion          $2
+		#func_domain list|create|retrieve|delete <domain>
+		func_domain $context_command $domain
+		;;
+
+esac
