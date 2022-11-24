@@ -1,0 +1,157 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <map>
+#include <memory>
+
+#define SIZE_OF_STRING 64
+
+class WordNote {
+public:
+    friend std::istream &operator>>(std::istream &stream, WordNote &data) {
+        return stream >> data.word_ >> data.number_of_occurrences_;
+    }
+
+    friend std::ostream &operator<<(std::ostream &stream, const WordNote &data) {
+        return stream << data.word_ << " " << data.number_of_occurrences_;
+    }
+
+private:
+    char word_[SIZE_OF_STRING];
+    uint64_t number_of_occurrences_{0};
+
+public:
+    WordNote() = default;
+
+    WordNote(const WordNote &other) = default;
+
+    WordNote(WordNote &&other) noexcept = default;
+
+    WordNote &operator=(const WordNote &other) = default;
+
+    WordNote &operator=(WordNote &&other) noexcept = default;
+
+    WordNote(const std::string &word, uint64_t number_of_occurrences)
+            : number_of_occurrences_(number_of_occurrences), word_() {
+        std::memcpy(word_, word.data(), SIZE_OF_STRING - 1);
+        word_[SIZE_OF_STRING - 1] = '\0';
+    }
+
+    void setWord(const std::string &word) {
+        std::memcpy(word_, word.data(), SIZE_OF_STRING - 1);
+        word_[SIZE_OF_STRING - 1] = '\0';
+    }
+
+    std::string getWord() const {
+        return std::string(word_);
+    }
+
+    uint64_t getNumberOfOccurrences() const {
+        return number_of_occurrences_;
+    }
+
+    void setNumberOfOccurrences(uint64_t numberOfOccurrences) {
+        number_of_occurrences_ = numberOfOccurrences;
+    }
+
+    static WordNote read(std::istream &);
+
+    static void write(std::ostream &, const WordNote &);
+};
+
+WordNote WordNote::read(std::istream &stream) {
+    WordNote word{};
+    stream.read(reinterpret_cast<char *>(&word), sizeof(word));
+    return word;
+}
+
+void WordNote::write(std::ostream &stream, const WordNote &data) {
+    stream.write(reinterpret_cast<const char *>(&data), sizeof(data));
+}
+
+
+class FrequencyDictionary {
+    std::fstream data_;
+
+public:
+    void update(const std::string &word) {
+        if (!data_) {
+            throw std::exception("Fail of file");
+        }
+        data_.seekg(std::ios_base::beg);
+        auto start = data_.tellp();
+        data_.seekg(std::ios_base::end);
+        auto end = data_.tellp();
+
+        data_.seekg(std::ios_base::beg);
+
+        for (; start != end; start += sizeof(WordNote)) {
+            data_.seekg(start, std::ios_base::beg);
+            WordNote data = WordNote::read(data_);
+            if (data.getWord() == word) {
+                data.setNumberOfOccurrences(data.getNumberOfOccurrences() + 1);
+                data_.seekg(start, std::ios_base::beg);
+                WordNote::write(data_, data);
+                data_.seekg(std::ios_base::beg);
+                return;
+            }
+        }
+        WordNote word_note(word, 1);
+        WordNote::write(data_, word_note);
+        data_.seekg(std::ios_base::beg);
+    }
+
+    void bind(const std::string &file_name) {
+        data_.open(file_name);
+        if (!data_) {
+            throw std::exception("Bad open!");
+        }
+    }
+
+    void bind(const std::string &file_name, std::istream &stream) {
+        this->bind(file_name);
+        std::string word;
+        while (stream >> word) {
+            update(word);
+        }
+    }
+
+    std::string maxWord() {
+        WordNote max_word_note{};
+
+        data_.seekg(std::ios_base::beg);
+        auto start = data_.tellp();
+        data_.seekg(std::ios_base::end);
+        auto end = data_.tellp();
+
+        data_.seekg(std::ios_base::beg);
+
+        for (; start != end; start += sizeof(WordNote)) {
+            data_.seekg(start, std::ios_base::beg);
+            WordNote data = WordNote::read(data_);
+            if (data.getNumberOfOccurrences() > max_word_note.getNumberOfOccurrences()) {
+                max_word_note = data;
+            }
+        }
+        return max_word_note.getWord();
+    }
+
+    void out(std::ostream &stream) {
+        data_.seekg(std::ios_base::beg);
+        auto start = data_.tellp();
+        data_.seekg(std::ios_base::end);
+        auto end = data_.tellp();
+
+        data_.seekg(std::ios_base::beg);
+
+        for (; start != end; start += sizeof(WordNote)) {
+            data_.seekg(start, std::ios_base::beg);
+            WordNote data = WordNote::read(data_);
+            stream << data;
+        }
+    }
+};
+
+int main() {
+
+}
