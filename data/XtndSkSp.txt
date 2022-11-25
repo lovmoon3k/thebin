@@ -1,0 +1,254 @@
+modem = peripheral.wrap("left")
+modem.open(5555)
+
+function setup()
+    modem.open(403)
+
+    accepted = false
+    fullSlotCounter = 0
+    temp = 0
+    awaitVar = true
+end
+
+
+function await(x)
+    awaitVar = true
+    while awaitVar == true do
+        event, modemSide, senderChannel, replyChannel, message, senderDistance = os.pullEvent("modem_message")
+        if message == x then
+            awaitVar = false
+        end
+    end
+end
+
+
+function getValues()  
+    event, modemSide, senderChannel, replyChannel, message, senderDistance = os.pullEvent("modem_message")
+    width = tonumber(message)
+
+    event, modemSide, senderChannel, replyChannel, message, senderDistance = os.pullEvent("modem_message")
+    height = tonumber(message)
+
+    event, modemSide, senderChannel, replyChannel, message, senderDistance = os.pullEvent("modem_message")
+    depth = tonumber(message)
+end
+
+
+function calculateWidth()
+    print("calculating")
+
+	slaveAmount = turtle.getItemCount(14)
+
+    if width % slaveAmount == 0 then
+        slaveWidth = width / slaveAmount
+        lastSlaveWidth = slaveWidth
+    elseif width < slaveAmount then
+        i = 0
+		while not (((width - i) % slaveAmount) == 0) do
+			i = i + 1
+		end
+		lastSlaveWidth = slaveWidth + i
+    end
+
+    print(slaveAmount)
+    print(slaveWidth)
+    print(lastSlaveWidth)
+
+    for i = 1, slaveAmount, 1 do
+        modem.open(100 + i)
+    end
+end
+
+
+function approximitTime()
+    approximitTime = (((width * height * depth) * 0.75) / slaveAmount) + (slaveAmount + width * 1)
+    modem.transmit(5555, 5555, "Mining started, approximitly "..approximitTime.." seconds left...")
+end
+
+
+function checkFuel()
+    if turtle.getFuelLevel() < 801 then
+        turtle.select(14)
+        turtle.refuel(16)
+        turtle.select(1)
+    end
+end
+
+
+function checkInv()
+    if turtle.getItemCount(14) < 8 then
+        enderChests()
+    elseif turtle.getItemCount(8) > 0 then
+        enderChests()
+    end
+        
+        
+    fullSlotCounter = 0
+    checkFuel()
+end
+
+
+
+function enderChests()
+    -- Unload slot 1 - 10
+    turtle.dig()
+    turtle.select(15)
+    turtle.place()
+    for i = 1, 10 , 1 do
+        turtle.select(i)
+        turtle.drop()
+    end
+    turtle.select(15)
+    turtle.dig()
+
+    -- Load Slot 14 with coal
+    turtle.select(16)
+    turtle.place()
+    
+    if turtle.getItemCount(14) < 64 then
+        turtle.select(14)
+        turtle.suck(64 - turtle.getItemCount(14))
+    end
+    
+    turtle.select(16)
+    turtle.dig()
+end
+
+
+function buildSpwan()
+    print("building spawn...")
+    turtle.select(1)
+    turtle.turnLeft()
+    turtle.dig()
+    turtle.forward()
+    turtle.turnRight()
+    turtle.turnRight()
+    turtle.digUp()
+    turtle.digDown()
+    turtle.select(12)
+    turtle.placeDown()
+    turtle.select(11)
+    turtle.dropDown()
+    turtle.up()
+end
+
+
+function summonSlaves()
+    print("summoning slaves...")
+    print(slaveAmount)
+
+    for i = 1, slaveAmount, 1 do
+        turtle.select(13)
+        turtle.placeDown()
+
+        print("slave summoned")
+
+        peripheral.call('bottom','turnOn')
+
+        sleep(1.5)
+        turtle.select(15)
+        turtle.dropDown(1)
+        sleep(.5)
+        turtle.select(16)
+        turtle.dropDown(1)
+        sleep(.5)
+        turtle.select(14)
+        turtle.dropDown(4)
+        
+
+        await("listening-port")
+        print("accept")
+        modem.transmit(403, 403, 100 + i)
+
+        if i == 1 then
+            distanceToGo = width - lastSlaveWidth
+        else
+            distanceToGo = width - lastSlaveWidth - (slaveWidth * (i - 1)) 
+        end
+
+        print(distanceToGo)
+
+        await("listening-position")
+        modem.transmit(100 + i, 100 + i, distanceToGo)
+        
+        if i == 1 then
+            sleep(width)
+        end
+        
+        sleep(2)
+    end
+
+    sleep(width + 3)
+end
+
+
+function destroySpawn()
+    print("destroying spawn...")
+    turtle.down()
+    turtle.select(11)
+    turtle.suckDown()
+    turtle.select(12)
+    turtle.digDown()
+    checkInv()
+end
+
+
+function giveOrder()
+    print("sending parameters")
+    for i = 1, slaveAmount, 1 do
+        modem.transmit(100 + i, 100 + i, "values-incoming")
+        
+        if i == 1 then
+            modem.transmit(100 + i, 100 + i, lastSlaveWidth)
+            modem.transmit(100 + i, 100 + i, height)
+            modem.transmit(100 + i, 100 + i, depth)
+        else
+            modem.transmit(100 + i, 100 + i, slaveWidth)
+            modem.transmit(100 + i, 100 + i, height)
+            modem.transmit(100 + i, 100 + i, depth)
+        end
+    end
+end
+
+function eatSlaves()
+    for i = 1, slaveAmount, 1 do
+        await("arrived-home")
+    end
+    
+    for i = 1, width, 1 do
+        turtle.forward()
+        turtle.dig()
+    end
+    turtle.turnRight()
+    turtle.turnRight()
+    for i = 1, width, 1 do
+        turtle.forward()
+        turtle.dig()
+    end
+    turtle.turnRight()
+end
+
+
+
+-- Actual program
+
+await("start-mining")
+
+getValues()
+calculateWidth()
+approximitTime()
+
+checkInv()
+setup()
+
+buildSpwan()
+summonSlaves()
+    
+giveOrder()
+sleep(15)
+destroySpawn()
+
+
+eatSlaves()
+checkInv()
+sleep(5)
