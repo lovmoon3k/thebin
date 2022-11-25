@@ -1,0 +1,67 @@
+@name Tank ECU by AstalNeker<3
+@inputs Engine:array Wheel:array Differential:array Baseplate:entity Brake W S A D
+@outputs Gear
+
+@persist MaxBrakeForce Speed RearGear FrontGear
+
+if(first()) {
+    #------------Settings
+    MaxBrakeForce = 700
+    RearGear = 6
+    FrontGear = 1
+}
+
+interval(100)
+
+
+#----Control gear
+foreach(J, E:entity = Engine) {
+    E:acfThrottle((W+S+A+D) * 100)
+    
+    if(W || A || D) {
+        foreach(I, E:entity = Differential) {
+            Gear = FrontGear
+        }
+    }
+    if(S) {
+        foreach(I, E:entity = Differential) {
+            Gear = RearGear
+        }
+    }
+}
+
+#----Control braking/ABS
+Speed = round(toUnit("km/h",Baseplate:vel():length()),1)
+if(Brake) {
+    foreach(I, E:entity = Differential) {
+        for(X=1, Wheel:count()) {
+            E:acfClutch(1)
+            if(abs(Wheel[X,entity]:angVel():pitch()/6) <= 40) {
+                E:acfBrake(0)
+            }
+            else{
+                E:acfBrake(Brake*MaxBrakeForce)
+            }
+            
+            if(Speed < 10) {
+                E:acfBrake((Brake*MaxBrakeForce) * 0.7)
+            }
+        }
+    }
+}
+else{
+    #Reset the braking and Turn controller
+    foreach(I, E:entity = Differential) {
+        E:acfBrake(0)
+        E:acfClutch(0)
+
+        if(D) {
+            E:acfClutchLeft(1)
+            E:acfBrakeLeft(1*MaxBrakeForce)
+        }
+        if(A) {
+            E:acfClutchRight(1)
+            E:acfBrakeRight(1*MaxBrakeForce)
+        }
+    }
+}
