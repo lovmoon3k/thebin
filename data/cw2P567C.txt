@@ -1,0 +1,728 @@
+-- pastebin get 9rUhn7TQ startup
+--
+-- Program for ComputerCraft 1.4 mod for Minecraft.
+-- This is a turtle mining program. A better version of the native excavate
+-- because:
+--   * Mine 3 layers per pass.
+--   * Auto-refuel.
+--   * Location tracker.
+--   * Restart after server down.
+--   * Load mined chunk.
+--   * Fail safe movents.
+--   * Position auto-correct using chunkloader if CC >1.64.
+--
+-- DEPENDENCIES ---------------------------------------------------------------
+--
+-- Mods:
+--   * EnderStorage (optional - recommended)
+--     You can use Minecraft vanilla Ender chest, but you'll need two and some
+--     way to remove the items from it and leave the fuel.
+--   * ChickenChunks (optional - recommended)
+--     Leving the turtle without the Chunkloader is possible. It will work
+--     normally until it hits an unloaded chunk.
+--
+-- QUICK USAGE ----------------------------------------------------------------
+--
+-- $ pastebin get 9rUhn7TQ startup
+-- Load the turtle with:
+--   * Slot 1: 1x Enderchest with fuel.
+--   * Slot 2: 1x Enderchest for items.
+--   * Slot 3: 2x SpotLoader or ChunkLoader
+-- $ startup 16w
+-- To stop it and reset, hold CTRL+t to stop and execute:
+-- $ startup reset
+--
+-- HOW TO USE -----------------------------------------------------------------
+--
+-- On a mining turtle, paste and execute the following command to install:
+--   $ pastebin get 9rUhn7TQ startup
+-- The program accepts one argument, the size of each branch/hole to dig. This
+-- number needs to be even starting from 2. If odd number is provided the next
+-- integer will be used (ex: 3 will dig 4). The ideal size for efficiency is:
+--   * Using spotLoader, 16 (1 chunk).
+--   * Using chunkLoader, 32 (4 chunks).
+-- This is because for every hole, the turtle needs to put a chunkloader in the
+-- next digging spot, turn back to previuos and take the other chunklader. This
+-- increases fuel usage.
+--
+-- FUTURE IMPROVEMENTS --------------------------------------------------------
+--
+-- * Use a bucket of water to transform lava into obsidian or an empty bucket
+--   to get the lava for fuel. This will require Computercraft version 1.64.
+
+-------------------------------------------------------------------------------
+-- Contants -------------------------------------------------------------------
+
+-- Available X,Y direction constants.
+local DIRECTION_NORTH = 'north';
+local DIRECTION_EAST  = 'east';
+local DIRECTION_SOUTH = 'south';
+local DIRECTION_WEST  = 'west';
+
+-- Available Z direction constants.
+local HEIGHT_UP   = 'up';
+local HEIGHT_DOWN = 'down';
+
+-- Available severity of logs.
+local LOG_NOTICE  = 21;
+local LOG_WARNING = 22;
+local LOG_ERROR   = 23;
+local LOG_DEBUG   = 24;
+
+-- Program specific constants.
+local TURTLE_ENDERCHEST_FUEL = 1
+local TURTLE_ENDERCHEST_ITEMS = 2
+local TURTLE_CHUNKLOADER = 3
+local TURTLE_STORE = 4
+
+-------------------------------------------------------------------------------
+-- Variables ------------------------------------------------------------------
+
+-- Direction the turtle is facing.
+local facing = DIRECTION_NORTH
+
+-- The X direction based on initial position (0,0,0).
+local x  = 0
+
+-- The Z direction (hight) based on initial position (0,0,0).
+local z = 0
+
+-- The X direction based on initial position (0,0,0).
+local y = 0
+
+-- Name of the file that keep location saved.
+local file = "location.cc"
+
+-- Function arguments.
+local inputs = { ... }
+
+-- Size of the excavation site.
+local tunnelWidth
+local tunnelHeight
+local tunnelDepth
+
+-------------------------------------------------------------------------------
+-- Private functions ----------------------------------------------------------
+
+-------------------------------------------------------------------------------
+-- @function log()
+--
+-- Log system with severity.
+-- This function makes easier to change how turtles print messages. We change
+-- the color based on the severity argument.
+--
+-- @arg String message
+--   Message to be logged.
+-- @arg Integer severity
+--   One of the log constants that tells the severity of the message.
+--
+local function log(message, severity)
+  local severity = severity or LOG_NOTICE
+  local colorOld = term.getTextColor()
+  local color
+
+  if severity == LOG_NOTICE then
+    color = colors.white
+  elseif severity == LOG_WARNING then
+    color = colors.yellow
+  elseif severity == LOG_ERROR then
+    color = colors.red
+  elseif severity == LOG_DEBUG then
+    color = colors.green
+  end
+
+  term.setTextColor(color)
+  print(message)
+  term.setTextColor(colorOld)
+end
+
+-------------------------------------------------------------------------------
+-- @function refuel()
+--
+-- Perform the refuel action using the enderchest. We check if there is space
+-- for the chest to be placed and use the last inventory slot to suck the fuel.
+--
+local function refuel()
+  if turtle.detect() then
+    if not turtle.dig() then
+      log('Bedrock stop - refuel()')
+    end
+  end
+  turtle.select(TURTLE_ENDERCHEST_FUEL)
+  turtle.place()
+  turtle.select(16)
+  turtle.dropDown()
+  turtle.suck(16)
+  turtle.refuel(64)
+  log('Fuel level: ' .. turtle.getFuelLevel() )
+  turtle.select(TURTLE_ENDERCHEST_FUEL)
+  turtle.dig()
+  turtle.select(TURTLE_STORE)
+end
+
+
+-------------------------------------------------------------------------------
+-- @function unloadInventory()
+--
+-- ??
+local function unloadInventory()
+  turtle.select(TURTLE_ENDERCHEST_ITEMS)
+  turtle.digUp()
+  turtle.placeUp()
+  for i=TURTLE_STORE, 16 do
+    turtle.select(i)
+    turtle.dropUp()
+  end
+  turtle.select(TURTLE_ENDERCHEST_ITEMS)
+  turtle.digUp()
+end
+
+--------------------------------------------------------------
+-- @function checkInventory()
+--
+-- ??
+local function checkInventory()
+  local result = true
+  for i=TURTLE_STORE, 16 do
+    turtle.select(i)
+    item = turtle.getItemCount(i)
+    if item == 0 then
+      result = false
+      break
+    end
+  end
+  if result then
+    unloadInventory()
+  end
+  turtle.select(TURTLE_STORE)
+  return result
+end
+
+--------------------------------------------------------------
+-- @function quickCheckInventory()
+--
+-- ??
+local function quickCheckInventory()
+  local result = true
+  turtle.select(16)
+  item = turtle.getItemCount(16)
+  if item == 0 then
+    result = false
+  else
+    unloadInventory()
+  end
+  turtle.select(TURTLE_STORE)
+  return result
+end
+
+-------------------------------------------------------------------------------
+-- @function saveLocation()
+--
+-- Saves turtle position on file.
+local function saveLocation()
+  local f = fs.open(file, "w")
+  f.writeLine(facing)
+  f.writeLine(tostring(x))
+  f.writeLine(tostring(z))
+  f.writeLine(tostring(y))
+  f.writeLine(tostring(tunnelWidth))
+  f.writeLine(tostring(tunnelHeight))
+  f.writeLine(tostring(tunnelDepth))
+  f.close()
+end
+
+--------------------------------------------------------------
+-- @function loadLocation()
+--
+-- Loads turtle position on file.
+local function loadLocation()
+  if not fs.exists(file) then 
+    return false
+  end
+  local f = fs.open( file , "r" )
+  facing = f.readLine()
+  x = tonumber(f.readLine())
+  z = tonumber(f.readLine())
+  y = tonumber(f.readLine())
+  tunnelWidth = tonumber(f.readLine())
+  tunnelHeight = tonumber(f.readLine())
+  tunnelDepth = tonumber(f.readLine())
+  f.close()
+  return true
+end
+
+-------------------------------------------------------------------------------
+-- @function updateLocation()
+--
+-- After every sideways (x,y) move, we update the location track variables.
+local function updateLocation()
+  if facing == DIRECTION_NORTH then
+    y = y + 1
+  elseif facing == DIRECTION_SOUTH then
+    y = y - 1
+  elseif facing == DIRECTION_EAST then
+    x = x + 1
+  elseif facing == DIRECTION_WEST then
+    x = x - 1
+  else
+    log("Invalid facing direction", LOG_ERROR)
+  end
+  saveLocation()
+end
+
+-------------------------------------------------------------------------------
+-- @function updateHeight()
+--
+-- After every height change, we update the location track variable.
+local function updateHeight(str)
+  if str == HEIGHT_DOWN then
+    z = z - 1
+  elseif str == HEIGHT_UP then
+    z = z + 1
+  else
+    log("Invalid height direction", LOG_ERROR)
+  end
+  saveLocation()
+end
+
+-------------------------------------------------------------------------------
+-- Public functions -----------------------------------------------------------
+
+-------------------------------------------------------------------------------
+-- @function forward()
+--
+-- Move the turtle forward breaking blocks, attacking entities and refuel if 
+-- needed. If there is an unbreakable block the move fails.
+--
+-- @return Boolean
+--   False if reached unbreakable block, true otherwise.
+function forward()
+  local max = 30
+
+  while not turtle.forward() do
+    -- Fuel low.
+    if turtle.getFuelLevel() == 0 then
+      log("Fuel is over. Refueling!")
+      refuel()
+    -- Mob on the way.
+    elseif turtle.attack() then
+      log("Mob on my way. Die!")
+      local isAttacking
+      repeat
+        sleep(1)
+      until not turtle.attack()
+    -- Block on the way.
+    elseif turtle.detect() then
+      log("Block on the way. Dig!")
+      if not turtle.dig() then
+        log("Hit bedrock")
+        return false
+      end
+    end
+
+    -- Timeout limit on the loops.
+    max = max - 1
+    if max <= 0 then
+      log("Timeout on forward()")
+      return false
+    end
+  end
+  updateLocation()
+  return true  
+end
+
+-------------------------------------------------------------------------------
+-- @function nforward()
+--
+-- Easy and clean way to move more than 1 block forward.
+--
+-- @arg Integer num
+--   Number of blocks to move forward.
+-- @return Boolean
+--   False if reached unbreakable block, true otherwise.
+function nforward(num)
+  if num <= 0 then
+    log("Invalid argument. Set to 1.", LOG_WARNING)
+    num = 1
+  end
+  log("Old position: x=" .. x .. " y=" .. y, LOG_DEBUG)
+  for i=1 , num do
+    if not forward() then
+      return false
+    end
+  end
+  log("New position: x=" .. x .. " y=" .. y, LOG_DEBUG)
+  return true
+end
+
+-------------------------------------------------------------------------------
+-- @function down()
+--
+-- Move the turtle down, digging if block is bellow, attacking if entity,
+-- refuel if needed and checking for bedrock.
+--
+-- @return Boolean
+--   False if bedrock is reached, true otherwise.
+function down()
+  while not turtle.down() do
+    if not turtle.digDown() then
+      if turtle.getFuelLevel() == 0 then
+        log("Fuel is over. Refueling.")
+        refuel()
+      elseif turtle.attackDown() then
+        log("Mob on the way. Die!")
+      else
+        log("Bedrock reached.")
+        return false
+      end
+    end
+  end
+  updateHeight(HEIGHT_DOWN)
+  return true
+end
+
+-------------------------------------------------------------------------------
+-- @function up()
+--
+-- Move the turtle up, digging if any block above, attacking if entity,
+-- refuel if needed and checking for bedrock.
+--
+-- @return Boolean
+--   False if bedrock is reached, true otherwise.
+function up()
+  while not turtle.up() do
+    if not turtle.digUp() then
+      if turtle.getFuelLevel() == 0 then
+        log("Fuel is over. Refueling.")
+        refuel()
+      elseif turtle.attackUp() then
+        log("Mob on the way. Die!")
+      else
+        log("Bedrock reached.")
+        return false
+      end
+    end
+  end
+  updateHeight(HEIGHT_UP)
+  return true
+end
+
+
+-------------------------------------------------------------------------------
+-- @function left()
+--
+-- Turn turtle to the left.
+function left()
+  turtle.turnLeft()
+  if facing == DIRECTION_NORTH then
+    facing = DIRECTION_WEST
+  elseif facing == DIRECTION_SOUTH then
+    facing = DIRECTION_EAST
+  elseif facing == DIRECTION_EAST then
+    facing = DIRECTION_NORTH
+  elseif facing == DIRECTION_WEST then
+    facing = DIRECTION_SOUTH
+  else 
+    log("Invalid facing direction", LOG_ERROR)
+  end
+  saveLocation();
+end
+
+-------------------------------------------------------------------------------
+-- @function right()
+--
+-- Turn turtle to the right.
+function right()
+  turtle.turnRight()
+  if facing == DIRECTION_NORTH then
+    facing = DIRECTION_EAST
+  elseif facing == DIRECTION_SOUTH then
+    facing = DIRECTION_WEST
+  elseif facing == DIRECTION_EAST then
+    facing = DIRECTION_SOUTH
+  elseif facing == DIRECTION_WEST then
+    facing = DIRECTION_NORTH
+  else 
+    log("Invalid facing direction", LOG_ERROR)
+  end
+  saveLocation();
+end
+
+-------------------------------------------------------------------------------
+-- @function turnAround()
+--
+-- ??
+--
+-- @return Boolean
+--   Return false if turning or facing directions are invalid and true
+--   otherwise.
+function turnAround()
+  left()
+  left()
+end
+
+-------------------------------------------------------------------------------
+-- @function turnTo(dir)
+--
+-- Turn to the argument direction. This is based on initial conditions. Initial
+-- facing direction is always north.
+--
+-- @arg Integer dir
+--   One of the direction constants.
+-- @return Boolean
+--   Return false if turning or facing directions are invalid and true
+--   otherwise.
+function turnTo(dir)
+  log("turnTo(" .. dir .. ")", LOG_DEBUG)
+  if dir == DIRECTION_NORTH then
+    if facing == DIRECTION_NORTH then
+      return true
+    elseif facing == DIRECTION_SOUTH then
+      right()
+      right()
+    elseif facing == DIRECTION_EAST then
+      left()
+    elseif facing == DIRECTION_WEST then
+      right()
+    else
+      log("Invalid facing direction " .. facing, LOG_ERROR)
+      return false
+    end
+  elseif dir == DIRECTION_SOUTH then
+    if facing == DIRECTION_SOUTH then
+      return true
+    elseif facing == DIRECTION_NORTH then
+      right()
+      right()
+    elseif facing == DIRECTION_WEST then
+      left()
+    elseif facing == DIRECTION_EAST then
+      right()
+    else
+      log("Invalid facing direction " .. facing, LOG_ERROR)
+      return false
+    end
+  elseif dir == DIRECTION_WEST then
+    if facing == DIRECTION_WEST then
+      return true
+    elseif facing == DIRECTION_EAST then
+      right()
+      right()
+    elseif facing == DIRECTION_NORTH then
+      left()
+    elseif facing == DIRECTION_SOUTH then
+      right()
+    else
+      log("Invalid facing direction " .. facing, LOG_ERROR)
+      return false
+    end
+  elseif dir == DIRECTION_EAST then
+    if facing == DIRECTION_EAST then
+      return true
+    elseif facing == DIRECTION_WEST then
+      right()
+      right()
+    elseif facing == DIRECTION_SOUTH then
+      left()
+    elseif facing == DIRECTION_NORTH then
+      right()
+    else
+      log("Invalid facing direction " .. facing, LOG_ERROR)
+      return false
+    end
+  else
+    log("Invalid goto direction " .. dir, LOG_ERROR)
+    return false
+  end
+  return true
+end
+
+-------------------------------------------------------------------------------
+-- @TODO LIST
+-- Transform lava into obsidian
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+function restartLayer()
+  if z > 0 then
+    while z > 0 do
+	  down()
+	end
+  end
+  if z < 0 then
+    while z < 0 do
+	  up()
+	end
+  end
+  if x > 0 then
+    turnTo(DIRECTION_WEST)
+	nforward(x)
+  end
+  if x < 0 then
+    turnTo(DIRECTION_EAST)
+	nforward(x)
+  end
+  turnTo(DIRECTION_NORTH)
+end
+
+-------------------------------------------------------------------------------
+function validateArgs()
+  if #inputs ~= 3 then
+    printUsage()
+    return false
+  end
+
+  tunnelWidth = tonumber(inputs[1])
+  tunnelHeight = tonumber(inputs[2])
+  tunnelDepth = tonumber(inputs[3])
+
+  if tunnelWidth <= 3 then
+    print('Tunnel width must be higher than 1.')
+    printUsage()
+    return false
+  end
+  if tunnelHeight <= 3 then
+    print('Tunnel height must be higher than 1.')
+    printUsage()
+    return false
+  end
+  if tunnelDepth <= 10 then
+    print('Depth must be higher than 10.')
+    printUsage()
+    return false
+  end
+
+  return true
+end
+
+-------------------------------------------------------------------------------
+function printUsage()
+  print('Usage:')
+  print('  bt <width> <height> <depth>')
+end
+
+-------------------------------------------------------------------------------
+function checkLabel()
+  local label = os.getComputerLabel()
+  if not label then
+    label = 'excav-' .. os.getComputerID()
+    os.setComputerLabel(label)
+    log('Turtle label set to ' .. label)
+  end
+end
+
+-------------------------------------------------------------------------------
+function tunnelPrimary(isWidthReverse)
+  turtle.digUp()
+  up()
+  turtle.digUp()
+  if isWidthReverse then
+	turnTo(DIRECTION_WEST)
+  else
+	turnTo(DIRECTION_EAST)
+  end
+  turtle.dig()
+
+  quickCheckInventory()
+ 
+  if isWidthReverse then
+    while x > 0 do
+      forward()
+	  turtle.digUp()
+      turtle.dig()
+      turtle.digDown()
+      quickCheckInventory()
+	end
+  else
+    while x < tunnelWidth do
+      forward()
+	  turtle.digUp()
+      turtle.dig()
+      turtle.digDown()
+      quickCheckInventory()
+	end
+  end
+  
+  forward()
+  turtle.digUp()
+  turtle.digDown()
+  
+  quickCheckInventory()
+end
+
+function doHeight(isHeightReverse)
+  tunnelPrimary(false)
+  turnAround()
+
+  if isHeightReverse then
+	if z > 0 then
+	  down()
+	  turtle.digDown()
+    end
+	if z > 0 then
+	  down()
+	  turtle.digDown()
+    end
+	if z > 0 then
+	  down()
+	  turtle.digDown()
+    end
+  else
+	if z < tunnelHeight - 1 then
+	  up()
+	  turtle.digUp()
+   end
+   if z < tunnelHeight - 1 then
+	  up()
+	  turtle.digUp()
+    end
+	if z < tunnelHeight - 1 then
+	  up()
+	  turtle.digUp()
+	end
+  end
+
+  quickCheckInventory()
+  
+  tunnelPrimary(true)
+  turnAround()
+end
+
+function tunnelSecondary(isHeightReverse)
+  if isHeightReverse then
+    while z > 1 do
+	  doHeight(isHeightReverse)
+	end
+  else
+    while z < tunnelHeight - 1 do
+	  doHeight(isHeightReverse)
+	end
+  end
+end
+
+function tunnel()
+  tunnelSecondary(false)
+  tunnelSecondary(true)
+end
+
+-------------------------------------------------------------------------------
+function main()
+  local success
+  checkLabel()
+
+  if loadLocation() then
+    restartLayer()
+  else
+    if not validateArgs() then
+      return
+    end
+  end
+
+  while true do
+    tunnel()
+	return
+  end
+end
+
+-------------------------------------------------------------------------------
+main()
