@@ -1,11 +1,5 @@
-[**4tQGwujB**](/data/4tQGwujB.txt) (26/11/22 - 03:24)- 1201 bytes
+[**YJ7Yq74Z**](/data/YJ7Yq74Z.txt) (26/11/22 - 03:29)- 7299 bytes
 
-[**4tQGwujB**](/data/4tQGwujB.txt) (26/11/22 - 03:24)- 1201 bytes
+**Total Datas**: 5053
 
-[**fT6ZZ4hb**](/data/fT6ZZ4hb.txt) (26/11/22 - 03:24)- 320 bytes
-
-[**fT6ZZ4hb**](/data/fT6ZZ4hb.txt) (26/11/22 - 03:24)- 320 bytes
-
-**Total Datas**: 5052
-
-**Total Size**: 28.15 MB / 28.1 MB
+**Total Size**: 28.16 MB / 28.2 MB
