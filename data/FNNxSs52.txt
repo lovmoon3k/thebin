@@ -1,0 +1,189 @@
+"""
+Точка минимальных выплат в реальном времени для опционов ближайшей даты истечения и
+всех дат истечения выбранного фьючерса
+"""
+import re
+from collections import defaultdict
+from datetime import datetime
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from QuikPy import QuikPy  # Работа с QUIK из Python через LUA скрипты QuikSharp
+
+
+class CalculateGraf:
+    call_code, put_code = 'ABCDEFGHIJKL', 'MNOPQRSTUVWX'
+
+    def __init__(self, future, classCode, classCode_future, strike_row=26):
+        self.future = future  # Фьючерс(тикер)
+        self.classCode = classCode  # Код класса для опционов на фьючерс
+        self.classCode_future = classCode_future  # Код класса для фьючерса
+        self.option_future_lst = list()  # Список опционов под выбранный фьючерс (all)
+        self.option_future_nearest_lst = list()  # Список опционов под выбранный фьючерс ближайшей даты истечения
+        self.exp_nearest = 0
+        self.today_date = datetime.now().strftime("%Y%m%d")  # Текущая дата
+        self.df = pd.DataFrame()  # Data Frame для построения графика ТМВ всех дат истечения опционов
+        self.df_nearest_date = pd.DataFrame()  # Data Frame для построения графика ТМВ ближайшей даты истечения опционов
+        self.step_strike_all = 0  # Шаг сетки для графика всех опционов равный шагу страйков
+        self.step_strike_nearest = 0  # Шаг сетки для графика всех опционов равный шагу страйков
+        self.strike_row = strike_row  # Количество страйков на графике
+        self.future_price = 0  # Последняя цена фьючерса
+        self.future_min = 0
+        self.future_max = 0
+
+    def start(self):
+        tmp_dic_all = dict()  # Словарь всех опционов под выбранный фьючерс
+        classSecurities = qpProvider.GetClassSecurities(self.classCode)['data'][:-1].split(',')  # Все тикеры класса
+        for secCode in classSecurities:  # Перебираем все тикеры
+            securityInfo = qpProvider.GetSecurityInfo(classCode, secCode)["data"]  # Получаем информацию о тикере
+            ticker_ba = securityInfo['base_active_seccode']  # Базовый актив опциона
+            date_exp = int(float(qpProvider.GetParamEx(self.classCode, secCode, 'EXPDATE')['data']['param_value']))
+            if ticker_ba == self.future and int(self.today_date) <= date_exp:
+                tmp_dic_all[secCode] = date_exp  # Заполнение словаря всех опционов под выбранный фьючерс
+
+        self.exp_nearest = min(tmp_dic_all.values())  # Получение минимальной даты истечения опционов
+        # Словарь ближайших опционов под выбранный фьючерс
+        tmp_dic_nearest = {k: v for (k, v) in tmp_dic_all.items() if v == self.exp_nearest}
+
+        self.option_future_lst = list(tmp_dic_all.keys())  # Ключи словаря в список
+        self.option_future_nearest_lst = list(tmp_dic_nearest.keys())
+
+    def run(self):
+        self.future_price = float(qpProvider.GetParamEx(self.classCode_future,
+                                                        self.future,
+                                                        'LAST')['data']['param_value'])  # Последняя цена фьючерса
+        self.future_min = float(qpProvider.GetParamEx(self.classCode_future,
+                                                      self.future,
+                                                      'LOW')['data']['param_value'])
+        self.future_max = float(qpProvider.GetParamEx(self.classCode_future,
+                                                      self.future,
+                                                      'HIGH')['data']['param_value'])
+
+        self.df = self.update(self.option_future_lst)
+        self.step_strike_all = min(np.diff(self.df['Страйк']))
+        self.df_nearest_date = self.update(self.option_future_nearest_lst)
+        self.step_strike_nearest = min(np.diff(self.df_nearest_date['Страйк']))
+
+    def update(self, option_lst):
+        call_dic, put_dic = defaultdict(int), defaultdict(int)
+        for secCode in option_lst:  # Перебираем тикеры
+            numbers = re.findall(r'\d+', secCode)  # Создание списка наборов цифр из тикера
+            letters = re.findall(r'\D+', secCode)  # Создание списка наборов букв из тикера
+            if letters[1][1] in CalculateGraf.call_code:
+                call_dic[int(numbers[0])] += int(float(qpProvider.GetParamEx(self.classCode,
+                                                                             secCode,
+                                                                             'NUMCONTRACTS')['data']['param_value']))
+            else:
+                put_dic[int(numbers[0])] += int(float(qpProvider.GetParamEx(self.classCode,
+                                                                            secCode,
+                                                                            'NUMCONTRACTS')['data']['param_value']))
+
+        # Словари с опционами в DF
+        df = pd.DataFrame(list(call_dic.items()), columns=['Страйк', 'CALL']).set_index('Страйк')
+        put_df = pd.DataFrame(list(put_dic.items()), columns=['Страйк', 'PUT']).set_index('Страйк')
+        df = df.join(put_df, how='outer')  # Склейка df по индексу
+        df = df.fillna(0)  # Замена Nan на 0
+        df = df.sort_index(ascending=True)  # Сортировка по возрастанию
+
+        # Создание колонок внутренней стоимости на основе цены фьючерса, страйк в индексе
+        df['Внутр. ст-ть CALL'] = df.apply(lambda x: self.future_price - x.name, axis=1)
+        df['Внутр. ст-ть PUT'] = df.apply(lambda x: x.name - self.future_price, axis=1)
+
+        # Находим минимальное отрицательное значение в колонках внутренней стоимости и его модуль +1 прибавляем ко всем
+        # значениям в колонках внутренней стоимости, чтобы избавиться от отрицательных значений.
+        if min(df['Внутр. ст-ть CALL']) < min(df['Внутр. ст-ть PUT']):
+            slagaemoe: int = abs(min(df['Внутр. ст-ть CALL'])) + 1
+        else:
+            slagaemoe: int = abs(min(df['Внутр. ст-ть PUT'])) + 1
+        df['Внутр. ст-ть CALL полож'] = np.array(df['Внутр. ст-ть CALL']) + slagaemoe
+        df['Внутр. ст-ть PUT полож'] = np.array(df['Внутр. ст-ть PUT']) + slagaemoe
+
+        # Создание колонок с открытым интересом умноженным на внутреннюю стоимости для Call и Put
+        df['Call_oi*int'] = df.apply(lambda x: x['CALL'] * x['Внутр. ст-ть CALL полож'], axis=1)
+        df['Put_oi*int'] = df.apply(lambda x: x['PUT'] * x['Внутр. ст-ть PUT полож'], axis=1)
+
+        # Создание колонок с накопленными суммами ОИ*step
+        df['Call сумма'] = np.cumsum(df['Call_oi*int'], axis=None, dtype=None, out=None)
+        df['Put сумма'] = np.cumsum(df['Put_oi*int'][::-1], axis=None, dtype=None, out=None)  # Обратный порядок
+
+        # Создание колонки суммы
+        df['Сумма'] = df.apply(lambda x: x['Call сумма'] + x['Put сумма'], axis=1)
+
+        # Индекс "Страйк" преобразуем в колонку, а сам индекс переиндексируем
+        df = df.rename_axis('Страйк').reset_index()
+
+        # Уменьшение DF для отображения графика
+        # Выбираем последние строки  с положительными Call
+        df1 = df.loc[(df['Внутр. ст-ть CALL'] >= 0)].tail(self.strike_row // 2)
+        # Выбираем первые строки с положительными Put
+        df2 = df.loc[(df['Внутр. ст-ть PUT'] >= 0)].head(self.strike_row // 2)
+        df = pd.concat([df1, df2])
+
+        return df
+
+
+def animate(i):
+    grafik.run()
+    ax_1.clear()
+    ax_2.clear()
+
+    ax_1.plot(grafik.df['Страйк'], grafik.df['Call сумма'], color='g', label='Call')
+    ax_1.plot(grafik.df['Страйк'], grafik.df['Put сумма'], color='r', label='Put')
+    ax_1.plot(grafik.df['Страйк'], grafik.df['Сумма'], color='b', label='Сумма')
+    if grafik.future_price > 0.0:
+        ax_1.axvline(x=grafik.future_price, color='purple', label=f'{grafik.future}:{grafik.future_price}')
+    if grafik.future_min > 0.0 and grafik.future_max > 0.0:
+        ax_1.axvline(x=grafik.future_min, linestyle=':', color='y', label=f'Min:{grafik.future_min}')
+        ax_1.axvline(x=grafik.future_max, linestyle=':', color='y', label=f'Max:{grafik.future_max}')
+    ax_1.legend()
+    ax_1.grid()
+    ax_1.set_xlabel('Страйк')  # Подпись к оси
+    ax_1.set_xticks(np.arange(min(grafik.df['Страйк']), max(grafik.df['Страйк'] + 1), grafik.step_strike_all))
+    ax_1.set_xticklabels(ax_1.get_xticks(), rotation=45)
+    now = datetime.now()
+    ax_1.set_title(f'ТМВ на все опционы {grafik.future} на {now.strftime("%d-%m-%Y %H:%M:%S")}')
+
+    ax_2.plot(grafik.df_nearest_date['Страйк'], grafik.df_nearest_date['Call сумма'], color='g', label='Call')
+    ax_2.plot(grafik.df_nearest_date['Страйк'], grafik.df_nearest_date['Put сумма'], color='r', label='Put')
+    ax_2.plot(grafik.df_nearest_date['Страйк'], grafik.df_nearest_date['Сумма'], color='b', label='Сумма')
+    if grafik.future_price > 0.0:
+        ax_2.axvline(x=grafik.future_price, color='purple', label=f'{grafik.future}:{grafik.future_price}')
+    if grafik.future_min > 0.0 and grafik.future_max > 0.0:
+        ax_2.axvline(x=grafik.future_min, linestyle=':', color='y', label=f'Min:{grafik.future_min}')
+        ax_2.axvline(x=grafik.future_max, linestyle=':', color='y', label=f'Max:{grafik.future_max}')
+    ax_2.legend()
+    ax_2.grid()
+    # ax_2.set_xlabel('Страйк')  # Подпись к оси
+    ax_2.set_xlabel(f'ТМВ на ближайшие опционы {grafik.future} c экспирацией {str(grafik.exp_nearest)[6:]}-'
+                    f'{str(grafik.exp_nearest)[4:6]}-{str(grafik.exp_nearest)[0:4]}')  # Подпись к оси
+    ax_2.set_xticks(np.arange(min(grafik.df_nearest_date['Страйк']),
+                              max(grafik.df_nearest_date['Страйк']) + 1, grafik.step_strike_nearest))
+    ax_2.set_xticklabels(ax_2.get_xticks(), rotation=45)
+    # now = datetime.now()
+    # ax_2.set_title(f'ТМВ на ближайшие опционы {grafik.future} на {now.strftime("%d-%m-%Y %H:%M:%S")}')
+
+
+if __name__ == '__main__':  # Точка входа при запуске этого скрипта
+    qpProvider = QuikPy()  # Вызываем конструктор QuikPy с подключением к локальному компьютеру с QUIK
+    # qpProvider = QuikPy(Host='<Ваш IP адрес>')  # Вызываем конструктор QuikPy с подключением к удаленному компьютеру с QUIK
+
+    # GZ LK SR RI Si Eu MX
+    classCode = 'SPBOPT'  # Класс тикеров для опционов на фьючерсы
+    classCode_future = 'SPBFUT'  # Класс тикеров фьючерсов
+    future = 'RIZ2'  # Фьючерс по которому ищем опционы
+    strike_row = 18  # Количество страйков на графике
+
+    fig = plt.figure(figsize=(6, 9))
+    ax_1 = fig.add_subplot(2, 1, 1)
+    ax_2 = fig.add_subplot(2, 1, 2)
+
+    grafik: CalculateGraf = CalculateGraf(future, classCode, classCode_future, strike_row)
+    grafik.start()
+
+    ani = animation.FuncAnimation(fig, animate, interval=20000)  # Обновление графика раз в 20 сек.
+    plt.show()
+
+    # Выход
+    qpProvider.CloseConnectionAndThread()  # Перед выходом закрываем соединение и поток QuikPy из любого экземпляра
