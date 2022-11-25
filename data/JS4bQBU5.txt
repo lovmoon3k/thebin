@@ -1,0 +1,61 @@
+import time
+import numpy
+from annoy import AnnoyIndex
+from pymongo import MongoClient
+
+DIMENSION = 128
+
+
+def vectorize(str):
+    return [int(bit) for bit in str]
+
+
+def int_to_bin(i):
+    return bin(i)[2:].rjust(32, '0')
+
+
+def build_tree(filename, n_trees=10, n_jobs=-1):
+    client = MongoClient()
+    nb_images = client.local['images'].count_documents({})
+    batch_size = 5000000
+    total_batch = nb_images // batch_size + 1
+    tree = AnnoyIndex(DIMENSION, 'hamming')
+    query_start = time.time()
+    images = list(client.local['images'].find({}).limit(batch_size))
+    print(f'Query executed in {time.time() - query_start}')
+
+    i = 0
+    for image in images:
+        h = int_to_bin(image['h1']) + \
+            int_to_bin(image['h2']) + \
+            int_to_bin(image['h3']) + \
+            int_to_bin(image['h4'])
+        tree.add_item(i, vectorize(h))
+        i = i + 1
+
+    # samples_start = time.time()
+    # numbers = numpy.random.rand(samples)
+    # print(f'Generated {samples} samples in {time.time() - samples_start}')
+
+    build_start = time.time()
+    tree.build(n_trees, n_jobs=n_jobs)
+    print(f'Built tree in {time.time() - build_start}')
+
+    save_start = time.time()
+    tree.save(filename)
+    print(f'Saved tree in {time.time() - save_start}')
+
+
+def search_tree(filename, n=100):
+    search_start = time.time()
+    tree = AnnoyIndex(DIMENSION, 'hamming')
+    tree.load(filename)
+    results = tree.get_nns_by_vector(vectorize(
+        "10110000000100000110110111111111000001111111110001011001000000000001011101001111001001110011001111010111110111100100100111010011"), n, include_distances=True)
+    print(results)
+    print(f'Found {len(results[0])} in {time.time() - search_start}')
+
+
+if __name__ == "__main__":
+    #build_tree('C:/tmp/test.ann')
+    search_tree('C:/tmp/test.ann')
