@@ -1,0 +1,161 @@
+#include "helpers.h"
+#include <stdio.h>
+#include <math.h>
+
+// Convert image to grayscale
+void grayscale(int height, int width, RGBTRIPLE image[height][width])
+{
+    for (int i = 0; i < height; i++)
+    {
+        for (int j = 0; j < width; j++)
+        {
+            int avgRGB = (int) round((image[i][j].rgbtBlue + image[i][j].rgbtGreen + image[i][j].rgbtRed) / 3.0);
+            image[i][j].rgbtBlue = avgRGB;
+            image[i][j].rgbtGreen = avgRGB;
+            image[i][j].rgbtRed = avgRGB;
+        }
+    }
+    return;
+}
+
+// Reflect image horizontally
+void reflect(int height, int width, RGBTRIPLE image[height][width])
+{
+    for (int i = 0; i < height; i++)
+    {
+        for (int j = 0, k = width - 1; j < width / 2; j++, k--)
+        {
+            int tempR = image[i][j].rgbtRed;
+            int tempG = image[i][j].rgbtGreen;
+            int tempB = image[i][j].rgbtBlue;
+            image[i][j].rgbtRed = image[i][k].rgbtRed;
+            image[i][k].rgbtRed = tempR;
+            image[i][j].rgbtGreen = image[i][k].rgbtGreen;
+            image[i][k].rgbtGreen = tempG;
+            image[i][j].rgbtBlue = image[i][k].rgbtBlue;
+            image[i][k].rgbtBlue = tempB;
+        }
+    }
+    return;
+}
+
+// Blur image
+void blur(int height, int width, RGBTRIPLE image[height][width])
+{
+    // Makes temporary copy of original image to avoid picking blurred pixels
+    RGBTRIPLE tmp[height][width];
+    for (int i = 0; i < height; i++)
+    {
+        for (int j = 0; j < width; j++)
+        {
+            tmp[i][j] = image[i][j];
+        }
+    }
+    // Loops through image pixels
+    for (int i = 0; i < height; i++)
+    {
+        for (int j = 0; j < width; j++)
+        {
+            // Inits variables to store total red, green, blue and counts n valid pixels for avg
+            float r, g, b;
+            int n;
+            r = g = b = n = 0;
+            for (int row = -1; row < 2; row++)
+            {
+                for (int col = -1; col < 2; col++)
+                {
+                    // Checks if pixel is outside rows and columns
+                    if (row + i >= 0 && row + i < height && col + j >= 0 && col + j < width)
+                    {
+                        r += tmp[i + row][j + col].rgbtRed;
+                        g += tmp[i + row][j + col].rgbtGreen;
+                        b += tmp[i + row][j + col].rgbtBlue;
+                        n++;
+                    }
+                }
+            }
+            // Applies blur to original image
+            image[i][j].rgbtRed = round(r / n);
+            image[i][j].rgbtGreen = round(g / n);
+            image[i][j].rgbtBlue = round(b / n);
+        }
+    }
+    return;
+}
+
+// Detect edges
+void edges(int height, int width, RGBTRIPLE image[height][width])
+{
+    // Makes copy of original image to avoid working on already filtered pixels
+    RGBTRIPLE tmp[height][width];
+    for (int i = 0; i < height; i++)
+    {
+        for (int j = 0; j < width; j++)
+        {
+            tmp[i][j] = image[i][j];
+        }
+    }
+    // Inits Sobel operator arrays
+    int gx[3][3] = {{-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}};
+    int gy[3][3] = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
+
+    // Loops through pixels of the image
+    for (int i = 0; i < height; i++)
+    {
+        for (int j = 0; j < width; j++)
+        {
+            float redx, greenx, bluex, redy, greeny, bluey;
+            redx = greenx = bluex = redy = greeny = bluey = 0;
+
+            // Row and col +i/j allow outside row/column check
+            for (int row = -1; row < 2; row++)
+            {
+                for (int col = -1; col < 2; col++)
+                {
+                    // Checks for pixel outside rows
+                    if (row + i < 0 || row + i >= height)
+                    {
+                        continue;
+                    }
+                    // Checks for pixel outside columns
+                    if (col + j < 0 || col + j >= width)
+                    {
+                        continue;
+                    }
+                    // Adds to the sums if pixel within rows and columns
+                    redx += tmp[i + row][j + col].rgbtRed * gx[row + 1][col + 1];
+                    greenx += tmp[i + row][j + col].rgbtGreen * gx[row + 1][col + 1];
+                    bluex += tmp[i + row][j + col].rgbtBlue * gx[row + 1][col + 1];
+                    redy += tmp[i + row][j + col].rgbtRed * gy[row + 1][col + 1];
+                    greeny += tmp[i + row][j + col].rgbtGreen * gy[row + 1][col + 1];
+                    bluey += tmp[i + row][j + col].rgbtBlue * gy[row + 1][col + 1];
+
+                    // Finds rounded square root of Gx^2 * Gy^2
+                    int sqrt_red = round(sqrt(redx * redx + redy * redy));
+                    int sqrt_green = round(sqrt(greenx * greenx + greeny * greeny));
+                    int sqrt_blue = round(sqrt(bluex * bluex + bluey * bluey));
+
+                    // Caps RGB values at 255
+                    if (sqrt_red > 255)
+                    {
+                        sqrt_red = 255;
+                    }
+                    if (sqrt_green > 255)
+                    {
+                        sqrt_green = 255;
+                    }
+                    if (sqrt_blue > 255)
+                    {
+                        sqrt_blue = 255;
+                    }
+
+                    // Filters original image
+                    image[i][j].rgbtRed = sqrt_red;
+                    image[i][j].rgbtGreen = sqrt_green;
+                    image[i][j].rgbtBlue = sqrt_blue;
+                }
+            }
+        }
+    }
+    return;
+}
