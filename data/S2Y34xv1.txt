@@ -1,0 +1,105 @@
+Всем привет!
+Подскажите, пожалуйста, не могу разобраться с выводом данных в админку.
+
+Мои модели:
+
+class Offer(models.Model):
+    seller = models.<...>
+    # other fields
+
+class OfferViewCount(models.Model):
+    offer = models.ForeignKey(Offer, verbose_name=_('Offer'), on_delete=models.CASCADE)
+    user_agent = models.CharField(verbose_name=_('User Agent'), max_length=200)
+    ip_address = models.CharField(verbose_name=_('IP Address'), max_length=32)
+    created_date = models.DateTimeField(auto_now_add=True)
+
+
+База данных OfferViewCount содержит примерно такие данные:
+
+id;user_agent;ip_address;created_date;offer_id
+24;insomnia/2022.6.0f;127.0.0.1;2022-11-18 14:14:52.501008+00;192
+25;insomnia/2022.6.0z;127.0.0.1;2022-11-18 15:03:31.471366+00;192
+23;insomnia/2022.6.0;127.0.0.1;2022-11-18 14:14:49.840141+00;193
+28;insomnia/2022.6.0;127.0.0.1;2022-11-18 15:04:18.867051+00;195
+29;insomnia/2022.6.0;127.0.0.1;2022-11-21 11:33:15.719524+00;195
+30;test;127.0.1.1;2022-11-22 19:34:39+00;195
+
+
+Если я использую стандартный вывод в админку:
+
+class OfferViewCountAdmin(admin.ModelAdmin):
+    list_display = ('offer',)
+
+То получаю это:
+
+Offer
+offer #192
+offer #192
+offer #193
+offer #195
+offer #195
+offer #195
+
+
+А мне нужно получить примерно вот это:
+
+Offer;Views
+offer #192;2
+offer #193;1
+offer #195;3
+
+
+Проще говоря, я хочу отображать один из экземпляров каждой повторяющейся записи в админке, а остальные количественно отображать в произвольном поле.
+В SQL это будет выглядеть примерно так:
+
+SELECT offer_id, COUNT(*) AS count FROM offer_offerviewcount GROUP BY offer_id ORDER BY COUNT DESC;
+
+
+Я пробовал много вариантов, включая перезапись get_queryset.
+И мне почти удалось добиться желаемого результата вот так:
+
+class OfferViewCountAdmin(admin.ModelAdmin):
+    list_display = ('offer', 'get_views')
+    list_filter = ['created_date', 'offer']
+    list_per_page = 20
+
+    def get_views(self, obj):
+        return OfferViewCount.objects.filter(offer=obj.offer).count()
+
+    def get_queryset(self, request):
+        qs = OfferViewCount.objects.filter(
+            ~Exists(OfferViewCount.objects.filter(
+                Q(offer__lt=OuterRef('offer')) | Q(offer=OuterRef('offer'), pk__lt=OuterRef('pk')),
+                offer=OuterRef('offer')
+            ))
+        )
+		
+        return qs
+
+    get_views.short_description = _('Views')
+
+
+Но в этом случае сортировка по просмотрам через ЛКМ не работает.
+Если я добавлю сортировку явно через admin_order_field (для get_views), то получаю ошибку, потому что в базе данных нет такого поля.
+Чтобы избежать этой ошибки, необходимо прикрутить перезаписанный аннотированный queriset, примерно так:
+
+qs = OfferViewCount.objects.filter(
+    ~Exists(OfferViewCount.objects.filter(
+        Q(offer__lt=OuterRef('offer')) | Q(offer=OuterRef('offer'), pk__lt=OuterRef('pk')),
+        offer=OuterRef('offer')
+    ))
+).annotate(_views_count=Count('offer'))
+
+И изменить get_views таким образом:
+
+def get_views(self, obj):
+    return obj._views_count
+
+Но в этом случае Count('offer') всегда возвращает 1, возможно потому, что там анализируется не вся база.
+
+Пробовал решать проблему через написание кастомного фильтра, но и там всё упирается в необходимость наличия _views_count с корректным значением, а не с единичкой.
+
+Собственно, подскажите, пожалуйста, как можно решить эту ситуацию?
+Если есть какой-то более оптимальный и корректный вариант группировки (без ~Exists и конструкций с Q()|Q()) - тоже буду рад рассмотреть!
+Заранее спасибо!
+
