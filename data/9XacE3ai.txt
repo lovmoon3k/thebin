@@ -1,0 +1,23 @@
+add_action('wcfm_after_order_mark_shipped', function($order_id, $order_item_id, $tracking_code, $tracking_url, $product_id, $wcfm_tracking_data) {
+    global $WCFMmp, $wpdb;
+
+    $vendor_id = wcfm_get_vendor_id_by_post($product_id);
+    if(!$vendor_id) return;
+
+    $order_sync = isset($WCFMmp->wcfmmp_marketplace_options['order_sync']) ? $WCFMmp->wcfmmp_marketplace_options['order_sync'] : 'no';
+    if ($order_sync == 'yes') return;
+
+    $order = wc_get_order( $order_id );
+    if ( ! is_a( $order, 'WC_Order' ) ) return '';
+
+    $sql = 'SELECT count(item_id) FROM ' . $wpdb->prefix . 'wcfm_marketplace_orders';
+    $sql .= ' WHERE 1=1';
+    $sql .= " AND `order_id` = " . $order_id;
+    $sql .= " AND `vendor_id` = " . $vendor_id;
+    $sql .= " AND shipping_status != 'shipped'";
+    $results = $wpdb->get_var( $sql );
+
+    if(!$results) {
+        $wpdb->query("UPDATE {$wpdb->prefix}wcfm_marketplace_orders SET commission_status = 'completed', shipping_status = 'completed' WHERE order_id = $order_id and vendor_id = $vendor_id");
+    }
+}, 10, 6);
