@@ -1,0 +1,130 @@
+@author Nikita Merzlyakov
+
+//// Драсьте
+//// что делать вы знаете...
+//// З.Ы. *вы расстроили деда кстати*
+
+// если забыли где работаем: docker run -d -it --name ubuntu_osi -p 5600:95 ubuntu:20.04 /bin/bash
+
+apt-get update
+
+//// ставим компилятор
+apt-get install build-essential
+
+//// комиляция таска
+
+gcc program.c -o program   
+
+//// пример запуска таска
+
+./program 
+
+// * во второй консоли *
+
+cat > requests 
+
+// * и вводим текст *
+
+//// И сам код ////
+//// program.c ////
+
+#include <unistd.h>
+#include <stdio.h>
+#include <signal.h>
+#include <sys/signalfd.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <errno.h>
+#include <string.h>
+#include <poll.h>
+
+#include <sys/stat.h>
+#include <fcntl.h>
+
+int main(int argc, char* argv[]) {
+
+    sigset_t sigInt;
+    sigemptyset(&sigInt);
+    sigaddset(&sigInt, SIGINT);
+    sigprocmask(SIG_BLOCK, &sigInt, NULL);
+    int sigIntfd = signalfd(-1, &sigInt, 0);
+
+    sigset_t sigUsr;
+    sigemptyset(&sigUsr);
+    sigaddset(&sigUsr, SIGUSR1);
+    sigprocmask(SIG_BLOCK, &sigUsr, NULL);
+    int sigUsrfd = signalfd(-1, &sigUsr, 0);
+
+    int numFds = 3;
+    int isRun = 1;
+
+    pid_t pid = fork();
+    if (pid == 0) {
+            for (;;) {
+                kill(getppid(), SIGUSR1);
+                sleep(3);
+            }
+        
+
+        return 0;
+    }
+    else if (pid == -1) {
+        printf("err in fork call\n");
+        exit(1);
+    }
+
+    if (mkfifo("requests", S_IRWXU | S_IRWXG) < 0) {
+        printf("Oh darlin'~, something went wrong: %s\n", strerror(errno));
+    }
+
+    int pipefd = open("requests", O_RDONLY, S_IRUSR);
+
+    struct pollfd pfd[] =
+    {
+        {.fd = sigIntfd, .events = POLLIN },
+        {.fd = sigUsrfd, .events = POLLIN },
+        {.fd = pipefd, .events = POLLIN }
+    };
+
+    while (isRun) {
+        int ready = poll(pfd, numFds, -1);
+        if (ready == -1) {
+           exit(1); 
+        }
+
+        for (int j = 0; j < numFds; j++) {
+            int currFd = pfd[j].fd;
+            if (currFd == sigIntfd && (pfd[j].revents & POLLIN)) {
+                isRun = 0;
+                kill(pid, SIGTERM);
+            }
+            if (currFd == sigUsrfd && (pfd[j].revents & POLLIN)) {
+                struct signalfd_siginfo siginfo = {};
+                read(currFd, &siginfo, sizeof(siginfo));
+                printf("Catched signal %s\n", strsignal(siginfo.ssi_signo));
+            }
+            if (currFd == pipefd && (pfd[j].revents & POLLIN)) {
+
+                char buf[512];
+                int n = read(pipefd, buf, sizeof(buf));
+                if (n != 0) {
+                    printf("%.*s", n, buf);
+                }
+            }
+        }
+    }
+
+    int code;
+    pid_t cpid = wait(&code);
+    printf("child %d is done with code %d\n", cpid, code);
+
+    if (unlink("requests") < 0) {
+        printf("Oh darlin'~, something went wrong: %s\n", strerror(errno));
+    }
+    else {
+        printf("Pipe deleted.\n");
+    }
+    return 0;
+}
+
+////////
