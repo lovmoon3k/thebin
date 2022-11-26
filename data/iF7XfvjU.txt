@@ -1,0 +1,57 @@
+import { createLibp2p } from 'libp2p'
+import { webSockets } from '@libp2p/websockets'
+import { noise } from '@chainsafe/libp2p-noise'
+import { mplex } from '@libp2p/mplex'
+import {publicIpv4} from 'public-ip';
+
+let myNode;
+
+async function startNode ()
+{
+    let publicIP = await publicIpv4();
+    myNode = await createLibp2p({
+        addresses: { listen: ['/ip4/' + publicIP + '/tcp/0/ws'] },
+        transports: [ webSockets() ],
+        connectionEncryption: [ noise() ],
+        streamMuxers: [ mplex() ]
+    })
+
+    await myNode.start()
+        .then(() =>
+        {
+            console.log("Listening:") // Display the listening addresses.
+            myNode.getMultiaddrs().forEach((ma) => console.log("\t" + ma.toString()))
+        })
+        .catch((err) => console.error(err))
+}
+
+function connectToNode(addr)
+{
+    // Try to connect to the node and return if the connection was successful.
+    myNode.dial(addr)
+        .then(() => console.log("Connected to " + addr))
+        .catch((err) => console.error(err))
+}
+
+async function sendMsg(msg, toAddr) {
+    // Send a message to the specified node.
+    try {
+        const {stream} = await myNode.dialProtocol(toAddr, '/echo/1.0.0')
+        await pipe(
+            [msg],
+            stream,
+            async function (source) {
+                for await (const msg of source) {
+                    console.log('Received:', msg.toString())
+                }
+            }
+        )
+        return true
+    } catch (e) {
+        console.log("Failed to send message to " + toAddr)
+        return false
+    }
+}
+
+startNode()
+    .catch((err) => console.error(err))

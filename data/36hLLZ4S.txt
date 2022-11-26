@@ -1,0 +1,94 @@
+#!/bin/bash
+ 
+filename=""
+
+if [[ ! -f ~/.trash.log ]]
+then
+  echo "No files in trash"
+  exit
+fi
+ 
+if [[ $# -ne 1 ]]
+then
+  echo "Expected one param: name of file to restore"
+  echo "Name of file to restore: "
+  read filename
+else
+  filename=$1
+fi
+ 
+while true
+do
+  if [[ "$filename" == *\0* || "$filename" == *\/* ]]
+  then 
+    echo "Wrong filename"
+    echo "Name of file to restore: "
+    read filename
+    continue
+  fi
+ 
+  linkname=""
+  file_untrash=""
+ 
+  exec 3<&0
+ 
+  line_counter=0
+  while read line
+  do
+    line_counter=$((line_counter+1))
+    current_linkname=$(echo $line | awk '{print $NF}')
+    current_filename=${line% $current_linkname}
+    
+    if [[ $current_filename == */$filename ]]
+    then
+      echo "Do you want to restore this file: " $current_filename "? Print Y/N or another to exit"
+      read answer <&3
+      case $answer in
+      "Y") 
+        file_untrash=$current_filename
+        linkname=$current_linkname
+        break
+        ;;
+      "N") continue ;;
+      *) exit ;;
+      esac
+    fi
+  done < ~/.trash.log
+ 
+  if [[ $file_untrash == "" || ! -f ~/.trash/$linkname ]]
+  then 
+    echo "No files to restore found"
+    echo "Name of file to restore: "
+    read filename
+    continue
+  fi
+ 
+  file_dir=${file_untrash%$filename}
+  if [[ -d "$file_dir" ]]
+  then
+    if [[ -f "$file_untrash" ]]
+    then
+      echo "File with such a name already exists"
+      echo "Name of file to restore: "
+      read filename
+      continue
+    fi
+    echo "Restored file in original directory"
+    ln ~/.trash/"$linkname" "$file_untrash"
+  else
+    echo "Original directory does not exist. Restoring file in home directory"
+    if [[ -f ~/"$filename" ]]
+    then
+      echo "File with such a name already exists"
+      echo "Name of file to restore: "
+      read filename
+      continue
+    fi
+    echo "Restored file in home directory"
+    ln ~/.trash/"$linkname" ~/"$filename"
+  fi
+ 
+  rm ~/.trash/"$linkname"
+  sed -i "${line_counter}d" ~/.trash.log 
+  break
+done  
