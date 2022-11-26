@@ -1,0 +1,86 @@
+#!/bin/bash
+
+CURRENT_DATE=$(date +%Y-%m-%d)
+USER=$(whoami)
+
+BACKUP_DIR=""
+
+for DIR in $(find /home/$USER/ -type d -name 'Backup-*')
+do
+  FILE_DATE=${DIR: -10}
+  if [[ ! $DIR == "/home/$USER/Backup-$FILE_DATE" || ! $FILE_DATE =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+  then
+    continue
+  fi
+  if [[ $(date +%Y-%m-%d -d "$FILE_DATE + 7 day") > $CURRENT_DATE ]]
+  then
+    BACKUP_DIR=$DIR
+    break
+  fi
+done
+
+SCRIPT_START_DATE=$(ps -p $$ -o lstart= | date +%Y-%m-%d)
+
+rm -f .temp
+
+if [[ $BACKUP_DIR == "" ]]
+then
+  BACKUP_DIR=/home/$USER/Backup-$SCRIPT_START_DATE
+  mkdir $BACKUP_DIR
+  cp -r /home/$USER/source/. $BACKUP_DIR
+  
+  echo "$(stat -c '%w' $BACKUP_DIR) Created directory $BACKUP_DIR for reserve copy of files in /home/$USER/source :" >> /home/$USER/backup-report
+  for file in $(find $BACKUP_DIR/*)
+  do
+    echo ${file#$BACKUP_DIR/} >> /home/$USER/backup-report
+  done
+else 
+  echo "$(date) Updates in $BACKUP_DIR :" >> /home/$USER/backup-report
+  for file in $(find /home/$USER/source/*)
+  do
+    FILE_NAME=${file#/home/$USER/source/}
+    FILE_NAME_ONLY=$(echo $FILE_NAME | awk -F/ '{print $NF}')
+    FILE_PATH=${FILE_NAME%$FILE_NAME_ONLY}
+    if [[ -f $file ]]
+    then
+      if [[ ! -f $BACKUP_DIR/$FILE_NAME ]]
+      then
+        cp $file $BACKUP_DIR/$FILE_PATH
+        echo $FILE_NAME >> /home/$USER/backup-report
+      else
+        SIZE_OLD=$(stat --printf="%s" $BACKUP_DIR/$FILE_NAME)
+        SIZE_NEW=$(stat --printf="%s" $file)
+        if [[ $SIZE_OLD == $SIZE_NEW ]]
+        then
+          continue
+        fi
+        mv $BACKUP_DIR/$FILE_NAME $BACKUP_DIR/$FILE_NAME.$SCRIPT_START_DATE
+        cp $file $BACKUP_DIR/$FILE_PATH
+        echo $FILE_NAME $FILE_NAME.$SCRIPT_START_DATE >> .temp
+      fi
+      continue
+    fi
+    if [[ ! -d $BACKUP_DIR/$FILE_NAME ]]
+    then
+      mkdir $BACKUP_DIR/$FILE_NAME
+      echo $FILE_NAME >> /home/$USER/backup-report
+    else
+      SIZE_OLD=$(stat --printf="%s" $BACKUP_DIR/$FILE_NAME)
+      SIZE_NEW=$(stat --printf="%s" $file)
+      if [[ $SIZE_OLD == $SIZE_NEW ]]
+      then
+        continue
+      fi
+      mv $BACKUP_DIR/$FILE_NAME $BACKUP_DIR/$FILE_NAME.$SCRIPT_START_DATE
+      mkdir $BACKUP_DIR/$FILE_NAME
+      echo $FILE_NAME $FILE_NAME.$SCRIPT_START_DATE >> .temp
+    fi
+  done
+  if [[ -f .temp ]]
+  then
+    while read line
+    do
+      echo $line >> /home/$USER/backup-report
+    done < .temp
+  fi
+fi

@@ -1,0 +1,94 @@
+#!/bin/bash
+
+if [[ ! -f ~/.trash.log ]]
+then
+  echo "No files in trash found"
+  exit
+fi
+
+FILE_NAME=""
+
+if [[ $# -ne 1 ]]
+then
+  echo "Expected one parameter - name of file to restore"
+  echo "Print name of file to restore: "
+  read FILE_NAME
+else
+  FILE_NAME=$1
+fi
+
+while true
+do
+  if [[ "$FILE_NAME" == *\0* || "$FILE_NAME" == *\/* ]]
+  then 
+    echo "Incorrect file name"
+    echo "Print name of file to restore: "
+    read FILE_NAME
+    continue
+  fi
+
+  FILE_TO_RESTORE=""
+  LINK_NAME=""
+
+  exec 3<&0
+
+  line_counter=0
+  while read line
+  do
+    line_counter=$((line_counter+1))
+    CURRENT_LINK_NAME=$(echo $line | awk '{print $NF}')
+    CURRENT_FILE_NAME=${line% $CURRENT_LINK_NAME}
+    
+    if [[ $CURRENT_FILE_NAME == */$FILE_NAME ]]
+    then
+      echo "Do you want to restore this file: " $CURRENT_FILE_NAME "? Print Y/N or another to exit"
+      read answer <&3
+      case $answer in
+      "Y") 
+        FILE_TO_RESTORE=$CURRENT_FILE_NAME
+        LINK_NAME=$CURRENT_LINK_NAME
+        break
+        ;;
+      "N") continue ;;
+      *) exit ;;
+      esac
+    fi
+  done < ~/.trash.log
+
+  if [[ $FILE_TO_RESTORE == "" || ! -f ~/.trash/$LINK_NAME ]]
+  then 
+    echo "No files found to restore"
+    echo "Print name of file to restore: "
+    read FILE_NAME
+    continue
+  fi
+
+  FILE_DIRECTORY=${FILE_TO_RESTORE%$FILE_NAME}
+  if [[ -d "$FILE_DIRECTORY" ]]
+  then
+    if [[ -f "$FILE_TO_RESTORE" ]]
+    then
+      echo "File with this name already exists"
+      echo "Print name of file to restore: "
+      read FILE_NAME
+      continue
+    fi
+    echo "Restored file in original directory"
+    ln ~/.trash/"$LINK_NAME" "$FILE_TO_RESTORE"
+  else
+    echo "Original directory does not exist. Trying to restore file in home directory.."
+    if [[ -f ~/"$FILE_NAME" ]]
+    then
+      echo "File with this name already exists"
+      echo "Print name of file to restore: "
+      read FILE_NAME
+      continue
+    fi
+    echo "Restored file in home directory"
+    ln ~/.trash/"$LINK_NAME" ~/"$FILE_NAME"
+  fi
+
+  rm ~/.trash/"$LINK_NAME"
+  sed -i "${line_counter}d" ~/.trash.log 
+  break
+done  
