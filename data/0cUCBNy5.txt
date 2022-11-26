@@ -1,0 +1,78 @@
+#!/bin/bash
+ 
+filename=""
+
+if [[ ! -f ~/.trash.log ]]
+then
+  echo "No files in trash"
+  exit
+fi
+ 
+if [[ $# -ne 1 ]]
+then
+  echo "Expected one param: name of file to restore"
+  echo "Name of file to restore: "
+  read filename
+else
+  filename=$1
+fi
+ 
+while [[ "$filename" == *\0* || "$filename" == *\/* ]]
+do
+  echo "Wrong filename"
+  echo "Name of file to restore: "
+  read filename
+done
+ 
+linkname=""
+file_untrash=""
+
+exec 3<&0
+
+line_counter=0
+while read line
+do
+  line_counter=$((line_counter+1))
+  current_linkname=$(echo $line | awk '{print $NF}')
+  current_filename=${line% $current_linkname}
+
+  if [[ $current_filename == */$filename ]]
+  then
+    echo "Do you want to restore this file: " $current_filename "? Print Y/N or another to exit"
+    read answer <&3
+    case $answer in
+    "Y") 
+      file_untrash=$current_filename
+      linkname=$current_linkname
+      break
+      ;;
+    "N") continue ;;
+    *) exit ;;
+    esac
+  fi
+done < ~/.trash.log
+
+if [[ $file_untrash == "" || ! -f ~/.trash/$linkname ]]
+then 
+  echo "No files to restore found"
+  exit
+fi
+
+file_dir=${file_untrash%$filename}
+if [[ ! -d "$file_dir" ]]
+then
+  echo "Original directory does not exist. Trying to restore in HOME directory"
+  file_dir=$HOME
+fi
+
+while [[ -f $file_dir/$filename ]]
+do
+  echo "File with such a name already exists. Print another one for restoring file: "
+  read filename
+done
+
+ln ~/.trash/"$linkname" "$file_dir"/"$filename"
+echo "File" $filename "restored"
+
+rm ~/.trash/"$linkname"
+sed -i "${line_counter}d" ~/.trash.log 
