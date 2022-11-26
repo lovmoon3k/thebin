@@ -1,0 +1,341 @@
+import operator
+import logging
+from typing import Any
+
+from aiogram import Dispatcher
+from aiogram.dispatcher.filters import Command
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.types import Message, CallbackQuery, ContentType
+from aiogram_dialog import DialogManager, StartMode, DialogRegistry, Window, Dialog, ShowMode
+from aiogram_dialog.exceptions import UnknownIntent
+from aiogram_dialog.manager.protocols import LaunchMode
+from aiogram_dialog.widgets.input import MessageInput
+from aiogram_dialog.widgets.kbd import Group, Button, Start, Row, Cancel, SwitchTo, Back, Select, ScrollingGroup, \
+    Checkbox, ListGroup, ManagedCheckboxAdapter, Multiselect
+from aiogram_dialog.widgets.managed import ManagedWidgetAdapter
+from aiogram_dialog.widgets.text import Const, Format
+
+from app.database.model import BotState, ChannelBot
+from app.halpers import emoji, utils
+from app.handlers.filters.filter import IsBotOwner
+from app.services import channel_bots_service
+
+logger = logging.getLogger("MAIN_HANDLER")
+
+
+class MainSG(StatesGroup):
+    default = State()
+
+
+class BotsSG(StatesGroup):
+    menu = State()
+    all = State()
+    add = State()
+    add_confirm = State()
+
+
+class BotSG(StatesGroup):
+    selected = State()
+
+
+def prepare_bot_data(bot: ChannelBot) -> dict:
+    bot_data = bot.dict()
+    bot_data["state"] = bot.state.get_dict()
+    return bot_data
+
+
+async def get_greetings(dialog_manager: DialogManager, **kwargs) -> dict:
+    greetings = "Hello"
+    if name := dialog_manager.current_context().start_data.get('name', None):
+        greetings = f"{emoji.HELLO} {greetings}, {name}!"
+    return dict(greetings=greetings)
+
+
+async def get_bot_info(dialog_manager: DialogManager, **kwargs) -> dict:
+    if new_bot := dialog_manager.current_context().dialog_data.get('new_bot', None):
+        bot_info = f"Confirm add bot @{new_bot['username']}?"
+    else:
+        bot_info = "ERROR"
+    return dict(bot_info=bot_info)
+
+
+async def start(m: Message, dialog_manager: DialogManager):
+    await dialog_manager.start(MainSG.default, data=dict(name=m.from_user.get_mention()),
+                               mode=StartMode.RESET_STACK, show_mode=ShowMode.SEND)
+
+
+async def add_bot(m: Message, b: Button, dialog_manager: DialogManager):
+    token = m.text
+    await m.delete()
+    if new_bot := await utils.check_and_get_new_bot(token):
+        dialog_manager.current_context().dialog_data["new_bot"] = new_bot
+        await dialog_manager.switch_to(BotsSG.add_confirm)
+    else:
+        await m.answer(f"{emoji.WARNING} Invalid token!")
+
+
+async def add_and_start(c: CallbackQuery, b: Button, dialog_manager: DialogManager):
+    if new_bot := dialog_manager.current_context().dialog_data.get('new_bot'):
+        channel_bot = ChannelBot(
+            id=new_bot["id"],
+            token=new_bot["token"],
+            owner_id=c.from_user.id,
+            username=new_bot["username"],
+            first_name=new_bot["first_name"],
+            admins=c.bot['config'].bot.admins,
+        )
+        if await c.bot['manager'].start_bot(bot_id=channel_bot.id):
+            await channel_bots_service.add(channel_bot)
+            await c.answer(f"Bot {channel_bot.username} added and started", show_alert=True)
+        await c.message.delete()
+    await dialog_manager.switch_to(BotsSG.all)
+
+
+async def wrong_input(m: Message, message_input: MessageInput, dialog_manager: DialogManager):
+    await m.answer("Text is expected")
+
+
+async def on_bot_select(c: CallbackQuery, widget: Any, dialog_manager: DialogManager, item_id: str):
+    await dialog_manager.start(BotSG.selected, data=dict(bot_selected_id=item_id), show_mode=ShowMode.AUTO)
+
+
+async def on_start_select_bot(attr, dialog_manager: DialogManager):
+    if bot_selected_id := dialog_manager.current_context().start_data['bot_selected_id']:
+        if channel_bot := await channel_bots_service.get(id=int(bot_selected_id)):
+            dialog_manager.current_context().dialog_data['bot_selected'] = prepare_bot_data(channel_bot)
+            if bot_settings_autorun := dialog_manager.dialog().find('bot_settings_autorun'):
+                await bot_settings_autorun.set_checked(
+                    event=dialog_manager.event,
+                    checked=channel_bot.autorun,
+                    manager=dialog_manager
+                )
+
+
+async def get_bot_data(dialog_manager: DialogManager, **kwargs):
+    bot_data = dict(bot_selected=None, bot_info="empty")
+    if bot_selected_id := dialog_manager.current_context().start_data['bot_selected_id']:
+        if channel_bot := await channel_bots_service.get(id=int(bot_selected_id)):
+            bot_data = dict(
+                bot_selected=prepare_bot_data(channel_bot),
+                bot_info=f'{channel_bot.state.get_dict()["icon"]}'
+                         f'\t{channel_bot.first_name} @{channel_bot.username}'
+                         f'\n\nowner: {channel_bot.owner_id}'
+            )
+    return bot_data
+
+
+async def check_data(func_name: str, dialog_manager: DialogManager):
+    logger.info(
+        f"\nfunc_name: {func_name}" +
+        f"\nstart_data: {dialog_manager.current_context().start_data}" +
+        f"\ndialog_data: {dialog_manager.current_context().dialog_data}" +
+        f"\nwidget_data: {dialog_manager.current_context().widget_data}" +
+        f"\ndata: {dialog_manager.data}"
+    )
+
+
+async def on_bot_settings_autorun(c: CallbackQuery, checkbox: Checkbox, dialog_manager: DialogManager):
+    if bot_selected_id := dialog_manager.current_context().start_data['bot_selected_id']:
+        channel_bot = await channel_bots_service.get(id=int(bot_selected_id))
+        channel_bot.autorun = checkbox.is_checked(dialog_manager)
+        await channel_bots_service.update(channel_bot)
+
+
+async def stop_bot(c: CallbackQuery, b: Button, dialog_manager: DialogManager):
+    if channel_bot_id := dialog_manager.current_context().start_data['channel_bot_id']:
+        await c.bot["manager"].stop_bot(bot_id=int(channel_bot_id))
+        channel_bot = await channel_bots_service.get(id=int(channel_bot_id))
+        if channel_bot.autorun:
+            channel_bot.change_state(BotState.DISABLED)
+        else:
+            channel_bot.change_state(BotState.STOPPED)
+        await channel_bots_service.update(channel_bot)
+    await dialog_manager.done()
+    await dialog_manager.start(BotSG.selected, data=dict(bot_selected_id=channel_bot_id),
+                               mode=StartMode.RESET_STACK, show_mode=ShowMode.AUTO)
+
+
+def when_bot_active(data: dict, b: Button, dialog_manager: DialogManager):
+    return data["bot_selected"]["is_active"]
+
+
+async def start_bot(c: CallbackQuery, b: Button, dialog_manager: DialogManager):
+    if channel_bot_id := dialog_manager.current_context().start_data['channel_bot_id']:
+        await c.bot["manager"].start_bot(bot_id=int(channel_bot_id))
+        channel_bot = await channel_bots_service.get(id=int(channel_bot_id))
+        if channel_bot.autorun:
+            channel_bot.change_state(BotState.ENABLED)
+        else:
+            channel_bot.change_state(BotState.ACTIVE)
+        await channel_bots_service.update(channel_bot)
+    await dialog_manager.start(BotSG.selected, data=dict(bot_selected_id=channel_bot_id),
+                               mode=StartMode.RESET_STACK, show_mode=ShowMode.AUTO)
+
+
+def when_bot_stopped(data: dict, b: Button, dialog_manager: DialogManager):
+    return not data["bot_selected"]["is_active"]
+
+
+async def delete_bot(c: CallbackQuery, b: Button, dialog_manager: DialogManager):
+    await check_data("delete_bot", dialog_manager)
+    if channel_bot_id := dialog_manager.current_context().start_data['channel_bot_id']:
+        await c.bot["manager"].stop_bot(bot_id=int(channel_bot_id))
+        await channel_bots_service.delete(id=int(channel_bot_id))
+    await dialog_manager.start(BotsSG.all, mode=StartMode.RESET_STACK, show_mode=ShowMode.AUTO)
+
+
+async def get_bots_data(dialog_manager: DialogManager, **kwargs):
+    data = dict(
+        bots=[],
+        bot_actions=[
+            dict(name="ACTIVATE"),
+            dict(name="ENABLE"),
+            dict(name="STOP"),
+            dict(name="DISABLE"),
+            dict(name="REMOVE")
+        ]
+    )
+    if bots_models := await channel_bots_service.get_all():
+        bots_data = [prepare_bot_data(bot) for bot in bots_models]
+        data["bots"] = bots_data
+
+    return data
+
+
+async def bots_filter_changed(c: CallbackQuery, multiselect_adapter: ManagedWidgetAdapter,
+                              dialog_manager: DialogManager, item_id: str):
+    print("Filter changed: ", item_id)
+
+
+async def bot_action_changed(c: CallbackQuery, multiselect_adapter: ManagedWidgetAdapter,
+                             dialog_manager: DialogManager, item_id: str):
+    print("Action selected: ", item_id)
+
+
+async def on_start_bots(attr, dialog_manager: DialogManager):
+    if bots_filters := dialog_manager.dialog().find('bots_filters'):
+        if bots_data := await get_bots_data(dialog_manager):
+            for bot_filter in bots_data.get("bots_filters"):
+                await bots_filters.set_checked(
+                    event=dialog_manager.event,
+                    item_id=bot_filter['id'],
+                    checked=bot_filter['is_checked'],
+                    manager=dialog_manager
+                )
+
+
+async def error_handler(event, dialog_manager: DialogManager):
+    """Example of handling UnknownIntent Error and starting new dialog"""
+    if isinstance(event.exception, UnknownIntent):
+        await dialog_manager.start(MainSG.default,
+                                   mode=StartMode.RESET_STACK)
+    else:
+        return "UNHANDLED"
+
+
+def register_main_bot_dialogs(registry: DialogRegistry):
+    main_menu = Dialog(
+        Window(
+            Format("{greetings}"),
+            Start(Const(f"{emoji.ROBOT} BOTS"), id="bots", state=BotsSG.menu),
+            state=MainSG.default,
+            getter=get_greetings
+        ),
+        launch_mode=LaunchMode.ROOT,
+    )
+
+    bots = Dialog(
+        Window(
+            Const(f"{emoji.ROBOT} BOTS"),
+            Row(
+                SwitchTo(Const(f"{emoji.NEW_BUTTON} ADD"), id="bots_add", state=BotsSG.add),
+                SwitchTo(Const(f"{emoji.SEARCH} ALL"), id="bots_all", state=BotsSG.all)
+            ),
+            Cancel(Const(f"{emoji.HOME} MENU")),
+            state=BotsSG.menu,
+        ),
+        Window(
+            Const("Please, send a bot token"),
+            MessageInput(add_bot, content_types=[ContentType.TEXT]),
+            SwitchTo(Const(f"{emoji.STOP} CANCEL"), id="bots", state=BotsSG.menu),
+            state=BotsSG.add
+        ),
+        Window(
+            Format("{bot_info}"),
+            Row(
+                Button(Const(f"{emoji.ACCEPT_BUTTON} YES"), id="bots", on_click=add_and_start),
+                SwitchTo(Const(f"{emoji.CANCEL} NO"), id="bots_add", state=BotsSG.add)
+            ),
+            Cancel(Const(f"{emoji.HOME} MENU")),
+            state=BotsSG.add_confirm,
+            getter=get_bot_info
+        ),
+        Window(
+            Const(f"{emoji.SEARCH} ALL"),
+            Group(
+                Select(
+                    Format("{item[state][icon]} {item[username]}"),
+                    id="bots_current",
+                    item_id_getter=operator.itemgetter("id"),
+                    items="bots",
+                    on_click=on_bot_select
+                )
+            ),
+            SwitchTo(Const(f"{emoji.FINGER_LEFT} BACK"), id="bots", state=BotsSG.menu),
+            state=BotsSG.all,
+            getter=get_bots_data
+        ),
+        launch_mode=LaunchMode.SINGLE_TOP,
+        on_start=on_start_bots
+    )
+
+    selected_bot = Dialog(
+        Window(
+            Format("{bot_info}"),
+            Group(
+                Button(
+                    Const(f"{emoji.STOP_SIGN} STOP"),
+                    id="bot_stop",
+                    on_click=stop_bot,
+                    when=when_bot_active
+                ),
+                Button(
+                    Const(f"{emoji.CIRCLE_YELLOW} ACTIVATE"),
+                    id="bot_start",
+                    on_click=start_bot,
+                    when=when_bot_stopped
+                ),
+                Checkbox(
+                    Format("✓ AUTORUN"),
+                    Format("AUTORUN"),
+                    id="bot_settings_autorun",
+                    on_state_changed=on_bot_settings_autorun
+                ),
+                Button(
+                    Const(f"{emoji.CANCEL} DELETE"),
+                    id="bot_delete",
+                    on_click=delete_bot
+                ),
+                width=2
+            ),
+            Start(Const(f"{emoji.FINGER_LEFT} BACK"), id="bots_all", state=BotsSG.all, mode=StartMode.RESET_STACK),
+            state=BotSG.selected,
+            getter=get_bot_data
+        ),
+        launch_mode=LaunchMode.EXCLUSIVE,
+        on_start=on_start_select_bot
+    )
+
+    registry.register(main_menu)
+    registry.register(bots)
+    registry.register(selected_bot)
+
+
+def register_main_handler(dp: Dispatcher):
+    registry = DialogRegistry(dp)
+    register_main_bot_dialogs(registry)
+    dp.register_message_handler(start, IsBotOwner(), Command(commands="start"))
+    dp.register_errors_handler(error_handler)
+
+
+
