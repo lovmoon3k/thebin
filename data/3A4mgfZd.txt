@@ -1,0 +1,145 @@
+{
+	function SlideInOut(thisObj) {
+		var buttonWidth = 50, buttonHeight = 40, buttonBuffer = 2;
+		var mouseLocation = [300, 200];
+
+		getMouseCoords();
+
+		var easingPalette = new Window("palette", "Slide In & Out", undefined, {borderless:true});
+		easingPalette.bounds = [
+			mouseLocation[0]-buttonWidth*3,
+			mouseLocation[1]-buttonHeight*2,
+			mouseLocation[0]+buttonWidth*3,
+			mouseLocation[1]+buttonHeight*1];
+
+		function getMouseCoords() {
+			var pos = [0, 0, 0, 0];
+			for (i = 0; i < $.screens.length; i++) {
+				if ($.screens[i].top < pos[0]) pos[0] = $.screens[i].top;
+				if ($.screens[i].bottom > pos[2]) pos[2] = $.screens[i].bottom;
+				if ($.screens[i].left < pos[3]) pos[3] = $.screens[i].left;
+				if ($.screens[i].right > pos[1]) pos[1] = $.screens[i].right;
+			}
+			var sizeX = pos[1] - pos[3];
+			var sizeY = pos[2] - pos[0];
+			var mouseCapWin = new Window("dialog", undefined, undefined, {borderless: true})
+			mouseCapWin.preferredSize.width = sizeX;
+			mouseCapWin.preferredSize.height = sizeY;
+			mouseCapWin.location = [pos[3], pos[0]];
+			mouseCapWin.opacity = 0.01;
+			var mouseCapGroup = mouseCapWin.add("group", undefined, {name: "mouseCapGroup"})
+			mouseCapGroup.preferredSize.width = sizeX;
+			mouseCapGroup.preferredSize.height = sizeY;
+			mouseCapGroup.spacing = 0;
+			mouseCapGroup.margins = 0;
+			mouseCapWin.addEventListener("mouseover", grabMousePos);
+			function grabMousePos(m){
+				mouseLocation[0] = m.screenX;
+				mouseLocation[1] = m.screenY;
+				mouseCapWin.close();
+			}
+			mouseCapWin.show();
+		}
+
+		function adjustTransitionPosition(comp, pos, val, scale) {
+			return [
+				[val[0]+pos[0][0]*comp.width*1.5/scale[0]*100, val[1]+pos[0][1]*comp.height*1.5/scale[1]*100],
+				[val[0]+pos[1][0]*comp.width*1.5/scale[0]*100, val[1]+pos[1][1]*comp.height*1.5/scale[1]*100]
+			];
+		}
+
+		function layerLonely(layers, i) {
+			if (layers[i].parent == null) return true;
+			for (var j = 0; j < layers.length; j++) {
+				if (layers[i].parent == layers[j]) return false;
+			}
+			return true;
+		}
+
+		function applyTransition() {
+			var comp = app.project.activeItem;
+			if (comp.constructor.name == "CompItem") {
+				var easing = new KeyframeEase(0, 80.0);
+				app.beginUndoGroup("Slide In & Out");
+
+				var layers = comp.selectedLayers;
+				for (var i = 0; i < layers.length; i++) {
+					if (layerLonely(layers, i)) {
+						var val = layers[i].position.valueAtTime(comp.time, true);
+						var key1 = layers[i].position.addKey(comp.time);
+						var key2 = layers[i].position.addKey(comp.time + 2/3);
+
+						var scale = layers[i].parent == null ? [100,100,100] : layers[i].parent.scale.valueAtTime(comp.time, true);
+						var pos = adjustTransitionPosition(comp, this.transition, val, scale);
+						layers[i].position.setValueAtKey(key1, pos[0]);
+						layers[i].position.setValueAtKey(key2, pos[1]);
+						
+						var arr = [easing];
+						switch (layers[i].position.propertyValueType) {
+							case PropertyValueType.ThreeD: arr.push(easing);
+							case PropertyValueType.TwoD: arr.push(easing);
+						}
+						layers[i].position.setInterpolationTypeAtKey(key1, KeyframeInterpolationType.BEZIER, KeyframeInterpolationType.BEZIER);
+						layers[i].position.setInterpolationTypeAtKey(key2, KeyframeInterpolationType.BEZIER, KeyframeInterpolationType.BEZIER);
+						layers[i].position.setTemporalEaseAtKey(key1, arr, arr);
+						layers[i].position.setTemporalEaseAtKey(key2, arr, arr);
+					}
+
+					if (this.transition[0][0] + this.transition[0][1] == 0) {
+						if (layers[i].outPoint > comp.time + 2/3)
+							layers[i].outPoint = comp.time + 2/3;
+					} else {
+						if (layers[i].inPoint < comp.time)
+							layers[i].inPoint = comp.time;
+					}
+				}
+
+				app.endUndoGroup();
+			}
+			close();
+		}
+
+		function close() {
+			easingPalette.close();
+		}
+
+		function addButton(palette, location, text, transition) {
+			var rect = [
+				buttonBuffer+location[0]*buttonWidth,
+				buttonBuffer+location[1]*buttonHeight,
+				-buttonBuffer+(location[0]+1)*buttonWidth,
+				-buttonBuffer+(location[1]+1)*buttonHeight];
+			var button = palette.add("button", rect, text);
+			button.transition = transition;
+			if (text == "X") button.onClick = close;
+			else button.onClick = applyTransition;
+			return button;
+		}
+
+		function addText(palette, location, text) {
+			var rect = [
+				buttonBuffer+location[0]*buttonWidth,
+				buttonBuffer+(location[1]-1/3)*buttonHeight,
+				-buttonBuffer+(location[0]+1)*buttonWidth,
+				-buttonBuffer+(location[1]+1)*buttonHeight];
+			var label = palette.add("statictext", rect, text);
+			label.justify = "center";
+		}
+
+		addText(easingPalette, [1, 1], "Slide\nIn");
+		addButton(easingPalette, [1, 0], "Up", [[0, -1],[0, 0]]);
+		addButton(easingPalette, [2, 1], "Right", [[1, 0],[0, 0]]);
+		addButton(easingPalette, [1, 2], "Down", [[0, 1],[0, 0]]);
+		addButton(easingPalette, [0, 1], "Left", [[-1, 0],[0, 0]]);
+		addText(easingPalette, [4, 1], "Slide\nOut");
+		addButton(easingPalette, [4, 0], "Up", [[0, 0],[0, -1]]);
+		addButton(easingPalette, [5, 1], "Right", [[0, 0],[1, 0]]);
+		addButton(easingPalette, [4, 2], "Down", [[0, 0],[0, 1]]);
+		addButton(easingPalette, [3, 1], "Left", [[0, 0],[-1, 0]]);
+		addButton(easingPalette, [2.5,0], "X", []);
+
+		easingPalette.show();
+	}
+
+	SlideInOut(this);
+}
