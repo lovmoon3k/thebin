@@ -1,0 +1,111 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local TS = game:GetService("TweenService")
+
+local PetModels = ReplicatedStorage.Pets
+
+local EggsFolder = workspace.Eggs
+
+local EggsConfig = require(ReplicatedStorage.Config.Eggs)
+
+local BuyEgg = ReplicatedStorage.Remotes.BuyEgg
+local PetHatched = ReplicatedStorage.Remotes.PetHatched
+
+local HATCH_COOLDOWN = 2
+
+local HatchCooldown = {}
+
+local test = false
+
+local function ChoosePet(pets: table)
+	local totalWeight = 0
+	for _, pet in ipairs(pets) do
+		totalWeight += pet.Chance
+	end
+	
+	local chance = math.random(1, totalWeight)
+	local counter = 0
+	for _, pet in ipairs(pets) do
+		counter += pet.Chance
+		if chance <= counter then
+			return pet
+		end
+	end
+end
+
+
+
+local function AutoHatch(player: Player, eggId: string)
+
+	local eggConfig = EggsConfig[eggId]
+	local playerBalance = player.leaderstats.Coins.Value
+
+	if playerBalance < eggConfig.Price then return end
+
+	player.leaderstats.Coins.Value -= eggConfig.Price
+	local pet = ChoosePet(eggConfig.Pets)
+	PetHatched:FireClient(player, pet)
+
+end
+
+
+local function Hatch(player: Player, eggId: string)
+	if HatchCooldown[player.UserId] then return end
+	
+	
+	local eggConfig = EggsConfig[eggId]
+	local playerBalance = player.leaderstats.Coins.Value
+	
+	if playerBalance < eggConfig.Price then return end
+	HatchCooldown[player.UserId] = true
+	
+	player.leaderstats.Coins.Value -= eggConfig.Price
+	local pet = ChoosePet(eggConfig.Pets)
+	PetHatched:FireClient(player, pet)
+		
+	task.delay(HATCH_COOLDOWN, function()
+		HatchCooldown[player.UserId] = nil
+	end)
+	
+end
+
+local function Hatchx3(player: Player, eggId: string)
+	if HatchCooldown[player.UserId] then return end
+
+	local eggConfig = EggsConfig[eggId]
+	local playerBalance = player.leaderstats.Coins.Value
+
+	if playerBalance < eggConfig.Price then return end
+	HatchCooldown[player.UserId] = true
+	
+	player.leaderstats.Coins.Value -= eggConfig.Price
+	for i = 1, 3 do
+		local pet = ChoosePet(eggConfig.Pets)
+		PetHatched:FireClient(player, pet)
+	end
+	task.delay(HATCH_COOLDOWN, function()
+		HatchCooldown[player.UserId] = nil
+	end)
+end
+
+local function CanHatch(player: Player, eggId: string)
+	local eggConfig = EggsConfig[eggId]
+	if not eggConfig then return false end
+	
+	local playerBalance = player.leaderstats.Coins.Value
+	return playerBalance >= eggConfig.Price
+end
+
+BuyEgg.OnServerEvent:Connect(function(player: Player, eggId: string, action: string)
+	if not CanHatch(player, eggId) then return end
+	
+	if action == "Auto" then
+		AutoHatch(player, eggId)
+	elseif action == "x3" then
+		Hatchx3(player, eggId)
+	else
+		Hatch(player, eggId)
+	end
+end)

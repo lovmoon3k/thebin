@@ -1,0 +1,188 @@
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local TS = game:GetService('TweenService')
+local UserInputService = game:GetService("UserInputService")
+
+local Player = Players.LocalPlayer
+
+local EggsFolder = workspace.Eggs
+local PetModels = ReplicatedStorage.Pets
+local EggConfig = require(ReplicatedStorage.Config.Eggs)
+
+local BuyEgg = ReplicatedStorage.Remotes.BuyEgg
+local PetHatched = ReplicatedStorage.Remotes.PetHatched
+
+
+local formatNumber = require(ReplicatedStorage:WaitForChild("Libs"):WaitForChild("FormatNumber"))
+
+local Template = script.Parent.Template
+local Frame = Template.Frame
+local setting = Frame.Settings
+local auto = false
+setting.Visible = false
+
+
+local function GenerateViewportFrame(viewportFrame: ViewportFrame, petModel: Model)
+	petModel:SetPrimaryPartCFrame(CFrame.new()* CFrame.Angles(0, math.rad(90), 0))
+	petModel.Parent = viewportFrame
+	
+	local camera = Instance.new("Camera", viewportFrame)
+	viewportFrame.CurrentCamera = camera
+	
+	camera.CFrame = CFrame.new(Vector3.new(0,0,1.5), petModel.PrimaryPart.Position)
+end
+
+local function GeneratePet(container: Frame, petConfig: table)
+	local clone = container.Template:Clone()
+	if petConfig.See == true then
+		clone.Parent = container
+		clone.Name = petConfig.ID
+		clone.Visible = true
+		clone.PetChance.Text = formatNumber.FormatCompact(petConfig.Chance).."%"
+		clone.PetRarity.Text = petConfig.Rarity
+		if petConfig.Rarity == "Common" then
+			clone.PetRarity.TextColor3 = Color3.fromRGB(255, 255, 255)
+		elseif petConfig.Rarity == "Uncommon" then
+			clone.PetRarity.TextColor3 = Color3.fromRGB(10, 255, 79)
+		elseif petConfig.Rarity == "Rare" then
+			clone.PetRarity.TextColor3 = Color3.fromRGB(33, 92, 255)
+		elseif petConfig.Rarity == "Epic" then
+			clone.PetRarity.TextColor3 = Color3.fromRGB(170, 0, 255)
+		elseif petConfig.Rarity == "Legendary" then
+			clone.PetRarity.UIGradient.Enabled = true
+		elseif petConfig.Rarity == "Secret" then
+			clone.PetRarity.UIGradient.Enabled = true
+		elseif petConfig.Rarity == "God" then
+			clone.PetRarity.UIGradient.Enabled = true
+		end
+	else
+		-- nothing
+	end
+	
+	local petClone = PetModels[petConfig.ID]:Clone()
+	GenerateViewportFrame(clone.ViewportFrame, petClone)
+end
+
+local function RequestHatch(eggId: string, action: string)
+	if action == "Auto" then
+		BuyEgg:FireServer(eggId, "Auto")
+	elseif action == "x1" then
+		BuyEgg:FireServer(eggId)
+	elseif action == "x3" then
+		BuyEgg:FireServer(eggId, "x3")
+	end
+end
+
+local function GenerateBillboardGui(eggModel: Instance, eggConfig: table)
+	local attachment = eggModel.Attachment
+	local clone = Template:Clone()
+	clone.Parent = script.Parent
+	clone.Adornee = attachment
+	clone.Name = eggModel.Name
+	
+	clone.Frame.Title.Text = eggModel.Name:gsub("_"," ")
+	clone.Frame.Price.Price.Text = eggConfig.Price
+	
+	for _, pet in ipairs(eggConfig.Pets) do
+		GeneratePet(clone.Frame.Container, pet)
+	end
+	
+	clone.Frame.Buttons.Auto.MouseButton1Click:Connect(function()
+		for _, egg in ipairs(EggsFolder:GetChildren()) do
+			local distanceBetween = (Player.Character.PrimaryPart.Position - egg.Position).Magnitude
+			if distanceBetween > 10 then
+				auto = true
+				if auto == true then
+					while auto == true do
+						if Player.gamepasses.Triple_Hatch.Value then
+							RequestHatch(eggModel.Name, "x3")
+						elseif not Player.gamepasses.Triple_Hatch.Value then
+							RequestHatch(eggModel.Name, "Auto")	
+						end
+						wait(2)
+						if distanceBetween > 15 then
+							auto = false
+						end
+					end
+					
+				end
+			end
+		end
+		
+	end)
+	
+	clone.Frame.Delete.MouseButton1Click:Connect(function()
+		
+	end)
+	
+	clone.Frame.Buttons.x1.MouseButton1Click:Connect(function()
+		if auto == false then
+			RequestHatch(eggModel.Name, "x1")
+		else
+			auto = false
+		end
+
+	end)
+	clone.Frame.Buttons.x3.MouseButton1Click:Connect(function()
+		if not Player.gamepasses.Triple_Hatch.Value then			
+			game:GetService("MarketplaceService"):PromptGamePassPurchase(Player, 105405980)
+		else
+			if auto == false then
+				RequestHatch(eggModel.Name, "x3")
+			else
+				auto = false
+			end
+			
+		end
+	end)
+end
+
+for eggName, eggConfig in pairs(EggConfig) do
+	GenerateBillboardGui(EggsFolder[eggName], eggConfig)
+end
+
+
+
+local function GetClosestEgg()
+	local closest = {Egg = nil, Distance = 9_999}
+	for _, egg in ipairs(EggsFolder:GetChildren()) do
+		local distanceBetween = (Player.Character.PrimaryPart.Position - egg.Position).Magnitude
+		
+		if distanceBetween > 15 then continue end
+		
+		if closest.Distance > distanceBetween then
+			closest = {Egg = egg.Name, Distance = distanceBetween}
+		end
+	end
+	return closest.Egg
+end
+
+UserInputService.InputEnded:Connect(function(input: InputObject, gameProcessedEvent: boolean)
+	if gameProcessedEvent then return end
+	if not input.UserInputType == Enum.UserInputType.Keyboard then return end
+	
+	local eggId = GetClosestEgg()
+	if not eggId then return end
+	
+	if input.KeyCode == Enum.KeyCode.T then
+		RequestHatch(eggId, "x3")
+	elseif input.KeyCode == Enum.KeyCode.R then
+		RequestHatch(eggId, "Auto")
+	elseif input.KeyCode == Enum.KeyCode.E then
+		RequestHatch(eggId, "x1")
+	end
+end)
+
+PetHatched.OnClientEvent:Connect(function(pet: table)
+	local Rainbow = {{0, 255, 0}, {255, 0, 0}}
+	print(pet.Rarity.." "..pet.ID)
+	if pet.Rarity == "God" then
+		game.StarterGui:SetCore("ChatMakeSystemMessage", {Text = "Someone has hatched a pet "..pet.ID:gsub("_"," ").." GOD "..pet.Chance.."%", Color = Color3.fromRGB(170, 85, 255), Font = Enum.Font.FredokaOne})
+	elseif pet.Rarity == "Lengedary" then
+		game.StarterGui:SetCore("ChatMakeSystemMessage", {Text = "Someone has hatched a pet "..pet.ID:gsub("_"," ").." Legendary "..pet.Chance.."%", Color = Color3.fromRGB(85, 255, 0), Font = Enum.Font.FredokaOne})
+	elseif pet.Rarity == "Secret" then
+		game.StarterGui:SetCore("ChatMakeSystemMessage", {Text = "Someone has hatched a pet "..pet.ID:gsub("_"," ").." Secret "..pet.Chance.."%", Color = Color3.fromRGB(0, 85, 255), Font = Enum.Font.FredokaOne})
+
+	end	
+end)
