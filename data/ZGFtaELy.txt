@@ -1,0 +1,103 @@
+import React from 'react';
+
+// Context
+// - хранит состояние сворачивания (expanded)
+// - хранит dom узел, в который будут рендерится виджеты (widgetsRef)
+const WidgetsContext = React.createContext(/* ... */)
+
+// Provider
+const WidgetsProvider = ({ widgets, children }) => {
+    const [expanded, setExpanded] = React.useState(false) // мб сохранять в localStorage
+    const widgetsRef = React.useRef(null)
+
+    return <WidgetsContext.Provider value={{ expanded, setExpanded, widgetsRef }}>
+        {children}
+    </WidgetsContext.Provider>
+}
+
+// Пример инициализации в приложении
+const _app = () => {
+    <WidgetsProvider>
+        {children}
+    </WidgetsProvider>
+}
+
+// Пример компонента, который
+// - сворачивается/разворачивается (через WidgetsContext)
+// - отображает dom узел для вывода виджетов (в т.ч. свёрнутых)
+// - предоставляет dom узел для будущего createPortal
+const WidgetsBar = () => {
+    // используем expanded и setExpanded
+    // выставляем widgetsRef
+    const { expanded, setExpanded, widgetsRef } = React.useContext(WidgetsContext)
+
+    return (<div>
+        <button onClick={() => setExpanded(v => !v)}>Свернуть/развернуть</button>
+        {/* DOM узел, куда компонент Widgets будет рисовать свой контент */}
+        <div ref={widgetsRef} />
+    </div>)
+}
+
+// Пример компонента одного виджета
+const Widget = ({ title, children, loading }) => <div />
+
+// Пример подключения sidebar'а в Layout
+const Layout = () => {
+    <>
+        <div>{children}</div>
+        {/* Находится справа */}
+        <WidgetsBar /> 
+    </>
+}
+
+// Пример компонента, через который виджеты пробрасываются в WidgetsBar (через createPotal)
+const Widgets = ({ widgets, children }) => {
+    // рисуем развёрнутые/свернётые виджеты (в зависимости от expanded)
+    // рисуем <Widget key=... />, если не передана children функция
+    // в expanded: false рисуем просто квадратики
+
+    // пример
+    const result = <>{widgets.map(widget => children ? children(widget) : <Widget {...widget}>{widget.render()}</Widget> )}</>
+
+    
+    // через WidgetsContext достаём dom узел (widgetsRef), в который нужно запихнуть результат
+    // передаём результат в createPortal через widgetsRef
+
+    // пример
+    return createPortal(result, widgetsRef.current)
+}
+
+// Пример использовния
+const Page = () => {
+    const widgets = [
+        {
+            id: 'w1',
+            title: 'Виджет 1',
+            loading: false,
+            render: () => <div></div>
+        },
+        {
+            id: 'w2',
+            title: 'Виджет 2',
+            loading: true,
+            render: () => <div></div>
+        }
+    ]
+
+    return (<>
+        Контент страницы
+
+        {/* Базовый пример */}
+        <Widgets widgets={widgets} />
+
+        {/* Пример с кастомизацией */}
+        <Widgets widgets={widgets}>
+            {/* Функция отрисовки каждого виджета */}
+            {({ title, loading, render }) => <Widget
+                title={title}
+                loading={loading}>
+                    {render()}
+            </Widget>}
+        </Widgets>
+    </>)
+}
