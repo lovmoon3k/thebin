@@ -1,0 +1,251 @@
+local dss = game:GetService("DataStoreService")
+local cashDataStore = dss:GetDataStore("CASH DATA STORE")
+
+
+function saveData(plr)
+	if not plr:FindFirstChild("FAILED TO LOAD DATA") then
+		
+		local cash = plr.leaderstats.Cash.Value
+		
+		local success, err
+		while not success do
+
+			if err then
+				warn(err)
+			end
+
+			success, err = pcall(function()
+				cashDataStore:SetAsync(plr.UserId .. "-Cash", cash)
+			end)
+			task.wait(0.5)
+		end
+	end
+end
+
+game.Players.PlayerRemoving:Connect(saveData)
+
+game:BindToClose(function()
+	for i, plr in pairs(game.Players:GetPlayers()) do
+		saveData(plr)
+	end
+end)
+
+
+game.Players.PlayerAdded:Connect(function(plr)
+	
+	local ls = Instance.new("Folder")
+	ls.Name = "leaderstats"
+	ls.Parent = plr
+	
+	local cashValue = Instance.new("IntValue")
+	cashValue.Name = "Cash"
+	cashValue.Parent = ls
+	
+	
+	local success, data = pcall(function() 
+		return cashDataStore:GetAsync(plr.UserId .. "-Cash")
+	end)
+
+	if success then
+		local cashData = data or 0
+		cashValue.Value = cashData
+
+		print("Data successfully loaded for " .. plr.Name)
+
+	else
+		warn("Data not loaded for " .. plr.Name)
+
+		local failedToLoad = Instance.new("StringValue")
+		failedToLoad.Name = "FAILED TO LOAD DATA"
+		failedToLoad.Parent = plr
+	end
+end)
+
+
+local rs = game.ReplicatedStorage:WaitForChild("TeamDeathmatchReplicatedStorage")
+local maps = rs:WaitForChild("Maps")
+local weapons = rs:WaitForChild("Weapons")
+local config = require(rs:WaitForChild("CONFIGURATION"))
+
+local statusValue = Instance.new("StringValue")
+statusValue.Name = "STATUS"
+statusValue.Parent = rs
+
+
+function rewardWinner(team)
+	statusValue.Value = "Team " .. team.Name .. " wins!"
+	
+	for i, plr in pairs(team:GetPlayers()) do
+		plr.leaderstats.Cash.Value += config.WinReward
+	end
+end
+
+
+while true do
+	
+	while true do
+		
+		local numChars = 0
+		for i, plr in pairs(game.Players:GetPlayers()) do
+			if plr.Character and plr.Character.Humanoid.Health > 0 then
+				numChars += 1
+			end
+		end
+		
+		if numChars >= config.MinimumPlayersRequired then
+			break
+		end
+		
+		statusValue.Value = "Waiting for " .. (config.MinimumPlayersRequired - numChars) .. " more player" .. (config.MinimumPlayersRequired - numChars ~= 1 and "s." or ".")
+		task.wait(1)
+	end
+	
+	statusValue.Value = "Intermission.."
+	task.wait(config.IntermissionTime)
+	
+	
+	local team1 = config.Team1
+	local team2 = config.Team2
+	
+	
+	local mapChosen = maps:GetChildren()[Random.new():NextInteger(1, #maps:GetChildren())]:Clone()
+	mapChosen.Parent = workspace
+	
+	statusValue.Value = "Now playing " .. mapChosen.Name
+	task.wait(config.MapWaitTime)
+	
+	
+	local teamKillsFolder = Instance.new("Folder")
+	teamKillsFolder.Name = "TEAM KILLS"
+	teamKillsFolder.Parent = rs
+	
+	local team1Kills = Instance.new("IntValue")
+	team1Kills.Name = "TEAM 1"
+	team1Kills.Parent = teamKillsFolder
+	
+	local team2Kills = Instance.new("IntValue")
+	team2Kills.Name = "TEAM 2"
+	team2Kills.Parent = teamKillsFolder
+	
+	
+	for i, plr in pairs(game.Players:GetPlayers()) do
+
+		local char = plr.Character
+		if char and char.Humanoid.Health > 0 then
+
+			if i % 2 == 1 then
+				plr.Team = team1
+				char.HumanoidRootPart.CFrame = mapChosen.Spawns.Team1Spawn.CFrame
+				
+				for i, weapon in pairs(weapons.Team1Weapons:GetChildren()) do
+					weapon:Clone().Parent = plr.Backpack
+				end
+
+			else
+				plr.Team = team2
+				char.HumanoidRootPart.CFrame = mapChosen.Spawns.Team2Spawn.CFrame
+				
+				for i, weapon in pairs(weapons.Team2Weapons:GetChildren()) do
+					weapon:Clone().Parent = plr.Backpack
+				end
+			end
+			
+			
+			local connection1 = char.Humanoid.Died:Connect(function()
+				if plr.Team == team1 then
+					team2Kills.Value += 1
+				elseif plr.Team == team2 then
+					team1Kills.Value += 1
+				end
+			end)
+			
+			local connection3 = nil
+			local connection2 = plr.CharacterAdded:Connect(function(newChar)
+				local hum = newChar:WaitForChild("Humanoid")
+				
+				if plr.Team == team1 then
+					for i, weapon in pairs(weapons.Team1Weapons:GetChildren()) do
+						weapon:Clone().Parent = plr.Backpack
+					end
+					newChar.HumanoidRootPart:GetPropertyChangedSignal("CFrame"):Wait()
+					newChar.HumanoidRootPart.CFrame = mapChosen.Spawns.Team1Spawn.CFrame
+					
+				elseif plr.Team == team2 then
+					for i, weapon in pairs(weapons.Team2Weapons:GetChildren()) do
+						weapon:Clone().Parent = plr.Backpack
+					end
+					newChar.HumanoidRootPart:GetPropertyChangedSignal("CFrame"):Wait()
+					newChar.HumanoidRootPart.CFrame = mapChosen.Spawns.Team2Spawn.CFrame
+				end
+				
+				connection3 = hum.Died:Connect(function()
+					if plr.Team == team1 then
+						team2Kills.Value += 1
+					elseif plr.Team == team2 then
+						team1Kills.Value += 1
+					end
+				end)
+			end)
+
+			teamKillsFolder.Destroying:Connect(function()
+				connection1:Disconnect()
+				connection2:Disconnect()
+				connection3:Disconnect()
+			end)
+		end
+	end
+	
+	
+	local gameStart = tick()
+	
+	while true do
+		
+		local now = tick()
+		local timeLeft = config.RoundTime - math.round(now - gameStart)
+		
+		local mins = math.floor(timeLeft / 60)
+		local secs = timeLeft - (mins * 60)
+		if string.len(secs) < 2 then
+			secs = "0" .. tostring(secs)
+		end
+
+		statusValue.Value = mins .. ":" .. secs
+		
+		
+		if timeLeft <= 0 or #team1:GetPlayers() < 1 or #team2:GetPlayers() < 1 then
+			
+			if team1Kills.Value > team2Kills.Value then
+				rewardWinner(team1)
+			elseif team2Kills.Value > team1Kills.Value then
+				rewardWinner(team2)
+			else
+				statusValue.Value = "Draw!"
+			end
+			break
+		
+		elseif config.StopOnceKillsReached then
+			
+			if team1Kills.Value >= config.KillsRequiredToStop then
+				rewardWinner(team1)
+				break
+				
+			elseif team2Kills.Value >= config.KillsRequiredToStop then
+				rewardWinner(team2)
+				break
+			end
+		end
+		
+		game:GetService("RunService").Heartbeat:Wait()
+	end
+	
+	
+	for i, plr in pairs(game.Players:GetPlayers()) do
+		plr.Team = nil
+		plr:LoadCharacter()
+	end	
+	
+	mapChosen:Destroy()
+	teamKillsFolder:Destroy()
+	
+	task.wait(config.RoundFinishedTime)
+end
