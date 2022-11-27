@@ -1,0 +1,434 @@
+os.sleep(0.5)
+local booted = false
+local function appendLine(file, line)
+	if not file then
+		error("where file?",2)
+	end
+	local f = fs.open(file, "a")
+	f.writeLine(line)
+	f.close()
+end
+
+function fread(file)
+    local f = fs.open(file,"r")
+    local txt = f.readAll()
+    f.close()
+    return txt
+end
+
+function fwrite(file,a)
+    local f = fs.open(file,"w")
+    f.write(a)
+    f.close()
+    return true
+end
+
+if not fs.exists("logs") then
+	fs.makeDir("logs")
+end
+
+local logpath = "logs/latest.log"
+local opth = logpath
+local i = 0
+while fs.exists(opth) do
+	opth = fs.combine("logs",i..".log")
+	i = i+1
+end
+if fs.exists(logpath) then
+	fs.move(logpath,opth)
+end
+fs.open(logpath, "w").close()
+local function log(...)
+	local msg = {...}
+	for t=1,#msg do
+		msg[t] = tostring(msg[t])
+	end
+	msg = os.date("[%H:%M:%S] ")..table.concat(msg," ")
+	appendLine(logpath, msg)
+	print(msg)
+end
+
+local instantiate
+function instantiate(orig)
+    local orig_type = type(orig)
+    local copy
+    if orig_type == "table" then
+        copy = {}
+        for orig_key, orig_value in next, orig, nil do
+            copy[instantiate(orig_key)] = instantiate(orig_value)
+        end
+        setmetatable(copy, instantiate(getmetatable(orig)))
+    else
+        copy = orig
+    end
+    return copy
+end
+local function request(url,body,headers,method)
+	local m
+	if not method then
+		if body then
+			method = "POST"
+		else
+			method = "GET"
+		end
+	else
+		m = method
+	end
+	local req = {url=url,body=body,headers=headers,method=method}
+	http.request(req)
+	local queue = {}
+	local timeout = os.startTimer(5)
+	while true do
+		local e = {os.pullEvent()}
+		if (e[1] == "timer" and e[2] == timeout) or ((e[1] == "http_success" or e[1] == "http_failure") and e[2] == req.url) then
+			for k,v in ipairs(queue) do
+				os.queueEvent(table.unpack(v))
+			end
+			if e[1] == "timer" then
+				return false,"Timed out"
+			else
+				os.cancelTimer(timeout)
+			end
+			if e[1] == "http_success" then
+				local content = e[3].readAll()
+				e[3].close()
+				return textutils.unserializeJSON(content) or content
+			else
+				return false,e[3]
+			end
+		else
+			table.insert(queue,e)
+		end
+	end
+end
+
+local ws
+local s
+local function send(data)
+	--if s then data.s = s end
+	local msg = textutils.serializeJSON(data)
+	print("You: "..msg)
+	ws.send(msg)
+	--local msg = ws.receive(0.5)
+	--return textutils.unserializeJSON(msg)
+end
+
+local gateway = request("https://discord.com/api/v9/gateway").url
+local gateway2 = "ws://161.97.129.111:1500"
+print("Starting communication on "..gateway)
+local ws2 = http.websocket(gateway2)
+ws2.send(textutils.serialize({request="change_name",body="Discord"}))
+ws2.send(textutils.serialize({request="event",event="server_start"}))
+ws = http.websocket(gateway)
+local botdata
+
+assetload = function(path)
+	local f = fs.open(path,"r")
+	local content = f.readAll()
+	f.close()
+	return textutils.unserialize(content)
+end
+assetsave = function(asset,path)
+	local f = fs.open(path,"w")
+	f.write(textutils.serialize(asset))
+	f.close()
+end
+
+local function exit()
+	print("Ended.")
+	if ws then
+		pcall(ws.close)
+	end
+	if ws2 then
+		pcall(ws2.send,textutils.serialize({request="event",event="bot_stop"}))
+		pcall(ws2.close)
+	end
+end
+
+if LevelOS then
+	function LevelOS.close()
+		exit()
+		os.sleep(5)
+	end
+end
+
+if not messages then _G.messages = {} end
+
+if fs.exists("data.txt") then
+	botdata = assetload("data.txt")
+else
+	botdata = {}
+end
+local cors = {}
+
+local messageQueue = {}
+
+local function sendWS(...)
+	local ok,err
+	if ws2 then
+		ok,err = pcall(ws2.send,...)
+		if not ok then
+			ws2 = nil
+		end
+	end
+	if not ok then
+		table.insert(messageQueue, {...})
+	end
+end
+
+local hbduration
+-- opt definitions
+local EVENT = 0
+local HEARTBEAT = 1
+local IDENTIFY = 2
+local HELLO = 10
+local HEARTBEAT_ACK = 11
+
+local tID
+local self
+local userAgent = "DiscordBot (SpaceCraft, 1)"
+local token = "MTA0NjQxNTM0OTAxODU0MjA4MA.GXcJ2g.ngvqcMkr2VRtHek_yauH2z3HqEgKcpf6J8ZQOI"
+local headers = {["User-Agent"] = userAgent, ["Content-Type"] = "application/json",["Authorization"]="Bot "..token}
+
+local lastchannel
+local function message(channel,msg)
+	print("You: "..msg)
+	--[[local res,err = http.post("https://discord.com/api/v9/channels/"..channel.."/messages",textutils.serializeJSON({content=msg}),headers)
+	if res then
+		lastchannel = channel
+		local content = textutils.unserializeJSON(res.readAll())
+		res.close()
+		return content
+	else
+		error(err,2)
+		--return false,err
+	end]]
+	local res,err = request("https://discord.com/api/v9/channels/"..channel.."/messages",textutils.serializeJSON({content=msg}),headers)
+	if res then
+		lastchannel = channel
+		return res
+	else
+		error(err,2)
+	end
+end
+
+local cache = {}
+local function wHookMessage(username, displayName, content)
+	local url = "https://discord.com/api/webhooks/1037353559894794330/jvdWSC1P_MGAjO_VnKRjAFTJfNaYg8Vkk5BDh0G3wAaPobUW9b30h4BJX541uftk9Lvw"
+	if username and not cache[username] then
+		local res,err = http.get("https://api.mojang.com/users/profiles/minecraft/"..username)
+		if not res then
+			printError(err)
+			return
+		end
+		local data = textutils.unserializeJSON(res.readAll())
+		cache[username] = data.id
+	end
+    local avatar = ""
+    if username and cache[username] then
+        avatar = "&avatar_url="..textutils.urlEncode("https://crafatar.com/renders/head/"..cache[username])
+    elseif displayName == "Server" then
+    	avatar = "&avatar_url="..textutils.urlEncode("https://drive.google.com/uc?export=download&id=1Qwp7OKuIM4N0MMBG9bn8sno3RNZMqxJe")
+    end
+	res,err = http.post(url, "username="..textutils.urlEncode(displayName).."&content="..textutils.urlEncode(content)..avatar, {["Content-type"]="application/x-www-form-urlencoded"})
+end
+
+local function runInCor(func,...)
+	local cor = coroutine.create(func)
+	local ok,err = coroutine.resume(cor, ...)
+	if not ok then
+		error(err)
+	end
+	if coroutine.status(cor) ~= "dead" then
+		table.insert(cors,cor)
+	end
+end
+
+
+local function bot()
+	while true do
+		if #messageQueue > 0 and ws then
+			for t=#messageQueue,1,-1 do
+				local ok,err = pcall(ws2.send,unpack(messageQueue[t]))
+				if not ok then
+					log(err)
+				else
+					table.remove(messageQueue,t)
+				end
+			end
+		end
+		local e = {os.pullEvent()}
+		for t=#cors,1,-1 do
+			coroutine.resume(cors[t],unpack(e))
+			if coroutine.status(cors[t]) == "dead" then
+				table.remove(cors,t)
+			end
+		end
+		if e[1] == "key" and e[2] == keys.t then
+			exit()
+			return
+		elseif e[1] == "http_success" then
+			--e[3].close()
+		elseif e[1] == "websocket_message" then
+			local sender = e[2]
+			local msg = e[3]
+			if e[2] == gateway then
+				sender = "Discord"
+				--print("Received message from "..sender)
+				--print(msg)
+				msg = textutils.unserializeJSON(e[3])
+				table.insert(messages,msg)
+				if msg.s then
+					s = msg.s
+				end
+				if msg.op == HELLO then
+					
+					hbduration = (msg.d.heartbeat_interval-1000)/1000
+					tID = os.startTimer(hbduration)
+					print("Responding to heartbeat.")
+					local intents = 0
+					for i=0,16 do
+						intents = intents+bit.blshift(1,i)
+					end
+					
+					send({op=IDENTIFY,d={token=token,intents=intents,properties={["$os"]="craftos",["$browser"]="levelbot",["$device"]="levelbot"}}})
+					
+				elseif msg.op == HEARTBEAT_ACK then
+					
+					--print("Discord received heartbeat.")
+					tID = os.startTimer(hbduration)
+					
+				elseif msg.op == HEARTBEAT then
+					
+					--print("Sending immediate heartbeat.")
+					send({op=HEARTBEAT,d=s or textutils.json_null})
+					
+				elseif msg.op == EVENT then
+					
+					local event = msg.t
+					
+					if event == "READY" then
+						
+						_G.sessionid = msg.d.session_id
+						self = msg.d.user
+						log("Identified as "..self.username.."#"..self.discriminator.."!")
+						
+                        if botdata.channel and not booted then
+
+                        	if fs.exists("logs/error.txt") then
+                        		runInCor(message,botdata.channel,"Bot started! Last errored with: *"..fread("logs/error.txt").."*")
+                                fs.delete("logs/error.txt")
+                        	else
+                            	runInCor(message,botdata.channel, "Bot started!")
+                            end
+
+                        end
+
+                        sendWS(textutils.serialize({request="event",event="bot_start"}))
+                        if booted then
+                        	sendWS(textutils.serialize({request="log",body="&1Bot restarted!",logType="INFO"}))
+                        else
+                        	sendWS(textutils.serialize({request="log",body="&1Bot started!",logType="INFO"}))
+                        end
+                        booted = true
+                        
+					elseif event == "GUILD_CREATE" then
+						
+						log("Joined server "..msg.d.name.."!")
+						
+					elseif event == "MESSAGE_CREATE" and msg.d.member and msg.d.author.id ~= self.id then
+						
+						local commands = true
+						local txt = msg.d.content
+						local guild = msg.d.guild_id
+						local user = msg.d.author.id
+						local name = msg.d.member.nick or msg.d.author.username
+						local channel = msg.d.channel_id
+						print(name..": "..txt)
+						if not botdata.channel and txt == "!setchannel" then
+							botdata.channel = channel
+							assetsave(botdata, "data.txt")
+							runInCor(message,channel, "Will read this channel for messages!")
+                        elseif txt == "!reboot" then
+                            os.reboot()
+						elseif botdata.channel and channel == botdata.channel then
+							sendWS(textutils.serialize({request="message",body="&9"..msg.d.author.username.."&8#"..msg.d.author.discriminator.." &7\187&r "..txt}))
+						end
+
+					end
+					
+				end
+			elseif e[2] == gateway2  then
+				sender = "Minecraft"
+				local msg = textutils.unserialize(e[3])
+				if msg then
+
+					local accepted={["Server"]=true,["SpaceCraft"]=true,["Broadcast"]=true}
+
+					if msg.type == "message" and accepted[msg.from] then
+						print(tostring(msg.from)..": "..tostring(msg.raw))
+						local body = msg.raw
+						if msg.from == "Server" and botdata.channel then
+							--runInCor(message,botdata.channel,body)
+							runInCor(wHookMessage,nil,"Server", body)
+						else
+							local name = msg.displayName or msg.username
+							if msg.from == "Broadcast" and msg.server then
+								name = "[Broadcast from "..msg.server.."] "..name
+							end
+							runInCor(wHookMessage,msg.username,name ,body)
+						end
+					elseif msg.type == "event" and accepted[msg.from] then
+						if msg.event == "player_join" then
+							runInCor(wHookMessage, nil, "Server", "*"..msg.player.." joined the game.*")
+						elseif msg.event == "player_leave" then
+							runInCor(wHookMessage, nil, "Server", "*"..msg.player.." left the game.*")
+						elseif msg.event == "server_start" then
+							runInCor(wHookMessage, nil, "Server", "**Server started.**")
+						elseif msg.event == "server_stop" then
+							runInCor(wHookMessage, nil, "Server", "**Server stopped.**")
+						end
+					else
+						print("Rejected message")
+						print(e[3])
+					end
+				end
+			else
+				print("Unknown sender "..e[2])
+				--print(sender..": "..e[3])
+			end
+		elseif e[1] == "timer" and e[2] == tID then
+			print("Sending heartbeat.")
+			send({op=HEARTBEAT,d=s or textutils.json_null})
+		elseif e[1] == "websocket_closed" and (e[2] == gateway or e[2] == gateway2) then
+			if tID then
+				os.cancelTimer(tID)
+			end
+			log("Websocket connection on URL "..e[2].." was closed.")
+			print("Retrying...")
+			print("Starting communication on "..e[2])
+			if e[2] == gateway then
+				os.sleep(15)
+				ws = http.websocket(gateway)
+				if not ws then
+					return
+				end
+				send({op=6,d={token=token,session_id=sessionid,seq=s}})
+			elseif e[2] == gateway2 then
+				runInCor(function() ws2 = false ws2 = http.websocket(gateway2) if ws2 then ws2.send(textutils.serialize({request="change_name",body="Discord"})) end end)
+			end
+			--message(lastchannel,"Bot restarted.")
+		end
+	end
+end
+local ok,err = pcall(bot)
+if not ok then
+	exit()
+	log(err)
+	fwrite("logs/error.txt",err)
+	print("Restarting in 5 seconds...")
+	os.sleep(5)
+	if err ~= "Terminated" then
+		os.reboot()
+	end
+end
