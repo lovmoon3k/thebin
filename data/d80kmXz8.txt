@@ -1,0 +1,130 @@
+# Creamos variables simbólicas para la aceleración (angular), la velocidad (angular), el angulo de ambos péndulos y el incremento temporal
+atheta1 = sp.symbols('a_theta_1') # aceleración angular 1
+vtheta1 = sp.symbols('v_theta_1') # velocidad angular 1
+theta1 = sp.symbols('theta1') # angulo 1
+atheta2 = sp.symbols('a_theta_2') # aceleración angular 2
+vtheta2 = sp.symbols('v_theta_2') # velocidad angular 2
+theta2 = sp.symbols('theta2') # angulo 2
+inct = sp.symbols('Delta_t') #incremento temporal
+
+# Reescribimos las ecuaciones con las variables simbólicas
+Eq1_editada = l1*(1.0*l1*m1* atheta1 + 1.0*l1*m2* atheta1 + 1.0*l2*m2*sp.sin(theta1 - theta2)*vtheta2**2 + 1.0*l2*m2*sp.cos(theta1 - theta2)*atheta2 + 9.8*m1*sp.sin(theta1) + 9.8*m2*sp.sin(theta1))
+Eq2_editada = l2*m2*(-1.0*l1*sp.sin(theta1 - theta2)*vtheta1**2 + 1.0*l1*sp.cos(theta1 - theta2)*atheta1 + 1.0*l2*atheta2 + 9.8*sp.sin(theta2))
+
+#sp.solve([Eq1, Eq2], [atheta1, atheta2]) # El sistema no puede resolverse de forma analítica, por lo que habrá que solucionarlo numéricamente
+
+
+#######################################################
+
+# Escribimos las funciones para los incrementos de angulo y velocidad (angular)
+Eq1_v = atheta1 * inct + vtheta1 # Ecuación para la velocidad (v = a * t + v0)
+Eq1_x = vtheta1 * inct + theta1 # Ecuacion para el angulo (theta = v0*t + theta0)
+Eq2_v = atheta2 * inct + vtheta2 # Ecuación para la velocidad (v = a * t + v0)
+Eq2_x = vtheta2 * inct + theta2 # Ecuacion para el angulo (theta = v0*t + theta0)
+display(Eq1_v,Eq1_x,Eq2_v,Eq2_x)
+
+#######################################################
+
+%matplotlib inline
+# Vamos a realizar la simulación para un muestreado de tiempos
+t = np.linspace(0, 11, 100) # Muestreamos el tiempo
+
+# Definimos condiciones iniciales
+theta10 = 30*np.pi/180 # Ángulo inicial
+v10 = 0 # Velocidad (angular) inicial
+theta20 = 30*np.pi/180 # Ángulo inicial
+v20 = 0 # Velocidad (angular) inicial
+
+# Definimos valores para los parámetros del problema y los sustituimos en las ecuaciones
+longitud1 = 1
+masa1 = 1
+longitud2 = 1
+masa2 = 1
+ch_ini1 = longitud1*sp.sin(theta10)
+ch_ini2 = ch_ini1 + longitud2*sp.sin(theta20)
+cv_ini1 = longitud1*sp.cos(theta10)             # Añadimos coordenadas verticales para simulación gráfica
+cv_ini2 = cv_ini1 + longitud2*sp.cos(theta20)
+
+Eq1_editada = Eq1_editada.subs({l1: longitud1, m1: masa1, l2: longitud1, m2: masa1})
+Eq2_editada = Eq2_editada.subs({l1: longitud1, m1: masa1, l2: longitud1, m2: masa1})
+
+# Vamos a recorrer los valores de tiempo, calculando los nuevos valores del angulo, velocidad y aceleración en cada punto temporal
+sol = [[theta10, v10, None, theta20, v20, None, ch_ini1, ch_ini2, cv_ini1, cv_ini2]] # Generamos la lista de coordenadas iniciales [x10, v10, a10, x20, v20, a20]
+for i, t1 in enumerate(t):
+    if i>0: # Nos saltamos el primer punto, ya que necesitamos un intervalo de tiempo
+        deltat = t1-t[i-1] # Valor del intervalo temporal
+        [x1, v1, a1, x2, v2, a2, ch1, ch2, cv1, cv2] = sol[-1] # Valores de la coordenada, velocidad y aceleración en el punto estudiado
+        Eq1_num = Eq1_editada.subs({theta1: x1, vtheta1: v1, theta2: x2, vtheta2: v2})
+        Eq2_num = Eq2_editada.subs({theta1: x1, vtheta1: v1, theta2: x2, vtheta2: v2})
+        
+        a = sp.solve([Eq1_num, Eq2_num], [atheta1, atheta2])
+        
+        a1 = a[atheta1]
+        a2 = a[atheta2]   
+        
+        # Sustituimos los valores de las variables en cada ecuación para obtener su valor en el nuevo t
+        v1 = Eq1_v.subs({theta1: x1, vtheta1: v1, atheta1: a1, inct: deltat})
+        x1 = Eq1_x.subs({theta1: x1, vtheta1: v1, atheta1: a1, inct: deltat}) 
+        v2 = Eq2_v.subs({theta2: x2, vtheta2: v2, atheta2: a2, inct: deltat}) 
+        x2 = Eq2_x.subs({theta2: x2, vtheta2: v2, atheta2: a2, inct: deltat})
+        ch1 = longitud1*sp.sin(x1)
+        ch2 = ch1 + longitud2*sp.sin(x2)
+        cv1 = longitud1*sp.cos(x1)       # Añadimos coordenadas verticales para simulación gráfica
+        cv2 = cv1 + longitud2*sp.cos(x2)
+        sol.append([x1, v1, a1, x2, v2, a2, ch1, ch2, cv1, cv2])
+        
+sol = np.asarray(sol).T  #Transponemos la solución para tener cada variable en una lista diferente     
+pl.figure()
+
+# Generamos las gráficas
+#pl.plot(t, sol[0]) # ángulo 1
+#pl.plot(t, sol[1]) # velocidad (angular) 1
+#pl.plot(t, sol[2]) # aceleración (angular) 1
+#pl.plot(t, sol[3]) # ángulo 2
+#pl.plot(t, sol[4]) # velocidad (angular) 2
+#pl.plot(t, sol[5]) # aceleración (angular) 2
+pl.plot(t, sol[6]) #coordenada horizontal 1
+pl.plot(t, sol[7]) #coordenada horizontal 2
+#pl.plot(t, sol[8]) #coordenada vertical 1
+#pl.plot(t, sol[9]) #coordenada vertical 2
+
+#Mostramos la figura resultante
+pl.show()
+
+############################################################################
+
+#### ANIMACIÓN DEL DOBLE PÉNDULO ###
+
+
+%matplotlib inline
+import matplotlib.animation as animation
+from IPython import display
+
+pl.rcParams['animation.ffmpeg_path'] = '/Youtube-dl/ffmpeg.exe'
+
+L=longitud1+longitud2
+
+fig = pl.figure(figsize=(7, 5))
+ax = fig.add_subplot(autoscale_on=False, xlim=(-L, L), ylim=(-L-.5, 1.))
+ax.set_aspect('equal')
+ax.grid()
+
+line, = ax.plot([], [], 'o-', lw=2)
+#trace, = ax.plot([], [], '.-', lw=1, ms=2)
+time_template = 'tiempo = %.1fs'
+time_text = ax.text(0.05, 0.9, '', transform=ax.transAxes)
+
+def animate(i):
+    thisx = [0, sol[6][i], sol[7][i]]
+    thisy = [0, -sol[8][i], -sol[9][i]]
+    
+    line.set_data(thisx, thisy)
+    time_text.set_text(time_template % (i*deltat))
+    return line, time_text
+
+ani = animation.FuncAnimation(fig, animate, len(t), interval=deltat*1000, blit=True)
+# pl.show()
+video = ani.to_html5_video()
+html = display.HTML(video)
+display.display(html)
+pl.close()
