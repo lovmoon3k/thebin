@@ -1,0 +1,252 @@
+import pygame
+import socket
+import time
+import math
+
+
+# classes
+class Player(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.origin_image = pygame.transform.scale(pygame.image.load("assets/player2.png"), (25, 25))
+        self.image = self.origin_image
+        self.rect = self.image.get_rect()
+        self.rect.center = (960/2, 540/2)
+        self.coords = [0, 0]
+        self.angle = 0
+        self.speed = 5
+
+    def move_up(self):
+        self.coords[1] += self.speed
+
+    def move_down(self):
+        self.coords[1] -= self.speed
+
+    def move_left(self):
+        self.coords[0] += self.speed
+
+    def move_right(self):
+        self.coords[0] -= self.speed
+
+    def set_coords(self, new_coords: tuple or list):
+        self.coords = list(new_coords)
+
+    def rotate_to_mouse(self):
+        player_rect = self.origin_image.get_rect(center=self.rect.center)
+        self.angle = rotate_to_point(pygame.mouse.get_pos(), 0, player_rect)
+
+
+
+class OtherPlayer(pygame.sprite.Sprite):
+    def __init__(self, coordinates: tuple, angle: float or int, pseudo: str):
+        super().__init__()
+        self.pseudo = pseudo
+        self.rect = pygame.rect.Rect(0, 0, 25, 25)
+        self.rect.center = coordinates
+        self.angle = angle
+        self.speed = 5
+
+    def move_up(self):
+        self.rect.centery += self.speed
+
+    def move_down(self):
+        self.rect.centery -= self.speed
+
+    def move_left(self):
+        self.rect.centerx += self.speed
+
+    def move_right(self):
+        self.rect.centerx -= self.speed
+
+
+class Asteroid(pygame.sprite.Sprite):
+    def __init__(self, coordinates: tuple or list):
+        super().__init__()
+        self.rect = game.asteroid_image.get_rect()
+        self.rect.center = coordinates
+        self.speed = 5
+
+    def move_up(self):
+        self.rect.centery += self.speed
+
+    def move_down(self):
+        self.rect.centery -= self.speed
+
+    def move_left(self):
+        self.rect.centerx += self.speed
+
+    def move_right(self):
+        self.rect.centerx -= self.speed
+
+
+class Game:
+    def __init__(self):
+        self.player = Player()
+        self.all_other_players = pygame.sprite.Group()
+        self.all_asteroids = pygame.sprite.Group()
+        self.asteroid_image = pygame.image.load('assets/asteroid.png')
+
+    def add_a_player(self, coordinates, angle, pseudo):
+        self.all_other_players.add(OtherPlayer(coordinates, angle, pseudo))
+
+    def clear_all_players(self):
+        self.all_other_players.empty()
+
+    def add_asteroid(self, coordinates: tuple or list):
+        self.all_asteroids.add(Asteroid(coordinates))
+
+    def clear_all_asteroids(self):
+        self.all_asteroids.empty()
+
+# classes
+
+
+# socket stuff
+user_name = str(input("What is your username: "))
+header = 64
+port = 5050
+FORMAT = 'utf-8'
+disconnect_message = "!DISCONNECT"
+pos_update_message = "!POS_UPDATE"
+received_message = "RECEIVED"
+get_all_player_info_message = "!GET_PLAYERS"
+get_near_asteroids_message = "!GET_ASTEROIDS"
+server = "127.0.0.1"
+addr = (server, port)
+server_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server_client.connect(addr)
+# socket stuff
+
+# create pygame window
+pygame.init()
+pygame.display.set_caption("")
+screen = pygame.display.set_mode((960, 540))
+clock = pygame.time.Clock()
+max_fps = 60
+screen_x, screen_y = screen.get_size()
+font = pygame.font.Font('assets/SMME.ttf', 15)
+# create pygame window
+
+# variables
+game = Game()
+frame_count = 0
+# variables
+
+
+# functions
+def send(msg):
+    """Sends a socket request to the server and
+     gets a response from the server and converts
+      it to it's form"""
+    server_client.send(msg.encode(FORMAT))  # Sends a socket request to the server
+    answer = server_client.recv(4096*8).decode(FORMAT)
+    if answer == received_message:
+        return
+    return eval(answer)  # Gets a response from the server and converts it to it's form
+
+
+def rotate_to_point(point, correction_angle, rect):
+    dx, dy = point[0] - rect.centerx, rect.centery - point[1]
+    angle = math.degrees(math.atan2(dy, dx)) - correction_angle
+    return angle
+
+
+def rot_center(image, angle, xy):
+    rotated_image = pygame.transform.rotate(image, angle)
+    new_rect = rotated_image.get_rect(center=image.get_rect(center=xy).center)
+    return rotated_image, new_rect
+# functions
+
+
+
+send(user_name)
+player_infos = send(get_all_player_info_message)
+game.player.set_coords(player_infos[user_name]['pos'])
+running = True
+while running:
+
+    # calculations
+    frame_count += 1
+    if frame_count % 30 == 0:
+        frame_count = 0
+        msg_to_send = {"pos": game.player.coords, "angle": game.player.angle}
+        send(f"{pos_update_message}:{msg_to_send}")
+        player_infos = send(get_all_player_info_message)
+        game.clear_all_players()
+        for player in player_infos:
+            if not player == user_name:
+                x = game.player.rect.centerx + game.player.coords[0] - player_infos[player]['pos'][0]
+                y = game.player.rect.centery + game.player.coords[1] - player_infos[player]['pos'][1]
+                game.add_a_player((x, y), player_infos[player]['angle'], player)
+
+        near_asteroids = send(f"{get_near_asteroids_message}:{msg_to_send}")
+        game.clear_all_asteroids()
+        for asteroid in near_asteroids:
+            x = game.player.rect.centerx + game.player.coords[0] - asteroid[0]
+            y = game.player.rect.centery + game.player.coords[1] - asteroid[1]
+            game.add_asteroid((x, y))
+
+    game.player.rotate_to_mouse()
+
+    keys = pygame.key.get_pressed()
+
+    if keys[pygame.K_z]:
+        game.player.move_up()
+        for asteroid in game.all_asteroids:
+            asteroid.move_up()
+        for player in game.all_other_players:
+            player.move_up()
+    if keys[pygame.K_s]:
+        game.player.move_down()
+        for asteroid in game.all_asteroids:
+            asteroid.move_down()
+        for player in game.all_other_players:
+            player.move_down()
+    if keys[pygame.K_q]:
+        game.player.move_left()
+        for asteroid in game.all_asteroids:
+            asteroid.move_left()
+        for player in game.all_other_players:
+            player.move_left()
+    if keys[pygame.K_d]:
+        game.player.move_right()
+        for asteroid in game.all_asteroids:
+            asteroid.move_right()
+        for player in game.all_other_players:
+            player.move_right()
+
+
+    # displaying
+
+    screen.fill((0, 0, 0))
+    screen.blit(rot_center(game.player.origin_image, game.player.angle, game.player.rect.center)[0],
+                rot_center(game.player.origin_image, game.player.angle, game.player.rect.center)[1])
+    for player in game.all_other_players:
+        pseudo_render = font.render(str(player.pseudo), True, (255, 255, 255))
+        pos_to_display_pseudo = (player.rect.centerx - pseudo_render.get_size()[0]/2, player.rect.centery - player.rect.size[1] - 10)
+        screen.blit(pseudo_render, pos_to_display_pseudo)
+        screen.blit(rot_center(game.player.origin_image, player.angle, player.rect.center)[0],
+                    rot_center(game.player.origin_image, player.angle, player.rect.center)[1])
+
+    pseudo_render = font.render(str('You'), True, (255, 255, 255))
+    pos_to_display_pseudo = (game.player.rect.centerx - pseudo_render.get_size()[0] / 2, game.player.rect.centery - game.player.rect.size[1] - 10)
+    screen.blit(pseudo_render, pos_to_display_pseudo)
+
+
+    for asteroid in game.all_asteroids:
+        screen.blit(game.asteroid_image, asteroid.rect)
+
+
+
+    screen.blit(font.render(str(game.player.coords), True, (255, 255, 255)), (5, 5))
+
+
+    # display
+    pygame.display.flip()
+    clock.tick(max_fps)
+    # events
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            send(disconnect_message)
+            time.sleep(0.2)
+            running = False
