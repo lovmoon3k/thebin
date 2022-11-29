@@ -1,0 +1,83 @@
+version: '3.6'
+
+networks:
+
+  default:
+    driver: bridge
+    ipam:
+      driver: default
+
+  nextcloud:
+    driver: bridge
+    internal: true
+    ipam:
+      driver: default
+
+services:
+
+  wireguard:
+    container_name: wireguard
+    image: ghcr.io/linuxserver/wireguard
+    restart: unless-stopped
+    environment:
+    - PUID=1000
+    - PGID=1000
+    - TZ=Europe/London
+    - SERVERURL=MyAlias.duckdns.org
+    - SERVERPORT=51820
+    - PEERS=10
+    - PEERDNS=auto
+  # - PEERDNS=172.30.0.1
+    - ALLOWEDIPS=0.0.0.0/0
+    ports:
+    - "51820:51820/udp"
+    volumes:
+    - ./volumes/wireguard/config:/config
+    - ./volumes/wireguard/custom-cont-init.d:/custom-cont-init.d
+    - ./volumes/wireguard/custom-services.d:/custom-services.d
+    - /lib/modules:/lib/modules:ro
+    cap_add:
+    - NET_ADMIN
+    - SYS_MODULE
+    sysctls:
+    - net.ipv4.conf.all.src_valid_mark=1
+
+  nextcloud:
+    container_name: nextcloud
+    x-hostname: nextcloud.my.domain.com
+    image: nextcloud
+    restart: unless-stopped
+    environment:
+      - MYSQL_HOST=nextcloud_db
+      - MYSQL_PASSWORD=b3173257-cecd-4b5f-9308-8e10c9efa3de
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+    ports:
+      - "9321:80"
+    volumes:
+      - ./volumes/nextcloud/html:/var/www/html
+    depends_on:
+      - nextcloud_db
+    networks:
+      - default
+      - nextcloud
+
+  nextcloud_db:
+    container_name: nextcloud_db
+    build: ./.templates/mariadb/.
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/London
+      - PUID=1000
+      - PGID=1000
+      - MYSQL_ROOT_PASSWORD=6156a08f-fdbb-4a4c-ac42-0400f9f149e7
+      - MYSQL_PASSWORD=b3173257-cecd-4b5f-9308-8e10c9efa3de
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+    x-ports:
+      - "9322:3306"
+    volumes:
+      - ./volumes/nextcloud/db:/config
+      - ./volumes/nextcloud/db_backup:/backup
+    networks:
+      - nextcloud
