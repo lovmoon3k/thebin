@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+
+# watch a file or command output and scroll within
+#
+# keys => arrow-up/down, page-up/down, pos1, end
+#
+# usages:
+#           swatch.sh -n <timeout_watch> <file|command>
+#           swatch.sh <file|command>
+#
+# version:          1.2 (macOS compatible)
+# dependencies:     awk, tput, clear, read
+# published:        https://unix.stackexchange.com/questions/3842/how-can-i-scroll-within-the-output-of-my-watch-command
+
+# =============================================
+# DEFAULTS
+# =============================================
+TMPFILE=$(mktemp)
+line_show_begin="1"
+line_show_begin_last="-1"
+console_lines_correction="4"
+timeout_watch="2"
+timeout_read=".1"
+# http://ascii-table.com/ansi-escape-sequences-vt-100.php
+ESC_cursor_home='\033[H'
+
+define(){ IFS=$'\n' read -r -d '' "${1}" || true; }
+define helptext <<-EOF
+  Usage: ${0##*/} [-n <timeout>] '[<command>]'
+
+         timout : in seconds or fractions of seconds [default: ${timeout_watch}s]
+         command: any command wished to be observed - best applied in quotes
+EOF
+
+__init() {
+  trap "fn_console_size_change" SIGWINCH
+  trap "fn_quit" INT HUP TERM QUIT EXIT
+  fn_console_size_change
+  tput civis
+}
+
+fn_help() {
+  printf "%s\n" "${helptext}"
+
+}
+
+get_options() {
+    [[ "$1" == "" ]] && fn_help 1
+    while [ -n "$1" ]; do
+        case "$1" in
+            -h|--help)
+                fn_help 0
+            ;;
+            -n)
+                [[ "$2" == "" ]] && { echo "Error: option -n required <timeout>" ; exit 1 ; }
+                timeout_watch="$2" && shift
+            ;;
+            -*) echo "Error: unknown option »$1«"; exit 1; ;;
+            *)  command=$1;;
+        esac
+        shift
+    done
+    [[ "$command" == "" ]] && { echo "Error: command required" ; exit 1 ; }
+}
+
+fn_print_headline() {
+    hdl_txt_right="${HOSTNAME}: $(date "+%Y-%m-%d %H:%M:%S")"
+    hdl_txt_left="$command, [${timeout_watch}s, $line_show_begin]"
+    hdl_txt_left_length=${#hdl_txt_left}
+    printf '%s%*s\n\n' "$hdl_txt_left" "$((console_columns - hdl_txt_left_length))" "$hdl_txt_right"
+}
+
+fn_print_file() {
+    # file length can change during watch execution
+    eval "$command" > "$TMPFILE"
+    lines_command=$(awk 'END {print NR}' "$TMPFILE")
+    line_last=$((lines_command-console_lines))
+    (( "$line_last" < "1" )) && { line_last=1; clear; }
+    (( "$line_show_begin" > "$line_last" )) && { line_show_begin=$line_last; clear; }
+
+    # print position changed
+    if (( "$line_show_begin" != "$line_show_begin_last" )); then
+        line_show_begin_last=$line_show_begin
+        clear
+    else
+        printf "$ESC_cursor_home"
+    fi
+
+    # print file section
+    fn_print_headline
+    eval "$command" > "$TMPFILE"
+    awk -v var1="$line_show_begin" -v var2="$console_lines" 'NR>=var1 {if (NR>var1+var2) {exit 0} else {printf "%s\n",$0 } }' "$TMPFILE"
+}
+
+fn_console_size_change() {
+  console_columns=$(tput cols)
+  console_lines=$(($(tput lines) - console_lines_correction))
+  line_show_begin_last=-1
+}
+
+fn_quit() {
+  tput cnorm
+  tput clear
+  exit 0
+}
+
+# =============================================
+# MAIN
+# =============================================
+get_options "$@"
+__init
+
+while :; do
+    fn_print_file
+    read -rsn1 -t "$timeout_watch" k # char 1
+    case "$k" in
+        [[:graph:]]) # Normal input handling
+        ;;
+        $'\x09') # Routine for selecting current item
+        ;;
+        $'\x7f') # Routine for back-space
+        ;;
+        $'\x01') # Routine for ctrl+a
+        ;;
+        $'\x1b') # ESC
+            read -rsn1 k # char 2
+            [[ "$k" == ""  ]] && return # Esc-Key
+            [[ "$k" == "[" ]] && read -rsn1 -t $timeout_read k # char 3
+            [[ "$k" == "O" ]] && read -rsn1 -t $timeout_read k # char 3
+            case "$k" in
+                A)  (( "$line_show_begin" > "1" )) && ((line_show_begin--)) ;; # Arrow-Up-Key
+                B)  (( "$line_show_begin" < "$line_last" )) && ((line_show_begin++)) ;; # Arrow-Down-Key
+                H)  line_show_begin=1 ;; # Pos1-Key
+                F)  line_show_begin=$line_last ;; # End-Key
+                5)  # PgUp-Key
+                    read -rsn1 -t $timeout_read k # char 4
+                    if [[ "$k" == "~" ]] && (( "$line_show_begin" > "$((console_lines/2))" )) ; then
+                        line_show_begin=$((line_show_begin-console_lines/2))
+                    else
+                        line_show_begin=1
+                    fi
+                ;;
+                6)  # PgDown-Key
+                    read -rsn1 -t $timeout_read k # char 4
+                    if [[ "$k" == "~" ]] && (( "$line_show_begin" < "$((line_last-console_lines/2))" )) ; then
+                        line_show_begin=$((line_show_begin+console_lines/2))
+                    else
+                        line_show_begin=$line_last
+                    fi
+                ;;
+            esac
+            read -rsn4 -t $timeout_read    # Try to flush out other sequences ...
+        ;;
+    esac
+done
