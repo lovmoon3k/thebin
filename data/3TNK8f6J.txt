@@ -1,0 +1,111 @@
+class NotificationReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+                val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    createNotificationChannel(context, manager)
+                }
+                val title = intent.getStringExtra("title")
+                val description = intent.getStringExtra("description")
+                val getSharedPreferences = context.getSharedPreferences(
+                    "notificationPrefs", Context.MODE_PRIVATE
+                )
+                Timber.v("NotificationReceiver [info] $title; $description")
+                val builder = NotificationCompat.Builder(context, channelId)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setColor(ContextCompat.getColor(context, R.color.blue))
+                    .setContentTitle(title)
+                    .setContentText(description)
+                    .setShowWhen(true)
+                    .setOngoing(false)
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setAutoCancel(true)
+                    .setNumber(1)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .setDefaults(Notification.DEFAULT_SOUND or Notification.DEFAULT_VIBRATE or Notification.DEFAULT_LIGHTS)
+                val mainIntent = Intent(context, MainActivity::class.java)
+
+                mainIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                val contentIntent = PendingIntent.getActivity(context, 0, mainIntent, PendingIntent.FLAG_ONE_SHOT)
+
+                val mes = builder.setContentIntent(contentIntent).build()
+                manager.notify(channelId, (0..10000).random(), mes)
+                val newBadge = getSharedPreferences.getInt("badge", 0) + 1
+                getSharedPreferences.edit().putInt("badge", newBadge).apply()
+                ShortcutBadger.applyCount(context, newBadge)
+        }
+
+    private fun createNotificationChannel(context: Context, notificationManager: NotificationManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val mainChannel = NotificationChannel(
+                channelId,
+                context.getString(R.string.emotion_notifications),
+                NotificationManager.IMPORTANCE_HIGH
+            )
+
+            with(mainChannel) {
+                enableLights(true)
+                lightColor = ContextCompat.getColor(
+                    context,
+                    R.color.blue
+                )
+                enableVibration(true)
+                setShowBadge(true)
+            }
+            notificationManager.createNotificationChannel(mainChannel)
+
+        }
+    }
+
+
+    companion object {
+        private const val alarmRequestCode = 27
+        private const val channelId = "emotion_notifications"
+        fun initAlarm(appContext: Context, hour: Int, minute: Int, title: String, description: String) {
+            killAlarm(appContext)
+            val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val hasPermission: Boolean = alarmManager.canScheduleExactAlarms()
+                if (!hasPermission) {
+                    val permissionIntent = Intent().apply {
+                        action = ACTION_REQUEST_SCHEDULE_EXACT_ALARM
+                    }
+                    startActivity(appContext, permissionIntent, null)
+                    return
+                }
+            }
+            val calendar = Calendar.getInstance()
+            calendar.set(Calendar.HOUR_OF_DAY, hour)
+            calendar.set(Calendar.MINUTE, minute)
+            calendar.set(Calendar.SECOND, 0)
+            if (calendar.time < Date()) calendar.add(Calendar.DAY_OF_MONTH, 1)
+            val intent = Intent(appContext, NotificationReceiver::class.java)
+            intent.putExtra("title", title)
+            intent.putExtra("description", description)
+            val pendingIntent = PendingIntent.getBroadcast(appContext, alarmRequestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+
+
+            Timber.v("alarm: $alarmManager")
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent)
+            alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, calendar.timeInMillis, AlarmManager.INTERVAL_DAY, pendingIntent)
+        }
+
+        fun killAlarm(appContext: Context) {
+            val intent = Intent(appContext, NotificationReceiver::class.java)
+            val pendingIntent = PendingIntent.getBroadcast(appContext, alarmRequestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT)
+            val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager?
+            alarmManager!!.cancel(pendingIntent)
+        }
+    }
+}
+
+
+// ============================================================================================================================
+
+        <receiver
+            android:name=".services.NotificationReceiver"
+            android:exported="false"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
