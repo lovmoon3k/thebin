@@ -1,0 +1,85 @@
+diff --git a/netunit/group.go b/netunit/group.go
+index 1cd6dd2..766aa44 100644
+--- a/netunit/group.go
++++ b/netunit/group.go
+@@ -20,9 +20,10 @@ type Location struct {
+
+ // Group represents netunit group descriptor.
+ type Group struct {
+-       Key      uint32 `json:"key,string"`
+-       Name     string `json:"name"`
+-       NetUnits []ULI  `json:"netunits"`
++       Key         uint32   `json:"key,string"`
++       Name        string   `json:"name"`
++       NetUnitsRaw []string `json:"netunits"`
++       NetUnits    []ULI
+ }
+
+ // GroupsMap is a map of User Location Info to its net unit group ID.
+diff --git a/netunit/group_source.go b/netunit/group_source.go
+index a59e81d..e360439 100644
+--- a/netunit/group_source.go
++++ b/netunit/group_source.go
+@@ -124,5 +124,25 @@ func (s *httpGroupSource) GetUnitGroupsByName(ctx context.Context, name string,
+                return ErrGroupsNotFound
+        }
+
+-       return json.NewDecoder(resp.Body).Decode(dst)
++       if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
++               return fmt.Errorf("unable to unmarshal group: %v", err)
++       }
++
++       return dst.convertNetUnits()
++}
++
++func (g *Group) convertNetUnits() error {
++       g.NetUnits = g.NetUnits[:0]
++
++       for _, s := range g.NetUnitsRaw {
++               var uli ULI
++               if err := uli.UnmarshalString(s); err != nil {
++                       fmt.Printf("unable to unmarshal location: '%s'\n", s)
++                       continue
++               }
++
++               g.NetUnits = append(g.NetUnits, uli)
++       }
++
++       return nil
+ }
+diff --git a/netunit/location.go b/netunit/location.go
+index 15d3797..8e4ab3c 100644
+--- a/netunit/location.go
++++ b/netunit/location.go
+@@ -59,23 +59,27 @@ func parseInts(s string, preAlloc int) ([]int, error) {
+ }
+
+ // UnmarshalJSON implements json.Unmarshaler interface.
+-//
+-// It treats input data as 3GPP encoded locations.
+ func (u *ULI) UnmarshalJSON(data []byte) error {
+        var s string
+-       u.Locations = u.Locations[:0]
+
+        if err := json.Unmarshal(data, &s); err != nil {
+                return fmt.Errorf("unmarshal ULI in JSON %s: %w", data, err)
+        }
+
++       return u.UnmarshalString(s)
++}
++
++// UnmarshalString unmarshals shitty text representation of location.
++func (u *ULI) UnmarshalString(s string) error {
++       u.Locations = u.Locations[:0]
++
+        tokens, err := parseInts(s, 10)
+        if err != nil {
+                return fmt.Errorf("parse ints %s: %w", s, err)
+        }
+
+        if len(tokens) == 0 {
+-               return fmt.Errorf("no tokens in %s", data)
++               return fmt.Errorf("no tokens in %s", s)
+        }
+
+        switch tokens[0] {
