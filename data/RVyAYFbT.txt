@@ -1,0 +1,167 @@
+import requests
+from bs4 import BeautifulSoup
+
+from threading import Thread, Lock
+from time import sleep
+
+#link = "https://edition.cnn.com/"
+goto =    "https://www.povarenok.ru/recipes/kitchen/77/"
+#link = "https://www.povarenok.ru/recipes/show/70127/"
+
+pages = [''] * 13
+pages[0] = goto
+
+s = 'https://www.povarenok.ru/recipes/kitchen/77/~2/'
+pages[1] = s
+
+
+
+for i in range(2, 13):
+    s = pages[i - 1]
+    s = goto + '~' + str(i + 1) + '/'
+    pages[i] = s
+print(pages)
+"""в конце изменить goto:
+
+"""
+#for i in range(13):
+
+names = []
+recep = []
+photo = []
+#<div class="ingredients-bl">
+debug = False
+
+def ingrid(goto):
+    #print("goto = ", goto)
+    html = requests.get(goto)
+    html.encoding = 'windows-1251'
+    sp = BeautifulSoup(html.text, 'lxml')
+    ing = sp.find('div', "ingredients-bl")
+    all = ing.find_all('span')
+    #print("all")
+    #print(all)
+    ing_list = []
+
+    for i in range(0, len(all), 2):
+        if i + 1 >= len(all):
+            break
+        one_ing = all[i]
+        one_ing = str(one_ing)
+        since = one_ing.find('n>') + 2
+        till = one_ing.find('</')
+        ing_str = one_ing[since: till]
+        amount = all[i + 1]
+        amount = str(amount)
+        since = amount.find('n>') + 2
+        till = amount.find('</')
+        amount_str = amount[since: till]
+        res = ing_str + "  " + amount_str
+        ing_list.append(res)
+        #print(one_ing, amount)
+    #print("ing list")
+    #print(ing_list)
+    recep.append(ing_list)
+    #print(ing)
+
+def work(goto):
+    print("WORK")
+    html = requests.get(goto)
+    html.encoding = 'windows-1251'
+    sp = BeautifulSoup(html.text, 'lxml')
+    all = sp.find_all('div', "m-img desktop-img conima")
+    #print(all)
+    for rec in all:
+        if debug:
+            print("NEW REC")
+            print(rec)
+        #print(rec)
+        raw = rec.find('img')
+        #отсюда название и  ссылка на картинку
+        #print("IMAGE")
+        #print(img)
+        raw = str(raw)
+        since = raw.find('Ре')
+        till = raw.find('src')
+        name = raw[since: till]
+        names.append(name)
+
+        since = raw.find('htt')
+        till = raw.find('/>') - 1
+        photo_link = raw[since: till]
+        photo.append(photo_link)
+        #КАК получить список ингридиентов???
+        link = rec.find('a')
+        if debug:
+            print("link")
+            print(link)
+            print("end link")
+        link = str(link)
+        till = link.find(">")
+        since = link.find("htt")
+        link = link[since: till - 1]
+        ingrid(link)
+        if debug:
+            print("new link")
+            print(link)
+        #print()
+        #print()
+        #break
+
+stop = False
+lock = Lock()
+
+cnt = -1
+def flow():
+    global cnt
+
+    while cnt + 1 < len(pages):
+        print("flow1")
+        lock.acquire()
+        cnt += 1
+        print("cnt = ", cnt)
+        lock.release()
+        work(pages[cnt])
+
+
+flow1 = Thread(target=flow)
+flow1.start()
+
+while cnt + 1 < len(pages):
+    print("flow0")
+    lock.acquire()
+    cnt += 1
+    print("cnt = ", cnt)
+    lock.release()
+    work(pages[cnt])
+
+
+print("photo", len(photo))
+print(photo)
+print("recep", len(recep))
+print(recep)
+print("names", len(names))
+print(names)
+
+import lxml
+from xlwt import *
+workbook = Workbook(encoding = 'utf-8')
+table = workbook.add_sheet('data')
+table.write(0, 0, 'Название')
+table.write(0, 1, 'Рецепт')
+table.write(0, 2, 'Фото')
+
+N = len(recep)
+line = 0
+for i in range(N):
+    line += 1
+    table.write(line, 0, names[i])
+    table.write(line, 2, photo[i])
+    table.write(line, 1, 'ингридиенты')
+    for j in range(len(recep[i])):
+        line += 1
+        table.write(line, 1, recep[i][j])
+    line += 1
+
+workbook.save('recep4.xls')
+print("FILE SAVED")
