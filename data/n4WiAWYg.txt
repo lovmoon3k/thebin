@@ -1,0 +1,177 @@
+#define _USE_MATH_DEFINES 
+#include <iostream>
+#include <iomanip>
+#include <vector>
+#include <random>
+#include <chrono>
+#include <cmath>
+#include <ctime>
+using namespace std;
+using namespace chrono;
+
+typedef vector <double> vec;
+typedef vector <vec> mat;
+
+const double v = 10, EPS = 1e-5;
+
+double phi_0(int k, double x)
+{
+    // x^(k + 1) - x^k * v
+    return pow(x, k) * (x - v);
+}
+
+double phi_1(int k, double x)
+{
+    // (k + 1) * x^k - k * v * x^(k - 1)
+    return (k + 1) * pow(x, k) - k * v * pow(x, k - 1);
+}
+
+double phi_2(int k, double x)
+{
+    // k * (k + 1) * x^(k - 1) - k * (k - 1) * v * x^(k - 2)
+    if (k == 1) return 0;
+    else return k * (k + 1) * pow(x, k - 1) - k * (k - 1) * v * pow(x, k - 2);
+}
+
+double p(double x)
+{
+    return x * x;
+}
+
+double q(double x)
+{
+    return x;
+}
+
+double f(double x)
+{
+    return 4 * pow(x, 4) - 3 * v * pow(x, 3) + 6 * x - 2 * v;
+}
+
+double y(double x)
+{
+    return x * x * (x - v);
+}
+
+vec Gauss(mat A, vec b)
+{
+    int n = b.size();
+
+    // прямой ход
+    for (int i = 0; i < n; ++i)
+    {
+        if (fabs(A[i][i]) < 1e-5)
+        {
+            int m = i;
+
+            for (int k = i + 1; k < n; ++k)
+                if (fabs(A[k][i]) > fabs(A[m][i])) m = k;
+
+            swap(b[i], b[m]);
+
+            for (int j = i; j < n; ++j)
+                swap(A[i][j], A[m][j]);
+        }
+
+        // нормируем строку 
+        for (int j = i + 1; j < n; ++j)
+            A[i][j] /= A[i][i];
+
+        // нормируем строку
+        b[i] /= A[i][i]; A[i][i] = 1;
+
+        // вычитаем из нижних строк текущую строку
+        // получаем в i-ом столбце нули
+        for (int k = i + 1; k < n; ++k)
+        {
+            for (int j = i + 1; j < n; ++j)
+                A[k][j] -= A[i][j] * A[k][i];
+
+            b[k] -= b[i] * A[k][i];
+        }
+    }
+
+    vec x(n);
+
+    // обратный ход
+    for (int i = n - 1; i >= 0; --i)
+    {
+        x[i] = b[i];
+
+        for (int j = i + 1; j < n; ++j)
+            x[i] -= A[i][j] * x[j];
+    }
+
+    return x;
+}
+
+void print(vec& a)
+{
+    int n = a.size();
+
+    cout << "Вектор: (";
+
+    for (int i = 0; i < n - 1; ++i)
+        cout << a[i] << ", ";
+
+    cout << a[n - 1] << ")\n\n";
+}
+
+void print(mat& A, vec& b)
+{
+    int n = b.size();
+
+    cout << "Матрица СЛУ имеет вид:\n";
+
+    for (int i = 0; i < n; ++i, cout << "\n")
+    {
+        for (int j = 0; j < n; ++j)
+            cout << left << setw(8) << A[i][j];
+
+        cout << "| " << b[i];
+    }
+
+    cout << "\n";
+}
+
+int main()
+{
+    setlocale(LC_ALL, "Russian");
+    cout << fixed << setprecision(2);
+
+    int n = 10;
+
+    double h = v / (n + 1), x = h;
+
+    mat A(n, vec(n)); vec b(n);
+
+    for (int i = 0; i < n; ++i, x += h)
+    {
+        double pi = p(x), qi = q(x), fi = f(x), yi = y(x);
+
+        for (int j = 0; j < n; ++j)
+        {
+            double phi0 = phi_0(j + 1, x), phi1 = phi_1(j + 1, x), phi2 = phi_2(j + 1, x);
+            A[i][j] = phi2 + pi * phi1 + qi * phi0;
+        }
+
+        b[i] = fi;
+    }
+
+    // print(A, b);
+    // print(expected_y);
+
+    vec expected_a(n); expected_a[1] = 1;
+    vec observed_a = Gauss(A, b);
+    // print(a);
+
+    bool ok = true;
+
+    for (int i = 0; i < n && ok; ++i)
+        ok = fabs(expected_a[i] - observed_a[i]) < EPS;
+
+    if (ok) cout << "CORRECT\n";
+    else cout << "NOT CORRECT\n";
+
+    return 0;
+}   
