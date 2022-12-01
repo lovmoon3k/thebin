@@ -1,0 +1,126 @@
+
+
+#define RGB_DATA  D2
+#define RGB_CLOCK D3
+#define RGB_LATCH D4
+
+#define SIZE_MATRIX 8
+#define NO_MATRIX 3
+#define BIT_COLOR_DEPTH 3
+
+uint32_t framebuffer[SIZE_MATRIX][SIZE_MATRIX*NO_MATRIX];
+
+uint8_t pwm_counter=0;
+
+enum COLOR_T{CL_BLUE=0, CL_GREEN=1, CL_RED=2};
+
+uint8_t extractColor(uint32_t *pixel, COLOR_T color){
+  return (uint8_t)( ((*pixel)>>((uint8_t)color*8)) & 0xFF ) ;
+}
+
+uint8_t combineRow(uint32_t *fst, COLOR_T color, uint8_t treshold){
+  uint8_t ret=0;
+    for(uint8_t i=0;i<8;++i){
+      if(extractColor(&fst[i], color) > treshold)
+        ret += (1<<i);
+    }
+
+  return ret;
+}
+
+//spi transfer one byte, without latch control
+void transfer(uint8_t a){
+  
+  for(volatile uint8_t ibit=0;ibit<8;++ibit){
+    digitalWrite(RGB_DATA, a & (1<<ibit));
+    digitalWrite(RGB_CLOCK, HIGH);
+    digitalWrite(RGB_CLOCK, LOW);
+  }
+  
+}
+
+void display_task(void){
+  static uint8_t displayed_row;
+
+  displayed_row = (++displayed_row) % SIZE_MATRIX;
+  //Serial.print("Sending value: ");
+  //Serial.println(++a, HEX);
+  
+  for(pwm_counter=0;pwm_counter<(1<<(BIT_COLOR_DEPTH-1));++pwm_counter){
+    transfer( combineRow(&framebuffer[displayed_row][0*SIZE_MATRIX], CL_BLUE, pwm_counter)); //blue row, columns 0-7
+    transfer( combineRow(&framebuffer[displayed_row][0*SIZE_MATRIX], CL_GREEN, pwm_counter)); //green row, columns 0-7
+    transfer( combineRow(&framebuffer[displayed_row][0*SIZE_MATRIX], CL_RED, pwm_counter));    //red row, columns 0-7
+    transfer((1<<displayed_row));    //row selection :1
+    transfer( combineRow(&framebuffer[displayed_row][1*SIZE_MATRIX], CL_BLUE, pwm_counter)); //blue row, columns 0-7
+    transfer( combineRow(&framebuffer[displayed_row][1*SIZE_MATRIX], CL_GREEN, pwm_counter)); //green row, columns 0-7
+    transfer( combineRow(&framebuffer[displayed_row][1*SIZE_MATRIX], CL_RED, pwm_counter));    //red row, columns 0-7
+    transfer((1<<displayed_row));    //row selection :1
+    transfer( combineRow(&framebuffer[displayed_row][2*SIZE_MATRIX], CL_BLUE, pwm_counter)); //blue row, columns 0-7
+    transfer( combineRow(&framebuffer[displayed_row][2*SIZE_MATRIX], CL_GREEN, pwm_counter)); //green row, columns 0-7
+    transfer( combineRow(&framebuffer[displayed_row][2*SIZE_MATRIX], CL_RED, pwm_counter));    //red row, columns 0-7
+    transfer((1<<displayed_row));    //row selection :1
+    digitalWrite(RGB_LATCH, HIGH);
+    digitalWrite(RGB_LATCH, LOW);
+    delayMicroseconds(1);
+  }
+
+
+
+}
+
+void setup() {
+  // put your setup code here, to run once:
+
+  Serial.begin(9600);
+  pinMode(RGB_DATA, OUTPUT);
+  pinMode(RGB_CLOCK, OUTPUT);
+  pinMode(RGB_LATCH, OUTPUT);
+  digitalWrite(RGB_DATA, LOW);
+  digitalWrite(RGB_CLOCK, LOW);
+  digitalWrite(RGB_LATCH, LOW);
+
+
+  //         ROWCOL     RRGGBB
+  for(uint8_t i=0;i<8;++i){
+    /*
+    //Effect #1
+    framebuffer[0][i]=i;
+    framebuffer[0][i+8]=(i<<8);
+    framebuffer[0][i+16]=(i<<16);
+    */
+    //Effect #2
+    framebuffer[0][i]=    (i<<0)  +((8-i)<<8);
+    framebuffer[0][i+8]=  (i<<8)  +((8-i)<<16);
+    framebuffer[0][i+16]= (i<<16) +((8-i)<<0);
+  }
+
+}
+
+void loop() {
+  static uint8_t div;
+  if((++div % 30) == 0)
+  {
+    uint32_t temp = framebuffer[0][0];
+    for(uint8_t x=0;x<24;++x){
+      framebuffer[0][x] = framebuffer[0][x+1 % 24];
+      
+    }
+    framebuffer[0][23] = temp;
+    for(uint8_t x=0;x<24;++x){
+      framebuffer[1][x] = framebuffer[0][x+1 % 24];
+      framebuffer[2][x] = framebuffer[0][x+2 % 24];
+      framebuffer[3][x] = framebuffer[0][x+3 % 24];
+      framebuffer[4][x] = framebuffer[0][x+4 % 24];
+      framebuffer[5][x] = framebuffer[0][x+3 % 24];
+      framebuffer[6][x] = framebuffer[0][x+2 % 24];
+      framebuffer[7][x] = framebuffer[0][x+1 % 24];
+      
+    }
+
+  }
+
+
+
+  display_task();
+
+}
