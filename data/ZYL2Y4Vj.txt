@@ -1,0 +1,342 @@
+#include <Adafruit_NeoPixel.h>
+#include <FastLED.h>
+#include <JC_Button.h>
+
+#define COLOR_ORDER GRB
+#define CHIPSET     WS2812
+
+#define MAIN_LEDS_TOTAL 122
+#define SEGMENT_START_1 0
+#define SEGMENT_COUNT_1 11
+#define SEGMENT_START_2 11
+#define SEGMENT_COUNT_2 15
+#define SEGMENT_START_3 26
+#define SEGMENT_COUNT_3 17
+#define SEGMENT_START_4 43
+#define SEGMENT_COUNT_4 18
+#define SEGMENT_START_5 61
+#define SEGMENT_COUNT_5 18
+#define SEGMENT_START_6 79
+#define SEGMENT_COUNT_6 17
+#define SEGMENT_START_7 96
+#define SEGMENT_COUNT_7 15
+#define SEGMENT_START_8 111
+#define SEGMENT_COUNT_8 11
+
+#define MODE_BUTTON_PIN 15 // A1 on nano
+#define DATA_PIN 14 // A0 on nano
+
+#define MODE_COUNT_MAXIMUM 9 // number of different lighting modes
+
+#define DIM_YELLOW_COLOR 0xFFFF00
+#define BRIGHT_YELLOW_COLOR 0x999900
+#define BRIGHT_BLUE_COLOR 0x0000FF
+#define WHITE_COLOR 0X999999
+#define BRIGHT_RED_COLOR 0XFF0300
+
+
+#define BRIGHTNESS_NOMINAL 12
+#define BRIGHTNESS_MID 63
+#define BRIGHTNESS_MAX 255
+
+#define FIRE_SPEED 50 // ms between fire refresh rate, higher is slower
+#define FIRE_COOLING 70
+#define FIRE_SPARKING 270
+// #define FIRE_ROW_LEDS 11
+// #define FIRE_ROW_COUNT 5
+
+#define SPARKLE_SPEED 75 // ms between sparkle refresh rate, higher is slower
+
+#define RAINBOW_SPEED 10 // ms between rainbow sweep movement, higher is slower
+
+#define FADE_SPEED 1 // ms between fade steps, higher is slower
+
+#define CONFETTI_SPEED 75 // ms to between confetti refresh rate, higher is slower
+#define CONFETTI_FADE 10 // cycles to fade confetti, higher is faster
+
+Adafruit_NeoPixel MainStrip = Adafruit_NeoPixel(MAIN_LEDS_TOTAL, DATA_PIN, NEO_GRB + NEO_KHZ800);
+
+Button ModeButton(MODE_BUTTON_PIN);       // define the button that increases brightness
+
+CRGBPalette16 gPal;     // Palette color for flames
+
+
+unsigned long TimerMaster = 0; // master clock timer
+unsigned long TimerFire = 0; // fire update timer
+unsigned long TimerSparkle = 0; // sparkle update timer
+unsigned long TimerSweep = 0; // sweep update timer
+unsigned long TimerConfetti = 0; // confetti update timer
+unsigned long TimerFade = 0; // fade update timer
+
+int ModeCounter = 1; // Lighting animation mode.
+// 1 = dim static yellow
+// 2 = sparkling yellow
+// 3 = rainbow sweep
+// 4 = orange fire
+// 5 = blue fire
+// 6 = sparkling blue
+
+int ColorWheel = 0; // int to hold starting rainbow sweep color
+bool FadeToggle = 0; // bool to hold fading in or out
+int FadeValue = BRIGHTNESS_MID;
+
+byte heat[MAIN_LEDS_TOTAL]; // global array of heat values
+CRGB leds[MAIN_LEDS_TOTAL]; // global array for confetti leds
+
+void setup()
+{
+  delay(1500); // sanity delay
+  gPal = HeatColors_p;
+  MainStrip.begin(); // initialize fire strip
+  MainStrip.setBrightness(BRIGHTNESS_NOMINAL);
+  ModeButton.begin();
+}
+
+void loop()
+{
+  TimerMaster = millis();
+
+
+  ModeButton.read();
+  if (ModeButton.wasPressed())
+  {
+    // If the button was pressed, increase to the next mode
+    ModeCounter++;
+    // If it reaches the end, reset to beginning
+    if (ModeCounter > MODE_COUNT_MAXIMUM)
+    {
+      ModeCounter = 1;
+    }
+    MainStrip.fill(0x000000);
+    MainStrip.show();
+  }
+
+
+
+  // Mode 1:  Dim yellow
+  if (ModeCounter == 1)
+  {
+    // Set everything to dim yellow
+    MainStrip.setBrightness(BRIGHTNESS_NOMINAL);
+    MainStrip.fill(BRIGHT_YELLOW_COLOR);
+    MainStrip.show();
+  }
+
+  // Mode 2:  Sparkling yellow
+  if (ModeCounter == 2)
+  {
+    MainStrip.setBrightness(BRIGHTNESS_MAX);
+
+    if (TimerMaster >= TimerSparkle)
+    {
+      MainStrip.fill(BRIGHT_YELLOW_COLOR);
+      MainStrip.setPixelColor(random(MAIN_LEDS_TOTAL), 0xFFFFFF);
+      MainStrip.show();
+      TimerSparkle = (TimerMaster + SPARKLE_SPEED);
+    }
+  }
+
+  // Mode 3: Rainbow sweep
+  if (ModeCounter == 3)
+  {
+    MainStrip.setBrightness(BRIGHTNESS_MAX);
+    if (TimerMaster >= TimerSweep)
+    {
+      if (ColorWheel >= 255)
+      {
+        ColorWheel = 0;
+      }
+      MainStrip.fill(Wheel(ColorWheel - 0), SEGMENT_START_1, SEGMENT_COUNT_1);
+      MainStrip.fill(Wheel(ColorWheel - 10), SEGMENT_START_2, SEGMENT_COUNT_2);
+      MainStrip.fill(Wheel(ColorWheel - 20), SEGMENT_START_3, SEGMENT_COUNT_3);
+      MainStrip.fill(Wheel(ColorWheel - 30), SEGMENT_START_4, SEGMENT_COUNT_4);
+      MainStrip.fill(Wheel(ColorWheel - 40), SEGMENT_START_5, SEGMENT_COUNT_5);
+      MainStrip.fill(Wheel(ColorWheel - 50), SEGMENT_START_6, SEGMENT_COUNT_6);
+      MainStrip.fill(Wheel(ColorWheel - 60), SEGMENT_START_7, SEGMENT_COUNT_7);
+      MainStrip.fill(Wheel(ColorWheel - 70), SEGMENT_START_8, SEGMENT_COUNT_8);
+      ColorWheel++;
+      MainStrip.show();
+      TimerSweep = (TimerMaster + RAINBOW_SPEED);
+    }
+  }
+
+  // Mode 4: Orange fire
+  if (ModeCounter == 4 )
+  {
+    gPal = HeatColors_p;
+    MainStrip.setBrightness(BRIGHTNESS_MAX);
+    if (TimerMaster >= TimerFire)
+    {
+      Fire2022(SEGMENT_START_1, SEGMENT_COUNT_1, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_2, SEGMENT_COUNT_2, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_3, SEGMENT_COUNT_3, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_4, SEGMENT_COUNT_4, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_5, SEGMENT_COUNT_5, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_6, SEGMENT_COUNT_6, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_7, SEGMENT_COUNT_7, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_8, SEGMENT_COUNT_8, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      TimerFire = (TimerMaster + FIRE_SPEED);
+      MainStrip.show();
+    }
+  }
+
+
+  // Mode 5: Blue fire
+  if (ModeCounter == 5 )
+  {
+    gPal = CRGBPalette16( CRGB::Black, CRGB::Blue, CRGB::Aqua,  CRGB::White);
+    MainStrip.setBrightness(BRIGHTNESS_MAX);
+    if (TimerMaster >= TimerFire)
+    {
+      Fire2022(SEGMENT_START_1, SEGMENT_COUNT_1, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_2, SEGMENT_COUNT_2, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_3, SEGMENT_COUNT_3, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_4, SEGMENT_COUNT_4, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_5, SEGMENT_COUNT_5, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_6, SEGMENT_COUNT_6, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_7, SEGMENT_COUNT_7, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      Fire2022(SEGMENT_START_8, SEGMENT_COUNT_8, 0, random(FIRE_COOLING * 0.8, FIRE_COOLING * 1.2), random(FIRE_SPARKING * 0.8, FIRE_SPARKING * 1.2));
+      TimerFire = (TimerMaster + FIRE_SPEED);
+      MainStrip.show();
+    }
+  }
+
+  // Mode 6:  Sparkling blue
+  if (ModeCounter == 6)
+  {
+    MainStrip.setBrightness(BRIGHTNESS_MAX);
+
+    if (TimerMaster >= TimerSparkle)
+    {
+      MainStrip.fill(BRIGHT_BLUE_COLOR);
+      MainStrip.setPixelColor(random(MAIN_LEDS_TOTAL), 0xFFFFFF);
+      MainStrip.show();
+      TimerSparkle = (TimerMaster + SPARKLE_SPEED);
+    }
+  }
+
+  // Mode 7:  Fading red
+  if (ModeCounter == 7 )
+  {
+    MainStrip.fill(BRIGHT_RED_COLOR);
+    if (TimerMaster >= TimerFade)
+    {
+      if (FadeToggle == 0)
+      {
+        FadeValue++;
+        if (FadeValue >= BRIGHTNESS_MAX)
+        {
+          FadeToggle = 1;
+        }
+      }
+      else
+      {
+        FadeValue--;
+        if (FadeValue <= BRIGHTNESS_MID)
+        {
+          FadeToggle = 0;
+        }
+        
+      }
+      MainStrip.setBrightness(FadeValue);
+      MainStrip.show();
+      TimerFade = (TimerMaster + FADE_SPEED);
+    }
+  }
+  
+  // Mode 8:  Sparkling white & red
+  if (ModeCounter == 8 )
+  {
+    MainStrip.setBrightness(BRIGHTNESS_MID);
+
+    if (TimerMaster >= TimerSparkle)
+    {
+      MainStrip.fill(WHITE_COLOR);
+      MainStrip.setPixelColor(random(MAIN_LEDS_TOTAL), BRIGHT_RED_COLOR);
+      MainStrip.show();
+      TimerSparkle = (TimerMaster + SPARKLE_SPEED);
+    }
+  }
+
+  // Mode 9:  Confetti
+  if (ModeCounter == 9 )
+  {
+    MainStrip.setBrightness(BRIGHTNESS_MAX);
+    gPal = RainbowColors_p;
+    if (TimerMaster >= TimerConfetti)
+    {
+      fadeToBlackBy(leds, MAIN_LEDS_TOTAL, CONFETTI_FADE);
+      leds[random8(MAIN_LEDS_TOTAL)] = Wheel(random8(255));
+      for ( int i = 0; i < MAIN_LEDS_TOTAL; i++)
+      {
+        MainStrip.setPixelColor(i, leds[i].r, leds[i].g, leds[i].b);
+      }
+      MainStrip.show();
+      TimerConfetti = (TimerMaster + CONFETTI_SPEED);
+    }
+  }
+
+}
+
+
+
+void Fire2022(int LED_START_NUM, int FIRE_ROW_LEDS, bool gReverseDirection, int cool, int spark)
+{
+  // Step 1.  Cool down every cell a little
+  for ( int i = LED_START_NUM; i < (FIRE_ROW_LEDS + LED_START_NUM); i++)
+  {
+    heat[i] = qsub8( heat[i],  random8(0, ((cool * 10) / FIRE_ROW_LEDS) + 2));
+  }
+
+  // Step 2.  Heat from each cell drifts 'up' and diffuses a little
+  for ( int k = (FIRE_ROW_LEDS + LED_START_NUM - 1) ; k >= (LED_START_NUM + 2); k--)
+  {
+    heat[k] = (heat[k - 1] + heat[k - 2] + heat[k - 2] ) / 3;
+  }
+
+  // Step 3.  Randomly ignite new 'sparks' of heat near the bottom
+  if ( random8() < spark )
+  {
+    int y = random8(3);
+    //int y = 0;
+    heat[LED_START_NUM + y] = qadd8( heat[LED_START_NUM + y], random8(160, 255) );
+  }
+
+  // Step 4.  Map from heat cells to LED colors
+  for ( int j = LED_START_NUM; j < (FIRE_ROW_LEDS + LED_START_NUM); j++)
+  {
+    // CRGB color = HeatColor(min(150, heat[j]));
+    CRGB color = ColorFromPalette(gPal, min(150, heat[j]));
+    int pixelnumber;
+    if ( gReverseDirection )
+    {
+      pixelnumber = ((FIRE_ROW_LEDS + LED_START_NUM) - 1) - (j - LED_START_NUM);
+    }
+    else
+    {
+      pixelnumber = j;
+    }
+    MainStrip.setPixelColor(pixelnumber, color.r, color.g, color.b);
+  }
+}
+
+// Input a value 0 to 255 to get a color value.
+// The colours are a transition r - g - b - back to r.
+uint32_t Wheel(byte WheelPos)
+{
+  WheelPos = 255 - WheelPos;
+  if (WheelPos < 85)
+  {
+    return MainStrip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
+  }
+  else if (WheelPos < 170)
+  {
+    WheelPos -= 85;
+    return MainStrip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+  }
+  else
+  {
+    WheelPos -= 170;
+    return MainStrip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
+  }
+}
