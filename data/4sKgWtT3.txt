@@ -1,0 +1,44 @@
+void SearchServer::RemoveDocument(int document_id) {
+    return RemoveDocument(execution::seq, document_id);
+}
+
+void SearchServer::RemoveDocument(const execution::sequenced_policy&, int document_id) {
+    if (document_to_word_freqs_.count(document_id) == 0) {
+        return;
+    }
+
+    document_ids_.erase(document_id);
+    documents_.erase(document_id);
+
+    for (auto& [word, freq] : document_to_word_freqs_.at(document_id)) {
+        word_to_document_freqs_.at(word).erase(document_id);
+    }
+
+    document_to_word_freqs_.erase(document_id);
+}
+
+void SearchServer::RemoveDocument(const execution::parallel_policy&, int document_id) {
+    if (document_to_word_freqs_.count(document_id) == 0) {
+        return;
+    }
+
+    document_ids_.erase(document_id);
+    documents_.erase(document_id);
+
+    const auto& word_freqs = document_to_word_freqs_.at(document_id);
+    vector<const string*> words(word_freqs.size());
+    transform(
+        execution::par,
+        word_freqs.begin(), word_freqs.end(),
+        words.begin(),
+        [](const auto& item) { return &item.first; }
+    );
+    for_each(
+        execution::par,
+        words.begin(), words.end(),
+        [this, document_id](const string* word) {
+            word_to_document_freqs_.at(*word).erase(document_id);
+        });
+
+    document_to_word_freqs_.erase(document_id);
+}
