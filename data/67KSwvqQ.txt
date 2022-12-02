@@ -1,0 +1,54 @@
+...
+
+// Set the desired duration of the video, in seconds.
+private static final int DURATION_SECONDS = 10;
+
+...
+
+public void createVideo() throws IOException {
+    ...
+
+    // Encode the video frame by frame.
+    ByteBuffer[] videoEncoderInputBuffers = videoEncoder.getInputBuffers();
+    ByteBuffer[] videoEncoderOutputBuffers = videoEncoder.getOutputBuffers();
+    MediaCodec.BufferInfo videoBufferInfo = new MediaCodec.BufferInfo();
+    boolean videoEncoderDone = false;
+    int videoGeneratedIndex = 0;
+    while (!videoEncoderDone) {
+        int videoEncoderInputBufferIndex = videoEncoder.dequeueInputBuffer(-1);
+        if (videoEncoderInputBufferIndex >= 0) {
+            // Send the frame to the video encoder.
+            ByteBuffer videoEncoderInputBuffer = videoEncoderInputBuffers[videoEncoderInputBufferIndex];
+            videoEncoderInputBuffer.clear();
+            long presentationTime = videoGeneratedIndex * 1000000 / FRAME_RATE;
+            videoEncoder.queueInputBuffer(videoEncoderInputBufferIndex, 0, 0, presentationTime, 0);
+            videoGeneratedIndex++;
+        }
+
+        // Check if the video encoder has generated any output.
+        int videoEncoderOutputBufferIndex = videoEncoder.dequeueOutputBuffer(videoBufferInfo, 0);
+        if (videoEncoderOutputBufferIndex >= 0) {
+            // Write the output to the file.
+            ByteBuffer videoEncoderOutputBuffer = videoEncoderOutputBuffers[videoEncoderOutputBufferIndex];
+            videoEncoderOutputBuffer.position(videoBufferInfo.offset);
+            videoEncoderOutputBuffer.limit(videoBufferInfo.offset + videoBufferInfo.size);
+            mediaMuxer.writeSampleData(videoTrackIndex, videoEncoderOutputBuffer, videoBufferInfo);
+
+            // Release the output buffer.
+            videoEncoder.releaseOutputBuffer(videoEncoderOutputBufferIndex, false);
+        }
+
+        // Check if the video encoder has finished encoding the video.
+        if ((videoBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+            videoEncoderDone = true;
+        }
+    }
+
+    // Stop and release the video encoder.
+    videoEncoder.stop();
+    videoEncoder.release();
+
+    // Stop and release the MediaMuxer.
+    mediaMuxer.stop();
+    mediaMuxer.release();
+}
