@@ -1,0 +1,423 @@
+import pygame
+from pygame.sprite import Group, Sprite, spritecollide
+from itertools import count as icount
+
+def colora(color, alpha):
+    c = pygame.Color(color)
+    c.a = alpha
+    return c
+
+class Entity(Sprite):
+    def __init__(self, image, position, anchor):
+        super().__init__()
+        self.image = image
+        self.rect = image.get_rect(**{anchor: position})
+        self.center = pygame.Vector2(self.rect.center)
+
+    def move(self, movement):
+        self.center += movement
+        self.rect.center = self.center
+
+class Pen:
+    def __init__(self, font, color):
+        self.font = font
+        self.color = color
+
+    def render(self, text):
+        return self.font.render(text, 1, self.color)
+
+class VectorMovement:
+    def __init__(self, sprite, vector, distance):
+        self.sprite = sprite
+        self.vector = pgyame.Vector2(vector)
+        self.distance = distance
+        self.position = pygame.Vector2(sprite.rect.center)
+
+    def update(self, delta):
+        if self.distance < self.position.distance_to(self.sprite.center):
+            self.sprite.move(self.vector * delta)
+
+class State:
+    def __init__(self, manager):
+        self.manager = manager
+
+    def on_draw(self, surface): pass
+    def on_event(self, event): pass
+    def on_update(self, delta, ticks): pass
+
+    def on_quit(self):
+        self.manager.quit()
+
+class StateMachine:
+    def __init__(self, manager):
+        self._state = State(manager)
+        self.next_state = None
+
+    def fast_set(self, state):
+        if state:
+            self._state = state
+
+    def update(self):
+        if self.next_state:
+            self._state = self.next_state
+            self.next_state = None
+
+        return self._state
+
+class DisplayEngine:
+    def __init__(self, caption, width, height, fps, flags):
+        pygame.display.set_caption(caption)
+        self.surface = pygame.display.set_mode((width, height), flags)
+        self.rect = self.surface.get_rect()
+        self.clock = pygame.time.Clock()
+        self.running = False
+        self.delta = 0
+        self.fps = fps
+
+        self.state_machine = StateMachine(self)
+
+    def loop(self, state=None):
+        self.running = True
+        self.state_machine.fast_set(state)
+
+        while self.running:
+            state = self.state_machine.update()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    state.on_quit()
+                else:
+                    state.on_event(event)
+
+            ticks = pygame.time.get_ticks()
+            state.on_draw(self.surface)
+            state.on_update(self.delta, ticks)
+            pygame.display.flip()
+            self.delta = self.clock.tick(self.fps) * 0.001
+
+class Images:
+    def __init__(self, area, ypos):
+        self.player = self.create_player((40, 40), "snow", 'black', 2)
+        self.items = self.create_items(15, "white", "black", 150)
+        self.box = self.create_box(15, "yellow", 3)
+        self.background = self.create_background(area, ypos)
+
+    def create_background(self, area, ypos):
+        surface = pygame.Surface(area.size)
+        surface.fill("skyblue")
+        surface.fill("lawngreen", (0, area.h - ypos, area.w, ypos))
+        return surface
+
+    def create_player(self, size, color, outline, width):
+        surface = pygame.Surface(size)
+        surface.fill(color)
+        rect = surface.get_rect()
+        w = width * 2
+        #rect.inflate_ip(-w, -w)
+        pygame.draw.rect(surface, outline, rect, width)
+        return surface
+
+    def create_items(self, radius, outline, center, alpha):
+        surface, rect = self.radius_surface(radius)
+
+        outline = pygame.Color(outline)
+        outline.a = alpha
+        center = pygame.Color(center)
+        center.a = alpha
+
+        pygame.draw.circle(surface, outline, rect.center, radius)
+        pygame.draw.circle(surface, center, rect.center, radius - 1)
+        outline.a = 100
+        pygame.draw.circle(surface, outline, rect.center, radius, 2)
+        center.a = 50
+        pygame.draw.circle(surface, center, rect.center, radius - 1, 2)
+
+        d = int(radius * 1.5)
+        pen = Pen(pygame.font.Font(None, d), "lawngreen")
+        images = [surface.copy(), surface.copy(), surface.copy()]
+
+        for i, image in enumerate(images):
+            entity = Entity(pen.render(str(i + 1)), rect.center, "center")
+            image.blit(entity.image, entity.rect)
+
+        return images
+
+    def create_box(self, radius, color, fade):
+        surface, rect = self.radius_surface(radius)
+        pygame.draw.circle(surface, color, rect.center, radius - fade)
+        color = pygame.Color(color)
+        fv = 255 / (fade * 2)
+        for i in range(fade):
+            color.a = int(fv * i + fv)
+            pygame.draw.circle(surface, color, rect.center, radius - i, 2)
+
+        d = int(radius * 1.6)
+        pen = Pen(pygame.font.Font(None, d), "black")
+        entity = Entity(pen.render("?"), rect.center, "center")
+        surface.blit(entity.image, entity.rect)
+
+        return surface
+
+    def radius_surface(self, radius):
+        transparent = (0, 0, 0, 0)
+        d = radius * 2
+        surface = pygame.Surface((d, d), pygame.SRCALPHA)
+        surface.fill(transparent)
+        return surface, surface.get_rect()
+
+class Manager:
+    def __init__(self, caption, width, height, fps=60, flags=0):
+        self.engine = DisplayEngine(caption, width, height, fps, flags)
+        self.states = []
+        self.images = Images(self.engine.rect, 100)
+
+    def run(self, state=None):
+        self.engine.loop(state)
+
+    def set_state(self, state):
+        self.engine.state_machine.next_state = state
+
+    def quit(self):
+        self.engine.running = False
+
+class Timer:
+    def __init__(self, ticks, interval, callback):
+        self.next_tick = ticks + interval
+        self.interval = interval
+        self.callback = callback
+        self.active = True
+
+    def tick(self, ticks):
+        if self.active:
+            if ticks > self.next_tick:
+                self.next_tick += self.interval
+                self.callback(self)
+
+class JumpKeyMovement:
+    def __init__(self, sprite, speed, area):
+        self.sprite = sprite
+        self.speed = speed
+        self.area = area
+        self.landing = 0
+        self.falling = False
+        self.jumping = False
+        self.jump_velocity = 1.0
+        self.accel = 1.05
+
+    def update(self, delta):
+        keys = pygame.key.get_pressed()
+        direction = pygame.Vector2()
+        if any([keys[k] for k in [pygame.K_UP, pygame.K_w, pygame.K_SPACE]]):
+            if not self.falling and not self.jumping:
+                self.jumping = True
+                self.landing = self.sprite.rect.bottom
+        elif not self.falling and self.jumping:
+            self.falling = True
+            self.jumping = False
+
+        if any([keys[k] for k in [pygame.K_LEFT, pygame.K_a]]):
+            direction.x -= 1
+
+        if any([keys[k] for k in [pygame.K_RIGHT, pygame.K_d]]):
+            direction.x += 1
+
+        if self.jumping:
+            direction.y -= self.jump_velocity
+            self.jump_velocity /= self.accel
+            if self.jump_velocity < 0.1:
+                self.jumping = False
+                self.falling = True
+
+        if self.falling:
+            direction.y += self.jump_velocity
+            self.jump_velocity *= self.accel
+            if self.jump_velocity > 1:
+                self.jump_velocity = 1
+
+            if self.sprite.rect.bottom > self.landing:
+                self.falling = False
+                self.jump_velocity = 1.0
+                self.sprite.rect.bottom = self.landing
+                self.sprite.center.y = self.sprite.rect.centery
+                direction.y = 0
+
+        if direction != pygame.Vector2():
+            if self.jumping or self.falling:
+                direction.x *= 0.5
+                direction.y *= 1.5
+            direction = direction.normalize() * delta * self.speed
+            self.sprite.move(direction)
+            if not self.area.contains(self.sprite.rect):
+                self.sprite.rect.clamp(self.area)
+
+class Player(Entity):
+    def __init__(self, image, position, anchor, area):
+        super().__init__(image, position, anchor)
+        self.movement = JumpKeyMovement(self, 120, area)
+
+    def update(self, delta):
+        self.movement.update(delta)
+
+class Game(State):
+    def __init__(self, manager):
+        super().__init__(manager)
+        self.background = manager.images.background
+        rect = manager.engine.rect.copy()
+        rect.h -= 100
+        self.player = Player(manager.images.player, (50, rect.bottom), "bottomleft", rect)
+        self.sprites = Group(self.player)
+        self.boxes = Group()
+
+        self.add_sprites()
+
+    def add_sprites(self):
+        rect = self.manager.engine.rect
+        images = self.manager.images
+        box = Entity(images.box, (140, rect.bottom - 200), "topleft")
+        box.add(self.boxes, self.sprites)
+        box = Entity(images.box, (rect.right - 160, rect.bottom - 200), "topleft")
+        box.add(self.boxes, self.sprites)
+
+    def test_sprites(self):
+        x = icount(40, 100)
+        images = self.manager.images
+        self.sprites.add(Entity(images.player, (next(x), 40), "topleft"))
+
+        self.sprites.add(Entity(images.items[0], (next(x), 40), "topleft"))
+        self.sprites.add(Entity(images.items[1], (next(x), 40), "topleft"))
+        self.sprites.add(Entity(images.items[2], (next(x), 40), "topleft"))
+
+        self.sprites.add(Entity(images.box, (next(x), 40), "topleft"))
+
+    def box_collide(self, player, sprite):
+        if player.rect.colliderect(sprite.rect):
+            pvec = pygame.Vector2(player.rect.center)
+            svec = pygame.Vector2(sprite.rect.center)
+            if pvec.distance_to(svec) < 9:
+                return True
+
+        return False
+
+    def draw_background(self, surface):
+        surface.blit(self.background, (0, 0))
+
+    def on_draw(self, surface):
+        self.draw_background(surface)
+        self.sprites.draw(surface)
+
+    def on_update(self, delta, ticks):
+        self.player.update(delta)
+        sprites = spritecollide(self.player, self.boxes, False, self.box_collide)
+        for sprite in sprites:
+            self.manager.set_state(BoxState(self.manager, self, sprite))
+
+class Enlarge:
+    def __init__(self, speed, radius, max_radius):
+        self.enlarge = True
+        self.speed = speed
+        self._radius = radius
+        self.radius = int(radius)
+        self.max_radius = max_radius
+        self.last_size = 0
+
+    def __call__(self, delta):
+        if self.enlarge:
+            return self.update(delta)
+        return False
+
+    def update(self, delta):
+        if self.enlarge:
+            self._radius += self.speed * delta
+            if self._radius > self.max_radius:
+                self.enlarge = False
+                self._radius = self.max_radius
+
+            self.radius = int(self._radius)
+            if self.last_size != self.radius:
+                self.last_size = self.radius
+                return True
+
+            return False
+
+class CircleSelect(Sprite):
+    def __init__(self, center, color, outline, width, speed, radius, max_radius):
+        super().__init__()
+        self.enlarge = Enlarge(speed, radius, max_radius)
+        self.color = color
+        self.outline = outline
+        self.width = width
+        self.center = center
+        self.update(0)
+
+    def update(self, delta):
+        if self.enlarge(delta):
+            transparent = (0, 0 ,0 ,0)
+            rad = self.enlarge.radius
+            size = rad * 2, rad * 2
+
+            self.image = pygame.Surface(size, pygame.SRCALPHA)
+            self.image.fill(transparent)
+            self.rect = self.image.get_rect()
+            pygame.draw.circle(self.image, self.outline, self.rect.center, rad, self.width + 1)
+            pygame.draw.circle(self.image, self.color, self.rect.center, rad - self.width)
+            self.rect.center = self.center
+
+class Selection(Sprite):
+    def __init__(self, image, position, speed, radius, max_radius):
+        self.enlarge = Enlarge(speed, radius, max_radius)
+        self.oimage = image
+
+    def update(self, delta):
+        if self.enlarge(delta):
+            pass
+
+class BoxState(State):
+    def __init__(self, manager, state, sprite):
+        super().__init__(manager)
+        self.back_state = state
+        self.alpha = 10
+        self.transparent = pygame.Color(0, 0, 0, self.alpha)
+        self.fade = pygame.Surface(self.manager.engine.rect.size, pygame.SRCALPHA)
+        self.fade.fill(self.transparent)
+        self.fade_timer = Timer(pygame.time.get_ticks(), 100, self.fading)
+        self.sprite = sprite
+        self.selected = False
+        center = sprite.rect.center
+        self.circle = CircleSelect(center, colora('dodgerblue', 190), colora('snow', 190), 3, 100, 6, 80)
+        self.sprites = Group(self.circle)
+
+    def fading(self, timer):
+        self.alpha += 6
+        self.transparent.a = self.alpha
+        self.fade.fill(self.transparent)
+        if self.alpha > 120:
+            timer.active = False
+
+    def on_draw(self, surface):
+        self.back_state.draw_background(surface)
+        surface.blit(self.fade, (0, 0))
+        self.back_state.sprites.draw(surface)
+        self.sprites.draw(surface)
+
+    def on_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:
+                self.selected = True
+
+    def on_update(self, delta, ticks):
+        self.circle.update(delta)
+        if self.fade_timer.active:
+            self.fade_timer.tick(ticks)
+        else:
+            if self.selected:
+                self.sprite.kill()
+                self.manager.set_state(self.back_state)
+
+def main():
+    pygame.init()
+    manager = Manager("Example", 800, 600)
+    state = Game(manager)
+    manager.run(state)
+    pygame.quit()
+
+main()
