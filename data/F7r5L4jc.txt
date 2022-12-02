@@ -1,0 +1,101 @@
+-- Simple Power Monitor System to show a Graph of your Power usage on a large Screen.
+ 
+-- Setup:
+-- Computer with CPU, GPU and RAM (i use 2 not sure if needed)
+-- A large Screen with the Nick "PowerScreen"
+-- A Power Pole or Machine with the Nick "PowerPole"
+ 
+powerpole = component.proxy(component.findComponent("PowerPole")[1])
+screen = component.proxy(component.findComponent("PowerScreen")[1])
+local gpu = computer.getPCIDevices(findClass("GPU_T1_C"))[1]
+ 
+gpu:bindScreen(screen)
+gpu:setBackground(0,0,0,0)
+w,h = gpu:getSize()
+gpu:fill(0,0,w,h," ")
+ 
+function RoundToInt(x)
+  return math.floor(x + 0.5)
+end
+ 
+connector = powerpole:getPowerConnectors()[1]
+circuit = connector:getCircuit()
+dataCon = {0}
+dataPro = {0}
+ 
+function getRawConData()
+ d = circuit.consumption / circuit.capacity
+ return d
+end
+ 
+function getRawProData()
+    d = circuit.production / circuit.capacity
+    return d
+   end
+ 
+function getConData(i)
+ d = dataCon[i]
+ if not d then
+  d = getRawConData()
+  if p > w then
+   dataCon[i - w] = d
+  end
+  dataCon[i] = d
+ end
+ return d
+end
+ 
+function getProData(i)
+    d = dataPro[i]
+    if not d then
+     d = getRawProData()
+     if p > w then
+      dataPro[i - w] = d
+     end
+     dataPro[i] = d
+    end
+    return d
+   end
+ 
+p = 0
+ 
+function printScreen()
+ gpu:setBackground(0,0,0,0)
+ gpu:fill(0,0,w,h," ")
+ gpu:setBackground(0,0.5,0,1)
+ 
+ for i=0,w-1,1 do
+    x = getProData(i+p)
+    d = h * x
+    d = RoundToInt(d)
+    if x > 0.8 then
+     gpu:setBackground(1,0,0,1)
+    end
+    gpu:fill(i,h-d,1,d," ")
+    gpu:setBackground(0.2,0.2,0.2,1)
+ end
+ 
+ gpu:setBackground(0.2,0.2,0.2,1)
+ for i=0,w-1,1 do
+  x = getConData(i+p)
+  d = h * x
+  d = RoundToInt(d)
+  if x > 0.8 then
+   gpu:setBackground(1,0,0,1)
+  end
+  gpu:fill(i,h-d,1,d," ")
+  gpu:setBackground(0.2,0.2,0.2,1)
+ end
+ gpu:setBackground(0,0,0,0)
+ gpu:setText(2,0,"Power ( " .. RoundToInt(circuit.production) .. " MWh Production / " .. RoundToInt(circuit.consumption) .. " MWh Consumption / " .. RoundToInt(circuit.capacity) .. " Capacity MWh)")
+ gpu:flush()
+end
+ 
+while true do
+ event.pull(0.25)
+ printScreen()
+ p = p + 1
+ if p == w * 2 + 1 then
+  p = w
+ end
+end
