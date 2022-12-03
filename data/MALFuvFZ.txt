@@ -1,0 +1,69 @@
+#!/usr/local/bin/gst -q
+
+Array extend [
+    " Extension for Array for simple vector addition "
+    + arr [ ^self with: arr collect: [:a :b | a + b] ]
+
+    " Increment value in array at idx by val "
+    at: idx inc: val [ ^self at: idx put: ((self at: idx) + val) ]
+]
+
+"
+| Okay, being a bit silly with the solution on this one to make something
+| different from my other solutions.  In this one we're going to take
+| advantage of the the fact that the 3x3 table of (elf moves x repsonses)
+| has all nine scores from 1 to 9 in its cells.  And for both parts there's
+| a fairly simple path to walk those cells from 1 to 9.
+"
+Object subclass: RPSWalker [
+    | coord |
+    RPSWalker class >> new: pair [
+        ^(super new) init: pair
+    ]
+
+    init: pair [
+        " Pair comes in as ASCII string, we want values on [0,2] for mod "
+        coord := {pair first asInteger - 65. pair second asInteger - 88}.
+        ^self
+    ]
+
+    + step [
+        " Add step using mod to wrap around the table as needed "
+        coord := (coord + step) collect: [:x | x \\ 3]
+    ]
+
+    coord [
+        " Give our coord back as the same type of string we orginially got "
+        ^String from: {(coord first + 65) asCharacter. (coord second + 88) asCharacter}
+    ]
+]
+
+"
+| Mainline
+"
+" First off... lets just collect all the moves in a bag as order doesn't matter "
+turns := Bag from: (stdin contents lines collect: [:x | x substrings join]).
+
+sum    := { 0. 0 }.
+walker := { RPSWalker new: 'BX'. RPSWalker new: 'BX' }.  " both start at this cell "
+
+" Walk the tables "
+1 to: 9 do: [ :score |
+    1 to: 2 do: [:part |
+        | step |
+        " add number in bag * current score iterator to our sum "
+        sum at: part inc: (turns occurrencesOf: (walker at: part) coord) * score.
+
+        " Every third step in both parts is just a shift to right. "
+        " In part 1, the other steps are diagonally down-right, "
+        " and in part 2, they're just straight down. "
+        step := ((score \\ 3) = 0) ifTrue:  [{0. 1}]
+                                   ifFalse: [{1. part \\ 2}].
+        walker at: part inc: step.
+    ].
+].
+
+" Output results "
+sum keysAndValuesDo: [:part :res |
+    ('Part %1: %2' % {part. res}) displayNl.
+]

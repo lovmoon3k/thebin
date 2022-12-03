@@ -1,0 +1,78 @@
+from dataclasses import dataclass
+import pathlib
+import requests
+import re
+import os
+import aria2p
+import threading
+
+pattern = re.compile("^New (WindowsPlayer|Studio|Studio64|Client|MFCStudio) (version-[A-z0-9]{16}) at ([0-9]{1,2}\/[0-9]{2}\/[0-9]{4} [0-9]{1,2}:[0-9]{2}:[0-9]{2} (AM|PM))(, file ver(s)?ion: [0-9], [0-9]{1,}, 0, [0-9]{1,})?(, git hash: ([A-z0-9]{1,} ))?...(Done!)?")
+filePattern = re.compile("^([A-z0-9-]{1,}\.[A-z0-9]{1,})")
+#--
+domain = "http://setup.roblox.com/"
+session = requests.Session()
+#--
+history = session.get(f"{domain}DeployHistory.txt").text
+versions = []
+manifests = {}
+aria2 = aria2p.API(
+	aria2p.Client(
+		host = "http://localhost",
+		port = 6800
+	)
+)
+done = False
+
+@dataclass
+class Version:
+	fullstring: str
+	type: str
+	id: str
+	deployDate: str
+
+class ThreadForShit(threading.Thread):
+	def run(self):
+		while not done or len(list(manifests)) > 0:
+			for key in list(manifests):
+				manifest = manifests[key]
+				print(f"Sending manifests for version {key} to queue")
+				aria2.add(f"{domain}{key}-rbxPkgManifest.txt", options = {"out": f"{key}/{key}-rbxPkgManifest.txt"})
+				aria2.add(f"{domain}{key}-rbxManifest.txt", options = {"out": f"{key}/{key}-rbxManifest.txt"})
+				for line in manifest.split('\n'):
+					match = filePattern.search(line)					
+					if match:
+						print(f"Sending entry for version {key}, file {match.group(1)} to queue")
+						aria2.add(f"{domain}{key}-{match.group(1)}", options = {"out": f"{key}/{key}-{match.group(1)}"})
+				
+				del manifests[key]
+
+# Parse DeployHistory
+for line in history.split('\n'):
+	match = pattern.search(line)
+	
+	if match:
+		version = Version(line, match.group(1), match.group(2), match.group(3))
+		versions.append(version)
+		print(version.fullstring)
+
+manifestGrabber = ThreadForShit()
+manifestGrabber.start()
+
+# Grab metadata for the version
+for version in versions:
+	try:
+		meta = session.get(f"{domain}{version.id}-rbxPkgManifest.txt").text
+		
+		if "AccessDenied" in meta:
+			continue
+		else:
+			print(f"Successfully grabbed meta for {version.id}, deployed at {version.deployDate}")
+			manifests[version.id] = meta
+	except KeyboardInterrupt as interrupt:
+		done = True
+		break;
+	except requests.exceptions.HTTPError as error:
+		continue
+
+done = True
+print("Done scraping!")
