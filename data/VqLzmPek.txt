@@ -1,0 +1,501 @@
+#include <iostream>
+#include <cmath>
+#include <vector>
+#include <fstream>
+using namespace std;
+ 
+#define DT_START 1e-7
+#define DT_MIN 1e-8
+#define INTEGRATION_TIME 1e-3
+#define epsilon 1e-3 // for delta X
+#define A 10.0
+#define Freq 1e-4
+#define RB 20.0
+#define MFt 0.026
+#define Cb 2e-12
+#define It 1e-12
+#define Ru 1e6
+#define C3 1e-6
+#define L 1e-3
+#define DELTA1 1e-8
+#define DELTA2 1e-3
+#define INITIAL_APPROXIMATION 0.0
+#define MAX_NEWTON_ITER 7
+#define _USE_MATH_DEFINES
+ 
+ 
+/**
+ * @brief Функция для решения матричного уравнения вида Ax = b
+ * 
+ * @param Y vector< vector<double>& Y
+ * @param I vector<double>& I
+ * @param n int
+ * @return vector<double> 
+ */
+vector<double> SolveMatrixEquation (vector< vector<double>>& Y, vector<double>& I, int n) 
+{
+    double MaxElement;
+    vector<double> x(n, 0.0);
+    int k, Index;
+    const double eps = 1e-12;
+    k = 0;
+ 
+    while (k < n) 
+    {
+        MaxElement = abs(Y[k][k]);
+        Index = k;
+ 
+        for (int i = k + 1; i < n; i++) 
+        {
+            if (abs(Y[i][k]) > MaxElement)
+            {
+                MaxElement = abs(Y[i][k]);
+                Index = i;
+            }
+        }
+ 
+        if (MaxElement < eps) 
+        {
+            std::cout << "Максимальный элемент нулевой" << endl;
+            exit(-1);
+        }
+ 
+        for (int j = 0; j < n; j++) 
+        {
+            double Temp = Y[k][j];
+            Y[k][j] = Y[Index][j];
+            Y[Index][j] = Temp;
+        }
+ 
+        double Temp = I[k];
+        I[k] = I[Index];
+        I[Index] = Temp;
+ 
+        for (int i = k; i < n; i++) 
+        {
+            double Temp = Y[i][k];
+ 
+            if (abs(Temp) < eps) {
+                continue;
+            };
+ 
+            for (int j = 0; j < n; j++)
+            {
+                Y[i][j] = Y[i][j] / Temp;
+            }
+                
+            I[i] = I[i] / Temp;
+ 
+            if (i == k) {
+                continue;
+            }
+ 
+            for (int j = 0; j < n; j++)
+            {
+                Y[i][j] = Y[i][j] - Y[k][j];
+            }
+ 
+            I[i] = I[i] - I[k];
+        }
+ 
+        k++;
+    }
+ 
+    for (k = n - 1; k >= 0; k--)
+    {
+        x[k] = I[k];
+ 
+        for (int i = 0; i < k; i++)
+            I[i] = I[i] - Y[i][k] * x[k];
+    }
+    
+    return x;
+}
+ 
+/**
+ * @brief Функция для формирования файла с данными для построения графиков
+ * 
+ * @param result 
+ * @param step 
+ * @param n 
+ */
+void MakePlotData (double* result, int step, int n)
+{
+    fstream file;
+    file.open("dz.txt", fstream::out);
+ 
+    for(int s = 0; s < step; s++)
+    {
+        file<<"time = "<<result[s*(n+1)]<<endl;
+        file << "d_phi1 = " << result[s * (n + 1) + 1] << endl;
+        file << "d_phi2 = " << result[s * (n + 1) + 2] << endl;
+        file << "d_phi3 = " << result[s * (n + 1) + 3] << endl;
+        file << "d_phi4 = " << result[s * (n + 1) + 4] << endl;
+        file << "d_phi5 = " << result[s * (n + 1) + 5] << endl;
+        file << "int_phi1 = " << result[s * (n + 1) + 6] << endl;
+        file << "int_phi2 = " << result[s * (n + 1) + 7] << endl;
+        file << "int_phi3 = " << result[s * (n + 1) + 8] << endl;
+        file << "int_phi4 = " << result[s * (n + 1) + 9] << endl;
+        file << "int_phi5 = " << result[s * (n + 1) + 10] << endl;
+        file << "phi1 = " << result[s * (n + 1) + 11] << endl;
+        file << "phi2 = " << result[s * (n + 1) + 12] << endl;
+        file << "phi3 = " << result[s * (n + 1) + 13] << endl;
+        file << "phi4 = " << result[s * (n + 1) + 14] << endl;
+        file << "phi5 = " << result[s * (n + 1) + 15] << endl;
+        file << "IE1 = " << result[s * (n + 1) + 16] << endl;
+        file << "IE3 = " << result[s * (n + 1) + 17] << endl;
+    }
+ 
+    file.close();
+}
+ 
+int FindDeltaNorm (vector<double> DeltaX, int n)
+{
+    int count_of_x = 0;
+ 
+    for (int ni = 0; ni < n; ni++)
+    {            
+        if (DeltaX[ni] < epsilon)
+        {
+            count_of_x++;
+        }
+    }
+ 
+    return count_of_x;
+}
+ 
+double CalculateEPS (double* res, int step, double delta_t, double delta_t_pred, int n)
+{
+    double eps = 0.0;
+    double dxdt = 0.0;
+    for(int i=1; i<n+1; i++)
+    {
+        dxdt = fabs(res[step*(n+1)+i]-res[(step-1)*(n+1)+i]*delta_t/delta_t_pred);
+        if (eps < dxdt)
+            eps = dxdt;
+    }
+    return eps*delta_t*delta_t/2;
+}
+ 
+int main() 
+{
+    int n = 17;
+    vector< vector<double> > Y(n, vector<double>(n));
+    vector<double> I(n, 0.0);
+    vector<double> DeltaX(n, 0.0);
+    unsigned int totalSteps = 0;
+ 
+    double *Result;
+    Result = new double[2100000];
+    
+    int NewtonIter = 0;
+    double t = 0.0;
+ 
+    double  phi1_past = INITIAL_APPROXIMATION;
+    double  phi2_past = INITIAL_APPROXIMATION;
+    double  phi3_past = INITIAL_APPROXIMATION;
+    double  phi4_past = INITIAL_APPROXIMATION;
+    double  phi5_past = INITIAL_APPROXIMATION;
+    double  int_phi1_past = INITIAL_APPROXIMATION;
+    double  int_phi2_past = INITIAL_APPROXIMATION;
+    double  int_phi3_past = INITIAL_APPROXIMATION;
+    double  int_phi4_past = INITIAL_APPROXIMATION;
+    double  int_phi5_past = INITIAL_APPROXIMATION;
+ 
+    double d_phi1 = INITIAL_APPROXIMATION;
+    double d_phi2 = INITIAL_APPROXIMATION;
+    double d_phi3 = INITIAL_APPROXIMATION;
+    double d_phi4 = INITIAL_APPROXIMATION;
+    double d_phi5 = INITIAL_APPROXIMATION;
+    double int_phi1 = INITIAL_APPROXIMATION;
+    double int_phi2 = INITIAL_APPROXIMATION;
+    double int_phi3 = INITIAL_APPROXIMATION;
+    double int_phi4 = INITIAL_APPROXIMATION;
+    double int_phi5 = INITIAL_APPROXIMATION;
+    double phi1 = INITIAL_APPROXIMATION;
+    double phi2 = INITIAL_APPROXIMATION;
+    double phi3 = INITIAL_APPROXIMATION;
+    double phi4 = INITIAL_APPROXIMATION;
+    double phi5 = INITIAL_APPROXIMATION;
+    double IE1 = INITIAL_APPROXIMATION;
+    double IE3 = INITIAL_APPROXIMATION;
+ 
+    Result[0] = 0.0;
+ 
+    for (int i = 1; i < n + 1; i++)
+    {
+        Result[i] = INITIAL_APPROXIMATION;
+    }
+        
+    double dt = DT_START;
+    double dt_prev = 0.0;
+    double eps = 0.0;
+    int Flag = 1;
+    int Counter = 0;
+    int Step = 1;
+ 
+    while (t < INTEGRATION_TIME)
+    {
+        // totalSteps++;
+ 
+        while (Flag)
+        {    
+            for (auto& Row : Y)
+            {
+                fill(Row.begin(), Row.end(), 0.0);
+            }
+ 
+            for (auto& it : I)
+            {
+                it = 0.0;
+            }
+ 
+            NewtonIter++;
+ 
+            Y[0][0] = 1.0;
+            Y[0][10] = -1.0 / dt;
+ 
+            Y[1][1] = 1.0;
+            Y[1][11] = -1.0 / dt;
+ 
+            Y[2][2] = 1.0;
+            Y[2][12] = -1.0 / dt;
+ 
+            Y[3][3] = 1.0;
+            Y[3][13] = -1.0 / dt;
+ 
+            Y[4][4] = 1.0;
+            Y[4][14] = -1.0 / dt;
+ 
+            Y[5][5] = 1.0;
+            Y[5][10] = -dt;
+ 
+            Y[6][6] = 1.0;
+            Y[6][11] = -dt;
+ 
+            Y[7][7] = 1.0;
+            Y[7][12] = -dt;
+ 
+            Y[8][8] = 1.0;
+            Y[8][13] = -dt;
+ 
+            Y[9][9] = 1.0;
+            Y[9][14] = -dt;
+ 
+            Y[10][10] = 1.0 / 1000;
+            Y[10][12] = -1.0 / 1000;
+            Y[10][15] = 1.0;
+            Y[10][16] = -1.0;
+ 
+            Y[11][6] = 1.0 / 0.001;
+            Y[11][7] = -1.0 / 0.001;
+            Y[11][16] = 1.0;
+ 
+            Y[12][6] = -1.0 / 0.001;
+            Y[12][7] = 1.0 / 0.001;
+            Y[12][10] = -1.0 / 1000;
+            Y[12][12] = 1.0 / 1000 + 1.0 / RB;
+            Y[12][13] = -1.0 / RB;
+ 
+            Y[13][3] = Cb;
+            Y[13][4] = -Cb;
+            Y[13][12] = -1.0 / RB;
+            Y[13][13] = 1.0 / RB + 1.0 / Ru + It / MFt * exp( (phi4 - phi5) / MFt);
+            Y[13][14] = -1/Ru - It / MFt * exp((phi4- phi5)/MFt);
+ 
+ 
+            Y[14][3] = -Cb;
+            Y[14][4] = Cb + C3;
+            Y[14][13] = -1.0 / Ru - (It / MFt) * ( exp(phi4 - phi5) / MFt );
+            Y[14][14] = 1.0 / Ru + (It / MFt) * exp( (phi4 - phi5) / MFt) + 1.0 / 1000;
+ 
+            Y[15][10] = 1.0;
+            Y[16][10] = -1.0;
+            Y[16][11] = 1.0;
+            
+            I[0] = -(d_phi1 - (phi1 - phi1_past) / dt);
+            I[1] = -(d_phi2 - (phi2 - phi2_past) / dt);
+            I[2] = -(d_phi3 - (phi3 - phi3_past) / dt);
+            I[3] = -(d_phi4 - (phi4 - phi4_past) / dt);
+            I[4] = -(d_phi5 - (phi5 - phi5_past) / dt);
+            I[5] = -(int_phi1 - (int_phi1_past + phi1 * dt));
+            I[6] = -(int_phi2 - (int_phi2_past + phi2 * dt));
+            I[7] = -(int_phi3 - (int_phi3_past + phi3 * dt));
+            I[8] = -(int_phi4 - (int_phi4_past + phi4 * dt));
+            I[9] = -(int_phi5 - (int_phi5_past + phi5 * dt));
+            I[10] = -(IE1 - IE3 + (phi1 - phi3) * 1.0 / 1000);
+            I[11] = -(IE3 + 1.0 / 0.001 * (int_phi2 - int_phi3));
+            I[12] = -(-1.0 / 0.001 * (int_phi2 - int_phi3) - 1.0 / 1000 * (phi1 - phi3) + 1.0 / RB * (phi3 - phi4));
+            I[13] = -(-1.0 / RB * (phi3 - phi4) + Cb * (d_phi4 - d_phi5) + 1.0 / Ru * (phi4 - phi5) + It * (exp((phi4 - phi5) / MFt) - 1));
+            I[14] = -(-Cb * (d_phi4 - d_phi5) - 1.0 / Ru * (phi4 - phi5) - It * (exp((phi4 - phi5) / MFt) - 1) + C3 * d_phi5 + 1.0 / 1000 * phi5);
+            I[15] = -(phi1 - 1); 
+            I[16] = -(phi2 - phi1 - A * sin((2 * M_PI / Freq) * t));
+ 
+            DeltaX = SolveMatrixEquation(Y, I, n);
+ 
+            d_phi1 += DeltaX[0];
+            d_phi2 += DeltaX[1];
+            d_phi3 += DeltaX[2];
+            d_phi4 += DeltaX[3];
+            d_phi5 += DeltaX[4];
+            int_phi1 += DeltaX[5];
+            int_phi2 += DeltaX[6];
+            int_phi3 += DeltaX[7];
+            int_phi4 += DeltaX[8];
+            int_phi5 += DeltaX[9];
+            phi1 += DeltaX[10];
+            phi2 += DeltaX[11];
+            phi3 += DeltaX[12];
+            phi4 += DeltaX[13];
+            phi5 += DeltaX[14];
+            IE1 += DeltaX[15];
+            IE3 += DeltaX[16];
+ 
+            if (FindDeltaNorm(DeltaX, n) == n)
+            {
+                NewtonIter = 0;
+                Flag = 0;
+            }
+            else
+            {
+                if (NewtonIter > MAX_NEWTON_ITER)
+                {
+                    dt = dt / 2;
+                    NewtonIter = 0;
+                    d_phi1 = Result[(Step - 1) * (n + 1) + 1];
+                    d_phi2 = Result[(Step - 1) * (n + 1) + 2];
+                    d_phi3 = Result[(Step - 1) * (n + 1) + 3];
+                    d_phi4 = Result[(Step - 1) * (n + 1) + 4];
+                    d_phi5 = Result[(Step - 1) * (n + 1) + 5];
+                    int_phi1 = Result[(Step - 1) * (n + 1) + 6];
+                    int_phi2 = Result[(Step - 1) * (n + 1) + 7];
+                    int_phi3 = Result[(Step - 1) * (n + 1) + 8];
+                    int_phi4 = Result[(Step - 1) * (n + 1) + 9];
+                    int_phi5 = Result[(Step - 1) * (n + 1) + 10];
+                    phi1 = Result[(Step - 1) * (n + 1) + 11];
+                    phi2 = Result[(Step - 1) * (n + 1) + 12];
+                    phi3 = Result[(Step - 1) * (n + 1) + 13];
+                    phi4 = Result[(Step - 1) * (n + 1) + 14];
+                    phi5 = Result[(Step - 1) * (n + 1) + 15];
+                    IE1 = Result[(Step - 1) * (n + 1) + 16];
+                    IE3 = Result[(Step - 1) * (n + 1) + 17];
+ 
+                    if (dt < DT_MIN)
+                    {
+                        cout << "Решение не сходится" << endl;
+                        exit(0);
+                    }
+                }
+            }
+        }
+ 
+        int_phi1_past = Result[(Step - 1) * (n + 1) + 6];
+        int_phi2_past = Result[(Step - 1) * (n + 1) + 7];
+        int_phi3_past = Result[(Step - 1) * (n + 1) + 8];
+        int_phi4_past = Result[(Step - 1) * (n + 1) + 9];
+        int_phi5_past = Result[(Step - 1) * (n + 1) + 10];
+        phi1_past = Result[(Step - 1) * (n + 1) + 11];
+        phi2_past = Result[(Step - 1) * (n + 1) + 12];
+        phi3_past = Result[(Step - 1) * (n + 1) + 13];
+        phi4_past = Result[(Step - 1) * (n + 1) + 14];
+        phi5_past = Result[(Step - 1) * (n + 1) + 15];
+ 
+        if (Step == 1 && t == 0.0){
+            Step = 0;
+        }
+ 
+        Result[Step * (n + 1)] = t;
+        Result[Step * (n + 1) + 1] = d_phi1;
+        Result[Step * (n + 1) + 2] = d_phi2;
+        Result[Step * (n + 1) + 3] = d_phi3;
+        Result[Step * (n + 1) + 4] = d_phi4;
+        Result[Step * (n + 1) + 5] = d_phi5;
+        Result[Step * (n + 1) + 6] = int_phi1;
+        Result[Step * (n + 1) + 7] = int_phi2;
+        Result[Step * (n + 1) + 8] = int_phi3;
+        Result[Step * (n + 1) + 9] = int_phi4;
+        Result[Step * (n + 1) + 10] = int_phi5;
+        Result[Step * (n + 1) + 11] = phi1;
+        Result[Step * (n + 1) + 12] = phi2;
+        Result[Step * (n + 1) + 13] = phi3;
+        Result[Step * (n + 1) + 14] = phi4;
+        Result[Step * (n + 1) + 15] = phi5;
+        Result[(Step - 1) * (n + 1) + 16] = IE1;
+        Result[(Step - 1) * (n + 1) + 17] = IE3;
+        dt_prev = dt;
+ 
+        dt_prev = dt;
+        // t += dt;
+ 
+        // cout<< t <<endl;
+ 
+        // dt = DT_START;
+ 
+        // расчет delta_t
+        if(Step > 0)
+        {
+            eps = CalculateEPS(Result, Step, dt, dt_prev, n);
+            cout<<eps<<endl;
+ 
+            if(eps < DELTA1)
+            {
+                t += dt;
+                dt_prev = dt;
+                dt = 2 * dt;
+ 
+                for(int i = 1; i < n + 1; i++)
+                {
+                    if(Step > 1)
+                    {
+                        Result[(Step - 2) * (n + 1) + i] = Result[(Step - 1) * (n + 1) + i];
+                        Result[(Step - 1) * (n + 1) + i] = Result[Step * (n + 1) + i]; 
+                    }
+                
+                }
+            }
+ 
+            if(eps > DELTA1 && eps < DELTA2)
+            {
+                t += dt;
+                dt_prev = dt;
+ 
+                for(int i = 1; i < n + 1; i++)
+                {
+                    if(Step > 2)
+                    {
+                        Result[(Step - 2) * (n + 1) + i] = Result[(Step - 1) * (n + 1) + i];
+                        Result[(Step - 1) * (n + 1) + i] = Result[Step * (n + 1) + i]; 
+                    }
+                }
+            }
+ 
+            if(eps > DELTA2)
+            {
+                t = t;
+                dt = dt / 2;
+ 
+                for(int i = 1; i < n + 1; i++)
+                {
+                    if (Step >= 1)
+                    {
+                        Result[Step * (n + 1) + i] = Result[(Step - 1) * (n + 1) + i];
+                    }
+                }
+            }
+        }
+        else
+        {
+            dt =  dt / 2; 
+            t += dt;
+            
+        }
+ 
+        Step++;
+        Flag = 1;
+    }
+ 
+    MakePlotData(Result, Step, n);
+    // cout << totalSteps << endl;
+ 
+    return 0;
+}
