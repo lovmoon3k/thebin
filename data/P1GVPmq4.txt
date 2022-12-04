@@ -1,0 +1,113 @@
+import math
+import random
+import re
+
+
+# - - - - Some functions needed later:
+
+# "Dot product" (or "linear combination") x dot y = sum(x[i]*y[i]):
+
+def dot(x, y):
+    return sum(a*b for a,b in zip(x,y))
+
+# convert a number n to a k-digit base b number, as a list of ints
+# in least-significent-first order:
+
+def base_digits(n, b, k):
+    result = []
+    while len(result) < k:
+        n, d = divmod(n, b)
+        result.append(d)
+    return result
+
+# Convert a list of digit counts and a list of digit values to a
+# single list with count[i] occurrences of digit[i], sorted in
+# descending order:
+
+def expand_by_counts(counts, digits):
+    result = []
+    for (k,d) in zip(counts, digits):
+        result.extend([d]*k)
+    result.sort(reverse=True)
+    return result
+
+# - - - - Constants
+
+# Number of matches needed to make each digit, 0..9:
+DIGIT_SIZE = (6, 2, 5, 5, 4, 5, 6, 3, 7, 6)
+
+# In this program, the "value" of a digit is its numerical value from 0 to 9,
+# and its "size" is the number of matches (2 to 7) needed to form it.
+
+
+# - - - - Read input:
+
+t = input("T = ") # list of digits allowed in forming the result
+all_digits = [*map(int, t.split())]
+
+total_size = int(input("N = ")) # exact number of matches to use
+                                # forming the result number
+
+
+# - - - - Solve the problem:
+
+# Make a list of sizes of the ava
+sizes = [DIGIT_SIZE[d] for d in all_digits]
+
+# Make a reduced list of sizes with no duplicates, in ascending order:
+r_sizes = sorted(set(sizes))
+print(r_sizes, math.lcm(*r_sizes))
+
+# For each reduced size, find the largest digit from all_digits with
+# that size.  These are the only digits that can appear in the final
+# number.
+r_digits = [max(d for d in all_digits if DIGIT_SIZE[d] == x) for x in r_sizes]
+print(r_digits)
+
+# Choose the "min" digit as the smallest size digit in the reduces list and
+# separate its value & size from those of the "rest" of the digits.
+
+value_min, *rd_rest = r_digits
+size_min, *size_rest = r_sizes
+nrest = len(rd_rest) # number of "rest" digits
+
+result_len = 0      # length of biggest number found  
+result_digits = []  # all non-size_min digits in descending order
+
+# Let size be one of the digit sizes in size_rest[].  Since size > size_min,
+# a digit of that size can't be used more than (size_min - 1) times in the
+# final result.  Otherwise you could replace (size_min) of the digits with
+# bigger group of smaller-sized digits to get a longer result.
+
+# So, each of the "rest" digits can be used from 0 to size_min-1 times.  That
+# means there is a maximum of size_min ** len(size_rest) cases to examine.
+# The worst case is size_min == 3, with all 4 larger sizes (4-7) present,
+# for a maximum of 3**4 = 81 total cases to inspect.
+# (This can be reduced to at most 32 cases by considering the LCM of size
+# and size_min.  This should be done in a performance-sensitive real
+# application, but the code is a bit messier and not done here.)
+
+ncases = size_min ** nrest
+for case in range(ncases):
+    rest_count = base_digits(case, size_min, nrest)
+    rest_matches = dot(rest_count, size_rest)
+    if (total_size - rest_matches)% size_min != 0 or rest_matches > total_size:
+        continue # either not a multiple of size_min left over, or too many
+
+    case_len = sum(rest_count) + (total_size - rest_matches) // size_min
+    if case_len < result_len: continue # too short, ignore this case
+    case_digits = expand_by_counts(rest_count, rd_rest)
+    if case_len == result_len:
+        # break ties in length by number value
+        if case_digits <= result_digits:
+            continue
+    result_len = case_len
+    result_digits = case_digits
+
+# Finally, form the result number:
+
+final_digits = result_digits + [value_min]*(result_len - len(result_digits))
+final_digits.sort(reverse=True)
+result = ''.join(str(d) for d in final_digits)
+print(result)
+
