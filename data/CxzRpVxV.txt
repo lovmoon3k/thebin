@@ -1,0 +1,255 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.XR;
+using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.SceneManagement;
+using UnityEngine.InputSystem;
+using UnityEngine.UI;
+
+public class CylinderController : MonoBehaviour {
+    AudioSource audioLaser;
+    [SerializeField] float blastPower = 100;
+    public float angleOffset = 0, angleMultiplier = 1;
+    public float AnglePower = 1.25f;
+    [SerializeField] float maxLineRotation = 25;
+    [SerializeField] float hapticPower = 1, hapticDuration = 0.01f;
+    [SerializeField] float smoothingPos = 50;
+    [SerializeField] InputActionProperty primaryButton, secondaryButton;
+    [SerializeField] InputActionProperty move2D;
+    [SerializeField] InputActionProperty thumbPressure;
+    [SerializeField] LayerMask raycastLayermask;
+    [SerializeField] Transform reticle;
+    [SerializeField] Transform drawingLine;
+    public Transform Line;
+    public float LineRotationX, LineRotationY;
+
+    public float activationDuration = 0.5f;
+    ActionBasedController xrController;
+    Rigidbody selectedObject;
+    Vector3 usedDirection;
+    float usedRotation;
+    Vector3 previoushitpoint;
+    Transform tempDrawLine;
+    TrailRenderer tempTrail;
+
+    Color lineColor, fireColor;
+    public Material LineMaterial, ReticleMaterial;
+    public float SphereCastRadius = 0.25f;
+    public float LineAlpha = 0.3f;
+
+    public Transform Player;
+    [SerializeField] float movementSpeed, movementLerp, turningSpeed, turningLerp;
+
+    float triggerValue;
+    bool readyToFire = false;
+    float maxrotspeed = 0;
+    
+
+    void Start() {
+        xrController = GetComponent<ActionBasedController>();
+        LineMaterial.color = new Color(1, 0, 0, .5f);
+        Line.gameObject.SetActive(true);
+        audioLaser = GetComponent<AudioSource>();
+        reticle.localScale = new Vector3(SphereCastRadius * 2, SphereCastRadius * 2, SphereCastRadius * 2);
+    }
+
+    void Update() {
+        triggerValue = xrController.activateActionValue.action.ReadValue<float>();
+        ResetLevel();
+        MoveLine(ChangeFollowTightness());
+        
+
+        if (xrController.activateAction.action.triggered && !readyToFire && tempDrawLine == null) {
+            maxrotspeed = 0;
+            audioLaser.Play();
+            CancelInvoke("StopActivation");
+            readyToFire = true;
+            Invoke("LineIsActive", 0);
+            Invoke("StopActivation", activationDuration);
+        }
+
+
+        if (xrController.activateAction.action.ReadValue<float>() < 1) {
+            readyToFire = false;
+            //tempDrawLine = null;
+        }
+        BlastTarget();
+        MovePlayer();
+        
+        // Test drawing
+        //Drawing();
+    }
+
+    void Drawing() {
+        if (triggerValue > 0.95f && tempDrawLine == null) {
+            tempDrawLine = Instantiate(drawingLine, reticle.position, reticle.rotation);
+            tempTrail = tempDrawLine.GetComponent<TrailRenderer>();
+        }
+        if (tempDrawLine != null) {
+            tempDrawLine.position = reticle.position;
+        }
+        if (triggerValue < 0.9f && tempDrawLine != null) {
+            tempDrawLine = null;
+        }
+        if (xrController.activateAction.action.ReadValue<float>() == 0) {
+            Invoke("StopActivation", 0);
+        }
+    }
+
+    void DisableDrawing() {
+        tempDrawLine = null;
+    }
+
+    void LineIsActive() {
+        LineMaterial.color = new Color(0, 0, 0, LineAlpha);
+        ReticleMaterial.color = new Color(0, 0, 0, LineAlpha);
+    }
+
+    void StopActivation() {
+        readyToFire = false;
+        LineMaterial.color = new Color(1, 0, 0, LineAlpha);
+        ReticleMaterial.color = new Color(1, 0, 0, LineAlpha);
+    }
+
+
+    void MovePlayer() {
+        Vector2 moveVector = move2D.action.ReadValue<Vector2>();
+        if (Mathf.Abs(moveVector.y) > Mathf.Abs(moveVector.x)) {
+            moveVector.x = 0;
+        } else if (Mathf.Abs(moveVector.y) > Mathf.Abs(moveVector.x)) {
+            moveVector.y = 0;
+        }
+        
+        Vector3 movementDirection = Line.forward * moveVector.y + Vector3.Scale(Line.right, new Vector3(1, 0, 1)) * moveVector.x;
+        float brakehelper;
+        if (movementDirection.magnitude < usedDirection.magnitude) brakehelper = 2;
+        else brakehelper = 1;
+        usedDirection = Vector3.Lerp(usedDirection, movementDirection, movementLerp * brakehelper * Time.deltaTime);
+
+        float turnslower;
+        if (Mathf.Abs(moveVector.x) < Mathf.Abs(usedRotation)) turnslower = 2;
+        else turnslower = 1;
+        usedRotation =  Mathf.Lerp(usedRotation, moveVector.x, turningLerp * turnslower * Time.deltaTime);
+        Player.position += usedDirection * movementSpeed * Time.deltaTime;
+        Player.RotateAround(Camera.main.transform.position, Vector3.up, usedRotation * turningSpeed * Time.deltaTime);
+
+        //Player.Rotate(Vector3.up, usedRotation * turningSpeed * Time.deltaTime);
+    }
+
+    void MoveLine(float smoothing) {
+        Line.localPosition = Vector3.Lerp(Line.localPosition, xrController.positionAction.action.ReadValue<Vector3>(), smoothingPos * Time.deltaTime);
+        Line.rotation = Quaternion.Lerp(Line.rotation, xrController.transform.rotation * Quaternion.Euler(LineRotationX, LineRotationY, 0), smoothing * Time.deltaTime);
+    }
+    float ChangeFollowTightness() {
+        // --------------------------------
+        // An attempt to approximate for wrist flick velocity
+        // when calculating throwing power
+        float testAngle = Vector3.Angle(Line.forward, xrController.transform.forward);
+        //float test = angleMultiplier * Mathf.Pow(testAngle, AnglePower) + angleOffset;
+        if (testAngle > maxrotspeed) maxrotspeed = testAngle;
+        //if (transform.name == "RightHand Controller") {
+        //    Debug.Log(maxrotspeed.ToString("f3"));
+        //}
+        // This is affected by anglemultiplier and angle power obviously, but a pretty good rough estimate nevertheless.
+        // --------------------------------
+        
+        
+        float smoothing;
+        float theAngle = Quaternion.Angle(Line.rotation, xrController.transform.rotation * Quaternion.Euler(LineRotationX, LineRotationY, 0));
+        smoothing = angleMultiplier * Mathf.Pow(theAngle, AnglePower) + angleOffset;
+        if (smoothing > maxLineRotation) smoothing = maxLineRotation;
+        return smoothing;
+    }
+
+    void BlastTarget() {
+        RaycastHit rayhit;
+        if (Physics.Raycast(Line.position, Line.forward, out rayhit, Mathf.Infinity, raycastLayermask)) {
+            reticle.position = Line.position + Line.forward * (rayhit.distance - 0.01f);
+            if (rayhit.rigidbody != null && readyToFire && xrController.activateAction.action.triggered) {
+                rayhit.rigidbody.AddForceAtPosition(Line.up * blastPower * triggerValue, rayhit.point, ForceMode.Impulse);
+                xrController.SendHapticImpulse(hapticPower, hapticDuration);
+                //audioLaser.Play();
+                //Invoke("ResetLaserColor", 0.05f);
+                Invoke("StopActivation", 0);
+            }
+
+            if (rayhit.collider.gameObject.layer == 6 && readyToFire && xrController.activateAction.action.triggered) {
+                rayhit.collider.gameObject.GetComponent<TargetBehaviorSpherical>().DecideNewPosition(0);
+                xrController.SendHapticImpulse(hapticPower, hapticDuration);
+                //audioLaser.Play();
+                //Invoke("ResetLaserColor", 0.05f);
+                Invoke("StopActivation", 0);
+                readyToFire = false;
+            }
+
+            if (rayhit.collider.gameObject.layer == 5) {
+                rayhit.collider.gameObject.GetComponent<Button>().onClick.Invoke();
+            }
+
+        } else {
+            reticle.position = Line.position + Line.forward * 100;
+        }
+        RaycastHit[] spherecasthits;
+        spherecasthits = Physics.SphereCastAll(Line.position, SphereCastRadius, Line.forward, Mathf.Infinity, raycastLayermask);
+        foreach (RaycastHit hit in spherecasthits) {
+            if (hit.rigidbody != null && readyToFire && xrController.activateAction.action.triggered) {
+                hit.rigidbody.AddForceAtPosition(Line.up * blastPower * triggerValue, hit.point, ForceMode.Impulse);
+                xrController.SendHapticImpulse(hapticPower, hapticDuration);
+                //audioLaser.Play();
+                //Invoke("ResetLaserColor", 0.05f);
+                Invoke("StopActivation", 0);
+                break;
+            }
+            if (hit.collider.gameObject.layer == 6 && readyToFire && xrController.activateAction.action.triggered) {
+                hit.collider.gameObject.GetComponent<TargetBehaviorSpherical>().DecideNewPosition(1);
+                xrController.SendHapticImpulse(hapticPower, hapticDuration);
+                //audioLaser.Play();
+                //Invoke("ResetLaserColor", 0.05f);
+                Invoke("StopActivation", 0);
+                readyToFire = false;
+                break;
+            }
+        }
+
+        RaycastHit[] previoushits;
+        previoushits = null;
+        previoushits = Physics.SphereCastAll(reticle.position, SphereCastRadius, previoushitpoint - reticle.position, (previoushitpoint - reticle.position).magnitude, raycastLayermask);       
+
+        foreach (RaycastHit hit in previoushits) {
+            if (hit.rigidbody != null && readyToFire) {
+                hit.rigidbody.AddForceAtPosition(Line.up * blastPower * triggerValue, hit.point, ForceMode.Impulse);
+                xrController.SendHapticImpulse(hapticPower, hapticDuration);
+                //audioLaser.Play();
+                //Invoke("ResetLaserColor", 0.05f);
+                Invoke("StopActivation", 0);
+                break;
+            }
+            if (hit.collider.gameObject.layer == 6 && readyToFire) {
+                hit.collider.gameObject.GetComponent<TargetBehaviorSpherical>().DecideNewPosition(2);
+                xrController.SendHapticImpulse(hapticPower, hapticDuration);
+                //audioLaser.Play();
+                //Invoke("ResetLaserColor", 0.05f);
+                Invoke("StopActivation", 0);
+                readyToFire = false;
+                break;
+            }
+        }
+        previoushitpoint = reticle.position;
+
+    }
+    void ResetLaserColor() {
+        LineMaterial.color = new Color(1, 0, 0, LineAlpha);
+        reticle.GetComponent<Material>().color = new Color(1, 0, 0, LineAlpha);
+    }
+
+    void ResetLevel() {
+        if (secondaryButton.action.triggered && transform.name == "RightHand Controller"){
+            SceneManager.LoadScene(1, LoadSceneMode.Single);
+        }
+        if (primaryButton.action.triggered && transform.name == "RightHand Controller") {
+            SceneManager.LoadScene(0, LoadSceneMode.Single);
+        }
+    }
+
+}
