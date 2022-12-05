@@ -1,0 +1,119 @@
+use std::env;
+use std::io::{self};
+
+extern crate regex;
+use regex::Regex;
+
+#[macro_use] extern crate lazy_static;
+lazy_static! {
+    static ref RE_MOVES: Regex = {
+        Regex::new(r"move ([\d]+) from ([\d]+) to ([\d]+)").unwrap()
+    };
+}
+
+#[derive(Debug)]
+struct Move {
+    qty: usize,
+    from: usize,
+    to: usize,
+}
+impl From<&str> for Move {
+    fn from(s: &str) -> Self {
+        let matches = RE_MOVES.captures(s).unwrap();
+        Self {
+            qty:  matches[1].parse().unwrap(),
+            from: matches[2].parse().unwrap(),
+            to:   matches[3].parse().unwrap(),
+        }
+    }
+}
+
+const MAX_NUM_STACKS: usize = 9;
+
+fn move_last_n_chars(s1: &str, s2: &str, n: usize) -> (String, String) {
+    let mut s1_chars: Vec<char> = s1.chars().collect();
+    let     s2_chars: Vec<char> = s2.chars().collect();
+    
+    let mut moved_chars: String = s1_chars.iter().rev().take(n).collect();
+    moved_chars = moved_chars.chars().rev().collect();
+
+    for _ in 0..n { s1_chars.pop().unwrap(); }
+
+    let s1_new = s1_chars.into_iter().collect();
+    let mut s2_new: String = s2_chars.into_iter().collect();
+    s2_new.push_str(&moved_chars);
+
+    (s1_new, s2_new)
+}
+
+fn solve(input: &str) -> io::Result<()> {
+    let input_str = std::fs::read_to_string(input).unwrap();
+    let input_str = input_str.trim();
+    let input: Vec<_> = input_str.split("\n\n").collect();
+
+    // Initialize moves
+    let moves: Vec<_> = input[1].split("\n").map(Move::from).collect();
+
+    // Initialize stacks
+    let initial_points: Vec<_> = input[0].split("\n").collect();
+    let mut stacks: [String; MAX_NUM_STACKS] = Default::default();
+    for line in input[0].lines() {
+        if line.chars().nth(1).unwrap() == '1' { continue } // Skip last line indexing the stacks
+        for (ix,ch) in line.chars().enumerate() {
+            match ix {
+                1  => if ch != ' ' { stacks[0].push_str(&ch.to_string()) },
+                5  => if ch != ' ' { stacks[1].push_str(&ch.to_string()) },
+                9  => if ch != ' ' { stacks[2].push_str(&ch.to_string()) },
+                13 => if ch != ' ' { stacks[3].push_str(&ch.to_string()) },
+                17 => if ch != ' ' { stacks[4].push_str(&ch.to_string()) },
+                21 => if ch != ' ' { stacks[5].push_str(&ch.to_string()) },
+                25 => if ch != ' ' { stacks[6].push_str(&ch.to_string()) },
+                29 => if ch != ' ' { stacks[7].push_str(&ch.to_string()) },
+                33 => if ch != ' ' { stacks[8].push_str(&ch.to_string()) },
+                _  => {},
+            }
+        }
+    }
+
+    // Reverse the stacks
+    for ix in 0..MAX_NUM_STACKS {
+        stacks[ix] = stacks[ix].chars().rev().collect::<String>();
+    }
+    
+    // Copy original state for part 2
+    let stacks_copy = stacks.clone();
+
+    // Process part 1 moves
+    for moved in &moves {
+        let (qty,from,to) = (moved.qty,moved.from-1, moved.to-1);
+        for _ in 0..qty {
+            //(stacks[from],stacks[to]) = move_last_char(&stacks[from],&stacks[to]);
+            (stacks[from],stacks[to]) = move_last_n_chars(&stacks[from],&stacks[to],1);
+        }
+    }
+
+    // Part 1 Output
+    print!("Part 1: "); // VGBBJCRMN
+    for ix in 0..MAX_NUM_STACKS { print!("{}",stacks[ix].chars().last().unwrap()); }
+    println!();
+
+    // Process part 2 moves
+    stacks = stacks_copy;
+    for moved in &moves {
+        let (qty,from,to) = (moved.qty,moved.from-1, moved.to-1);
+        (stacks[from],stacks[to]) = move_last_n_chars(&stacks[from],&stacks[to],qty);
+    }
+
+    // Part 2 Output
+    print!("Part 2: "); // LBBVJBRMH
+    for ix in 0..MAX_NUM_STACKS { print!("{}",stacks[ix].chars().last().unwrap()); }
+    println!();
+
+    Ok(())
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    let filename = &args[1];
+    solve(&filename).unwrap();
+}
