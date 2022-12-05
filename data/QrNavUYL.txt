@@ -1,0 +1,127 @@
+# Tk_drag_and_zoom.py
+
+# ZZZ almost works perfectly?
+
+from tkinter import *
+from math import *
+
+ww = 600
+hh = 600
+
+fGrid = 300
+
+fStartPanX = -ww / 2
+fStartPanY = -hh / 2
+x, y = -fStartPanX - fGrid / 2, -fStartPanY - fGrid / 2
+
+prev_x, prev_y = x, y
+
+dx, dy = x, y
+
+fOffsetX = fOffsetY = 0
+
+root = Tk()
+root.title("Tk_drag_and_zoom.py")
+
+canvas = Canvas(width=ww, height=hh, background="violet")
+canvas.grid(row=0, column=0, sticky="nsew")
+
+fWorldLeft = fWorldTop = fWorldRight = fWorldBottom = 0.0
+
+Scale = 1.0
+zoom = 0 # I shouldn't need this
+
+def WorldToScreen(DX, DY):
+	global	zoom # I shouldn't need this
+	XX = int(dx + DX)
+	YY = int(dy + DY)
+	if zoom: # I shouldn't need this
+		XX, YY = scale_to_cursor(XX, YY)
+		zoom = 1
+	return XX, YY
+
+def btn_1(event):
+	global fOffsetX, fOffsetY
+	fOffsetX = event.x - dx
+	fOffsetY = event.y - dy
+
+def motion(event):
+	global x, y, prev_x, prev_y
+	prev_x, prev_y = x, y
+	x = event.x
+	y = event.y
+
+def drag(event):
+	global x, y, dx, dy
+	x = event.x
+	y = event.y
+	dx, dy = x - fOffsetX, y - fOffsetY
+	draw()
+
+def draw():	
+	canvas.delete('all')
+
+	# Draw Main Axes a 10x10 Unit Grid
+	nLinesDrawnH = 0
+	nLinesDrawnV = 0
+	bl = br = 0
+	if dx+fGrid > 0 and dx < ww and dy+fGrid > 0 and dy < hh:
+		for xy in range(0, int(fGrid)+1, int(fGrid/9)):
+			if dx+xy > 0 and xy < ww:
+				# Draw 10 horizontal lines
+				sx, sy = WorldToScreen(xy, 0)
+				ex, ey = WorldToScreen(xy, fGrid-3)
+				br = ey
+
+				canvas.create_line(sx, sy, ex, ey, fill="black")
+				nLinesDrawnH += 1
+			
+			if dy+xy > 0 and xy < hh:
+				# Draw 10 vertical lines
+				sx, sy = WorldToScreen(0, xy)
+				ex, ey = WorldToScreen(fGrid-3, xy)
+				bl = ex
+
+				canvas.create_line(sx, sy, ex, ey, fill="black")
+				nLinesDrawnV += 1
+		sx, sy = WorldToScreen(0, 0)
+		ex, ey = WorldToScreen(fGrid, fGrid)
+		if bl * br:
+			obj = canvas.create_rectangle(sx, sy, bl, br, width=0, fill="white")
+			canvas.lower(obj) # vs canvas.lift(obj)
+			print(nLinesDrawnH, nLinesDrawnV)
+	else:
+		print('offscreen')
+	
+	canvas.update()
+
+def ZoomIn(event):
+	global	dx, dy, Scale, zoom
+	x = event.x
+	y = event.y
+	Scale *= 1.01
+	zoom = 1
+	draw()
+
+def ZoomOut(event):
+	global	dx, dy, Scale, zoom
+	x = event.x
+	y = event.y
+	Scale *= 0.99
+	zoom = 1
+	draw()
+	
+def scale_to_cursor(XX, YY): # ZZZ almost how I want it to function
+    sx = (XX - prev_x) * Scale + x
+    sy = (YY - prev_y) * Scale + y
+    return sx, sy
+
+root.bind("<ButtonPress-1>", btn_1)
+root.bind("<B1-Motion>", drag)
+root.bind("<Motion>", motion)
+
+root.bind("<q>", ZoomIn)
+root.bind("<a>", ZoomOut)
+
+draw()
+root.mainloop()
