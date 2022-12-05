@@ -1,0 +1,107 @@
+public static bool CompressVar(string pathSrc, string pathDest)
+    {
+
+        int codeLength = 9;
+
+        FileStream sourceFile = new FileStream(pathSrc, FileMode.Open, FileAccess.Read);
+        using (StreamReader sr = new StreamReader(sourceFile))
+        {
+            FileStream destFile = new FileStream(pathDest, FileMode.OpenOrCreate, FileAccess.Write);
+            using (BinaryWriter bw = new BinaryWriter(destFile))
+            {
+
+
+                //ako su sve 1 racunacemo kao kraj duzine i prelazimo na vecu duzinu
+                string pattern = String.Empty;//string jeste immutable ali prezalicemo perfomance hit
+                string newPattern;
+                ushort buffer = 0;
+                ushort queue = 0;
+                Dictionary<string, ushort> map = new Dictionary<string, ushort>(); //nov recnik
+                                                                                   //populacija recnika ASCII tabelom
+                for (int i = 0; i < 256; i++)
+                {
+                    map.Add(((char)i).ToString(), (ushort)i);
+                }
+                int bufferSpace = 16; //glavni bafer za upis
+                while (!sr.EndOfStream)
+                {
+
+                    if (map.Count == Math.Pow(2, 13) - 1) //da bismo ogranicili rast tablice do 12 bitova
+                    {
+                        codeLength = 9;
+                        map.Clear();
+                        for (int i = 0; i < 256; i++)
+                        {
+                            map.Add(((char)i).ToString(), (ushort)i);
+                        }
+                        pattern = "";
+                        newPattern = "";
+                    }
+
+                    char readChar = (char)sr.Read();
+                    newPattern = pattern + readChar;//proveravamo novi 
+                    if (map.ContainsKey(newPattern.ToString()))
+                    {
+                        pattern = newPattern;
+                    }
+                    else
+                    {
+                        codeLength = (int)(Math.Log2(map.Count) + 1);
+                        map.Add(newPattern.ToString(), (ushort)map.Count); //kodiramo novi pattern
+                        ushort code = map[pattern.ToString()];
+
+                        //ushort log = (ushort)(Math.Log2(code) + 1);
+                        //codeLength = log < 9 ? 9 : log;
+
+                        //int pending = 16 - (ushort)(codeLength); //koliko je dugacak trenutni kod sa kojim radimo? mozda i moze codeLenght
+                        if (bufferSpace >= codeLength) //da li imamo prostora u baferu da smestimo taj kod
+                        {
+                            code = (ushort)(code << 16 - bufferSpace);
+                            buffer = (ushort)(buffer | code); //smesti ga u donje bitove
+                            bufferSpace -= codeLength; //smanji prostor dostupan u baferu
+                            if (bufferSpace == 0) //msm da nece nikad da se desi ali neka ga
+                            {
+                                bw.Write(buffer);
+                                Console.Write(" "+buffer);
+                                buffer = 0;
+                                bufferSpace = 16;
+                            }
+                        }
+                        else if (bufferSpace < codeLength && bufferSpace > 0) //moze da se smesti kod ali samo delimicno
+                        {
+                            int fragmentSpace = bufferSpace; //odredjujemo koliki deo koda moze
+                            int queueSpace = codeLength - fragmentSpace; //koliki deo ne moze
+                            ushort mask = (ushort)(Math.Pow(2, fragmentSpace) - 1);//pravimo masku za izvlacenje ova dva dela
+                            ushort fragment = 0;
+                            fragment = (ushort)(mask & code);//izvlacimo deo koji moze, nizi
+                            mask = (ushort)(~mask);//sredjujemo masku za deo koji ne moze, visi
+                            queue = (ushort)(mask & code);//izvlacimo deo koji ne 
+                            fragment = (ushort)(fragment << 16 - bufferSpace);//pomeramo ga na vise bitove jer su oni dostupni u baferu
+                            buffer = (ushort)(buffer | fragment);//dodajemo ih u bafer
+                            bw.Write(buffer);//praznimo bafer u strim
+                            Console.Write(" "+buffer);
+                            buffer = 0;
+                            bufferSpace = 16;
+                            queue = (ushort)(queue >> fragmentSpace);
+                            buffer = (ushort)(buffer | queue);//dodajemo deo koji nije mogao da se smesti
+                            bufferSpace -= queueSpace;//smanjujemo prostor u baferu
+                        }
+                        else//ne bi trebalo da se desi nikad
+                        {
+                            bw.Write(buffer);
+                            Console.Write(buffer);
+                            buffer = 0;
+                            bufferSpace = 16;
+                        }
+
+                        pattern = readChar.ToString(); //resetujemo pattern
+                    }
+
+                }
+                bw.Write(buffer);//poslednji flush ako je nesto ostalo
+            }
+            destFile.Close();
+        }
+        sourceFile.Close();
+        return true;
+    }
