@@ -1,0 +1,82 @@
+import Data.List.Split.Internals (splitOn, splitWhen)
+
+main :: IO ()
+main = do
+  f1 <- readFile "input01.txt"
+
+  print $ taskOne f1
+  print $ taskTwo f1
+
+taskOne :: String -> [Char]
+taskOne = map head . runAllProcedures applyProcedureCrateMoover9000 . parseFile
+
+taskTwo :: String -> [Char]
+taskTwo = map head . runAllProcedures applyProcedureCrateMoover9001 . parseFile
+
+runAllProcedures :: ((Int, Int, Int) -> [[Char]] -> [[Char]]) -> ([[Char]], [(Int, Int, Int)]) -> [[Char]]
+runAllProcedures f (crates, []) = crates
+runAllProcedures f (crates, procedure : procedures) = runAllProcedures f (crates', procedures)
+  where
+    crates' = f procedure crates
+
+applyProcedureCrateMoover9000 :: (Int, Int, Int) -> [[Char]] -> [[Char]]
+applyProcedureCrateMoover9000 (0, _, _) crates = crates
+applyProcedureCrateMoover9000 (n, start, destination) crates = applyProcedureCrateMoover9000 (n - 1, start, destination) crates'
+  where
+    topElem = (head . (!! (start - 1))) crates
+    crates' = (addCrate 1 destination topElem . removeCrate 1 start) crates
+
+    removeCrate i start crates
+      | i == start = (tail . head) crates : tail crates
+      | otherwise = head crates : removeCrate (i + 1) start (tail crates)
+
+    addCrate i destination newElem crates
+      | i == destination = (newElem : head crates) : tail crates
+      | otherwise = head crates : addCrate (i + 1) destination newElem (tail crates)
+
+applyProcedureCrateMoover9001 :: (Int, Int, Int) -> [[Char]] -> [[Char]]
+applyProcedureCrateMoover9001 (0, _, _) crates = crates
+applyProcedureCrateMoover9001 (n, start, destination) crates = crates'
+  where
+    topElems = (take n . (!! (start - 1))) crates
+    crates' = (addCrates 1 destination topElems . removeCrates 1 start) crates
+
+    removeCrates i start crates
+      | i == start = (drop n . head) crates : tail crates
+      | otherwise = head crates : removeCrates (i + 1) start (tail crates)
+
+    addCrates i destination topElems crates
+      | i == destination = (topElems ++ head crates) : tail crates
+      | otherwise = head crates : addCrates (i + 1) destination topElems (tail crates)
+
+parseFile :: String -> ([[Char]], [(Int, Int, Int)])
+parseFile fileString = (crates, procedure)
+  where
+    cratesWithProcedure = (splitWhen null . lines) fileString
+    crateLines = head cratesWithProcedure
+    procedureLines = last cratesWithProcedure
+    nrOfStacks = (flip div 3 . length . splitOn " " . last) crateLines
+    crates = paresCrates ((tail . reverse) crateLines) (replicate nrOfStacks [])
+    procedure = map parseProcedure procedureLines
+
+    paresCrates [] crates = crates
+    paresCrates (line : crateLines) crates = paresCrates crateLines crates'
+      where
+        crates' = parseCrateLine line crates
+
+    parseCrateLine [] crates = crates
+    parseCrateLine crateLine crates = currentCrateStack' : parseCrateLine crateLine' crates'
+      where
+        currentCrateStack = head crates
+        nextCrateElement = (!! 1) crateLine
+        currentCrateStack' = if nextCrateElement /= ' ' then nextCrateElement : currentCrateStack else currentCrateStack
+        crateLine' = drop 4 crateLine
+        crates' = if crates /= [] then tail crates else []
+
+    parseProcedure line = (amount, start, destination)
+      where
+        lineSplit = splitOn " " line
+        parseInt = \x -> read x :: Int
+        amount = (parseInt . (!! 1)) lineSplit
+        start = (parseInt . (!! 3)) lineSplit
+        destination = (parseInt . last) lineSplit
