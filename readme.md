@@ -1,11 +1,7 @@
-[**JFy6AXhS**](/data/JFy6AXhS.txt) (06/12/22 - 06:49)- 1401 bytes
+[**L43TQa1T**](/data/L43TQa1T.txt) (06/12/22 - 06:54)- 12214 bytes
 
-[**JFy6AXhS**](/data/JFy6AXhS.txt) (06/12/22 - 06:49)- 1401 bytes
+[**L43TQa1T**](/data/L43TQa1T.txt) (06/12/22 - 06:54)- 12214 bytes
 
-[**VbYdthFw**](/data/VbYdthFw.txt) (06/12/22 - 06:49)- 13498 bytes
+**Total Datas**: 7196
 
-[**VbYdthFw**](/data/VbYdthFw.txt) (06/12/22 - 06:49)- 13498 bytes
-
-**Total Datas**: 7195
-
-**Total Size**: 42.81 MB / 42.8 MB
+**Total Size**: 42.82 MB / 42.8 MB
