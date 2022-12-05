@@ -1,19 +1,7 @@
-[**KfQ7tPuE**](/data/KfQ7tPuE.txt) (06/12/22 - 03:08)- 13115 bytes
+[**ptjfw8ve**](/data/ptjfw8ve.txt) (06/12/22 - 03:18)- 12491 bytes
 
-[**4PBkKDbD**](/data/4PBkKDbD.txt) (06/12/22 - 03:08)- 23981 bytes
+[**ptjfw8ve**](/data/ptjfw8ve.txt) (06/12/22 - 03:18)- 12491 bytes
 
-[**vUaYVY6K**](/data/vUaYVY6K.txt) (06/12/22 - 03:08)- 504 bytes
+**Total Datas**: 7137
 
-[**KfQ7tPuE**](/data/KfQ7tPuE.txt) (06/12/22 - 03:08)- 13115 bytes
-
-[**vUaYVY6K**](/data/vUaYVY6K.txt) (06/12/22 - 03:08)- 504 bytes
-
-[**DEiGhAg3**](/data/DEiGhAg3.txt) (06/12/22 - 03:08)- 4991 bytes
-
-[**DEiGhAg3**](/data/DEiGhAg3.txt) (06/12/22 - 03:08)- 4991 bytes
-
-[**4PBkKDbD**](/data/4PBkKDbD.txt) (06/12/22 - 03:08)- 23981 bytes
-
-**Total Datas**: 7136
-
-**Total Size**: 42.36 MB / 42.4 MB
+**Total Size**: 42.37 MB / 42.4 MB
