@@ -1,0 +1,732 @@
+//---------------------------------------------------------------------------
+
+#include <vcl.h>
+#pragma hdrstop
+
+#include "MainUnit.h"
+//---------------------------------------------------------------------------
+#pragma package(smart_init)
+#pragma resource "*.dfm"
+#include "WelcomeUnit.h"
+#include "BotPreparingUnit.h"
+#include "EndUnit.h"
+#include "RulesUnit.h"
+
+using namespace std;
+
+TMainForm *MainForm;
+typedef struct {
+	int value;
+	String suit;
+} Card;
+const int TABLE_CARDS_Y = 352;
+const int FIRST_TABLE_CARD_X = 392;
+const int GAP_BETWEEN_TABLE_CARDS = 32;
+const int CARD_WIDTH = 200;
+const int AMOUNT_OF_CARDS = 52;
+const int AMOUNT_OF_SUITS = 4;
+const int AMOUNT_OF_COMBINATIONS = 10;
+const int DIVIDER_FOR_SMALL_BLIND = 200;
+const int AMOUNT_OF_CARDS_FOR_COMBINATION = 7;
+const int COMBINATION_LENGTH = 5;
+const int MAX_AMOUNT_OF_PLAYERS = 4;
+const int AMOUNT_OF_HAND_CARDS = 2;
+const int AMOUNT_OF_TABLE_CARDS = 5;
+const int DIVIDER_FOR_BIG_BID = 5;
+const int DIVIDER_FOR_SMALL_BID = 20;
+const int MAX_PERCENTAGE = 100;
+const int FIRST_CARD_LEFT = 230;
+const int NEW_PAIR_LEFT_ITERATOR = 224;
+const int SECOND_CARD_LEFT_ITERATOR = 168;
+const int CARDS_TOP = 765;
+const int FIRST_NAMELABEL_LEFT = 190;
+const int PAIR_OF_CARDS_WIDTH = 368;
+const int NAMELABEL_TOP = 722;
+const int FISRT_CROWN_LEFT = 336;
+const int NEXT_CROWN_LEFT = 392;
+const int CROWN_TOP = 655;
+const int FONT_SIZE_FOR_NAMELABEL = 22;
+const String HIDE_CARDS_STR = "Скрыть карты";
+const String SHOW_CARDS_STR = "Показать карты";
+const String SUITS[AMOUNT_OF_SUITS] = {"clubs", "diamonds", "hearts", "spades"};
+const String BANK_LABEL = "Банк: ";
+const String SELECTED_LABEL = "Выбрано: ";
+const String CHIPS_LABEL = "Фишки: ";
+const String ACTIVE_LABEL = "Активный: ";
+const String PREPARING_LABEL = "Готовится: ";
+const String WINNER_LABEL = "Победитель: ";
+const String COMBINATION_LABEL = "Комбинация: ";
+const String CALL_CAPTION = "Кол (";
+const String CHECK_CAPTION = "Чек";
+const String ALL_IN_CAPTION = "ВА-БАНК";
+const String FOLDED_CAPTION = " (Сбросил)";
+
+TImage** imagesOfPlayersCards;
+TLabel** lablesOfPlayersNames;
+int amountOfPlayers;
+int currPlayer;
+bool isInGame[MAX_AMOUNT_OF_PLAYERS];
+Card cardsArr[AMOUNT_OF_CARDS];
+Card playersCards[MAX_AMOUNT_OF_PLAYERS][AMOUNT_OF_HAND_CARDS];
+Card tableCards[AMOUNT_OF_TABLE_CARDS];
+int playersCombinations[MAX_AMOUNT_OF_PLAYERS];
+String playersNames[MAX_AMOUNT_OF_PLAYERS];
+String winnerName;
+String combinationName;
+String combinations[AMOUNT_OF_COMBINATIONS];
+int highestCards[MAX_AMOUNT_OF_PLAYERS];
+int playersChips[MAX_AMOUNT_OF_PLAYERS];
+int smallBlind;
+int bigBlind;
+int amountOfChips;
+bool isFirstGame;
+bool isFirstTimeOnThisStage;
+bool isRaised;
+bool isOnceRaised;
+bool isShown;
+bool isPreFlop;
+bool isFlop;
+bool isTurn;
+bool isRiver;
+bool isGameWithBot;
+bool isInAllIn;
+bool arePlayersCardsShown;
+bool isRoundEnded;
+int bank;
+int bid;
+int savedBid;
+int odds;
+int playerWhoRaised;
+int prevPlayerWhoRaised;
+//---------------------------------------------------------------------------
+__fastcall TMainForm::TMainForm(TComponent* Owner)
+	: TForm(Owner) {
+}
+//------------------------General Methods-----------------------------------
+
+void resetLocalVariables() {
+	currPlayer = 0;
+	for (int i = 0; i < 4; i++)
+		isInGame[i] = true;
+	smallBlind = 0;
+	bigBlind = 1;
+	isFirstGame = true;
+	isFirstTimeOnThisStage = true;
+	isRaised = false;
+	isOnceRaised = false;
+	isShown = false;
+	isPreFlop = true;
+	isFlop = false;
+	isTurn = false;
+	isRiver = false;
+	isGameWithBot = false;
+	isInAllIn = false;
+	arePlayersCardsShown = true;
+	isRoundEnded = false;
+	bank = 0;
+	bid = 0;
+	odds = 0;
+}
+
+void initCombinations() {
+	combinations[9] = "ФЛЕШ РОЯЛЬ";
+	combinations[8] = "СТРИТ ФЛЕШ";
+	combinations[7] = "КАРЕ";
+	combinations[6] = "ФУЛЛ ХАУС";
+	combinations[5] = "ФЛЕШ";
+	combinations[4] = "СТРИТ";
+	combinations[3] = "СЕТ";
+	combinations[2] = "ДВЕ ПАРЫ";
+	combinations[1] = "ПАРА";
+	combinations[0] = "СТАРШАЯ КАРТА";
+}
+
+void createArrayOfCards() {
+	String cardName;
+	int i = 0;
+	int cardValue = 2;
+
+	while (i < AMOUNT_OF_CARDS) {
+		for (int j = 0; j < AMOUNT_OF_SUITS; j++) {
+			Card card;
+			cardName = IntToStr(cardValue) + "_of_" + SUITS[j];
+			card.value = cardValue;
+			card.suit = SUITS[j];
+			cardsArr[i] = card;
+			i++;
+		}
+		cardValue++;
+	}
+}
+
+void __fastcall TMainForm::FormCreate(TObject *Sender) {
+	Background -> Picture -> LoadFromFile("poker_table.png");
+	resetLocalVariables();
+	PlaceTableCards();
+	initCombinations();
+	createArrayOfCards();
+    ShowMainMenuButtons();
+	HideCards();
+	HideButtons();
+	HideLabels();
+}
+
+void TMainForm::PlaceTableCards() {
+	PlaceTableCardsY();
+	PlaceTableCardsX();
+}
+
+void TMainForm::PlaceTableCardsY() {
+	FirstTableCard -> Top = TABLE_CARDS_Y;
+	SecondTableCard -> Top = TABLE_CARDS_Y;
+	ThirdTableCard -> Top = TABLE_CARDS_Y;
+	FourthTableCard -> Top = TABLE_CARDS_Y;
+	FifthTableCard -> Top = TABLE_CARDS_Y;
+}
+
+void TMainForm::PlaceTableCardsX() {
+	int leftForSecond, leftForThird, leftForFourth, leftForFifth;
+
+	leftForSecond = FIRST_TABLE_CARD_X + GAP_BETWEEN_TABLE_CARDS + CARD_WIDTH;
+	leftForThird = FIRST_TABLE_CARD_X + 2 * (GAP_BETWEEN_TABLE_CARDS + CARD_WIDTH);
+	leftForFourth = FIRST_TABLE_CARD_X + 3 * (GAP_BETWEEN_TABLE_CARDS + CARD_WIDTH);
+	leftForFifth = FIRST_TABLE_CARD_X + 4 * (GAP_BETWEEN_TABLE_CARDS + CARD_WIDTH);
+
+	FirstTableCard -> Left = FIRST_TABLE_CARD_X;
+	SecondTableCard -> Left = leftForSecond;
+	ThirdTableCard -> Left = leftForThird;
+	FourthTableCard -> Left = leftForFourth;
+	FifthTableCard -> Left = leftForFifth;
+}
+
+void TMainForm::HideMainMenuButtons() {
+	PlayWithPeopleBtn -> Visible = false;
+	PlayWithBotBtn -> Visible = false;
+	RulesBtn -> Visible = false;
+}
+
+void TMainForm::HideCards() {
+	FirstTableCard -> Visible = false;
+	SecondTableCard -> Visible = false;
+	ThirdTableCard -> Visible = false;
+	FourthTableCard -> Visible = false;
+	FifthTableCard -> Visible = false;
+	FirstHandCard -> Visible = false;
+	SecondHandCard -> Visible = false;
+	FirstBotCard -> Visible = false;
+	SecondBotCard -> Visible = false;
+}
+
+void TMainForm::HideButtons() {
+    NextRoundBtn -> Visible = false;
+	HideCardsBtn -> Visible = false;
+	FoldBtn -> Visible = false;
+	CallBtn -> Visible = false;
+	RaiseBtn -> Visible = false;
+}
+
+void TMainForm::HideLabels() {
+	ChipsTrackBar -> Visible = false;
+	PlayerNameLabel -> Visible = false;
+	ChipsLabel -> Visible = false;
+    BotChipsLabel -> Visible = false;
+	CurrChipsLabel -> Visible = false;
+	BankLabel -> Visible = false;
+	WinnerLabel -> Visible = false;
+	CombinationLabel -> Visible = false;
+}
+
+void TMainForm::HideBotCards() {
+	FirstBotCard -> Visible = false;
+	SecondBotCard -> Visible = false;
+}
+
+void hideCardsAndLabelsFormArrays() {
+	for (int i = 0; i < amountOfPlayers * 2; i++) {
+		imagesOfPlayersCards[i] -> Visible = false;
+		if (i < amountOfPlayers)
+			lablesOfPlayersNames[i] -> Visible = false;
+	}
+}
+
+void initFlops() {
+    isPreFlop = true;
+	isFlop = false;
+	isTurn = false;
+	isRiver = false;
+	isFirstTimeOnThisStage = true;
+    isInAllIn = false;
+}
+
+void generateHandCard(const int player, const int card) {
+	int j;
+	j = random(AMOUNT_OF_CARDS - 1);
+
+	if (cardsArr[j].value != 0) {
+		playersCards[player - 1][card - 1] = cardsArr[j];
+		cardsArr[j].value = 0;
+		cardsArr[j].suit = "";
+	} else {
+		generateHandCard(player, card);
+	}
+}
+
+String generateTableCard(int n) {
+	int j;
+	String generatedCard;
+	j = random(AMOUNT_OF_CARDS - 1);
+	if (cardsArr[j].value != 0) {
+		generatedCard = IntToStr(cardsArr[j].value) + "_of_" + cardsArr[j].suit + ".png";
+		tableCards[n] = cardsArr[j];
+		cardsArr[j].value = 0;
+		cardsArr[j].suit = "";
+	} else {
+		generatedCard = generateTableCard(n);
+	}
+
+	return generatedCard;
+}
+
+void TMainForm::ShowHandCards() {
+	FirstHandCard -> Visible = true;
+	SecondHandCard -> Visible = true;
+}
+
+void TMainForm::ShowTableCards(const int amount) {
+	if (amount == 3) {
+		FirstTableCard -> Visible = true;
+		SecondTableCard -> Visible = true;
+		ThirdTableCard -> Visible = true;
+	} else if (amount == 4) {
+		FourthTableCard -> Visible = true;
+	} else if (amount == 5) {
+		FifthTableCard -> Visible = true;
+	}
+}
+
+void TMainForm::ShowButtons() {
+	HideCardsBtn -> Visible = true;
+	FoldBtn -> Visible = true;
+	CallBtn -> Visible = true;
+	RaiseBtn -> Visible = true;
+	PlayerNameLabel -> Visible = true;
+}
+
+void TMainForm::ShowLabels() {
+	PlayerNameLabel -> Visible = true;
+	ChipsLabel -> Visible = true;
+	if (isGameWithBot)
+		BotChipsLabel -> Visible = true;
+	BankLabel -> Visible = true;
+}
+
+void TMainForm::EnableButtons() {
+	FoldBtn -> Enabled = true;
+	CallBtn -> Enabled = true;
+	RaiseBtn -> Enabled = true;
+}
+
+void TMainForm::TurnOffButtons() {
+	FoldBtn -> Enabled = false;
+	CallBtn -> Enabled = false;
+	RaiseBtn -> Enabled = false;
+}
+
+void TMainForm::ShowMainMenuButtons() {
+	PlayWithPeopleBtn -> Visible = true;
+	PlayWithBotBtn -> Visible = true;
+	RulesBtn -> Visible = true;
+}
+
+void TMainForm::ShowBotCards() {
+	FirstBotCard -> Visible = true;
+	SecondBotCard -> Visible = true;
+}
+
+void TMainForm::OpenBotCards() {
+	FirstBotCard -> Picture -> LoadFromFile("cards/" + IntToStr(playersCards[1][0].value) + "_of_" + playersCards[1][0].suit + ".png");
+	SecondBotCard -> Picture -> LoadFromFile("cards/" + IntToStr(playersCards[1][1].value) + "_of_" + playersCards[1][1].suit + ".png");
+}
+
+void TMainForm::GenerateTableCards() {
+	FirstTableCard -> Picture -> LoadFromFile("cards/" + generateTableCard(0));
+	SecondTableCard -> Picture -> LoadFromFile("cards/" + generateTableCard(1));
+	ThirdTableCard -> Picture -> LoadFromFile("cards/" + generateTableCard(2));
+	FourthTableCard -> Picture -> LoadFromFile("cards/" + generateTableCard(3));
+	FifthTableCard -> Picture -> LoadFromFile("cards/" + generateTableCard(4));
+
+//	FirstTableCard -> Picture -> LoadFromFile("cards/12_of_diamonds.png");
+//	tableCards[0].value = 12;
+//	tableCards[0].suit = "diamonds";
+//	SecondTableCard -> Picture -> LoadFromFile("cards/3_of_spades.png");
+//	tableCards[1].value = 3;
+//	tableCards[1].suit = "spades";
+//	ThirdTableCard -> Picture -> LoadFromFile("cards/6_of_diamonds.png");
+//	tableCards[2].value = 6;
+//	tableCards[2].suit = "diamonds";
+//	FourthTableCard -> Picture -> LoadFromFile("cards/10_of_diamonds.png");
+//	tableCards[3].value = 10;
+//	tableCards[3].suit = "diamonds";
+//	FifthTableCard -> Picture -> LoadFromFile("cards/14_of_diamonds.png");
+//	tableCards[4].value = 14;
+//	tableCards[4].suit = "diamonds";
+}
+
+void TMainForm::GiveCardsToPlayer(const int player) {
+	generateHandCard(player, 1);
+	generateHandCard(player, 2);
+
+//	playersCards[0][0].value = 11;
+//	playersCards[0][0].suit = "spades";
+//	playersCards[0][1].value = 2;
+//	playersCards[0][1].suit = "diamonds";
+//	playersCards[1][0].value = 2;
+//	playersCards[1][0].suit = "clubs";
+//	playersCards[1][1].value = 4;
+//	playersCards[1][1].suit = "diamonds";
+}
+
+void TMainForm::PrepareChips() {
+	int minBlind = amountOfChips / DIVIDER_FOR_SMALL_BLIND;
+	int maxBlind = minBlind * 2;
+
+	if (isFirstGame)
+		for (int i = 0; i < amountOfPlayers; i++) {
+			playersChips[i] = amountOfChips;
+		}
+    playersChips[smallBlind] -= minBlind;
+	playersChips[bigBlind] -= maxBlind;
+	bank = minBlind + maxBlind;
+	BankLabel -> Caption = BANK_LABEL + IntToStr(bank);
+	ChipsLabel -> Caption = CHIPS_LABEL + IntToStr(playersChips[0]);
+	BotChipsLabel -> Caption = CHIPS_LABEL + IntToStr(playersChips[1]);
+	ChipsTrackBar -> Min = maxBlind + 1;
+	CurrChipsLabel -> Caption = SELECTED_LABEL + IntToStr(maxBlind + 1);
+	if (isGameWithBot)
+		if (smallBlind == 0) {
+			CallBtn -> Caption = CALL_CAPTION + IntToStr(minBlind) + ")";
+			bid = minBlind;
+		} else {
+			CallBtn -> Caption = CHECK_CAPTION;
+			bid = minBlind;
+			CallForBot();
+            bid = 0;
+		}
+	else {
+		if (smallBlind == 0) {
+			CallBtn -> Caption = CALL_CAPTION + IntToStr(minBlind) + ")";
+			bid = minBlind;
+		} else if (bigBlind == 0) {
+			CallBtn -> Caption = CHECK_CAPTION;
+			bid = 0;
+		} else {
+			CallBtn -> Caption = CALL_CAPTION + IntToStr(maxBlind) + ")";
+			bid = maxBlind;
+        }
+    }
+}
+
+void TMainForm::DistributeTableCards() {
+	if (!isPreFlop && isFlop)
+		ShowTableCards(3);
+	else if (!isFlop && isTurn)
+		ShowTableCards(4);
+	else if (!isTurn && isRiver)
+		ShowTableCards(5);
+}
+
+void __fastcall TMainForm::ChipsTrackBarChange(TObject *Sender) {
+	CurrChipsLabel -> Caption = SELECTED_LABEL + IntToStr(ChipsTrackBar -> Position);
+}
+
+void __fastcall TMainForm::BackToMenuClick(TObject *Sender) {
+	if (!isGameWithBot) {
+		hideCardsAndLabelsFormArrays();
+		CrownImage -> Visible = false;
+	}
+	FormCreate(Sender);
+	HideBotCards();
+    EnableButtons();
+	BackToMenu -> Visible = false;
+}
+
+void __fastcall TMainForm::RulesBtnClick(TObject *Sender){
+	RulesForm -> ShowModal();
+}
+
+void TMainForm::PrintWinner() {
+	WinnerLabel -> Caption = WINNER_LABEL + winnerName;
+	WinnerLabel -> Visible = true;
+}
+
+void TMainForm::PrintCombination() {
+	CombinationLabel -> Caption = COMBINATION_LABEL + combinationName;
+	CombinationLabel -> Visible = true;
+}
+
+void changeBlinds() {
+	smallBlind = (smallBlind - 1 == -1) ? amountOfPlayers - 1 : smallBlind - 1;
+	bigBlind = (bigBlind - 1 == -1) ? amountOfPlayers - 1 : bigBlind - 1;
+}
+
+int checkIfWin() {
+	int counter = 0;
+	int index;
+	for (int i = 0; i < amountOfPlayers; i++) {
+		if (isInGame[i]) {
+			counter++;
+			index = i;
+		}
+	}
+	if (counter == 1)
+		return index;
+	return -1;
+}
+
+//------------------------Combination Methods-----------------------------------
+Card findMaxSuits(const Card cards[], int n) {
+	Card maxSuit;
+	maxSuit.value = 0;
+	int curr = 0;
+	for (int i = 0; i < n; i++) {
+		String suit = cards[i].suit;
+		for (int j = 0; j < n; j++) {
+			if (cards[j].suit == suit) {
+				curr++;
+			}
+		}
+		if (curr > maxSuit.value) {
+			maxSuit.value = curr;
+			maxSuit.suit = suit;
+		}
+		curr = 0;
+	}
+
+	return maxSuit;
+}
+
+bool isRoyalFlush(const Card cards[], int n, int index) {
+	int value = cards[0].value;
+	Card maxSuit;
+	int counter = 0;
+
+	maxSuit = findMaxSuits(cards, n);
+
+	if (maxSuit.value > 4 && value == 14) {
+		value = 15;
+		for (int i = 0; i < n; i++) {
+			if (cards[i].suit == maxSuit.suit && cards[i].value == value - 1) {
+				counter++;
+				value--;
+			}
+		}
+		if (counter > 4) {
+			highestCards[index] = value;
+            return true;
+		} else
+			return false;
+	}
+
+	return false;
+}
+
+bool isStraightFlush(const Card cards[], int n, int index) {
+	int value = cards[0].value;
+	Card maxSuit;
+	int counter = 0;
+	int k = 0;
+
+	maxSuit = findMaxSuits(cards, n);
+
+	while (cards[k].suit != maxSuit.suit) {
+		value = cards[k + 1].value;
+		k++;
+	}
+
+	if (maxSuit.value > 4) {
+		value++;
+		for (int i = 0; i < n; i++) {
+			if (cards[i].suit == maxSuit.suit && cards[i].value == value - 1) {
+				counter++;
+				value--;
+			}
+		}
+		if (counter > 4) {
+			highestCards[index] = value;
+			return true;
+		} else
+			return false;
+	}
+
+	return false;
+}
+
+bool isFour(const Card cards[], int n, int index) {
+	int counter;
+	int i = 0;
+	int value = cards[0].value;
+	while (counter != 4 && i < n) {
+		counter = 0;
+		for (int j = 0; j < n; j++) {
+			if (cards[j].value == value)
+				counter++;
+		}
+		i++;
+		value = cards[i].value;
+	}
+
+	if (counter == 4) {
+		highestCards[index] = cards[i - 1].value;
+		return true;
+	}
+
+	return false;
+}
+
+bool isFlush(const Card cards[], int n, int index) {
+	Card maxSuit = findMaxSuits(cards, n);
+	int counter = 0;
+	int i = 0;
+	if (maxSuit.value > 4) {
+		while (maxSuit.suit != cards[i].suit) {
+			i++;
+		}
+		highestCards[index] = cards[i].value;
+        return true;
+	}
+    return false;
+}
+
+bool isStraight(const Card cards[], int n, int index) {
+	int value;
+	int counter = 0;
+	int maxN = n - COMBINATION_LENGTH + 1;
+
+	for (int i = 0; i < maxN; i++) {
+		value = cards[i].value;
+		value++;
+		for (int j = i; j < n; j++) {
+			if (cards[j].value == value - 1) {
+				counter++;
+				value--;
+			}
+		}
+		if (counter > 4) {
+			highestCards[index] = value + 4;
+			return true;
+		}
+
+		counter = 0;
+	}
+
+	return false;
+}
+
+bool isSet(const Card cards[], int n, int index) {
+	int counter;
+	int i = 0;
+	int value = cards[0].value;
+	while (counter != 3 && i < n) {
+		counter = 0;
+		for (int j = 0; j < n; j++) {
+			if (cards[j].value == value)
+				counter++;
+		}
+		i++;
+		value = cards[i].value;
+	}
+	if (counter == 3) {
+		highestCards[index] = cards[i - 1].value;
+		return true;
+	}
+
+	return false;
+}
+
+bool isPair(const Card cards[], int n, int index) {
+    int counter = 0;
+	int i = 0;
+	int value = cards[0].value;
+	while (counter != 2 && i < n) {
+		counter = 0;
+		for (int j = 0; j < n; j++) {
+			if (cards[j].value != 0 && cards[j].value == value)
+				counter++;
+		}
+		i++;
+		value = cards[i].value;
+	}
+	if (counter == 2) {
+		if (highestCards[index] < cards[i - 1].value)
+			highestCards[index] = cards[i - 1].value;
+		return true;
+	}
+
+	return false;
+}
+
+bool isFullHouse(const Card cards[], int n, int index) {
+	if (isSet(cards, n, index)) {
+		int value = cards[0].value;
+		int index = 0;
+		bool indexIsFound = false;
+		int counter = 0;
+		int j = 0;
+		while (!indexIsFound) {
+			if (cards[j].value == value) {
+				counter++;
+				if (counter == 3) {
+					index = j - counter + 1;
+					indexIsFound = true;
+				}
+			} else {
+				counter = 1;
+				value = cards[j].value;
+			}
+            j++;
+		}
+		int maxI = index + counter;
+		Card newCards[n];
+		for (int i = 0; i < n; i++)
+			newCards[i] = cards[i];
+		for (int i = index; i < maxI; i++)
+			newCards[i].value = 0;
+		if (isPair(newCards, n, index))
+			return true;
+	}
+
+	return false;
+}
+
+bool isTwoPair(const Card cards[], int n, int index) {
+	if (isPair(cards, n, index)) {
+		int value;
+		int counter = 0;
+		int i = 0;
+		while (counter != 2) {
+			value = cards[i].value;
+			counter = 0;
+			for (int j = 0; j < n; j++) {
+				if (cards[j].value == value)
+					counter++;
+			}
+			i++;
+		}
+		counter = 0;
+		i = 0;
+		Card newCards[n];
+		for (int j = 0; j < n; j++)
+			newCards[j] = cards[j];
+		while (counter != 2) {
+			if (newCards[i].value == value) {
+				newCards[i].value = 0;
+				counter++;
+			}
+			i++;
+		}
+		if (isPair(newCards, n, index))
+			return true;
+	}
+
+	return false;
+}
