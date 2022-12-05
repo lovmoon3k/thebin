@@ -1,7 +1,5 @@
-[**L43TQa1T**](/data/L43TQa1T.txt) (06/12/22 - 06:54)- 12214 bytes
+[**18UvaTFR**](/data/18UvaTFR.txt) (06/12/22 - 07:00)- 13526 bytes
 
-[**L43TQa1T**](/data/L43TQa1T.txt) (06/12/22 - 06:54)- 12214 bytes
+**Total Datas**: 7197
 
-**Total Datas**: 7196
-
-**Total Size**: 42.82 MB / 42.8 MB
+**Total Size**: 42.83 MB / 42.8 MB
