@@ -1,0 +1,35 @@
+SELECT 
+  p.userID,
+  p.productID,
+  pr.productName,
+  (paymentAmount) churnedRevenue,
+  (paymentAmount/paymentPeriod) churnedMRR,
+  pr.productSKU
+
+FROM `uptimerobot-001.ur.payments` p
+LEFT JOIN 
+
+(select 
+  userID, 
+  MAX(DATE_ADD(DATETIME(paymentDateTime), INTERVAL paymentPeriod MONTH)) AS PrepaidPeriod 
+FROM `uptimerobot-001.ur.payments` 
+WHERE paymentStatus = 1 AND paymentPeriod > 0 AND userID IS NOT NULL 
+GROUP BY userID 
+
+/*Change the date to 1st. day of the following month, e.g. '2022-11-01' for October data*/
+HAVING PrepaidPeriod > DATE_SUB('2022-12-01', INTERVAL 1 MONTH) AND PrepaidPeriod < '2022-12-01') AS prepaid
+
+ON (p.userID = prepaid.userID and DATE_ADD(DATETIME(paymentDateTime), INTERVAL paymentPeriod MONTH) = prepaid.PrepaidPeriod) 
+
+LEFT JOIN
+  `uptimerobot-001.ur.products` pr
+
+ON p.productID = pr.productID
+
+
+WHERE prepaid.userID IS NOT NULL
+AND pr.productSKU NOT LIKE ('%bf%')
+
+ORDER BY
+  pr.productSKU
+
