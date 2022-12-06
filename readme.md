@@ -1,11 +1,5 @@
-[**UL75CyxY**](/data/UL75CyxY.txt) (06/12/22 - 23:36)- 371 bytes
+[**wQ5NyqaU**](/data/wQ5NyqaU.txt) (06/12/22 - 23:42)- 459 bytes
 
-[**szzy5Mgu**](/data/szzy5Mgu.txt) (06/12/22 - 23:36)- 1996 bytes
+**Total Datas**: 7357
 
-[**UL75CyxY**](/data/UL75CyxY.txt) (06/12/22 - 23:36)- 371 bytes
-
-[**szzy5Mgu**](/data/szzy5Mgu.txt) (06/12/22 - 23:36)- 1996 bytes
-
-**Total Datas**: 7356
-
-**Total Size**: 43.77 MB / 43.8 MB
+**Total Size**: 43.78 MB / 43.8 MB
