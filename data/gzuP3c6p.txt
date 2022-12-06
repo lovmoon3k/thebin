@@ -1,0 +1,210 @@
+/*Revenue cohorts of customers with last payment for 50+ monitors*/
+ 
+WITH firstPayment as (
+    SELECT 
+        userID,
+        MIN(FORMAT_DATE('%Y-%m',DATETIME(paymentDateTime))) as cohortYearMonth, 
+        MIN(paymentDateTime) as firstPaymentDateTime
+    FROM `uptimerobot-001.ur.payments`
+    WHERE paymentStatus = 1 AND paymentType = 2 AND userID IS NOT NULL
+    GROUP BY userID
+    ),
+
+/*user's last payment*/
+ LP AS (
+        SELECT 
+            p1.userID, 
+            p1.paymentDateTime AS LastPaymentDateTime, 
+            p1.paymentPeriod,
+            p1.productID as lastPaymentProductID,
+            pr.productValue as lastPaymentProductValue
+ 
+        FROM `uptimerobot-001.ur.payments` p1
+            LEFT JOIN `uptimerobot-001.ur.payments` p2 
+                ON (p1.userID = p2.userID AND p1.paymentDateTime < p2.paymentDateTime AND p2.paymentType = 2)
+            LEFT JOIN `uptimerobot-001.ur.products` pr
+                ON p1.productID = pr.productID
+        WHERE 
+        p2.paymentDateTime IS NULL
+        AND p1.userID IS NOT NULL
+        AND p1.paymentType = 2
+        AND p1.paymentStatus = 1
+        
+        ),
+ 
+/*All payments of a customer with cohortYearMonth, paymentYearMonth of given payment, index of the month used to decide 
+if he should be included in cohort and payment amount with cohort Revenue for specific cohort*/
+ 
+preparedData as (
+    SELECT 
+        p.userID,
+        fp.cohortYearMonth,
+		(CASE 
+			WHEN LastPaymentDateTime IS NULL THEN 'FREE'
+			WHEN (DATE_ADD(DATETIME(LastPaymentDateTime), INTERVAL LP.paymentPeriod MONTH) >= CURRENT_DATE()) THEN 'CurrentCustomer'
+			ELSE 'ChurnedCustomer'
+		END) AS customerType,
+        FORMAT_DATE('%Y-%m',DATETIME(paymentDateTime)) paymentYearMonth,
+        (DATE_DIFF(DATETIME(p.paymentDateTime), DATETIME(fp.firstPaymentDateTime), MONTH)) as indexOfPaymentMonth,
+        p.paymentPeriod,
+        p.productID,
+		lastPaymentProductID,
+		lastPaymentProductValue,
+        p.paymentAmount,
+        SAFE_DIVIDE(p.paymentAmount,p.paymentPeriod) as cohortRevenue
+        
+    FROM `uptimerobot-001.ur.payments` p
+        LEFT JOIN firstPayment fp
+        ON p.userID = fp.userID
+
+		    LEFT JOIN LP 
+            ON  (p.userID = LP.userID)
+
+    WHERE 
+		paymentStatus = 1 
+		AND paymentType = 2
+    ORDER BY paymentYearMonth
+    ),
+        
+cohorts as (
+    SELECT DISTINCT cohortYearMonth as acquisitionYearMonth
+    FROM firstPayment
+    ORDER BY cohortYearMonth DESC
+        )
+        
+/*Customer Cohorts in Abs Numbers*/
+
+
+SELECT
+    cohortYearMonth,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 0 THEN paymentAmount END),0) Month0,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 1 THEN paymentAmount END),0) Month1,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 2 THEN paymentAmount END),0) Month2,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 3 THEN paymentAmount END),0) Month3,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 4 THEN paymentAmount END),0) Month4,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 5 THEN paymentAmount END),0) Month5,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 6 THEN paymentAmount END),0) Month6,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 7 THEN paymentAmount END),0) Month7,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 8 THEN paymentAmount END),0) Month8,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 9 THEN paymentAmount END),0) Month9,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 10 THEN paymentAmount END),0) Month10,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 11 THEN paymentAmount END),0) Month11,
+		
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 12 THEN paymentAmount END),0) Month12,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 13 THEN paymentAmount END),0) Month13,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 14 THEN paymentAmount END),0) Month14,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 15 THEN paymentAmount END),0) Month15,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 16 THEN paymentAmount END),0) Month16,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 17 THEN paymentAmount END),0) Month17,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 18 THEN paymentAmount END),0) Month18,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 19 THEN paymentAmount END),0) Month19,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 20 THEN paymentAmount END),0) Month20,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 21 THEN paymentAmount END),0) Month21,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 22 THEN paymentAmount END),0) Month22,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 23 THEN paymentAmount END),0) Month23,
+		
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 24 THEN paymentAmount END),0) Month24,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 25 THEN paymentAmount END),0) Month25,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 26 THEN paymentAmount END),0) Month26,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 27 THEN paymentAmount END),0) Month27,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 28 THEN paymentAmount END),0) Month28,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 29 THEN paymentAmount END),0) Month29,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 30 THEN paymentAmount END),0) Month30,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 31 THEN paymentAmount END),0) Month31,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 32 THEN paymentAmount END),0) Month32,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 33 THEN paymentAmount END),0) Month33,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 34 THEN paymentAmount END),0) Month34,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 35 THEN paymentAmount END),0) Month35,
+		
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 36 THEN paymentAmount END),0) Month36,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 37 THEN paymentAmount END),0) Month37,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 38 THEN paymentAmount END),0) Month38,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 39 THEN paymentAmount END),0) Month39,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 40 THEN paymentAmount END),0) Month40,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 41 THEN paymentAmount END),0) Month41,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 42 THEN paymentAmount END),0) Month42,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 43 THEN paymentAmount END),0) Month43,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 44 THEN paymentAmount END),0) Month44,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 45 THEN paymentAmount END),0) Month45,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 46 THEN paymentAmount END),0) Month46,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 47 THEN paymentAmount END),0) Month47,
+		
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 48 THEN paymentAmount END),0) Month48,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 49 THEN paymentAmount END),0) Month49,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 50 THEN paymentAmount END),0) Month50,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 51 THEN paymentAmount END),0) Month51,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 52 THEN paymentAmount END),0) Month52,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 53 THEN paymentAmount END),0) Month53,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 54 THEN paymentAmount END),0) Month54,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 55 THEN paymentAmount END),0) Month55,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 56 THEN paymentAmount END),0) Month56,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 57 THEN paymentAmount END),0) Month57,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 58 THEN paymentAmount END),0) Month58,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 59 THEN paymentAmount END),0) Month59,
+		
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 60 THEN paymentAmount END),0) Month60,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 61 THEN paymentAmount END),0) Month61,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 62 THEN paymentAmount END),0) Month62,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 63 THEN paymentAmount END),0) Month63,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 64 THEN paymentAmount END),0) Month64,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 65 THEN paymentAmount END),0) Month65,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 66 THEN paymentAmount END),0) Month66,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 67 THEN paymentAmount END),0) Month67,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 68 THEN paymentAmount END),0) Month68,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 69 THEN paymentAmount END),0) Month69,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 70 THEN paymentAmount END),0) Month70,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 71 THEN paymentAmount END),0) Month71,
+		
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 72 THEN paymentAmount END),0) Month72,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 73 THEN paymentAmount END),0) Month73,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 74 THEN paymentAmount END),0) Month74,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 75 THEN paymentAmount END),0) Month75,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 76 THEN paymentAmount END),0) Month76,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 77 THEN paymentAmount END),0) Month77,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 78 THEN paymentAmount END),0) Month78,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 79 THEN paymentAmount END),0) Month79,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 80 THEN paymentAmount END),0) Month80,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 81 THEN paymentAmount END),0) Month81,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 82 THEN paymentAmount END),0) Month82,
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 83 THEN paymentAmount END),0) Month83,
+		
+		ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 84 THEN paymentAmount END),0) Month84,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 85 THEN paymentAmount END),0) Month85,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 86 THEN paymentAmount END),0) Month86,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 87 THEN paymentAmount END),0) Month87,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 88 THEN paymentAmount END),0) Month88,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 89 THEN paymentAmount END),0) Month89,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 90 THEN paymentAmount END),0) Month90,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 91 THEN paymentAmount END),0) Month91,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 92 THEN paymentAmount END),0) Month92,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 93 THEN paymentAmount END),0) Month93,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 94 THEN paymentAmount END),0) Month94,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 95 THEN paymentAmount END),0) Month95,
+
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 96 THEN paymentAmount END),0) Month96,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 97 THEN paymentAmount END),0) Month97,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 98 THEN paymentAmount END),0) Month98,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 99 THEN paymentAmount END),0) Month99,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 100 THEN paymentAmount END),0) Month100,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 101 THEN paymentAmount END),0) Month101,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 102 THEN paymentAmount END),0) Month102,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 103 THEN paymentAmount END),0) Month103,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 104 THEN paymentAmount END),0) Month104,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 105 THEN paymentAmount END),0) Month105,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 106 THEN paymentAmount END),0) Month106,
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 107 THEN paymentAmount END),0) Month107,
+
+    ROUND(SUM(CASE WHEN acquisitionYearMonth = cohortYearMonth AND indexOfPaymentMonth = 108 THEN paymentAmount END),0) Month108
+ 
+FROM cohorts c
+    LEFT JOIN
+        preparedData pd
+        ON c.acquisitionYearMonth = pd.cohortYearMonth
+GROUP BY cohortYearMonth
+ORDER BY cohortYearMonth
+
+
+/*SELECT *
+FROM preparedData
+WHERE userID IS NOT NULL
+ORDER BY userID, indexOfPaymentMonth*/
