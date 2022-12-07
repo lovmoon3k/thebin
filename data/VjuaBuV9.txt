@@ -1,0 +1,357 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <dirent.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <sys/wait.h>
+
+struct stat info;
+
+// functie pentru obtinerea extensiei unui fisier
+const char *get_file_extension(const char *filename)
+{
+    // salvam in variabila dot ceea ce este dupa punct
+    const char *dot = strrchr(filename, '.');
+    if (!dot || dot == filename)
+        return "";
+    // returnam doar ceea ce este dupa punct
+    return dot + 1;
+}
+
+// functie pentru obtinerea numelui unui fisier fara externsie
+char *get_file_name_without_extension(char *restrict filename)
+{
+    char *copy = strtok(filename, "."); // aici spargem string-ulin functie de punct si luam doar ce e in fata punctului
+    return copy;
+}
+
+void inchidere_proces(int pidd, int someStatus)
+{
+    if ((pidd = wait(&someStatus)) < 0)
+    {
+        perror("Eroare la inchidere proces!");
+        exit(-1);
+    }
+    else
+    {
+        printf("Fiul PID %d al procesului %d s-a terminat cu codul %d\n", pidd, getpid(), someStatus);
+    }
+}
+
+int main(int argc, char **argv)
+{
+    char *path = argv[1];    // path-ul il salvam in variabila path
+    char *comanda = argv[2]; // comenzile le salvam in variabila comanda
+    struct dirent *intrare;  // variabila pentru fiecare intrare din director
+    DIR *pDir;               // variabila pentru director
+
+    // verificam numarul de argumente
+    // daca este mai mare de 3 dam eroare si iesim din program
+    if (argc > 3)
+    {
+        perror("Usage: testprog \n");
+        return 1;
+    }
+
+    stat(argv[1], &info);
+    if (!S_ISDIR(info.st_mode))
+    {
+        perror("Nu e un director!");
+        exit(1);
+    }
+
+    // deschidem directorul
+    pDir = opendir(argv[1]);
+
+    // daca directorul este NULL dam eroare si iesim din program
+    if (pDir == NULL)
+    {
+        // trimitem un mesaj de eroare intuitiv pentru utilizator
+        perror("Cannot open directory!");
+        return 1;
+    }
+
+    // in aceste 2 array-uri salvez numele fisierului si al executabilului
+    char nume_fisier[500], nume_executabil[500];
+
+    // varibile folosite pentru procese
+    int pid, pid1, pid_p, pid_filter, pid4;
+
+    // array pt pipe
+    int pipe_linii[2], pipe_output[2];
+
+    // varibaile folosite pentru a afla codul de iesire al celor 3 procese
+    int status1, statusBun, statusBun2, status;
+
+    // salvez in acest array o parte din comanda
+    char comanda2[] = "gcc -o exe";
+
+    // verificam cat timp fiecare intrare este diferita de NULL
+    while ((intrare = readdir(pDir)) != NULL)
+    {
+        stat(intrare->d_name, &info);
+
+        // in aceasta variabila salvam informatia despre file type pentru a folosi ulterior
+        int fileMode = info.st_mode;
+
+        // veririficam pentru fiecare intrare din fisier verificam daca aceasta are extensia .c
+        if (strcmp(get_file_extension(intrare->d_name), "c") == 0)
+        {
+            char *realPath = realpath(intrare->d_name, NULL);
+            char nume[500];
+            strcpy(nume, get_file_name_without_extension(realpath(intrare->d_name, NULL)));
+            // lansam un proces
+            if ((pid = fork()) < 0)
+            {
+                perror("Eroare pid initial!");
+                exit(1);
+            }
+            // intram pe procesul copil
+            if (pid == 0)
+            {
+                // parcurgem fiecare argument al comenzii
+                for (int i = 1; i < strlen(comanda); i++)
+                {
+                    // facem cateva AND uri pentru a afla informatiile necesare despre permisiuni
+                    int userRead = fileMode & S_IRUSR;
+                    int userWrite = fileMode & S_IWUSR;
+                    int userExec = fileMode & S_IXUSR;
+                    int groupRead = fileMode & S_IRGRP;
+                    int groupWrite = fileMode & S_IWGRP;
+                    int groupExec = fileMode & S_IXGRP;
+                    int othersRead = fileMode & S_IROTH;
+                    int othersWrite = fileMode & S_IWOTH;
+                    int othersExec = fileMode & S_IXOTH;
+                    switch (comanda[i])
+                    {
+                    case 'n':
+                        // verificam ca fisierul sa aiba nume
+                        if (!intrare->d_name)
+                        {
+                            perror("Fisierul nu are nume!");
+                        }
+                        printf("\nNumele: %s\n", intrare->d_name);
+                        break;
+                    case 'u':
+                        // afisam identificatorul utilizatorului
+                        printf("Identificator utilizator: %d\n", info.st_uid);
+                        break;
+                    case 'a':
+                        // afisam detaliile despre permisiuni
+                        {
+                            printf("Utilizator: Read - %s Write - %s Exec - %s\n", userRead ? "Da" : "Nu", userWrite ? "Da" : "Nu", userExec ? "Da" : "Nu");
+                            printf("Grup: Read - %s Write - %s Exec - %s\n", groupRead ? "Da" : "Nu", groupWrite ? "Da" : "Nu", groupExec ? "Da" : "Nu");
+                            printf("Altii: Read - %s Write - %s Exec - %s\n", groupRead ? "Da" : "Nu", groupWrite ? "Da" : "Nu", groupExec ? "Da" : "Nu");
+                        }
+                        break;
+                    case 'd':
+                        // afisam dimensiunea in octeti
+                        printf("Dimensiunea in octeti: %ld\n", info.st_size);
+                        break;
+                    case 'c':
+                        // afisam numarul de legaturi al fisierului
+                        printf("Numarul de legaturi al fisierului este: %ld\n", info.st_nlink);
+                        break;
+                    case 'g':
+                        // lansam un proces
+                        pid1 = fork();
+                        // verificam sa vedem daca procesul s-a lansat
+                        if (pid1 < 0)
+                        {
+                            perror("Eroare lansare proces!");
+                            exit(1);
+                        }
+                        // intram pe procesul copil
+                        if (pid1 == 0)
+                        {
+                            // compilez fisierele .c folosim execl
+                            // execl("gcc", "gcc", realPath, "-o", get_file_name_without_extension(intrare->d_name), NULL);
+                            strcat(comanda2, nume);
+                            strcat(comanda2, " ");
+                            strcat(comanda2, nume);
+                            strcat(comanda2, ".c");
+                            system(comanda2);
+                            exit(0);
+                        }
+                        // asteptam procesul pentru a vedea cu ce cod s-a terminat procesul copil
+                        if ((pid1 = wait(&status1)) < 0)
+                        {
+                            perror("Eroare la inchidere proces!");
+                        }
+                        // daca s-a terminat fara vreo problema atunci afisam
+                        else
+                        {
+                            printf("Fiul PID(interior) %d al procesului %d s-a terminat cu codul %d\n", pid1, getpid(), status1);
+                        }
+                        break;
+                    case 'p':
+                        if (pipe(pipe_linii) < 0)
+                        {
+                            printf("Error");
+                            exit(1);
+                        }
+
+                        if (pipe(pipe_output) < 0)
+                        {
+                            printf("Error");
+                            exit(1);
+                        }
+
+                        if ((pid_p = fork()) < 0)
+                        {
+                            printf("Error");
+                            exit(1);
+                        }
+
+                        if (pid_p == 0)
+                        {
+                            if ((pid_filter = fork()) < 0)
+                            {
+                                printf("Error");
+                                exit(1);
+                            }
+
+                            if (pid_filter == 0)
+                            {
+                                close(pipe_linii[0]);
+                                close(pipe_output[1]);
+
+                                dup2(pipe_output[0], 0);
+                                dup2(pipe_linii[1], 1);
+
+                                execlp("grep", "grep", "\\(warning\\|error\\)", NULL);
+
+                                perror("Execution error");
+                            }
+                            close(pipe_linii[0]);
+                            close(pipe_linii[1]);
+                            close(pipe_output[0]);
+
+                            dup2(pipe_output[1], 2);
+
+                            strcpy(nume_fisier, realpath(intrare->d_name, NULL));
+                            strcpy(nume_executabil, get_file_name_without_extension(realpath(intrare->d_name, NULL)));
+
+                            execlp("gcc", "gcc", nume_fisier, "-o", nume_executabil, "-Wall", NULL);
+
+                            perror("Compilation failed");
+                            exit(1);
+                        }
+                        close(pipe_output[0]);
+                        close(pipe_output[1]);
+                        close(pipe_linii[1]);
+
+                        FILE *fis = fdopen(pipe_linii[0], "r");
+                        if (fis == NULL)
+                        {
+                            perror("Eroare deschidere fisier!");
+                            exit(1);
+                        }
+
+                        char line[100];
+                        int counter_erori = 0, counter_warninguri = 0, numar_puncte = 0;
+
+                        while (fgets(line, 100, fis))
+                        {
+                            char *ptr1 = strstr(line, "error");
+                            char *ptr2 = strstr(line, "warning");
+                            if (ptr1)
+                            {
+                                counter_erori++;
+                            }
+                            if (ptr2)
+                            {
+                                counter_warninguri++;
+                            }
+                        }
+
+                        if (counter_erori > 0)
+                        {
+                            numar_puncte = 1;
+                        }
+                        if (counter_erori == 0)
+                        {
+                            if (counter_warninguri <= 10)
+                            {
+                                numar_puncte = 2 + 8 * (10 - counter_warninguri) / 10;
+                            }
+                            else
+                            {
+                                numar_puncte = 2;
+                            }
+                        }
+                        if (counter_erori == 0 && counter_warninguri == 0)
+                        {
+                            numar_puncte = 10;
+                        }
+
+                        printf("Numar erori: %d, numar warninguri: %d, numar puncte: %d\n", counter_erori, counter_warninguri, numar_puncte);
+
+                        if ((pid_p = wait(&status)))
+                        {
+                            perror("Eroare la inchidere proces!");
+                            exit(-1);
+                        }
+                        else
+                        {
+                            printf("Fisierul \"%s\" a fost compilat!\n", intrare->d_name);
+                        }
+                        printf("Fiul PID %d al procesului %d s-a terminat cu codul %d\n", pid_p, status, getpid());
+                        break;
+                    default:
+                        break;
+                    }
+                }
+                exit(0);
+            }
+
+            // aceleasi principii se aplica si aici ca si cele din comentariile anterioare
+            if ((pid = wait(&statusBun)) < 0)
+            {
+                perror("Eroare la inchidere proces!");
+                exit(-1);
+            }
+            else
+            {
+                printf("Fiul PID %d al procesului %d s-a terminat cu codul %d\n", pid, getpid(), statusBun);
+            }
+
+            if ((pid = fork()) < 0)
+            {
+                perror("Eroare pid_p!");
+                exit(1);
+            }
+            if (pid == 0)
+            {
+                // daca dimensiunea fisierului este mai mica de 100KB atunci vom crea legatura simbolica
+                if (info.st_size < 1000000)
+                {
+                    // char *realPath = realpath(intrare->d_name, NULL);
+                    int l = symlink(realPath, get_file_name_without_extension(intrare->d_name));
+                    if (l == 0)
+                    {
+                        printf("Soft link creat cu succes!\n");
+                    }
+                    else
+                    {
+                        perror("Soft link exista deja!");
+                    }
+                    exit(0);
+                }
+            }
+            if ((pid = wait(&statusBun)) < 0)
+            {
+                perror("Eroare la inchidere proces!");
+                exit(-1);
+            }
+            else
+            {
+                printf("Fiul --PID-- %d al procesului %d s-a terminat cu codul %d\n", pid, getpid(), statusBun);
+            }
+        }
+    }
+
+    // aici inchidem directorul
+    closedir(pDir);
+}
