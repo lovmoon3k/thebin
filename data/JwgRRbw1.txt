@@ -1,0 +1,922 @@
+#include <vector>
+#include <cstdarg>
+#include <cmath>
+#include <algorithm> // revere, swap
+#include <iostream>
+
+
+namespace geometry {
+
+    const double PI = 3.141592653589793238462643383;
+
+    const double eps(5e-5);
+
+    bool equalDoubles(double a, double b) {
+        return std::abs(a - b) < eps;
+    }
+
+    struct vector {
+        double x;
+        double y;
+
+        vector(): x(0), y(0) {}
+
+        vector(const vector& A, const vector& B) : x(B.x - A.x), y(B.y - A.y) {}
+
+        vector(double x, double y) : x(x), y(y) {}
+
+        void rotate90() {
+            vector r(y, -x);
+            x = r.x;
+            y = r.y;
+        }
+
+        void resize(double newLen) {
+            double len2 = x * x + y * y;
+            double k = newLen / sqrt(len2);
+            x *= k;
+            y *= k;
+        }
+
+        double len() const {
+            return sqrt(x * x + y * y);
+        }
+
+        vector operator+() const {
+            return *this;
+        }
+
+        vector operator-() const {
+            return vector(-x, -y);
+        }
+
+        vector& operator*=(double k) {
+            x *= k;
+            y *= k;
+            return *this;
+        }
+
+        vector& operator/=(double k) {
+            x /= k;
+            y /= k;
+            return *this;
+        }
+
+        vector& operator+=(const vector& oth) {
+            x += oth.x;
+            y += oth.y;
+            return *this;
+        }
+
+        vector& operator-=(const vector& oth) {
+            x -= oth.x;
+            y -= oth.y;
+            return *this;
+        }
+        
+
+        bool operator==(const vector& oth) {
+            return equalDoubles(x, oth.x) && equalDoubles(y, oth.y); 
+        }
+
+        bool operator!=(const vector& oth) {
+            return equalDoubles(x, oth.x) && equalDoubles(y, oth.y); 
+        }
+
+        double length() const {
+            return std::sqrt(x * x + y * y);
+        }
+    };
+
+    bool operator==(const vector& a, const vector& b) {
+        return equalDoubles(a.x, b.x) && equalDoubles(a.y, b.y);
+    }
+
+    bool operator!=(const vector& a, const vector& b) {
+        return !equalDoubles(a.x, b.x) || !equalDoubles(a.y, b.y);
+    }
+
+
+    vector operator+(const vector& a, const vector& b) {
+        return vector(a.x + b.x, a.y + b.y);
+    }
+
+    vector operator+(const vector& a, double b) {
+        return vector(a.x + b, a.y + b);
+    }
+
+    vector operator-(const vector& a, double b) {
+        return vector(a.x - b, a.y - b);
+    }
+
+    vector operator-(vector a, const vector& b) {
+        return vector(a.x - b.x, a.y - b.y);
+    }
+
+    vector operator*(double k, vector v) {
+        v.x *= k;
+        v.y *= k;
+        return v;
+    }
+
+    vector operator*(vector v, double k) {
+        v.x *= k;
+        v.y *= k;
+        return v;
+    }
+
+
+    vector operator/(vector v, double k) {
+        vector tmp(v);
+        tmp /= k;
+        return tmp;
+    }
+
+    double cross_product(const vector& a, const vector& b) {
+        return a.x * b.y - b.x * a.y;
+    }
+
+
+    double dot_product(const vector& a, const vector& b) {
+        return a.x * b.x + b.y * a.y;
+    }
+
+    bool collinear(const vector& a, const vector& b) {
+        return equalDoubles(cross_product(a, b), 0);
+    }
+
+    class Line {
+    public:
+        double a;
+        double b;
+        double c;
+
+        Line(const Line& oth) {
+            a = oth.a;
+            b = oth.b;
+            c = oth.c;
+        }
+
+        Line() {
+            a = 1, b = 1, c = 0;
+        };
+
+        Line(double k, double f0) {
+            vector first(0, f0);
+            vector second(1, f0 + k);
+            vector v(first, second);
+            vector n(v.y, -v.x);
+            a = n.x;
+            b = n.y;
+            c = -a * first.x - b * first.y;
+        }
+
+        Line(vector P, double k) {
+            auto first = P;
+            vector second(P.x + 1, P.y + k);
+            vector v(first, second);
+            vector n(v.y, -v.x);
+            a = n.x;
+            b = n.y;
+            c = -a * first.x - b * first.y;
+        }
+
+        Line(vector first, vector second) {
+            vector v(first, second);
+            vector n(v.y, -v.x);
+            a = n.x;
+            b = n.y;
+            c = -a * first.x - b * first.y;
+        }
+    };
+
+    Line perpendicularly(const Line& a, const vector& O) {
+        Line res;
+        vector n(a.a, a.b);
+        n.rotate90();
+        res.a = n.x;
+        res.b = n.y;
+        res.c = -res.a * O.x - res.b * O.y;
+        return res;
+    }
+
+    vector intersection(const Line& a, const Line& ln) {
+        return vector((a.b * ln.c - a.c * ln.b) / (a.a * ln.b - a.b * ln.a),
+                     -(a.a * ln.c - a.c * ln.a) / (a.a * ln.b - a.b * ln.a));
+    }
+
+    vector scaled(const vector& O, const vector P, double k) {
+        return O + vector(O, P) * k;
+    }
+
+    vector reflexed(const vector& O, const vector& P) {
+        vector v(P, O);
+        return O + v;
+    }
+
+    vector reflexed(const Line& l, const vector& P) {
+        Line h = perpendicularly(l, P);
+        vector H = intersection(h, l);
+        return P + 2 * vector(P, H);
+    }
+
+    vector rotated(const vector& O, const vector& P, double angle) {
+//        angle *= -1;
+        // angle = PI / 180 * angle;
+        vector v(O, P);
+        v = vector(v.x * cos(angle) - v.y * sin(angle), v.x * sin(angle) + v.y * cos(angle));
+        return O + v;
+    }
+
+    double getAngle(vector a, vector b) {
+        double COS = dot_product(a, b) / (a.len() * b.len());
+        double SIN = std::abs(cross_product(a, b)) / (a.len() * b.len());
+        return std::atan2(SIN, COS);
+    }
+
+    double getAngle(vector A, vector O, vector B) {
+        vector a(O, A);
+        vector b(O, B);
+        return getAngle(a, b);
+    }
+
+
+    bool operator==(const Line& a, const Line& b) {
+        return equalDoubles(0, a.a * b.b - a.b * b.a) && equalDoubles(0, a.b * b.c - a.c * b.b);
+    }
+
+    bool operator!=(const Line& a, const Line& b) {
+        return !(a == b);
+    }
+
+
+    class shape {
+    public:
+        virtual double perimeter() const = 0;
+
+        virtual double area() const = 0;
+
+        virtual bool operator==(const shape& other) const = 0;
+
+        virtual bool operator!=(const shape& other) const = 0;
+
+        virtual bool congruent_to(const shape& other) const = 0;
+
+        virtual bool isSimilarTo(const shape& other) const = 0;
+
+        virtual bool containsvector(vector point) const = 0;
+
+        virtual void rotate(vector center, double angle) = 0;
+
+        virtual void rotate(double angle) = 0;
+
+        virtual void reflex(vector center) = 0;
+
+        virtual void reflex(Line axis) = 0;
+
+        virtual void scale(vector center, double coefficient) = 0;
+
+        virtual void scale(double coefficient) = 0;
+
+        virtual vector center() const = 0;
+
+        virtual void translate(const vector&) = 0;
+
+        virtual ~shape() = default;
+    };
+
+
+    class polygon : public shape {
+    protected:
+        std::vector<vector> points;
+    public:
+        double perimeter() const override {
+            double ans = 0;
+            for (size_t i = 0; i < points.size(); ++i)
+                ans += vector(points[i], points[(i + 1) % points.size()]).len();
+            return ans;
+        }
+
+        void translate(const vector& delta) override {
+            for (auto& v:points)
+                v += delta;
+        }
+
+        polygon(const std::initializer_list<vector>& list) : polygon(std::vector<vector>(list)){};
+
+        virtual polygon& operator=(const polygon& oth) {
+            points = oth.points;
+            return *this;
+        }
+
+        virtual double area() const override {
+            double s = 0;
+            vector O(0, 0);
+            for (size_t i = 0; i < points.size(); ++i) {
+                vector A = points[i];
+                vector B = points[(i + 1) % points.size()];
+                s += cross_product(vector(O, A), vector(O, B));
+            }
+            return std::abs(s / 2);
+        }
+
+        const double inf = 1e9 + 17;
+
+
+        double vp(vector a, vector b) const {
+            return a.x * b.y - b.x * a.y;
+        }
+
+        bool equal(double a, double b) const {
+            return std::abs(a - b) < eps;
+        }
+
+        double angle(vector a, vector b) const {
+            double a1 = atan2(a.y, a.x);
+            double a2 = atan2(b.y, b.x);
+            double d = std::abs(a1 - a2);
+            return std::min(d, 2 * M_PI - d);
+        }
+
+        double angle(vector A, vector O, vector B) const {
+            vector a(O, A);
+            vector b(O, B);
+            if (vp(a, b) < 0)
+                return -angle(a, b);
+            return angle(a, b);
+        }
+
+
+        virtual bool containsvector(vector O) const override {
+            double s = 0;
+            for (size_t i = 0; i < points.size(); ++i)
+                s += angle(points[i], O, points[(i + 1) % points.size()]);
+            if (equal(0.0, s))
+                return false;
+            else
+                return true;
+        }
+
+
+        virtual bool isSimilarTo(const shape& oth) const override {
+            auto other_polygon = dynamic_cast<const polygon*>(&oth);
+            if (other_polygon == nullptr) {
+                return false;
+            }
+            if (points.size() != other_polygon->points.size())
+                return false;
+            std::vector<double> myAngles, othAngles;
+            for (size_t i = 0; i < points.size(); ++i) {
+                vector A(0, 0), B = points[i], C = points[(i + 1) % points.size()];
+                vector A1(0, 0), B1 = other_polygon->points[i], C1 = other_polygon->points[(i + 1) % points.size()];
+                if (i == 0) {
+                    A = points.back();
+                    A1 = other_polygon->points.back();
+                } else {
+                    A = points[i - 1];
+                    A1 = other_polygon->points[i - 1];
+                }
+                myAngles.push_back(getAngle(A, B, C));
+                othAngles.push_back(getAngle(A1, B1, C1));
+            }
+            //////
+#ifdef LOCAL
+
+            std::cout << "angle\n";
+            for (int i = 0; i < myAngles.size(); ++i) {
+                std::cout << myAngles[i] << ' ' << othAngles[i] << ' ' << equalDoubles(myAngles[i], othAngles[i]) << '\n';
+            }
+            std::cout << '\n';
+#endif
+
+            for (int i = 0; i < myAngles.size(); ++i) {
+                bool ok = true;
+                for (int j = 0; j < myAngles.size(); ++j) {
+                    auto angle_a = myAngles[j];
+                    auto angle_b = othAngles[(i + j) % myAngles.size()];
+                    if (!equalDoubles(angle_a, angle_b))
+                        ok = false;
+                }
+                if (ok) {
+                    #ifdef LOCAL
+                        std::cout << "OK\n";
+                    #endif
+                    double mink = 1e20;
+                    double maxk = -1e20;
+                    for (int j = 0; j < points.size(); ++j) {
+                        auto v1 = points[j] - points[(j + 1)%points.size()];
+                        auto v2 = other_polygon->points[(j + i) % points.size()] - other_polygon->points[(j + i + 1)%points.size()];
+                        double k = v1.length() / v2.length();
+                        if (k < mink)
+                            mink = k;
+                        if (k > maxk)
+                            maxk = k;
+                    }
+                    #ifdef LOCAL
+                    std::cout << mink << ' ' << maxk << '\n';
+                    #endif
+                    if (equalDoubles(mink, maxk)) {
+                        return true;
+                    }
+                }
+            }
+            std::reverse(myAngles.begin(), myAngles.end());
+            for (int i = 0; i < myAngles.size(); ++i) {
+                bool ok = true;
+                for (int j = 0; j < myAngles.size(); ++j) {
+                    auto angle_a = myAngles[j];
+                    auto angle_b = othAngles[(i + j) % myAngles.size()];
+                    if (!equalDoubles(angle_a, angle_b))
+                        ok = false;
+                }
+                if (ok)
+                    return true;
+            }
+            return false;
+
+
+
+            // std::sort(myAngles.begin(), myAngles.end());
+            // std::sort(othAngles.begin(), othAngles.end());
+            // for (int i = 0; i < myAngles.size(); ++i) {
+            //     if (!equalDoubles(myAngles[i], othAngles[i]))
+            //         return false;
+            // }
+            // return true;
+
+            ////////////////////////////////////////////////////////////////////////////////////////////////////////
+            // std::vector<double> myDoubleAngles = othAngles;
+            // myDoubleAngles.push_back(inf);
+            // for (double i:myAngles)
+            //     myDoubleAngles.push_back(i);
+            // for (double i:myAngles)
+            //     myDoubleAngles.push_back(i);
+
+
+            // std::vector<size_t> p(myDoubleAngles.size());
+            // size_t n = p.size();
+            // for (size_t i = 1; i < n; ++i) {
+            //     size_t j = p[i - 1];
+            //     while (j > 0 && !equalDoubles(myDoubleAngles[i], myDoubleAngles[j]))
+            //         j = p[j - 1];
+            //     if (equalDoubles(myDoubleAngles[i], myDoubleAngles[j])) ++j;
+            //     p[i] = j;
+            // }
+            // for (size_t i = myAngles.size(); i < myDoubleAngles.size(); ++i)
+            //     if (p[i] >= myAngles.size()) {
+            //         return true;
+            //     }
+
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+            // myDoubleAngles = othAngles;
+            // std::reverse(myDoubleAngles.begin(), myDoubleAngles.end());
+            // myDoubleAngles.push_back(inf);
+            // for (double i:myAngles)
+            //     myDoubleAngles.push_back(i);
+            // for (double i:myAngles)
+            //     myDoubleAngles.push_back(i);
+
+            // p.assign(myDoubleAngles.size(), 0);
+            // n = p.size();
+            // for (size_t i = 1; i < n; ++i) {
+            //     size_t j = p[i - 1];
+            //     while (j > 0 && !equalDoubles(myDoubleAngles[i], myDoubleAngles[j]))
+            //         j = p[j - 1];
+            //     if (equalDoubles(myDoubleAngles[i], myDoubleAngles[j])) ++j;
+            //     p[i] = j;
+            // }
+
+            // for (size_t i = myAngles.size(); i < myDoubleAngles.size(); ++i)
+            //     if (p[i] >= myAngles.size()) {
+            //         return true;
+            //     }
+            // return false;
+        }
+
+        explicit polygon(const std::vector<vector>& othervectors) :points(othervectors) {
+            double s = 0;
+            for (int i = 0; i < othervectors.size(); ++i) {
+                vector a = othervectors[i];
+                vector b = othervectors[(i + 1) % othervectors.size()];
+                s += cross_product(a, b);
+            }
+            if (s < 0) {
+                std::reverse(points.begin(), points.end());
+            }
+        }
+
+        polygon() = default;
+
+        polygon(vector A, vector B, vector C) : points({A, B, C}) {}
+
+        bool congruent_to(const shape& oth) const override {
+            auto other_polygon = dynamic_cast<const polygon*>(&oth);
+            if (other_polygon == nullptr) {
+                return false;
+            }
+            return (isSimilarTo(*other_polygon) && equalDoubles(area(), oth.area()));
+        }
+
+        vector center() const override {
+            double s = 0;
+            for (int i = 0; i < points.size(); ++i) {
+                vector a = points[i];
+                vector b = points[(i + 1) % points.size()];
+                s += cross_product(a, b);
+            }
+            s /= 2;
+            double sum_x = 0;
+            double sum_y = 0;
+            for (int i = 0; i < points.size(); ++i) {
+                sum_x += (points[i].x + points[(i + 1)%points.size()].x) * (points[i].x * points[(i + 1)%points.size()].y - points[(i + 1)%points.size()].x * points[i].y);
+                sum_y += (points[i].y + points[(i + 1)%points.size()].y) * (points[i].x * points[(i + 1)%points.size()].y - points[(i + 1)%points.size()].x * points[i].y);
+            }
+
+            return vector(sum_x / (6 * s), sum_y / (6 * s));
+        }
+
+        size_t verticesCount() const {
+            return points.size();
+        }
+
+        const std::vector<vector>& get_vertices() const {
+            return points;
+        }
+
+        bool isConvex() {
+            int cnt = 0;
+            for (size_t i = 0; i < points.size(); ++i) {
+                vector A = points[i];
+                vector B = points[(i + 1) % points.size()];
+                vector C = points[(i + 2) % points.size()];
+                if (cross_product(vector(B, A), vector(B, C)) > -eps)
+                    ++cnt;
+            }
+            return (cnt == 0 || cnt == static_cast<int>(points.size()));
+        }
+
+        virtual bool operator==(const shape& oth) const override {
+            auto other_polygon = dynamic_cast<const polygon*>(&oth);
+            if (other_polygon == nullptr) {
+                return false;
+            }
+            if (other_polygon->points.size() != points.size()) {
+                return false;
+            }
+            for (size_t i = 0; i < other_polygon->points.size(); ++i) {
+                if (other_polygon->points[i] == points[0]) {
+                    std::vector<vector> othervectors;
+                    for (size_t j = i; othervectors.size() < points.size(); j = (j + 1) % points.size())
+                        othervectors.push_back(other_polygon->points[j]);
+                    if (points == othervectors) {
+                        return true;
+                    }
+                    std::reverse(othervectors.begin() + 1, othervectors.end());
+                    return points == othervectors;
+                }
+            }
+            return false;
+        }
+
+        virtual bool operator!=(const shape& oth) const override {
+            return !(operator==(oth));
+        }
+
+        virtual void rotate(vector center, double angle) override {
+            for (size_t i = 0; i < points.size(); ++i)
+                points[i] = rotated(center, points[i], angle);
+        }
+
+        virtual void rotate(double angle) override {
+            rotate(center(), angle);
+        }
+
+        virtual void reflex(vector center) override {
+            for (size_t i = 0; i < points.size(); ++i)
+                points[i] = reflexed(center, points[i]);
+        }
+
+        virtual void reflex(Line axis) override {
+            for (size_t i = 0; i < points.size(); ++i)
+                points[i] = reflexed(axis, points[i]);
+        }
+
+        virtual void scale(vector center, double coefficient) override {
+            for (size_t i = 0; i < points.size(); ++i)
+                points[i] = scaled(center, points[i], coefficient);
+            double s = 0;
+            for (int i = 0; i < points.size(); ++i) {
+                vector a = points[i];
+                vector b = points[(i + 1) % points.size()];
+                s += cross_product(a, b);
+            }
+            if (s < 0) {
+                std::reverse(points.begin(), points.end());
+            }
+        }
+
+        virtual void scale(double coefficient) override {
+            scale(center(), coefficient);
+        }
+
+        virtual ~polygon() = default;
+
+    };
+
+
+    class Ellipse : public shape {
+    protected:
+        vector e1;
+        vector e2;
+        double l;
+    public:
+        Ellipse(const vector& e1, const vector& e2, double l) : e1(e1), e2(e2), l(l) {}
+
+        double getBigAxis() const {
+            return l / 2;
+        }
+
+        virtual bool containsvector(vector P) const override {
+            return vector(e1, P).len() + vector(e2, P).len() + eps < l;
+        }
+
+        void translate(const vector& delta) override {
+            e1 += delta;
+            e2 += delta;
+        }
+
+        virtual bool congruent_to(const shape& oth) const override {
+            auto other_ellipse = dynamic_cast<const Ellipse*>(&oth);
+            if (other_ellipse == nullptr) {
+                return false;
+            }
+            return isSimilarTo(oth) && equalDoubles(area(), oth.area());
+        }
+
+        virtual bool isSimilarTo(const shape& oth) const override {
+            auto other_ellipse = dynamic_cast<const Ellipse*>(&oth);
+            double len = vector(e1, e2).len();
+            double othLen = vector(other_ellipse->e1, other_ellipse->e2).len();
+            return equalDoubles(0, len * other_ellipse->l - othLen * l);
+        }
+
+        double getSmallAxis() const {
+            double f = vector(e1, e2).len() * 0.5;
+            return std::sqrt((l * l / 4 - f * f));
+        }
+
+        double perimeter() const override {
+            double a = getBigAxis();
+            double b = getSmallAxis();
+            return PI * (3 * (a + b) - std::sqrt((3 * a + b) * (a + 3 * b)));
+        }
+
+        double area() const override {
+            double a = getBigAxis();
+            double b = getSmallAxis();
+            return PI * a * b;
+        }
+
+        std::pair<vector, vector> focuses() const {
+            return {e1, e2};
+        }
+
+        std::pair<Line, Line> directrices() const {
+            double d = l / eccentricity();
+            vector O = center();
+            vector parallel(O, e1);
+            parallel.resize(d);
+            vector D1(O), D2(O);
+            D1 += parallel;
+            D2 -= parallel;
+            return {perpendicularly(Line(e1, e2), D1), perpendicularly(Line(e1, e2), D2)};
+        }
+
+        double eccentricity() const {
+            double a2 = getBigAxis() * getBigAxis();
+            double b2 = getSmallAxis() * getSmallAxis();
+            if (equalDoubles(a2, b2)) // circle
+                return 0;
+            return sqrt((a2 - b2) / a2);
+        }
+
+        vector center() const override {
+            return vector((e1.x + e2.x) / 2, (e1.y + e2.y) / 2);
+        }
+
+        virtual bool operator==(const shape& oth) const override {
+            auto other_ellipse = dynamic_cast<const Ellipse*>(&oth);
+            if (other_ellipse == nullptr) {
+                return false;
+            }
+            return (equalDoubles(l, other_ellipse->l) && ((e1 == other_ellipse->e1 && e2 == other_ellipse->e2) ||
+                                                          (e1 == other_ellipse->e2 && e2 == other_ellipse->e1)));
+        }
+
+        virtual bool operator!=(const shape& oth) const override {
+            return !(operator==(oth));
+        }
+
+        virtual void rotate(vector center, double angle) override {
+            e1 = rotated(center, e1, angle);
+            e2 = rotated(center, e2, angle);
+        }
+
+        void rotate(double angle) override {
+            rotate(center(), angle);
+        }
+
+        void reflex(vector center) override {
+            e1 = reflexed(center, e1);
+            e2 = reflexed(center, e2);
+        }
+
+        void reflex(Line axis) override {
+            e1 = reflexed(axis, e1);
+            e2 = reflexed(axis, e2);
+        }
+
+        void scale(vector center, double coefficient) override {
+            l *= std::abs(coefficient);
+            e1 = scaled(center, e1, coefficient);
+            e2 = scaled(center, e2, coefficient);
+        }
+
+        void scale(double coefficient) override {
+            scale(center(), coefficient);
+        }
+
+        virtual ~Ellipse() {};
+    };
+
+    class circle : public Ellipse {
+    public:
+        double radius() const {
+            return l / 2;
+        }
+
+        circle(const vector& O, double r) : Ellipse(O, O, 2 * r) {}
+
+        circle() : Ellipse(vector(0, 0), vector(0, 0),  0) {}
+    };
+
+    class rectangle : public polygon {
+    public:
+        vector center() const {
+            return points[0] + vector(points[0], points[2]) * 0.5;
+        }
+
+        std::pair<Line, Line> diagonals() const {
+            return {Line(points[0], points[2]), Line(points[1], points[3])};
+        }
+
+        rectangle(vector A, vector B, double k) {
+            if (k < 1) {
+                vector tmp(A);
+                A = B;
+                B = tmp;
+                k = 1 / k;
+            }
+            vector diagonal(A, B);
+            double dLen = diagonal.len();
+            double aLen = dLen * (1 - (1 / (1 + k * k)));
+            diagonal.resize(aLen);
+            Line d(A, B);
+            vector h(d.a, d.b);
+            h.resize(sqrt((dLen - aLen) * aLen));
+            points.push_back(A);
+            points.push_back(A + diagonal + h);
+            points.push_back(B);
+            points.push_back(B - diagonal - h);
+            
+            double s = 0;
+            for (int i = 0; i < points.size(); ++i) {
+                vector a = points[i];
+                vector b = points[(i + 1) % points.size()];
+                s += cross_product(a, b);
+            }
+            if (s < 0) {
+                std::reverse(points.begin(), points.end());
+            }
+        }
+
+        rectangle(const vector& O, double a, double b) {
+            a /= 2; b /= 2;
+            points = {
+            vector(O.x - a, O.y - b),
+            vector(O.x - a, O.y + b),
+            vector(O.x + a, O.y + b),
+            vector(O.x + a, O.y - b)
+            }; 
+        }
+
+        double width() const {
+            return (points[0] - points[1]).length();
+        }
+
+        double height() const {
+            return (points[2] - points[1]).length();
+        }
+
+    };
+
+    class square : public rectangle {
+    public:
+        square(const vector& A, const vector& B) : rectangle(A, B, 1) {}
+
+        square(vector O, double a) : rectangle(O, a, a) {}
+
+        square() : rectangle(vector(0, 0), 0, 0) {}
+
+        double side() const {
+            return width();
+        }
+
+        circle circumscribed_circle() const {
+            return circle(center(), vector(points[0], points[2]).length() / 2);
+        }
+
+        circle inscribed_circle() const {
+            return circle(center(), vector(points[0], points[1]).length() / 2);
+        }
+
+    };
+
+    class triangle : public polygon {
+    public:
+        circle circumscribed_circle() const {
+            double ss = std::abs(cross_product(vector(points[0], points[1]), vector(points[0], points[2])));
+            double aLen = vector(points[0], points[1]).len();
+            double bLen = vector(points[1], points[2]).len();
+            double cLen = vector(points[2], points[0]).len();
+            double r = aLen * bLen * cLen / (2 * ss);
+            vector a(points[0], points[1]);
+            vector b(points[0], points[2]);
+            vector O(intersection(perpendicularly(Line(points[0], points[1]), points[0] + 0.5 * a),
+                                 perpendicularly(Line(points[0], points[2]), points[0] + 0.5 * b)));
+            circle res(O, r);
+            return res;
+        }
+
+        triangle(const vector& A, const vector& B, const vector& C) : polygon({A, B, C}) {}
+
+        circle inscribed_circle() const {
+
+            double a = vector(points[0], points[1]).len();
+            double b = vector(points[0], points[2]).len();
+            double c = vector(points[1], points[2]).len();
+            vector M1 = points[1] + vector(points[1], points[2]) * (a / (a + b));
+            vector M2 = points[0] + vector(points[0], points[2]) * (a / (a + c));
+            vector O = intersection(Line(points[1], M2), Line(points[0], M1));
+            double r = std::abs(cross_product(vector(points[0], points[1]), vector(points[0], points[2]))) / (a + b + c);
+            circle res(O, r);
+            return res;
+        }
+
+        vector centroid() const {
+            vector M1(points[0] + vector(points[0], points[1]) * 0.5);
+            vector M2(points[0] + vector(points[0], points[2]) * 0.5);
+            return intersection(Line(points[2], M1), Line(points[1], M2));
+        }
+
+        vector orthocenter() const {
+            return intersection(perpendicularly(Line(points[0], points[1]), points[2]),
+                                perpendicularly(Line(points[0], points[2]), points[1]));
+        }
+
+        vector center() const override {
+            return points[0] + (points[1] - points[0]) / 3 + (points[2] - points[0]) / 3;
+        }
+
+        Line EulerLine() const {
+            return Line(centroid(), orthocenter());
+        }
+
+        circle ninevectorscircle() {
+            vector M1 = points[0] + vector(points[0], points[1]) * 0.5;
+            vector M2 = points[1] + vector(points[1], points[2]) * 0.5;
+            vector M3 = points[2] + vector(points[2], points[0]) * 0.5;
+            triangle t(M1, M2, M3);
+            vector O = t.circumscribed_circle().center();
+            double r = circumscribed_circle().radius() / 2;
+            return circle(O, r);
+        }
+    };
+
+    bool operator==(const shape& a, const shape& b) {
+        return a.operator==(b);
+    }
+}
+
+using namespace geometry;
+
+#ifdef LOCAL
+
+#include <iostream>
+
+int main() {
+    auto v = triangle(vector(-0.113778, -3.370449), vector(-3.161349, 2.273909), vector(-5.141313, 3.346706)).center();
+    std::cout << v.x << ' ' << v.y << '\n';
+}
+#endif

@@ -1,0 +1,561 @@
+#include <iostream>
+#include <string>
+#include <cstring>
+#include <vector>
+#include <algorithm>
+#include <deque>
+
+class BigInteger {
+private:
+    static const int64_t basePow = 9;
+    static const int64_t base = 1'000'000'000;
+
+private:
+
+    bool sign;
+    std::deque<int64_t> data;
+
+private:
+    static void add(BigInteger& a, const BigInteger& b) {
+        a.data.resize(std::max(b.data.size(), a.data.size()) + 2);
+        for (size_t i = 0; i < b.data.size(); ++i) {
+            a.data[i] += b.data[i];
+        }
+        for (size_t i = 0; i < a.data.size(); ++i) {
+            if (i > b.data.size() && a.data[i] < base)
+                break;
+            if (a.data[i] >= base) {
+                a.data[i + 1] += a.data[i] / base;
+                a.data[i] %= base;
+            }
+        }
+        while (!a.data.empty() && a.data.back() == 0)
+            a.data.pop_back();
+    }
+
+    static void sub(BigInteger& a, const BigInteger& b) {
+        for (size_t i = 0; i < b.data.size(); ++i) {
+            a.data[i] -= b.data[i];
+        }
+        for (size_t i = 0; i < a.data.size(); ++i) {
+            if (i > b.data.size() && a.data[i] > 0)
+                break;
+            if (a.data[i] < 0) {
+                a.data[i] += base;
+                --a.data[i + 1];
+            }
+        }
+        while (!a.data.empty() && a.data.back() == 0)
+            a.data.pop_back();
+    }
+
+public:
+    BigInteger() : sign(true) {}
+
+    BigInteger(int n) {
+        if (n < 0) {
+            sign = false;
+            n = -n;
+        } else {
+            sign = true;
+        }
+        while (n) {
+            data.push_back(n % base);
+            n /= base;
+        }
+    }
+
+    explicit BigInteger(const char* s) {
+        if (s[0] == '-') {
+            sign = false;
+            ++s;
+        } else {
+            sign = true;
+        }
+
+        size_t len = strlen(s);
+        data.resize(len / basePow + (len % basePow > 0));
+        size_t pw = 1;
+        size_t block = 0;
+        for (auto it = s + len - 1; it >= s; --it) {
+            data[block] += (*it - '0') * pw;
+            pw *= 10;
+            if (pw == base) {
+                pw = 1;
+                ++block;
+            }
+        }
+        while (!data.empty() && data.back() == 0)
+            data.pop_back();
+        if (data.empty())
+            sign = true;
+    }
+
+    BigInteger(const BigInteger& oth) {
+        sign = oth.sign;
+        data = oth.data;
+    }
+
+    bool iszero() {
+        return data.empty();
+    }
+
+    static std::pair<BigInteger, BigInteger> divMod(const BigInteger& a, const BigInteger& b) {
+        std::pair<BigInteger, BigInteger> res;
+        if (cmpAbs(a, b))
+            return {0, a};
+        BigInteger cur;
+        auto it = a.data.rbegin();
+        while (cmpAbs(cur, b)) {
+            cur.data.push_front(*it);
+            ++it;
+        }
+        std::vector<int64_t> ans;
+        while (it != a.data.rend() + 1) {
+            int64_t l = 0, r = base;
+            while (r - l > 1) {
+                int64_t m = (l + r) / 2;
+                auto s = b;
+                s *= BigInteger(m);
+                if (cmpAbs(cur, s))
+                    r = m;
+                else
+                    l = m;
+            }
+            BigInteger delta = BigInteger(l);
+            delta *= BigInteger(b);
+            if (b.sign) {
+                cur -= delta;
+            } else {
+                cur += delta;
+            }
+            ans.push_back(l);
+            if (it != a.data.rend())
+                cur.data.push_front(*it);
+            ++it;
+        }
+        for (auto i = ans.rbegin(); i != ans.rend(); ++i)
+            res.first.data.push_back(*i);
+        res.second = cur;
+        while (!res.first.data.empty() && res.first.data.back() == 0)
+            res.first.data.pop_back();
+        while (!res.second.data.empty() && res.second.data.back() == 0)
+            res.second.data.pop_back();
+        return res;
+    }
+
+    static bool cmpAbs(const BigInteger& a, const BigInteger& b) {
+        if (a.data.size() != b.data.size()) {
+            return a.data.size() < b.data.size();
+        } else {
+            for (int64_t i = static_cast<int64_t>(a.data.size()) - 1; i >= 0; --i) {
+                if (a.data[i] != b.data[i])
+                    return a.data[i] < b.data[i];
+            }
+        }
+        return false;
+    }
+
+public:
+    std::string toString() const {
+        if (data.empty())
+            return "0";
+        std::string res;
+        std::string cur;
+        if (!sign)
+            res += '-';
+        res.reserve(9 * data.size());
+        for (auto it = data.rbegin(); it != data.rend(); ++it) {
+            cur = std::to_string(*it);
+            if (!res.empty() && res != "-")
+                while (cur.size() < basePow) {
+                    cur = "0" + cur;
+                }
+            res += cur;
+        }
+        if (res == "-0")
+            return "0";
+        return res;
+    }
+
+    std::string to_string() const {
+        if (data.empty())
+            return "0";
+        std::string res;
+        std::string cur;
+        if (!sign)
+            res += '-';
+        res.reserve(9 * data.size());
+        for (auto it = data.rbegin(); it != data.rend(); ++it) {
+            cur = std::to_string(*it);
+            if (!res.empty() && res != "-")
+                while (cur.size() < basePow) {
+                    cur = "0" + cur;
+                }
+            res += cur;
+        }
+        if (res == "-0")
+            return "0";
+        return res;
+    }
+
+    BigInteger& operator+=(const BigInteger& oth) {
+        if (sign == oth.sign)
+            add(*this, oth);
+        else {
+            if (cmpAbs(*this, oth)) {
+                BigInteger copy = oth;
+                sub(copy, *this);
+                *this = copy;
+            } else {
+                sub(*this, oth);
+            }
+        }
+        if (data.empty())
+            sign = true;
+        return *this;
+    }
+
+    BigInteger& operator-=(const BigInteger& oth) {
+        *this += (-oth);
+        return *this;
+    }
+
+    BigInteger& operator=(const BigInteger& oth) {
+        data = oth.data;
+        sign = oth.sign;
+        return *this;
+    }
+
+    bool getSign() const {
+        return sign;
+    }
+
+    void flipSign() {
+        sign = !sign;
+    }
+
+    explicit operator bool() const {
+        return !data.empty();
+    }
+
+    BigInteger& operator*=(const BigInteger& oth) {
+        auto len = data.size() + oth.data.size() + 2;
+        BigInteger res;
+        res.data.resize(len);
+        for (size_t i = 0; i < data.size(); ++i) {
+            for (size_t j = 0; j < oth.data.size(); ++j) {
+                res.data[i + j] += data[i] * oth.data[j];
+                if (res.data[i + j] >= base) {
+                    res.data[i + j + 1] += res.data[i + j] / base;
+                    res.data[i + j] %= base;
+                }
+            }
+        }
+        for (size_t i = 0; i < res.data.size(); ++i)
+            if (res.data[i] >= base) {
+                res.data[i + 1] += res.data[i] / base;
+                res.data[i] %= base;
+            }
+        while (!res.data.empty() && res.data.back() == 0)
+            res.data.pop_back();
+        res.sign = (sign == oth.sign);
+        *this = res;
+        return *this;
+    }
+
+    BigInteger operator-() const {
+        BigInteger res = *this;
+        res.flipSign();
+        return res;
+    }
+
+    BigInteger operator+() const {
+        return *this;
+    }
+
+    BigInteger& operator++() {
+        *this += BigInteger(1);
+        return *this;
+    }
+
+    const BigInteger operator++(int) {
+        BigInteger old = *this;
+        *this += BigInteger(1);
+        return old;
+    }
+
+    BigInteger& operator--() {
+        *this += BigInteger(-1);
+        return *this;
+    }
+
+    const BigInteger operator--(int) {
+        BigInteger old = *this;
+        *this += BigInteger(-1);
+        return old;
+    }
+
+    BigInteger& operator/=(const BigInteger& oth) {
+        auto newSign = (sign == oth.sign);
+        *this = divMod(*this, oth).first;
+        sign = newSign;
+        return *this;
+    }
+
+    BigInteger& operator%=(const BigInteger& oth) {
+        auto newSign = (sign == oth.sign);
+        *this = divMod(*this, oth).second;
+        sign = newSign;
+        return *this;
+    }
+
+public:
+    static BigInteger gcd(BigInteger a, BigInteger b) {
+        while (b) {
+            a %= b;
+            std::swap(a, b);
+        }
+        return a;
+    }
+};
+
+BigInteger operator+(const BigInteger& a, const BigInteger& b) {
+    BigInteger res = a;
+    res += b;
+    return res;
+}
+
+BigInteger operator-(const BigInteger& a, const BigInteger& b) {
+    BigInteger res = a;
+    res -= b;
+    return res;
+}
+
+BigInteger operator/(const BigInteger& a, const BigInteger& b) {
+    BigInteger res = a;
+    res /= b;
+    return res;
+}
+
+BigInteger operator%(const BigInteger& a, const BigInteger& b) {
+    BigInteger res = a;
+    res %= b;
+    return res;
+}
+
+BigInteger operator*(const BigInteger& a, const BigInteger& b) {
+    BigInteger res = a;
+    res *= b;
+    return res;
+}
+
+std::ostream& operator<<(std::ostream& out, const BigInteger& a) {
+    out << a.toString();
+    return out;
+}
+
+std::istream& operator>>(std::istream& in, BigInteger& a) {
+    std::string s;
+    in >> s;
+    a = BigInteger(s.c_str());
+    return in;
+}
+
+
+bool operator<(const BigInteger& a, const BigInteger& b) {
+    BigInteger tmp = b - a;
+    return tmp.getSign() && !tmp.iszero();
+}
+
+bool operator>(const BigInteger& a, const BigInteger& b) {
+    return b < a;
+}
+
+bool operator==(const BigInteger& a, const BigInteger& b) {
+    return (a - b).iszero();
+}
+
+bool operator!=(const BigInteger& a, const BigInteger& b) {
+    return !(a == b);
+}
+
+bool operator<=(const BigInteger& a, const BigInteger& b) {
+    BigInteger tmp = b - a;
+    return tmp.getSign();
+}
+
+bool operator>=(const BigInteger& a, const BigInteger& b) {
+    return b <= a;
+}
+
+
+class Rational {
+public:
+    BigInteger c;
+    BigInteger z;
+
+    Rational(int n = 0) : c(n), z(1) {}
+
+    Rational(const BigInteger& n) : c(n), z(1) {}
+
+    Rational(const Rational& oth) {
+        *this = oth;
+    }
+
+    void normalize() {
+        BigInteger div = BigInteger::gcd(c, z);
+        if (div) {
+            c /= div;
+            z /= div;
+        }
+        if (!z.getSign()) {
+            c.flipSign();
+            z.flipSign();
+        }
+    }
+
+    Rational& operator=(const Rational& oth) = default;
+
+    Rational(const BigInteger& a, const BigInteger& b) : c(a), z(b) {
+        normalize();
+    }
+
+    Rational& operator*=(const Rational& oth) {
+        c *= oth.c;
+        z *= oth.z;
+        normalize();
+        return *this;
+    }
+
+    Rational& operator/=(const Rational& oth) {
+        c *= oth.z;
+        z *= oth.c;
+        normalize();
+        return *this;
+    }
+
+    Rational& operator+=(const Rational& oth) {
+        c = c * oth.z + oth.c * z;
+        z *= oth.z;
+        normalize();
+        return *this;
+    }
+
+    Rational& operator-=(const Rational& oth) {
+        c = c * oth.z - oth.c * z;
+        z *= oth.z;
+        normalize();
+        return *this;
+    }
+
+    Rational operator-() {
+        Rational res = *this;
+        res.c.flipSign();
+        return res;
+    }
+
+    std::string toString() const {
+        std::string res;
+        res += c.toString();
+        if (z != 1) {
+            res += '/';
+            res += z.toString();
+        }
+        return res;
+    }
+
+    std::string asDecimal(size_t precision = 0) const {
+        std::string res;
+        if (c == 0) {
+            return "0";
+        }
+        if (!c.getSign())
+            res += '-';
+        auto dm = BigInteger::divMod(c, z);
+        res += dm.first.toString();
+        if (precision == 0)
+            return res;
+        res += '.';
+        size_t needSize = res.size() + precision;
+        auto cur = dm.second * 1'000'000'000;
+        if (!cur.getSign())
+            cur.flipSign();
+        while (res.size() < needSize) {
+            auto currentStr = (cur / z).toString();
+            cur = (cur % z) * 1'000'000'000;
+            while (currentStr.size() < 9)
+                currentStr = "0" + currentStr;
+            res += currentStr;
+        }
+        while (res.size() > needSize)
+            res.pop_back();
+        return res;
+    }
+};
+
+Rational operator+(const Rational& a, const Rational& b) {
+    Rational res = a;
+    res += b;
+    res.normalize();
+    return res;
+}
+
+Rational operator-(const Rational& a, const Rational& b) {
+    Rational res = a;
+    res -= b;
+    res.normalize();
+    return res;
+}
+
+Rational operator*(const Rational& a, const Rational& b) {
+    Rational res = a;
+    res *= b;
+    res.normalize();
+    return res;
+}
+
+Rational operator/(const Rational& a, const Rational& b) {
+    Rational res = a;
+    res /= b;
+    res.normalize();
+    return res;
+}
+
+bool operator==(const Rational& a, const Rational& b) {
+    return a.c == b.c && a.z == b.z;
+}
+
+bool operator!=(const Rational& a, const Rational& b) {
+    return a.c != b.c || a.z != b.z;
+}
+
+bool operator<(const Rational& a, const Rational& b) {
+    if (a.c.getSign()) {
+        if (b.c.getSign())
+            return a.c * b.z < a.z * b.c;
+        else {
+            return false;
+        }
+    } else {
+        if (b.c.getSign())
+            return true;
+        else {
+            return a.c * b.z < a.z * b.c;
+        }
+    }
+}
+
+bool operator>(const Rational& a, const Rational& b) {
+    return b < a;
+}
+
+bool operator>=(const Rational& a, const Rational& b) {
+    return b < a || b == a;
+}
+
+bool operator<=(const Rational& a, const Rational& b) {
+    return a < b || b == a;
+}
+
+using bigint=BigInteger;

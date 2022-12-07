@@ -1,0 +1,73 @@
+const fs = require('fs')
+
+// const input = fs.readFileSync('test.txt').toString().trim()
+const input = fs.readFileSync('input.txt').toString().trim()
+
+const tree = input.split('\n').reduce((acc, command) => {
+    if (command === '$ cd /') {
+      acc.current = acc.root
+      return acc
+    }
+    if (command === '$ ls') {
+      return acc
+    }
+    if (command.startsWith('dir')) {
+      acc.current.dirs[command.substring(4)] = ({
+        dirs: {},
+        files: [],
+        dirSize: 0,
+        parent: acc.current,
+      })
+      return acc
+    }
+    if (command === '$ cd ..') {
+      acc.current = acc.current.parent
+      return acc
+    }
+    
+    if (command.startsWith('$ cd ')) {
+      acc.current = acc.current.dirs[command.substring(5)]
+      return acc
+    }
+
+    const [size, name] = command.split(' ')
+    acc.current.files.push({ size, name })
+    acc.current.dirSize += +size
+
+    let sumTo = acc.current
+    while (sumTo.parent) {
+      sumTo.parent.dirSize += +size
+      sumTo = sumTo.parent
+    }
+
+    return acc
+  },
+  {
+    root: {
+      dirs: {},
+      files: [],
+      dirSize: 0,
+      parent: null,
+    },
+    current: null,
+  })
+
+const sumOfUnder100k = (node) => {
+  const dirs = Object.values(node.dirs)
+  const dirTotal = dirs.length ? dirs.reduce((acc, dir) => acc + sumOfUnder100k(dir), 0) : 0
+  return node.dirSize > 100000 ? dirTotal : node.dirSize + dirTotal
+}
+
+const remaining = tree.root.dirSize + 30_000_000 - 70_000_000
+
+const getTotals = (node) => {
+  const dirs = Object.values(node.dirs)
+  return [node.dirSize].concat(dirs.length ? dirs.map(getTotals) : []).flat()
+}
+
+const sizeToDelete = getTotals(tree.root)
+  .filter((size) => size - remaining > 0)
+  .sort((a, b) => a - b)
+  .at(0)
+
+console.log({ sum: sumOfUnder100k(tree.root), sizeToDelete })
