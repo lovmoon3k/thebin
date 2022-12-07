@@ -1,0 +1,131 @@
+const fs = require('fs');
+const {splitLines} = require('../common');
+
+// Start reading at the main function
+
+function getData(label){
+    /**
+     * Given a label, meaning, the text of a file or directory return the name of the file or directory and size
+     * If it is a directory it has size 0
+     * For example given 'dir d' it returns ['d', 0]
+     * Given '62596 h.lst' it returns ['h.lst', 62596]
+     */
+    const [first, second] = label.split(' ');
+    if(first === '/') return ['/', 0];
+    else if(first === 'dir') return [second, 0];
+    else return [second, +first];
+}
+
+function add(dir, label){
+    /**
+     * Given a directory object and a label add a new entry to the directory object
+     * If the label is for a file the new value should be the size of the file (as a number)
+     * Otherwise it should be an empty object
+     */
+    const [name, size] = getData(label);
+    if(size > 0){
+        dir[name] = size;
+    }
+    else{
+        dir[name] = {};
+    }
+}
+
+function getSize(topDir){
+    /**
+     * Recursively determine the size of a directory object
+     * If it's a number then return that value. This is our 'base case'.
+     * Otherwise total up the size of all of the entries inside of that directory and return it.
+     */
+    if(typeof topDir === 'number') return topDir;
+    let total = 0;
+    for (const dir of Object.values(topDir)) {
+        total += getSize(dir);
+    }
+    return total;
+}
+
+function solve(topDir){
+    /**
+     * Where we actually solve what's being asked of us, the total size of the directories of size <= 100,000
+     */
+    const smallDirs = []; // The directory names and sizes we care about
+    // 'rec' is a poorly named recursive function. 
+    // It scans through all of an directory object's entries and adds their name and size to smallDirs if they are small enough
+    const rec = (dirDir) => {
+        for (const [name, dir] of Object.entries(dirDir)) {
+            if(typeof dir === 'number') continue;
+            const size = getSize(dir);
+            if(size <= 100_000){
+                smallDirs.push([name, size]);
+            }
+            rec(dir)
+        }
+    }
+    rec(topDir);
+    // To make Kat happy we're using reduce. We're totalling up the size of all the small directories and printing out their names and sizes for debugging
+    const total = smallDirs.reduce((acc, [name,size]) => {
+        console.log(name, size);
+        
+        return acc + size;
+    }, 0);
+    // Our answer inshallah
+    console.log(total);
+}
+
+function main(text){
+    /**
+     * Most of the main function is implementing the command line functions to build 'top'.
+     * We're keeping track of the directory structure with nested objects
+     * Through the code you'll notice a few places where we check the type of a value. 
+     * If a value is a number that means it's a file of that size.
+     * If it's an object it's a nested directory.
+     * The keys are the filenames.
+     * We need to keep track of where we are in the directory structure which is what the dirStack is for.
+     */
+    const lines = splitLines(text);
+    const top = {'/':{}}; // Initialize our top directory with the root directory name '/'
+    const dirStack = [];
+    // Why a while? A for loop would work but in the case of the 'ls' command we want to consume several lines
+    // A while loop gives us more control over, for example, when idx is incremented
+    let idx = 0;
+    while(idx < lines.length){
+        const command = lines[idx];
+        idx++;
+        // If the command indicates we should return to the root wipe out the dirStack and push the root symbol.
+        if(command === '$ cd /'){
+            dirStack.length = 0;
+            dirStack.push('/');
+        }
+        // If the command indicates we should go up a directory pop the end off the dirStack
+        else if(command === '$ cd ..'){
+            dirStack.pop();
+        }
+        // If the command indicates we should go into a directory push the name of that directory to the dirStack
+        else if(command.startsWith('$ cd')){
+            const dir = command.split(' ')[2];
+            dirStack.push(dir);
+        }
+        // The only remaining possibility is the 'ls' command. We want to consume an arbitrary number of lines
+        else{
+            // The currentDir is the directory object we are currently concerned with. 
+            // We get it by looping through the dirStack
+            // Using that string as a key we look up the value. That should be the next directory object we are interested in
+            // Set the currentDir to that next directory
+            let currentDir = top;
+            for (const dir of dirStack) {
+                currentDir = currentDir[dir];
+            }
+            // We want to consume lines until we find one that begins with a '$'. That means it's a new command and we should stop consuming lines.
+            while(idx < lines.length && !lines[idx].startsWith('$')){
+                // Each line is either a file or a directory. Fortunately the distinction is handled by our add function defined above.
+                add(currentDir, lines[idx]);
+                idx++;
+            }
+        }
+    }
+    // Solve is where the solution is actually found. It's defined above.
+    solve(top);
+}
+
+main(fs.readFileSync('./2022/d7-i.txt', {encoding: 'utf-8'}));
