@@ -1,0 +1,290 @@
+--//Autofarm
+
+--//Variables
+local Player = game.Players.LocalPlayer;
+local Character = Player.Character.Playermodel.Charmodel;
+local HRP = Character.HumanoidRootPart;
+local ToggleKey = Enum.KeyCode.X
+
+--//Cooldowns
+local lastAttack = tick();
+
+--//Globals
+_G.Autofarm = true;
+
+if _G.Autofarm == false then
+    return
+end
+
+--//Services
+local UIS = game:GetService("UserInputService");
+local VIM =  game:GetService("VirtualInputManager");
+local Debris = game:GetService("Debris");
+
+--//Setup
+local Live = Instance.new("Folder");
+Live.Name = "Live";
+Live.Parent = game.Workspace;
+
+local Explosions = Instance.new("Folder");
+Explosions.Name = "Explosions";
+Explosions.Parent = game.Workspace;
+
+--//Toggle
+UIS.InputBegan:Connect(function(Key)
+    if Key.KeyCode == ToggleKey then
+        _G.Autofarm = not _G.Autofarm;
+    end
+end)
+
+--//Functions
+
+function getClosestMob()
+    local closestMob = nil;
+    local lastDistance = math.huge;
+    lastPart = nil;
+
+    for _, Mob in pairs(Live:GetChildren()) do
+        if Mob:FindFirstChild("Tags") and (Mob:FindFirstChild("Hitbox") or Mob:FindFirstChild("Base") or Mob:FindFirstChild("HumanoidRootPart")) then
+
+            lastPart = Mob:FindFirstChild("Hitbox") or Mob:FindFirstChild("Base") or Mob:FindFirstChild("HumanoidRootPart")
+
+            local currentDistance = (HRP.Position - lastPart.Position).Magnitude;
+            
+            if closestMob ~= nil and currentDistance < lastDistance then
+            closestMob = Mob;
+            lastDistance = currentDistance;
+            elseif closestMob == nil then
+                closestMob = Mob;
+                lastDistance = currentDistance;
+            end
+        end
+    end
+
+    if closestMob ~= nil then
+        lastPart = closestMob:FindFirstChild("Hitbox") or closestMob:FindFirstChild("Base") or closestMob:FindFirstChild("HumanoidRootPart");
+    end
+    
+    return closestMob, lastPart
+end
+
+function pressKey(Key, Hold)
+    VIM:SendKeyEvent(Hold, Key, false, game);
+end
+
+function checkChests()
+    for _, Chest in pairs(game.Workspace.Dungeon:GetDescendants()) do
+        if (findName(Chest.Name, "chest") or findName(Chest.Name, "_medical") and not findName(Chest.Name, "machine") or findName(Chest.Name, "_ammo") and not findName(Chest.Name, "machine") or findName(Chest.Name, "locker")) and 
+        (Chest:FindFirstChild("Interact") and Chest:FindFirstChild("Interact"):IsA("BasePart") or
+        Chest:FindFirstChild("Chest") and Chest:FindFirstChild("Chest"):IsA("BasePart")) and not Chest:FindFirstChild("Opened") then
+
+            local Part = Chest:FindFirstChild("Interact") or Chest:FindFirstChild("Chest");
+            
+            HRP.CFrame = Part.CFrame;
+
+            local Distance = (HRP.Position - Part.Position).Magnitude;
+
+            repeat task.wait() Distance = (HRP.Position - Part.Position).Magnitude until Distance <= 4
+
+            local Times = findName(Chest.Name, "chest") and 30 or 10
+            
+            for i = 1, Times do
+            pressKey("E", true);
+            task.wait();
+            pressKey("E", false);
+            end
+
+            local Opened = Instance.new("Folder");
+            Opened.Name = "Opened";
+            Opened.Parent = Chest;
+
+            task.wait(1.47);
+        end
+    end
+
+    return true
+end
+
+function passRoom(Door)
+    local Part = Door:FindFirstChild("Interact") or Door:FindFirstChild("Part")
+    HRP.CFrame = Part.CFrame;
+
+    pressKey("E", true);
+    task.wait();
+    pressKey("E", false);
+end
+
+function checkRoom()
+    local Empty = false;
+    local Door = nil;
+    
+    for _, v in pairs(game.Workspace.Dungeon:GetDescendants()) do
+        if v.Name == "Nextroomind" and v.Enabled == true then
+            Empty = true;
+            Door = v.Parent;
+        end
+    end
+
+    return Empty, Door
+end
+
+function collectBundles()
+    for _, Bundle in pairs(Player.Character:GetChildren()) do
+        if Bundle.Name == "Pickup" and Bundle:FindFirstChild("Pickupbase") then
+            Bundle.Pickupbase.CFrame = HRP.CFrame
+        end
+    end
+end
+
+function getYLevel()
+    local Y = 1.7;
+    if Explosions:FindFirstChild("ExplodingBarrel") then
+        Y = 40;
+    end
+
+    return Y
+end
+
+function startFarm()
+
+    collectBundles();
+    local closestMob, Part = getClosestMob();
+
+    if closestMob ~= nil then
+        local Y = getYLevel();
+    HRP.CFrame = Part.CFrame * CFrame.new(0, Y, 3);
+    Attack(Part);
+    else
+        local Y = getYLevel();
+        if Y == 40 then
+            HRP.CFrame = HRP.CFrame * CFrame.new(0, Y, 0);
+        end
+        local isRoomEmpty, Door = checkRoom();
+
+    if isRoomEmpty == true and Door ~= nil then
+        checkChests();
+            passRoom(Door)
+    end
+
+    end
+
+end
+
+function Attack(lastPart)
+    local Distance = (HRP.Position - lastPart.Position).Magnitude;
+
+    if Distance <= 10 and tick() - lastAttack > 0.1 then
+        Player.Character.Gunmain.Guninput:FireServer(
+            "Melee",
+            tick(),
+            HRP.CFrame,
+            math.random(0, 1000),
+            1,
+            {},
+            false
+        )
+        
+        Player.Character.Gunmain.Guninput:FireServer(
+            "Melee",
+            tick(),
+            HRP.CFrame,
+            math.random(0, 1000),
+            2,
+            {},
+            true
+        )
+        lastAttack = tick();
+    end
+    
+end
+
+function findName(Name, Find)
+    return string.find(string.lower(Name), Find)
+end
+
+function updateMobs()
+    for _, Mob in pairs(game.Workspace.Dungeon:GetDescendants()) do
+        if Mob:FindFirstChild("Tags") and not findName(Mob.Name, "barrel") and not findName(Mob.Name, "propane") and not findName(Mob.Name, "sludge") then
+            Mob.Parent = Live;
+        elseif findName(Mob.Name, "barrel") then
+            if Mob:FindFirstChild("Explosivedeath") then
+                
+                if #Explosions:GetChildren() <= 3 then
+                local Explosion = Instance.new("Folder");
+                Explosion.Name = "ExplodingBarrel";
+                Explosion.Parent = Explosions;
+                Debris:AddItem(Explosion, 1);
+                end
+
+                task.spawn(function()
+                    task.wait(1)
+                    if Mob and Mob:FindFirstChild("Explosivedeath") then
+                        Mob.Explosivedeath:Destroy();
+                    end
+                end)
+
+            end
+        end
+    end
+end
+
+--//Update
+task.spawn(function()
+    while true do
+        updateMobs();
+        task.wait(0.17);
+    end
+end)
+
+--//Farm
+task.spawn(function()
+    while true do
+        if _G.Autofarm == true then
+startFarm();
+        end
+task.wait();
+    end
+end)
+
+--//Auto Pickup
+game.Workspace.ChildAdded:Connect(function(Child)
+    repeat task.wait()
+    if Child.Name == "Lootbundle" then
+                game.ReplicatedStorage.Ints.Interactcontrol:InvokeServer(
+                    "Gunopen",
+                    "Unequip",
+                    Child:GetChildren()[1],
+                    "Gunitem"
+                )
+    end
+until Child == nil
+end)
+
+--//Rejoin
+Player.PlayerGui.Run.Dead.Return.Changed:Connect(function()
+    if Player.PlayerGui.Run.Dead.Return.Visible == true then
+        task.wait(1.7);
+game.ReplicatedStorage.Ints.Regiontrig:FireServer("Leave");
+    end
+end)
+
+--//Finished Run
+Player.PlayerGui.Run.Runend.Return.Changed:Connect(function()
+    if Player.PlayerGui.Run.Runend.Return.Visible == true then
+        task.wait(1.7);
+game.ReplicatedStorage.Ints.Regiontrig:FireServer("Leave");
+    end
+end)
+
+--//Load Script
+syn.queue_on_teleport([[
+    repeat task.wait() until game:IsLoaded();
+
+    local Player = game.Players.LocalPlayer;
+
+    task.wait(7);
+
+    repeat task.wait() until not Player.PlayerGui:FindFirstChild("Intro");
+
+    loadstring(game:HttpGet(""));
+]])
