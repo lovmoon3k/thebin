@@ -1,0 +1,71 @@
+// format("Hello {0}!", this.username);
+// format("You have chosen {0} as your {1} account name. Are you sure you want {0}?", this.username, this.accountName);
+
+/**
+ * Similar to {@link java.text.MessageFormat#format(String, Object...)}, only more efficient, and
+ * escaping a bracket char is done with the '\' char, instead of the ' char
+ * <p>
+ *     Uses a number between {@code {}'s} to index an object in the given arguments. Null objects are handled by the StringBuilder
+ * </p>
+ * <p>
+ *     Escaping an open bracket ('{') is supported, however escaping a closing bracket ('}') after an
+ *     opened bracket is not supported... and there would be little to no reason to do so anyway
+ * </p>
+ * @param value The value to be formatted
+ * @param args   The values to splice in
+ * @return A string where all of the {...} cases have been replaced with the given arguments
+ * @throws BadFormatException Malformed index supplier (Missing a closing '}' char or there was nothing between '{' and '}')
+ * @throws IndexOutOfBoundsException The index is out of range of args
+ * @throws NumberFormatException The index is not a valid integer number
+ */
+public static String format(@Nullable String value, Object... args) {
+    if (StringUtils.isEmpty(value)) {
+        return value;
+    }
+    int firstIndex = value.indexOf('{');
+    if (firstIndex == -1) {
+        return value;
+    }
+    char[] chars = value.toCharArray();
+    int lastCloseIndex = StringUtils.lastIndexOf(chars, '}', firstIndex);
+    if (lastCloseIndex == -1) {
+        if (firstIndex == 0 || chars[firstIndex - 1] != '\\') { // check if the value is escaped using \\{
+            throw new BadFormatException("Initial value check - missing closing '}' after the first opening bracket '{' at index " + firstIndex + ":\n" + value);
+        }
+        return value;
+    }
+    StringBuilder string = new StringBuilder(value.length() * 2).append(value, 0, firstIndex);
+    for (int i = firstIndex, end = chars.length, endIndex = end - 1; i < end; ++i) {
+        char c = chars[i];
+        if (c != '{' || i == endIndex) { // last character
+            string.append(c);
+        }
+        else if (i > 0 && chars[i - 1] == '\\') { // escape
+            string.setCharAt(i - 1, '{'); // charAt(i - 1) == '\', so replace with '{'
+        }
+        else {
+            int closeIndex = StringUtils.indexOf(chars, '}', i + 1);
+            if (closeIndex == -1) {
+                throw new BadFormatException("Missing a closing '}' after an opening bracket '{' at index " + i + ":\n" + value);
+            }
+            int startIndex = i + 1;
+            if (startIndex == closeIndex) {
+                throw new BadFormatException("Value between '{' and '}' was empty! At index " + startIndex + ":\n" + value);
+            }
+            if (Parsing.parseInt(chars, startIndex, closeIndex)) {
+                int index = Parsing.getInt();
+                if (index < args.length && index >= 0) {
+                    string.append(args[index]); // let the sb handle null objects :)
+                }
+                else {
+                    string.append("{").append(index).append("}");
+                }
+                i = closeIndex;
+            }
+            else {
+                throw new NumberFormatException("Value between '{' and '}' (" + StringUtils.toString(chars, startIndex, closeIndex) + ") was not an integer! At index " + startIndex + ":\n" + value);
+            }
+        }
+    }
+    return string.toString();
+}
