@@ -1,0 +1,90 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Tasks;
+using Avalonia.Controls;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Gif;
+using SixLabors.ImageSharp.Processing;
+using SixLabors.ImageSharp.Processing.Processors.Quantization;
+using File = System.IO.File;
+using Image = SixLabors.ImageSharp.Image;
+
+namespace Giffinator.Client;
+
+public partial class MainWindow : Window
+{
+    public MainWindow()
+    {
+        InitializeComponent(); Loaded += MainWindow_Loaded;
+
+
+    }
+
+    private async void MainWindow_Loaded(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        await LoadGifs();
+    }
+
+    private List<GifRecord> Gifs { get; set; } = new List<GifRecord>();
+
+    private record GifRecord(string FullPath, long SizeInBytes, string ThumbNailPath);
+
+    private async Task LoadGifs()
+    {
+        var gifPath = @"F:\Gifs\";
+
+        var thumbPath = Path.GetFullPath(AppContext.BaseDirectory + "Thumbs");
+        if (!Directory.Exists(thumbPath)) Directory.CreateDirectory(thumbPath);
+        var gifPathStrings = new DirectoryInfo(gifPath).GetFiles("*.gif", SearchOption.AllDirectories);
+        var parelellOptions = new ParallelOptions() { MaxDegreeOfParallelism = Environment.ProcessorCount };
+        await Parallel.ForEachAsync(gifPathStrings, parelellOptions, async (info, token) =>
+        {
+            var fileName = DateTime.Now.ToFileTimeUtc() + info.Name;
+            fileName = Path.Combine(thumbPath, fileName);
+            if (File.Exists(fileName)) return;
+            var fs = File.OpenRead(info.FullName);
+            Image? img = null;
+            try
+            {
+                img = await Image.LoadAsync(fs, token);
+                {
+
+                    img.Mutate(x => x.Resize(400, 0));
+                    var encoder = new GifEncoder()
+                    {
+                        ColorTableMode = GifColorTableMode.Global,
+                        Quantizer = new OctreeQuantizer(new QuantizerOptions() { MaxColors = 32 })
+                    };
+
+                    await img.SaveAsync(fileName, encoder, token);
+                }
+                img.Dispose();
+                var fileInfo = new GifRecord(info.FullName, info.Length, fileName);
+                Gifs.Add(fileInfo);
+            }
+            catch (UnknownImageFormatException e)
+            {
+                Debug.WriteLine(e);
+
+            }
+            catch (NotSupportedException e)
+            {
+                Debug.WriteLine(e);
+
+            }
+            finally
+            {
+
+                img?.Dispose();
+            }
+
+        });
+
+
+    }
+
+
+
+}
