@@ -1,0 +1,42 @@
+#! /bin/bash
+# $PROG: All type proxies checker, default proxy type is "socks5" if no argument given 
+# long running period due to big proxies list, be patient.
+
+usage="${0##*/} [socks5|socks4|http|https]"
+list="https://raw.githubusercontent.com/jetkai/proxy-list/main/online-proxies/json/proxies.json"
+check="https://ipwho.is"
+arg=$1
+: ${arg:=socks5}
+OIFS=$IFS
+IFS='
+'
+case "$arg" in
+        socks5) proxy=($(curl -s "$list" | jq -r '.socks5' | tr -d '[ ]",')) ;;
+        socks4) proxy=($(curl -s "$list" | jq -r '.socks4' | tr -d '[ ]",')) ;;
+        http) proxy=($(curl -s "$list" | jq -r '.http' | tr -d '[ ]",')) ;;
+        https) proxy=($(curl -s "$list" | jq -r '.https' | tr -d '[ ]",')) ;;
+        *) echo "$usage" >&2 ; exit 5 ;;
+esac
+
+count="${#proxy[@]}"
+min=0
+max=$((count - 1))
+while (( min <= max ))  ; do
+        ip="${proxy[$min]//:*}"
+        port="${proxy[$min]//*:}"
+        if ping -c3 "$ip" &> /dev/null ; then
+                info=$(curl -x "$arg://$proxy" -s "$check" | jq -r -c '.country,.region')
+                if [ -n "$info" ] ; then
+                        echo "Worked $arg proxy"
+                        echo "IP: $ip"
+                        echo "PORT: $port"
+                        echo "Location: $info"
+                        echo ""
+                fi
+        fi
+        (( min++ ))
+done
+
+unset IFS
+IFS=$OIFS
+exit 0 
