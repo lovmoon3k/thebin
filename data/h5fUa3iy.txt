@@ -1,0 +1,65 @@
+# таблица суммарных продаж по платформам в разные годы
+platform_sales = df.pivot_table(index='platform', columns='year_of_release', values='total_sales', aggfunc='sum').copy()
+platform_sales.fillna(0, inplace=True)
+# функция проверки разрывов в данных
+def start_checking(data, row, col, num):
+    counter = 0
+    for i in range(num):
+        if data.iloc[row, col-i] > 0:
+            counter += 1
+    return counter == num
+
+# функция расчета скользящего среднего
+def ma(data, row, col, period):
+    values = [data.iloc[row, col-n] for n in range(period) if col >= (period - 1)]
+    return sum(values) / period
+
+ma_period = 3
+platform_interval = {}
+# цикл по индексам пивот-таблицы platform_sales
+for i in range(platform_sales.shape[0]):
+    flag_start = False
+    start = 0
+    # счетчик убыточных лет
+    counter = 0
+    # итерируемся со сдвигом значения вперед для фиксации отсутствия данных
+    for j in range(ma_period-1, platform_sales.shape[1]):
+        # начало продаж
+        if start_checking(platform_sales, i, j, ma_period) and flag_start == False:
+            flag_start = True
+            start = (j - (ma_period-1))
+            j = 0
+    # итерируемся со сдвигом значения вперед для сравнения с предыдущим
+    for j in range(start, platform_sales.shape[1]):
+        # фиксация спада продаж
+        if flag_start == True:
+            if  counter < 2: 
+                # сравниваем скользящие средние
+                if ma(platform_sales, i, j, ma_period) < ma(platform_sales, i, j-1, ma_period):
+                    counter += 1
+                else:
+                    counter = 0
+                    pass
+            # запись длины периода
+            elif counter == 2:                
+                platform_interval[platform_sales.index[i]] = (j - 2) - start
+                break
+            else:
+                pass
+# конвертирум словарь с периодами в датафрейм
+platform_interval = pd.DataFrame.from_dict(platform_interval, orient='index')
+# добавим в датафрейм индекс с названиями платформ
+intervals = platform_interval.copy().reset_index()
+intervals.set_index(keys=platform_interval.index, inplace=True)
+intervals = intervals.set_axis(['platform', 'interval'], axis=1)
+
+###БОНУС - разноцветная картинка в Plotly
+import plotly.express as px
+# график периодов роста продаж для различных платформ
+fig = px.bar(intervals,
+             orientation='h',
+             color='platform',
+             title='Зафиксированный период роста продаж игр <br>для различных платформ')
+fig.update_xaxes(title_text='Кол-во лет, ед.')
+fig.update_yaxes(title_text='Игровая платформа')
+fig.show()
