@@ -1,0 +1,140 @@
+void BeginMenu(string asMenuArea, int alInputFreq, bool abCanRepeat, float afRepeatDelay, string asInputCallback) {
+	SetLocalVarInt("_MenuInputFreq", alInputFreq);
+	SetLocalVarBool("_MenuCanRepeat", abCanRepeat);
+	SetLocalVarFloat("_MenuRepeatDelay", afRepeatDelay);
+	SetLocalVarString("_MenuInputCallback", asInputCallback);
+	SetLocalVarBool("_FirstLoop", true);
+	SetLocalVarBool("_MenuCanClick", true);
+
+	TeleportPlayer(asMenuArea);
+	SetPlayerCrouching(true);
+	ShowPlayerCrossHairIcons(false);
+	SetPlayerJumpDisabled(true);
+	SetPlayerCrouchDisabled(true);
+	SetInDarknessEffectsActive(false);
+	SetPlayerLookSpeedMul(0.0f);
+	SetPlayerMoveSpeedMul(0.05f);
+	SetInventoryDisabled(true);
+	GiveItemFromFile("lantern", "lantern.ent");
+	SetLanternLitCallback("_MenuConfirm");
+	SetLocalVarInt("PPosX", GetPlayerPosX());
+	SetLocalVarInt("PPosY", GetPlayerPosY());
+	SetLocalVarInt("PPosZ", GetPlayerPosZ());
+
+	AddEntityCollideCallback("Player", "AreaS", "_MenuHandler", true, 1);
+	AddEntityCollideCallback("Player", "AreaA", "_MenuHandler", true, 1);
+	AddEntityCollideCallback("Player", "AreaW", "_MenuHandler", true, 1);
+	AddEntityCollideCallback("Player", "AreaD", "_MenuHandler", true, 1);
+	SetLocalVarBool("_MenuHasCallback_AreaW", true);
+	SetLocalVarBool("_MenuHasCallback_AreaA", true);
+	SetLocalVarBool("_MenuHasCallback_AreaS", true);
+	SetLocalVarBool("_MenuHasCallback_AreaD", true);
+	SetEntityPlayerInteractCallback("AreaW", "_MenuConfirm", false);
+}
+void EndMenu() {
+	SetPlayerCrouching(false);
+	ShowPlayerCrossHairIcons(true);
+	StopPlayerLookAt();
+	MovePlayerHeadPos(0.0f, 0.0f, 0.0f, 10.0f, 1.0f);
+	SetPlayerMoveSpeedMul(1.0f);
+	SetPlayerJumpDisabled(false);
+	SetPlayerCrouchDisabled(false);
+	SetInDarknessEffectsActive(true);
+	SetPlayerLookSpeedMul(1.0f);
+	SetInventoryDisabled(false);
+	SetLanternLitCallback("");
+	RemoveItem("lantern");
+	SetPlayerActive(true);
+}
+void _MenuHandler(string &in asParent, string &in asChild, int alState) {
+	//setup data
+	SetLocalVarBool("_MenuHasCallback_"+asChild, false);
+	int inputFreq = GetLocalVarInt("_MenuInputFreq");
+	bool canRepeat = GetLocalVarBool("_MenuCanRepeat");
+	float repeatDelay = GetLocalVarFloat("_MenuRepeatDelay");
+	string inputCallback = GetLocalVarString("_MenuInputCallback");
+	float resetTimeout = (1.0f/inputFreq)*2;
+	float repeatDelayTimeLeft = GetTimerTimeLeft("repeat_delay");
+	string inputKey = StringSub(asChild, 4, 1); //Gets the input key (WASD)
+		
+	if(canRepeat)
+		if(repeatDelayTimeLeft <= 0) 
+			AddTimer(inputKey, 0.0f, inputCallback);
+	
+	//Calculate how many inputs are allowed per second.
+	if(GetTimerTimeLeft("input_freq") <= 0)
+		AddTimer("input_freq", 1.0f/inputFreq, "_MenuInputFrequency");
+
+	//Calculate the timer for detecting when an input is no longer given.
+	if(GetTimerTimeLeft("reset_timeout") > 0) {
+		RemoveTimer("reset_timeout");
+		SetLocalVarBool("_FirstLoop", false);
+	} else SetLocalVarBool("_FirstLoop", true);
+	
+	AddTimer("reset_timeout", resetTimeout, "_MenuResetTimeout");
+
+	//Calculate delay before a repeated input is accepted.
+	if(GetLocalVarBool("_FirstLoop") && repeatDelayTimeLeft <= 0) {
+		if(canRepeat) {
+			if(menuInputDebug) Log("-----Repeat timer has started!");
+			AddTimer("repeat_delay", repeatDelay/1000, "_MenuRepeatDelay");
+		} else {
+			AddTimer(inputKey, 0.0f, inputCallback);
+			if(menuInputDebug) Log("Can not repeat. Waiting for release.");
+		}
+		SetLocalVarBool("_FirstLoop", false);
+	}
+}
+void _MenuRepeatDelay(string &in asTimer) {
+	if(menuInputDebug) Log("-----Repeat timer has ended!");
+	SetLocalVarBool("_FirstLoop", false);
+}
+void _MenuResetTimeout(string &in asTimer) {
+	if(menuInputDebug) Log("-----Repeat timer was cancelled!");
+	if(menuInputDebug) Log("----------Button released!");
+	RemoveTimer("repeat_delay");
+}
+void _MenuInputFrequency(string &in asTimer) {
+	//TeleportPlayer("MenuArea"); //reset position.
+	float fX = 0.0f, fZ = -10.0f;
+	fX = GetLocalVarFloat("PPosX");
+	fZ = GetLocalVarFloat("PPosZ");
+	SetPlayerPos(fX, GetPlayerPosY(), fZ);
+	if(!GetLocalVarBool("_MenuHasCallback_AreaS")) {
+		AddEntityCollideCallback("Player", "AreaS", "_MenuHandler", true, 1);
+		SetLocalVarBool("_MenuHasCallback_AreaS", true);
+	}
+	if(!GetLocalVarBool("_MenuHasCallback_AreaA")) {
+		AddEntityCollideCallback("Player", "AreaA", "_MenuHandler", true, 1);
+		SetLocalVarBool("_MenuHasCallback_AreaA", true);
+	}
+	if(!GetLocalVarBool("_MenuHasCallback_AreaW")) {
+		AddEntityCollideCallback("Player", "AreaW", "_MenuHandler", true, 1);
+		SetLocalVarBool("_MenuHasCallback_AreaW", true);
+	}
+	if(!GetLocalVarBool("_MenuHasCallback_AreaD")) {
+		AddEntityCollideCallback("Player", "AreaD", "_MenuHandler", true, 1);
+		SetLocalVarBool("_MenuHasCallback_AreaD", true);
+	}
+}
+void _MenuConfirm(bool abLit) {
+	if(abLit) {
+		if(menuInputDebug) Log("Hit Enter");
+		SetLanternActive(false, false);
+		
+		//if(GetLocalVarBool("_MenuCanClick")) {
+			//SetLocalVarBool("_MenuCanClick", false);		
+			HandleInput("Enter");
+		//}
+	}
+}
+
+void SetLocalVarBool(string & in asVarName, bool abVal) {
+	SetLocalVarInt("bool_"+asVarName, abVal == true ? 1 : 0);
+}
+bool GetLocalVarBool(string & in asVarName) {
+	return GetLocalVarInt("bool_"+asVarName) == 1 ? true : false;
+}
+void Log(string text) {
+	AddDebugMessage(text, false);
+}
