@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+
+import sys
+
+PART1_SIZE      = 100000
+TOTAL_DISKSPACE = 70000000
+PART2_TARGET    = 30000000
+
+class Dir(object):
+    def __init__(self,name,parent):
+        self.name = name
+        self.parent = parent
+        self.contents = []
+
+    def size(self):
+        return sum([item.size() for item in self.contents])
+
+    def full_path(self):
+        if self.parent is None: return self.name
+        return self.name+"/"+self.parent.full_path()
+
+class File(object):
+    def __init__(self,name,parent,size):
+        self.name = name
+        self.parent = parent
+        self._size = size
+
+    def size(self):
+        return self._size
+
+    def __repr__(self):
+        return f"{self.name} ({self.size})"
+
+def dirsum(d):
+    size = 0
+    for subdir in d.contents:
+        if type(subdir) == Dir: size += dirsum(subdir)
+    if d.size() <= PART1_SIZE: size += d.size()
+    return size
+
+def smallest_dir_larger_than(d,minsize,bestsize):
+    new_best = bestsize
+    newsize = d.size()
+    if newsize >= minsize and newsize < bestsize:
+        new_best = newsize
+    for subdir in d.contents:
+        if type(subdir) == Dir:
+            new_best = smallest_dir_larger_than(subdir,minsize,new_best)
+    return new_best
+
+def main():
+    # Input
+    args = sys.argv
+    input_file = args[1]
+    input_file = file_lines(input_file)
+
+    # Generate filesystem
+    filesystem = Dir("/",None)
+    pwd = filesystem
+    for cmd in input_file:
+        if cmd[0] == "$":
+            # Issue command
+            cmd = cmd[2:]
+            if cmd == "cd /":
+                pwd = filesystem
+            elif cmd == "cd ..":
+                pwd = pwd.parent
+            elif cmd == "ls":
+                pass
+            else:
+                if cmd.split(" ")[0] == "cd":
+                    target = cmd.split(" ")[1]
+                    pwd = next((x for x in pwd.contents if x.name == target and type(x) == Dir), None)
+                else:
+                    quit(f"{cmd}: command not found...")
+
+        else:
+            # ls output
+            parts = cmd.split(" ")
+            if parts[0] == "dir":
+                # dir
+                dirname = parts[1]
+                pwd.contents.append(Dir(dirname,pwd))
+            else:
+                # file
+                filename,sz = parts[1],int(parts[0])
+                pwd.contents.append(File(filename,pwd,sz))
+
+    # Part 1
+    print("Part 1: ",dirsum(filesystem)) # 1770595
+
+    # Part 2
+    total_used = filesystem.size()
+    available = TOTAL_DISKSPACE - total_used
+    minimum_free = PART2_TARGET - available
+    print("Part 2: ",smallest_dir_larger_than(filesystem,minimum_free,TOTAL_DISKSPACE)) # 2195372
+
+def file_lines(file):
+    with open(file) as f:
+        data = [line.rstrip() for line in f]
+    return data
+
+if __name__ == "__main__":
+    main()
+
