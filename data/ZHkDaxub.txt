@@ -1,0 +1,246 @@
+#include <Windows.h>
+#include <iostream>
+#include <bitset>
+#include <string>
+#include <fstream>
+using std::cout;
+using std::cin;
+using std::fstream;
+using std::ios_base;
+using std::ios;
+using std::endl;
+using std::bitset;
+using std::string;
+//powershell (Resolve-DnsName -Name \"myip.opendns.com\" -Type A_AAAA -Server \"resolver1.opendns.com\").IPAddress
+//powershell (Resolve-DnsName -Name \"rhscz-pc.dynv6.net\" -Type A_AAAA).IPAddress
+//powershell(Invoke - WebRequest - Uri https ://ipv6.dynv6.com/api/update?zone=barunka-pc.dynv6.net\\\"&\\\"ipv6=%s/128\\\"&\\\"token=%s).Content
+/*struct BITS
+{
+    bool b1 : 1;
+    bool b2 : 1;
+    bool b3 : 1;
+    bool b4 : 1;
+    bool b5 : 1;
+    bool b6 : 1;
+    bool b7 : 1;
+    bool b8 : 1;
+};*/
+/*void encryptyfunc()
+{
+    char buffer[500] = {};
+    for (size_t i = 0; i < strlen(token); ++i)
+    {
+        
+        strcat_s(buffer,bitset<8>(token[i]).to_string().c_str());
+    }
+}*/
+template <typename T1,typename T2,size_t _size, size_t _size2>
+void decryptfunc(T1 (&input)[_size],T2 (&output)[_size2])
+{
+    char buffer[50] = {};
+    
+    for (size_t i = 0; i < strlen(input); i = i + 8)
+    {
+        ULONG l;
+        string str;
+        char bit[10] = {};
+        bit[0] = input[i];
+        bit[1] = input[i + 1];
+        bit[2] = input[i + 2];
+        bit[3] = input[i + 3];
+        bit[4] = input[i + 4];
+        bit[5] = input[i + 5];
+        bit[6] = input[i + 6];
+        bit[7] = input[i + 7];
+        l = bitset<10>(bit).to_ulong();
+        str = (char)l;
+        strcat_s(buffer, str.c_str());
+
+    }
+    strcpy_s(output, buffer);
+}
+int main()
+{
+    HANDLE stdout_wr = 0;
+    HANDLE stdout_rd = 0;
+    DWORD read = 0;
+    bool success = false;
+    bool success2 = false;
+    SECURITY_ATTRIBUTES sa = {};
+    STARTUPINFOA si = {};
+    PROCESS_INFORMATION pi = {};
+    char outbuffer[50] = { "\0" };
+    char myip[50] = { "\0" };
+    char buffer[300] = { "\0" };
+    char dnsip[50] = { "\0" };
+    char output[50] = { "\0" };
+    char command[500] = { "\0" };
+    char token[50] = {};
+    char computername[100] = {};
+    bool errorfree = true;
+    char tmpfile[MAX_PATH + 1] = {};
+    char tmpdir[MAX_PATH + 1] = {};
+    GetEnvironmentVariableA("COMPUTERNAME", buffer, sizeof(buffer));
+    for (ULONG i = 0; i < strlen(buffer); i++)
+    {
+        computername[i] = tolower(buffer[i]);
+    }
+    memset(buffer, 0, sizeof(buffer));
+    GetEnvironmentVariableA("TEMP", tmpdir, MAX_PATH);
+    sprintf_s(tmpfile, "%s\\updateip-error.log",tmpdir);
+    fstream errorlog(tmpfile, fstream::out);
+    //encryptyfunc();
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+    CreatePipe(&stdout_rd, &stdout_wr, &sa, 0);
+    si.cb = sizeof(STARTUPINFOA);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.hStdOutput = stdout_wr;
+    si.hStdError = stdout_wr;
+    
+
+    size_t len = 0;
+    int ret = 0;
+    
+    //Sleep(120000);
+    success = CreateProcessA(0, (char*)&"powershell (Resolve-DnsName -Name \"myip.opendns.com\" -Type A_AAAA -Server \"resolver1.opendns.com\").IPAddress", NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL, NULL, &si, &pi);
+    if (!success)
+    {
+        errorlog << "Nelze získat IP adresu PC" << endl;
+        errorfree = false;
+        goto end;
+    }
+    CloseHandle(stdout_wr);
+    ResumeThread(pi.hThread);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    while (1)
+    {
+        success2 = ReadFile(stdout_rd, outbuffer, sizeof(outbuffer), &read, NULL);
+
+            if(!success2 || read == 0) break;
+    }
+    len = strlen(outbuffer);
+    if (outbuffer[len - 1] == *"\n" || outbuffer[len - 1] == *"\r")
+    {
+        outbuffer[len - 1] = 0;
+    }
+    if (outbuffer[len - 2] == *"\n" || outbuffer[len - 2] == *"\r")
+    {
+        outbuffer[len - 2] = 0;
+    }
+    strcpy_s(myip, outbuffer);
+    memset(&pi, 0, sizeof(pi));
+    memset(outbuffer, 0, sizeof(outbuffer));
+    CloseHandle(stdout_rd);
+    success = false;
+    success2 = false;
+    read = 0;
+    CreatePipe(&stdout_rd, &stdout_wr, &sa, 0);
+    si.hStdOutput = stdout_wr;
+    si.hStdError = stdout_wr;
+    sprintf_s(buffer, "powershell(Resolve - DnsName - Name \"%s.dynv6.net\" -Type A_AAAA).IPAddress", computername);
+    success = CreateProcessA(0, buffer, NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL, NULL, &si, &pi);
+    if (!success)
+    {
+        errorlog << "Nelze získat IP adresu z DNS serveru" << endl;
+        errorfree = false;
+        goto end;
+    }
+    memset(buffer, 0, sizeof(buffer));
+    CloseHandle(stdout_wr);
+    ResumeThread(pi.hThread);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    while (1)
+    {
+        success2 = ReadFile(stdout_rd, outbuffer, sizeof(outbuffer), &read, NULL);
+        if (!success2 || read == 0) break;
+    }
+    len = strlen(outbuffer);
+    if (outbuffer[len - 1] == *"\n" || outbuffer[len - 1] == *"\r")
+    {
+        outbuffer[len - 1] = 0;
+    }
+    if (outbuffer[len - 2] == *"\n" || outbuffer[len - 2] == *"\r")
+    {
+        outbuffer[len - 2] = 0;
+    }
+    strcpy_s(dnsip, outbuffer);
+    memset(&pi, 0, sizeof(pi));
+    memset(outbuffer, 0, sizeof(outbuffer));
+    CloseHandle(stdout_rd);
+    success = false;
+    success2 = false;
+    read = 0;
+    //sprintf_s(buffer, "DEBUG!!\nmyip=%s\nipdns=%s", myip,dnsip);
+    //MessageBoxA(NULL, buffer, "DEBUG", MB_OK | MB_ICONINFORMATION);
+    //memset(buffer, 0, sizeof(buffer));
+    decryptfunc(bits, token);
+    sprintf_s(command, "powershell (Invoke-WebRequest -Uri https://ipv6.dynv6.com/api/update?zone=%s.dynv6.net\\\"&\\\"ipv6=%s/128\\\"&\\\"token=%s).Content",computername, myip, token);
+    CreatePipe(&stdout_rd, &stdout_wr, &sa, 0);
+    si.hStdOutput = stdout_wr;
+    si.hStdError = stdout_wr;
+    ret = strcmp(myip, dnsip);
+    if (ret != 0)
+    {
+        success = CreateProcessA(0, command, NULL, NULL, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL, NULL, &si, &pi);
+        if (!success)
+        {
+            errorlog << "Nelze Poslat GET Request pro změnu IP adresy u DDNS poskytovatele" << endl;
+            errorfree = false;
+            goto end;
+        }
+        CloseHandle(stdout_wr);
+        ResumeThread(pi.hThread);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        while (1)
+        {
+            success2 = ReadFile(stdout_rd, outbuffer, sizeof(outbuffer), &read, NULL);
+            if (!success2 || read == 0) break;
+        }
+        CloseHandle(stdout_rd);
+        len = strlen(outbuffer);
+        if (outbuffer[len - 1] == *"\n" || outbuffer[len - 1] == *"\r")
+        {
+            outbuffer[len - 1] = 0;
+        }
+        if (outbuffer[len - 2] == *"\n" || outbuffer[len - 2] == *"\r")
+        {
+            outbuffer[len - 2] = 0;
+        }
+        strcpy_s(output, outbuffer);
+        memset(&pi, 0, sizeof(pi));
+        memset(outbuffer, 0, sizeof(outbuffer));
+        success = false;
+        success2 = false;
+        read = 0;
+        if (strcmp(output, "addresses updated") != 0)
+        {
+            sprintf_s(buffer, "Nelze updatovat IP addressu u poskytovatele\n server vrátil=\" %s \"", output);
+            errorlog << buffer << endl;
+            errorfree = false;
+            memset(buffer, 0, sizeof(buffer));
+        }
+    }
+end:
+    CloseHandle(stdout_rd);
+    CloseHandle(stdout_wr);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    errorlog.close();
+    if (errorfree)
+    {
+        return 0;
+    }
+    else
+    {
+        return -1;
+    }
+}
