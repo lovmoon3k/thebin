@@ -1,0 +1,258 @@
+#include <stdio.h>
+#include <stdlib.h> // abs, abort
+#include <assert.h>
+#include <string>
+#include <vector>
+#include <array>
+#include <unordered_map>
+#include <unordered_set>
+
+enum class State {
+    Head, Tail, None
+};
+
+struct Point {
+    Point() = default;
+    ~Point() = default;
+    Point(int x, int y) : x(x), y(y) {}
+
+    bool operator==(const Point &other) const {
+        return this->x == other.x && this->y == other.y;
+    }
+    bool operator!=(const Point &other) const {
+        return !(*this == other);
+    }
+
+    int x, y;
+};
+
+namespace std {
+    template<>
+    struct hash<Point> {
+        std::size_t operator()(const Point &p) const {
+            return hash<int>()(p.x) ^ (hash<int>()(p.y) << 1);
+        }
+    };
+};
+
+enum class Direction {
+    Up, Down,
+    Left, Right,
+    DiagonalUpLeft, DiagonalUpRight,
+    DiagonalDownLeft, DiagonalDownRight
+};
+
+std::string direction_as_str(Direction d) {
+    switch(d) {
+            case Direction::Up: return "Up";
+            case Direction::Down: return "Down";
+            case Direction::Right: return "Right";
+            case Direction::Left: return "Left";
+            case Direction::DiagonalUpRight: return "DiagonalUpRight";
+            case Direction::DiagonalUpLeft: return "DiagonalUpLeft";
+            case Direction::DiagonalDownRight: return "DiagonalDownRight";
+            case Direction::DiagonalDownLeft: return "DiagonalDownLeft";
+            default: assert(0);
+        }
+}
+
+struct Op {
+    Op() = default;
+    ~Op() = default;
+    Direction direction;
+    int amount;
+
+    std::string as_str() {
+        std::string s = "Op{";
+        switch(direction) {
+            case Direction::Up: s += "U"; break;
+            case Direction::Down: s += "D"; break;
+            case Direction::Left: s += "L"; break;
+            case Direction::Right: s += "R"; break;
+            default: assert(0);
+        }
+        s += ", ";
+        s += std::to_string(amount);
+        s += "}";
+        return s;
+    }
+};
+
+template<int KNOT_COUNT>
+struct Simulation {
+    ~Simulation() {}
+    static Simulation parse(const char *path);
+    int simulate();
+
+private:
+    Simulation();
+    void update(Point new_head_pos);
+    Direction tail_move(Point diff) const { return tail_moves.at(diff); }
+
+    std::unordered_map<Point, Direction> tail_moves;
+    std::vector<Op> ops;
+    //static constexpr const int GRID_X = 6, GRID_Y = 5; // 6x5 for example, disable for input
+    //std::array<std::array<State, GRID_X>, GRID_Y> grid;
+    std::array<Point, KNOT_COUNT> knots;
+    static constexpr int HEAD = 0, TAIL = KNOT_COUNT - 1;
+};
+
+template<int KNOT_COUNT>
+Simulation<KNOT_COUNT>::Simulation() {
+    //for(int y = 0; y < GRID_Y; ++y) {
+    //    for(int x = 0; x < GRID_X; ++x) {
+    //        grid[y][x] = State::None;
+    //    }
+    //}
+    for(auto &k : knots) {
+        k = Point(0, 0);
+    }
+    tail_moves.insert({Point(0, 2), Direction::Up});
+    tail_moves.insert({Point(0, -2), Direction::Down});
+    tail_moves.insert({Point(2, 0), Direction::Right});
+    tail_moves.insert({Point(-2, 0), Direction::Left});
+    tail_moves.insert({Point(1, 2), Direction::DiagonalUpRight});
+    tail_moves.insert({Point(-1, 2), Direction::DiagonalUpLeft});
+    tail_moves.insert({Point(1, -2), Direction::DiagonalDownRight});
+    tail_moves.insert({Point(-1, -2), Direction::DiagonalDownLeft});
+    tail_moves.insert({Point(2, 1), Direction::DiagonalUpRight});
+    tail_moves.insert({Point(-2, 1), Direction::DiagonalUpLeft});
+    tail_moves.insert({Point(2, -1), Direction::DiagonalDownRight});
+    tail_moves.insert({Point(-2, -1), Direction::DiagonalDownLeft});
+
+    // moves for more than 2 knots.
+    tail_moves.insert({Point(2, 2), Direction::DiagonalUpRight});
+    tail_moves.insert({Point(-2, 2), Direction::DiagonalUpLeft});
+    tail_moves.insert({Point(-2, -2), Direction::DiagonalDownLeft});
+    tail_moves.insert({Point{2, -2}, Direction::DiagonalDownRight});
+}
+
+template<int KNOT_COUNT>
+Simulation<KNOT_COUNT> Simulation<KNOT_COUNT>::parse(const char *path) {
+    FILE *f = fopen(path, "r");
+    if(!f) assert(0);
+    Simulation s;
+
+    auto parse_direction = [](char d) -> Direction {
+        switch(d) {
+            case 'U': return Direction::Up;
+            case 'D': return Direction::Down;
+            case 'L': return Direction::Left;
+            case 'R': return Direction::Right;
+            default: assert(0);
+        }
+    };
+
+    char buffer[6] = {0}; // <direction> <space> <amount (up to 2 characters)> <newline> <nul character>
+    while(fgets(buffer, 6, f)) {
+        char direction = buffer[0];
+        char *amount = &buffer[2]; // buffer[2]..end
+        s.ops.push_back(Op{parse_direction(direction), (int)strtol(amount, NULL, 10)});
+    }
+
+    fclose(f);
+    return s;
+}
+
+template<int KNOT_COUNT>
+void Simulation<KNOT_COUNT>::update(Point new_head_pos) {
+    // utilities
+    auto touching = [](Point a, Point b) -> bool {
+        return std::abs(a.x - b.x) <= 1 && std::abs(a.y - b.y) <= 1;
+    };
+
+    auto diff = [](Point a, Point b) -> Point {
+        auto dx = a.x - b.x;
+        auto dy = a.y - b.y;
+        //printf("diff: (%d, %d) - (%d, %d) = (%d, %d)\n", a.x, a.y, b.x, b.y, dx, dy);
+        return Point(dx, dy);
+    };
+
+
+    // Update head.
+    //printf("head: (%d, %d) += (%d, %d)\n", head_pos.x, head_pos.y, new_head_pos.x, new_head_pos.y);
+    //grid[knots.at(HEAD).y][knots.at(HEAD).x] = State::None;
+    //grid[new_head_pos.y][new_head_pos.x] = State::Head;
+    knots.at(HEAD) = new_head_pos;
+
+    auto current_head = knots.at(HEAD);
+    for(int i = 1; i < KNOT_COUNT; ++i) {
+        //printf(">> knot %d\n", i);
+        auto &k = knots.at(i);
+        // update tail
+        if(!touching(current_head, k)) {
+            //printf("head: (%d, %d), tail: (%d, %d)\n", current_head.x, current_head.y, k.x, k.y);
+            auto move = tail_moves.at(diff(current_head, k));
+            //printf("tail move: %s\n", direction_as_str(move).c_str());
+            //grid[k.y][k.x] = State::None;
+            switch(move) {
+                case Direction::Up: k.y += 1; break;
+                case Direction::Down: k.y -= 1; break;
+                case Direction::Right: k.x += 1; break;
+                case Direction::Left: k.x -= 1; break;
+                case Direction::DiagonalUpRight: k.y += 1; k.x += 1; break;
+                case Direction::DiagonalUpLeft: k.y += 1; k.x -= 1; break;
+                case Direction::DiagonalDownRight: k.y -= 1; k.x += 1; break;
+                case Direction::DiagonalDownLeft: k.y -= 1; k.x -= 1; break;
+                default: assert(0);
+            }
+            //grid[k.y][k.x] = State::Tail;
+        }
+        current_head = k;
+    }
+    //printf("tail: (%d, %d)\n", tail_pos.x, tail_pos.y);
+}
+
+template<int KNOT_COUNT>
+int Simulation<KNOT_COUNT>::simulate() {
+    //auto print_grid = [this]() {
+    //    for(int y = GRID_Y - 1; y >= 0; --y) {
+    //        for(int x = 0; x < GRID_X; ++x) {
+    //            auto state = this->grid[y][x];
+    //            switch(state) {
+    //                case State::Head: printf("H"); break;
+    //                case State::Tail: printf("T"); break;
+    //                case State::None: printf("."); break;
+    //                default: assert(0);
+    //            }
+    //        }
+    //        printf("\n");
+    //    }
+    //};
+
+    std::unordered_set<Point> tail_visited;
+    for(auto &op : ops) {
+        //printf("== %s ==\n", op.as_str().c_str());
+        for(int i = 0; i < op.amount; ++i) {
+            auto &head_pos = knots.at(HEAD);
+            Point new_head_pos(head_pos.x, head_pos.y);
+            switch(op.direction) {
+                case Direction::Up: new_head_pos.y += 1; break;
+                case Direction::Down: new_head_pos.y -= 1; break;
+                case Direction::Left: new_head_pos.x -= 1; break;
+                case Direction::Right: new_head_pos.x += 1; break;
+                default: assert(0);
+            }
+            //auto old_tail_pos = tail_pos;
+            update(new_head_pos);
+            tail_visited.insert(knots.at(TAIL));
+            // check if tail moved.
+            //if(old_tail_pos != tail_pos) {
+                //printf("tail moved (%d, %d) -> (%d, %d).\n", old_tail_pos.x, old_tail_pos.y, tail_pos.x, tail_pos.y);
+            //}
+            //print_grid(); puts("\n");
+        }
+    }
+    //auto &head = knots.at(HEAD);
+    //auto &tail = knots.at(TAIL);
+    //printf("H(%d, %d), T(%d, %d)\n", head.x, head.y, tail.x, tail.y);
+    return tail_visited.size();
+}
+
+int main(void) {
+    auto s1 = Simulation<2>::parse("input.txt");
+    printf("part 1 (2 knots): %d\n", s1.simulate());
+    auto s2 = Simulation<10>::parse("input.txt");
+    printf("part 2 (10 knots): %d\n", s2.simulate());
+    return 0;
+}
