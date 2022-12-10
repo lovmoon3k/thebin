@@ -1,0 +1,106 @@
+use std::env;
+use std::io::{self, prelude::*, BufReader};
+use std::fs::File;
+
+enum Status {
+    Waiting,
+    Processing,
+    Done,
+}
+enum InstKind {
+    Noop,
+    Addx,
+}
+struct Instruction {
+    kind: InstKind,
+    value: Option<i64>,
+    status: Status,
+}
+impl Instruction {
+    fn from(s: &String) -> Self {
+        let parts: Vec<_> = s.split(" ").collect();
+        match parts[0] {
+            "noop" => Self { kind: InstKind::Noop, value: None, status: Status::Waiting },
+            "addx" => Self { kind: InstKind::Addx, value: Some(parts[1].parse().unwrap()), status: Status::Waiting },
+            other => panic!("Unknown instruction: {other}"),
+        }
+    }
+}
+
+fn solve(input: &str) -> io::Result<()> {
+    let file = File::open(input).expect("Input file not found.");
+    let reader = BufReader::new(file);
+
+    // Input
+    let input: Vec<String> = match reader.lines().collect() {
+        Err(err) => panic!("Unknown error reading input: {}", err),
+        Ok(result) => result,
+    };
+
+    // Initializations
+    let mut instructions: Vec<_> = input.iter().map(Instruction::from).collect();
+    let mut reg: i64 = 1;
+    let mut instr: usize = 0;
+    let mut part1: i64 = 0;
+    const PIX_PER_ROW: usize = 40;
+    const NUM_ROWS: usize = 6;
+    let mut screen = [[false; PIX_PER_ROW]; NUM_ROWS];
+
+    // Processing
+    'main_lp: for cyc in 1.. {
+        if instr >= instructions.len() { break 'main_lp; }
+        let ins = &instructions[instr];
+
+        // Gather signal strengths
+        match cyc {
+            20 | 60 | 100 | 140 | 180 | 220 => {
+                println!("Cycle {cyc}, reg: {reg}, signal={}",cyc*reg);
+                part1 += cyc * reg;
+            },
+            _ => {},
+        }
+
+        // Handle instruction
+        match ins.kind {
+            InstKind::Noop => { instr += 1 },
+            InstKind::Addx => {
+                match ins.status {
+                    Status::Waiting => {
+                        instructions[instr].status = Status::Processing;
+                        },
+                    Status::Processing => {
+                        reg += ins.value.unwrap();
+                        instructions[instr].status = Status::Done;
+                        instr += 1; 
+                        },
+                    _ => panic!("Shouldn't be able to get here"),
+                }
+            },
+        }
+
+        // Render image
+        let row: usize = cyc as usize / PIX_PER_ROW;
+        let col: usize = cyc as usize % PIX_PER_ROW;
+        let coli = col as i64;
+        let (px0,px1,px2) = (reg - 1, reg, reg + 1);
+        if coli == px0 || coli == px1 || coli == px2 { screen[row][col] = true; }
+    }
+    println!("Part 1: {part1}"); // 13480
+
+    // Part 2 Output: EGJBGCFK
+    for y in 0..NUM_ROWS {
+        for x in 0..PIX_PER_ROW {
+            if screen[y][x] { print!("█"); } else { print!(" "); }
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    let filename = &args[1];
+    solve(&filename).unwrap();
+}
+
