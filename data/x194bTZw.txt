@@ -1,0 +1,82 @@
+diff --git a/distributions/CoreELEC/options b/distributions/CoreELEC/options
+index 4e1f593685..d729b2adaf 100644
+--- a/distributions/CoreELEC/options
++++ b/distributions/CoreELEC/options
+@@ -44,6 +44,9 @@
+ # Default supported get handlers (archive, git, file etc.)
+   GET_HANDLER_SUPPORT="archive"
+ 
++# use local ccache on build host, if available, for early package
++# builds before ccache has been built
++  LOCAL_CCACHE_SUPPORT="yes"
+ 
+ ### OS CONFIGURATION ###
+ 
+
+diff --git a/packages/devel/cmake/package.mk b/packages/devel/cmake/package.mk
+index 4a9673a8bd..55cd11bef8 100644
+--- a/packages/devel/cmake/package.mk
++++ b/packages/devel/cmake/package.mk
+@@ -8,7 +8,7 @@ PKG_SHA256="1c511d09516af493694ed9baf13c55947a36389674d657a2d5e0ccedc6b291d8"
+ PKG_LICENSE="BSD"
+ PKG_SITE="https://cmake.org/"
+ PKG_URL="https://cmake.org/files/v$(get_pkg_version_maj_min)/cmake-${PKG_VERSION}.tar.gz"
+-PKG_DEPENDS_HOST="openssl:host pkg-config:host"
++PKG_DEPENDS_HOST="pkg-config:host"
+ PKG_LONGDESC="A cross-platform, open-source make system."
+ PKG_TOOLCHAIN="configure"
+ PKG_BUILD_FLAGS="+local-cc"
+@@ -20,6 +20,6 @@ configure_host() {
+                -DCMAKE_C_FLAGS="-O2 -Wall -pipe -Wno-format-security" \
+                -DCMAKE_CXX_FLAGS="-O2 -Wall -pipe -Wno-format-security" \
+                -DCMAKE_EXE_LINKER_FLAGS="${HOST_LDFLAGS}" \
+-               -DCMAKE_USE_OPENSSL=ON \
++               -DCMAKE_USE_OPENSSL=OFF \
+                -DBUILD_CursesDialog=0
+ }
+
+
+diff --git a/projects/Amlogic-ce/devices/Amlogic-ne/packages/mediacenter/kodi/package.mk b/projects/Amlogic-ce/devices/Amlogic-ne/packages/mediacenter/kodi/package.mk
+index c3d08224ae..459849a207 100644
+--- a/projects/Amlogic-ce/devices/Amlogic-ne/packages/mediacenter/kodi/package.mk
++++ b/projects/Amlogic-ce/devices/Amlogic-ne/packages/mediacenter/kodi/package.mk
+@@ -10,6 +10,7 @@ PKG_LICENSE="GPL"
+ PKG_SITE="http://www.kodi.tv"
+ PKG_URL="https://github.com/CoreELEC/xbmc/archive/$PKG_VERSION.tar.gz"
+ PKG_DEPENDS_TARGET="toolchain JsonSchemaBuilder:host TexturePacker:host Python3 zlib systemd lzo pcre swig:host libass curl fontconfig fribidi tinyxml libjpeg-turbo freetype libcdio taglib libxml2 libxslt rapidjson sqlite ffmpeg crossguid libhdhomerun libfmt lirc libfstrcmp flatbuffers:host flatbuffers libudfread spdlog obu_util libdrm"
++PKG_DEPENDS_TARGET+=" cmake-ssl:host"  # kodi needs cmake with ssl support to download files from https
+ PKG_DEPENDS_HOST="toolchain"
+ PKG_LONGDESC="A free and open source cross-platform media player."
+ PKG_BUILD_FLAGS="+speed"
+
+
+diff --git a/packages/devel/cmake-ssl/package.mk b/packages/devel/cmake-ssl/package.mk
+new file mode 100644
+index 0000000000..6a81eb1192
+--- /dev/null
++++ b/packages/devel/cmake-ssl/package.mk
+@@ -0,0 +1,24 @@
++# SPDX-License-Identifier: GPL-2.0-or-later
++# Copyright (C) 2022-present Team CoreELEC (https://coreelec.org)
++
++. $(get_pkg_directory cmake)/package.mk
++
++PKG_NAME="cmake-ssl"
++PKG_URL=""
++PKG_DEPENDS_HOST="openssl:host"
++PKG_DEPENDS_UNPACK="cmake"
++
++configure_host() {
++  # reuse same folder if exists and just rebuild with openssl
++  mkdir -p "$(get_build_dir cmake)/.${HOST_NAME}"
++  cd "$(get_build_dir cmake)/.${HOST_NAME}"
++
++  ../configure --prefix=${TOOLCHAIN} \
++               --no-qt-gui --no-system-libs \
++               -- \
++               -DCMAKE_C_FLAGS="-O2 -Wall -pipe -Wno-format-security" \
++               -DCMAKE_CXX_FLAGS="-O2 -Wall -pipe -Wno-format-security" \
++               -DCMAKE_EXE_LINKER_FLAGS="${HOST_LDFLAGS}" \
++               -DCMAKE_USE_OPENSSL=ON \
++               -DBUILD_CursesDialog=0
++}
