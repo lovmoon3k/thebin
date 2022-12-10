@@ -1,0 +1,60 @@
+db.authors.aggregate([
+    {
+        $lookup: {
+	    	from: "articles",
+          	localField : "_id",
+			foreignField : "authors",
+         	as: "author_papers"
+       }
+    },
+    { 
+        $project: {
+            name: 1,
+            author_papers: {
+                $sortArray:
+                    {
+                        input: "$author_papers",
+                        sortBy: {
+                            n_cited_by: -1,
+                        }
+                    }
+                }
+         }
+    },
+    {
+        $project: {
+            name: 1,
+            h_index: {
+                $reduce: {
+                    input: "$author_papers",
+                    initialValue: 0,
+                    in: {
+                        $max: [
+                            "$$value",
+                            {
+                                $cond: [
+                                    {
+                                        $lte: [
+                                            "$$this.n_cited_by",
+                                            {$add: [{$indexOfArray: ["$author_papers", "$$this"]}, 1]},
+                                        ]
+                                    },
+                                    "$$this.n_cited_by",
+                                    "$$value"
+                                ]
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    {
+        $sort: {
+            h_index: -1
+        }
+    },
+    {
+        $limit: 5
+    }
+])
