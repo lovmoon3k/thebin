@@ -1,0 +1,261 @@
+package lab52;
+
+import java.util.*;
+
+public class KfGauss {
+    public static double p_pred;
+    public static double p_pred_pred;
+
+    public static double a = -1;
+    public static double b = 1;
+
+    public static int current_n;
+
+    public static boolean testForMonom = false;
+
+    public static void main(String[] args) {
+        task12();
+//        task3();
+    }
+
+    public static double f(double x) {
+        if (testForMonom) {
+            return Math.pow(x, current_n);
+        }
+        return 1 / (Math.sqrt(1 - (1 / 4.0) * Math.pow(Math.sin(x), 2)));
+    }
+
+    public static double integrand(double x) {
+        return 1 / (Math.sqrt(1 - (1 / 4.0) * Math.pow(Math.sin(x), 2)));
+    }
+
+    public static double integral() {
+        double h = (b - a) / 5000;
+        double z = integrand(a) + integrand(b);
+
+        double sumValues = 0;
+        for (int j = 0; j < 5000; j++) {
+            double yj = a + j * h;
+            sumValues += integrand(yj + h / 2);
+        }
+        double q = sumValues;
+
+        double sum = 0;
+        for (int j = 1; j < 5000; j++) {
+            double yj = a + j * h;
+            sum += integrand(yj);
+        }
+        double w = sum;
+
+        return (h / 6) * (z + 2 * w + 4 * q);
+    }
+
+    public static void task3() {
+        System.out.println("Введите границы интегрирования a, b");
+        Scanner scanner = new Scanner(System.in);
+        a = scanner.nextDouble();
+        b = scanner.nextDouble();
+
+        current_n = 3;
+        task3ForCurrentN();
+
+        current_n = 4;
+        task3ForCurrentN();
+
+        current_n = 6;
+        task3ForCurrentN();
+
+        current_n = 7;
+        task3ForCurrentN();
+    }
+
+    public static void task3ForCurrentN() {
+        System.out.println("Узлы и коэффициенты КФ Гаусса при N = " + current_n);
+        double[] tk = findNodesX();
+        Map<Double, Double> tkCk = calculateCk(tk);
+
+        int num = 1;
+        double sum = 0;
+        for (var tC : tkCk.entrySet()) {
+            System.out.println("t" + num + " = " + tC.getKey() + "; C" + num + " = " + tC.getValue());
+            num++;
+            sum += tC.getValue();
+        }
+
+        System.out.println("Контроль: сумма всех коэффициентов Ck = " + sum);
+        double srcValueIntegral = integral();
+        System.out.println("Точное значение интеграла: " + srcValueIntegral);
+
+        double result = calcIntegral(tkCk);
+        System.out.println("Найденное приближенное значение интеграла: " + result);
+        System.out.println("Разница с точным значением: " + Math.abs(srcValueIntegral - result));
+        System.out.println();
+    }
+
+    public static void task12() {
+        for (int n = 1; n < 9; n++) {
+            current_n = n;
+
+            System.out.println("Узлы и коэффициенты КФ Гаусса при N = " + current_n);
+
+            double[] tk = findNodesX();
+            Map<Double, Double> tkCk = calculateCk(tk);
+
+            int num = 1;
+            double sum = 0;
+            for (var tC : tkCk.entrySet()) {
+                System.out.println("t" + num + " = " + tC.getKey() + "; C" + num + " = " + tC.getValue());
+                num++;
+                sum += tC.getValue();
+            }
+
+            System.out.println("Контроль: сумма всех коэффициентов Ck = " + sum);
+
+            if (current_n == 3 || current_n == 4 || current_n == 5) {
+                testForMonom = true;
+                System.out.println("Контроль: проверим, что при N = " + current_n + " формула точна для многочлена x^" + (2 * current_n - 1));
+
+                double srcValueIntegral = testForMonomSrcIntegral(current_n);
+                System.out.println("Точное значение интеграла: " + srcValueIntegral);
+
+                double result = calcIntegral(tkCk);
+                System.out.println("Найденное приближенное значение интеграла: " + result);
+                System.out.println("Разница с точным значением: " + Math.abs(srcValueIntegral - result));
+                testForMonom = false;
+            }
+            System.out.println();
+        }
+    }
+
+    public static double testForMonomSrcIntegral(int n) {
+        return (Math.pow(b, n + 1) / (n + 1)) - (Math.pow(a, n + 1) / (n + 1));
+    }
+
+    public static double PnLegendre(int n, double x) {
+        if (n == 0) {
+            return 1;
+        }
+
+        if (n == 1) {
+            return x;
+        }
+
+        p_pred = x;
+        p_pred_pred = 1;
+
+        double k = 2;
+        while (true) {
+            double p_current_k;
+
+            double c1 = (2 * k - 1) / k;
+            double c2 = (k - 1) / k;
+
+            p_current_k = c1 * p_pred * x - c2 * p_pred_pred;
+
+            if (k == n) {
+                return p_current_k;
+            }
+
+            k++;
+
+            double tmp = p_pred;
+            p_pred = p_current_k;
+            p_pred_pred = tmp;
+        }
+    }
+
+    public static double[] findNodesX() {
+        double[] x = new double[current_n];
+
+        var intervals = separateRoots(100);
+        int num = 0;
+
+        for (List<Double> interval : intervals) {
+            x[num] = bisectionMethod(interval.get(0), interval.get(1), 0.000000000001);
+            num++;
+        }
+
+        return x;
+    }
+
+    public static List<List<Double>> separateRoots(int N) {
+        double a1 = -1;
+        double b1 = 1;
+
+        List<List<Double>> intervals = new LinkedList<>();
+        double H = (b1 - a1) / N;
+        double x1 = a1;
+        double x2 = a1 + H;
+        double y1 = PnLegendre(current_n, x1);
+        double y2;
+
+        while (x2 <= b1) {
+            y2 = PnLegendre(current_n, x2);
+            if (y1 * y2 < 0) {
+                intervals.add(List.of(x1, x2));
+            }
+            x1 = x2;
+            x2 = x1 + H;
+            y1 = y2;
+        }
+
+        return intervals;
+    }
+
+    public static double bisectionMethod(double a, double b, double e) {
+        double c;
+        while (b - a > 2 * e) {
+            c = (a + b) / 2;
+            if (PnLegendre(current_n, a) * PnLegendre(current_n, c) < 0) {
+                b = c;
+            } else {
+                a = c;
+            }
+        }
+
+        return (a + b) / 2;
+    }
+
+    public static Map<Double, Double> calculateCk(double[] x) {
+        Map<Double, Double> xkCk = new HashMap<>();
+
+        for (int k = 0; k < x.length; k++) {
+            double xk = x[k];
+            double Ck = 2 * (1 - Math.pow(xk, 2)) / (Math.pow(current_n, 2) * Math.pow(PnLegendre(current_n - 1, xk), 2));
+
+            xkCk.put(xk, Ck);
+        }
+
+        return xkCk;
+    }
+
+    public static double calcIntegral(Map<Double, Double> tkCk) {
+        double res = 0;
+
+        if (a == -1 && b == 1) {
+            for (var tC : tkCk.entrySet()) {
+                res += tC.getValue() * f(tC.getKey());
+            }
+            return res;
+        }
+
+        System.out.println("Узлы и коэффициенты подобной КФ Гаусса при N = " + current_n);
+
+        int num = 1;
+        double sum = 0;
+        for (var tC : tkCk.entrySet()) {
+            double xk = ((b - a) / 2.0) * tC.getKey() + ((b + a) / 2.0);
+            double Ak = ((b - a) / 2.0) * tC.getValue();
+
+            System.out.println("x" + num + " = " + xk + "; A" + num + " = " + Ak);
+            num++;
+            sum += Ak;
+
+            res += Ak * f(xk);
+        }
+
+        System.out.println("Контроль: сумма всех коэффициентов Ck = " + sum);
+
+        return res;
+    }
+}
