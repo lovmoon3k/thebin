@@ -1,0 +1,147 @@
+#include <iostream>
+#include <fstream>
+#include <thread>
+#include <ctime>
+
+using namespace std;
+
+#define FILL_CHAR 219
+#define EMPTY_CHAR 255
+
+void print(unsigned int generation, char* print_arr) {
+    printf("Generation:%i\n%s\n", generation, print_arr);
+}
+
+bool equals(bool* array1, bool* array2, unsigned int size) {
+    for (unsigned int x = 0; x < size; x++) //
+        for (unsigned int y = 0; y < size; y++)
+            if (array1[x * size + y] != array2[x * size + y])
+                return false;
+    return true;
+}
+unsigned short inline get(bool* array, unsigned int size, unsigned int x, unsigned int y) {
+    // - высота
+    if (x < 1) x = size;
+    if (y < 1) y = size;
+    if (x > size) x = 1;
+    if (y > size) y = 1;
+    //if (x < 1 || y < 1 || x > size || y > size) return 0;
+    return array[(y - 1) * size + (x - 1)];
+}
+
+__int64 process(bool* array1, bool* array2, char* print_arr, unsigned int size) {
+    __int64 i, j;
+    __int64 count_alive = 0;
+    #pragma omp parallel for private(i,j) reduction (+:count_alive) num_threads(8) schedule(static)
+    for (i = 0; i < (__int64)size; i++)
+    {
+        for (j = 0; j < size; j++) {
+            unsigned short alive_near = get(array1, size, j, i) +
+                get(array1, size, j, i + 1) +
+                get(array1, size, j, i + 2) +
+                get(array1, size, j + 1, i) +
+                get(array1, size, j + 1, i + 2) +
+                get(array1, size, j + 2, i) +
+                get(array1, size, j + 2, i + 1) +
+                get(array1, size, j + 2, i + 2);
+
+            if (alive_near > 3)
+            {
+                array2[i * size + j] = false;
+                print_arr[i * (size + 1) + j] = EMPTY_CHAR;
+            }
+            else if (alive_near > 2)
+            {
+                array2[i * size + j] = true;
+                print_arr[i * (size + 1) + j] = FILL_CHAR;
+                count_alive++;
+            }
+            else if (alive_near > 1)
+            {
+                array2[i * size + j] = array1[i * size + j];
+                count_alive += array1[i * size + j] ? 1 : 0;
+                print_arr[i * (size + 1) + j] = array1[i * size + j] ? FILL_CHAR : EMPTY_CHAR;
+            }
+            else {
+                array2[i * size + j] = false;
+                print_arr[i * (size + 1) + j] = EMPTY_CHAR;
+            }
+        }
+        print_arr[size + i * (size + 1)] = '\n';
+    }
+    print_arr[size * (size + 1) - 1] = '\0';
+    return count_alive;
+}
+
+/**
+ * Путь запуска PV_Life\x64\Debug\
+ * Команда запуска: ./PV_Life.exe 10 5 0
+ * Первый аргумент - размер поля
+ * Второй аргумент - количество поколений.
+ * Третий аргумент - 1 для вывода каждого поколения, 0 для вывода только первого и последнего поколения
+ */
+#pragma comment(linker, "/STACK:1024000000")
+int main(int argc, char* argv[]) {
+    unsigned int size = 900;
+    unsigned int max_iterations = 1000;
+    bool output = false;
+    int count_alive = 0;
+    ofstream out("out.txt");
+
+    bool* array1 = new bool[size * size];
+    bool* array2 = new bool[size * size];
+
+    if (argc > 3)// если передаем аргументы, то argc будет больше 1(в зависимости от кол-ва аргументов)
+    {
+        size = atoi(argv[1]);
+        max_iterations = atoi(argv[2]);
+        output = atoi(argv[3]);
+    }
+    cout << "Size = " << size << "*" << size << ", Number of iterations = " << max_iterations << " Output = " << output << endl;
+	srand(0);
+
+    char* print_arr = new char[size * (size + 1)];
+    for (unsigned int x = 0; x < size; x++)
+    {
+        for (unsigned int y = 0; y < size; y++)
+        {
+            int r = rand() % 4 + 1;
+            array1[x * size + y] = r == 1 ? true : false;
+            count_alive += r == 1 ? 1 : 0;
+            print_arr[x * (size + 1) + y] = array1[x * size + y] ? FILL_CHAR : EMPTY_CHAR;
+        }
+        print_arr[size + x * (size + 1)] = '\n';
+    }
+    print_arr[size * (size + 1) - 1] = '\0';
+    unsigned int generation = 0;
+    out << generation << " " << count_alive << endl;
+    print(generation, print_arr);
+
+    //Таймер стартует после генерации нулевого поколения и вывода массива
+    chrono::steady_clock::time_point start, end;
+    start = chrono::steady_clock::now();
+
+    while (true) {
+        count_alive = process(array1, array2, print_arr, size);
+        generation++;
+        out << generation << " " << count_alive << endl;
+        if (output)
+            print(generation, print_arr);
+
+        if (equals(array1, array2, size) || max_iterations != 0 && generation >= max_iterations)
+        {
+            break;
+        }
+        
+        bool* temp = array1;
+        array1 = array2;
+        array2 = temp;
+    }
+    end = chrono::steady_clock::now();
+    __int64 time = chrono::duration_cast<chrono::milliseconds>(end - start).count();
+    //последнее поколение выводится после отметки времени в таймере.
+    print(generation, print_arr);
+    cout << "Time, milliseconds: " << time << endl << "seconds: " << time/1000 << endl << "Number of iterations: " << generation << ", Size: " << size;
+    
+    return 0;
+}
