@@ -1,0 +1,382 @@
+import json
+import random
+import re
+import time
+from typing import Optional
+
+import selenium.common.exceptions
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+from scrapers_simple.constants import CHROME_EXECUTEABLE, REPLY_ARIA_LABEL, RETWEET_ARIA_LABEL, LIKE_ARIA_LABEL
+import asyncio
+
+from scrapers_simple.utils import twitter_screen_name_to_id, parse_number
+
+
+class Tweet:
+    def __init__(self, fromname, twid, text, pic, vid, comment, retweet, like):
+        try:
+            label = twitter_screen_name_to_id(fromname)
+            if label == 'error':
+                raise
+        except Exception:
+            label = fromname
+        self.csv_filename = f"tweets_from_{label}"
+        self.twid = twid
+        self.text = text
+        self.pic = pic
+        self.vid = vid
+        self.comment = comment
+        self.retweet = retweet
+        self.like = like
+
+    def get_reaction_data(self):
+        return {
+            'comment': self.comment,
+            'rt': self.retweet,
+            'like': self.like
+        }
+
+    def __repr__(self):
+        return f"<Tweet id={self.twid}, from={self.csv_filename.replace('tweet_from_', '')}, " \
+               f"picnum={len(self.pic)}, videonum={len(self.vid)}>"
+
+
+class TweetScraper:
+    def __init__(self, username, **kwargs):
+        self.username = username
+        # self.uid = twitter_screen_name_to_id(username)
+        self.single_tweet = kwargs.pop("single", False)
+        self.debug = kwargs.get("debug", False)
+        self.__init_webdriver(**kwargs)
+        self.parsed_tweets = []
+        if not self.single_tweet:
+            asyncio.run(self.scroll_for_tweets(kwargs.get("max_depth", -1)))
+
+    def __init_webdriver(self, **kwargs):
+        from selenium.webdriver.chrome.options import Options as ChromeOptions
+        from selenium import webdriver
+        from selenium.webdriver.chrome.service import Service as ChromeService
+        options = ChromeOptions()
+        # Prevent Twitter from identifying Selenium codes
+        options.add_experimental_option('excludeSwitches', ['enable-automation'])
+        options.add_experimental_option('useAutomationExtension', False)
+        service = ChromeService()
+        if not kwargs.get("debug", False):
+            options.add_argument("--headless")
+        if kwargs.get("proxy") is not None:
+            options.add_argument(f"--proxy-server={kwargs.get('proxy').get('http')}")
+        self.driver = webdriver.Chrome(service=service, options=options)
+        # Prevent identifying from selenium codes
+        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+            Object.defineProperty(navigator, 'webdriver', {
+              get: () => undefined
+            })
+          """
+        })
+        return True
+
+    async def scroll_for_tweets(self, max_scroll_count=-1):
+        """
+        no longer valid, since more tweets requires login
+        :param max_scroll_count: 
+        :return: 
+        """
+        htop = 0
+        bottom = 0
+        try:
+            self.driver.get(f'https://twitter.com/{self.username}')
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.ID, "react-root"))
+            )
+            # self.driver.minimize_window()
+            while max_scroll_count != 0:
+                sleep_1 = random.uniform(5, 10)
+                time.sleep(sleep_1)
+                htop_elem = self.driver.find_element(by=By.CSS_SELECTOR,
+                                                     value="div[aria-label$='的推文']>div")
+                style_raw = htop_elem.get_attribute("style")
+
+                hstyle = re.search("min-height: (?P<height>[1-9][0-9]*([\.][0-9]{1,2})?)px;",
+                                   style_raw)
+                try:
+                    htop = float(hstyle.group("height"))
+                except Exception:
+                    print(style_raw)
+                    raise Exception("cannot get min-height")
+                hn = self.driver.find_element(by=By.CSS_SELECTOR,
+                                              value="div[aria-label$='的推文']>div>div:nth-last-child(2)")
+                # print(style_raw)
+                # print(hn.get_attribute("style"))
+                if self.debug:
+                    el1 = self.driver.find_element(by=By.CSS_SELECTOR,
+                                                   value="div[aria-label$='的推文']>div>div:first-child")
+                    el2 = self.driver.find_element(by=By.CSS_SELECTOR,
+                                                   value="div[aria-label$='的推文']>div>div:last-child")
+                    print(el1.get_attribute("style"))
+                    print(el2.get_attribute("style"))
+                m = re.search("translateY\((?P<height>[1-9][0-9]*([\.][0-9]{1,2})?)px\);", hn.get_attribute("style"))
+                try:
+                    bottom = float(m.group("height"))
+                    log_text = f"[{max_scroll_count - 1} times left] last 2nd child's height(translateY) {bottom}, min-height {htop}" if max_scroll_count != -1 else \
+                        f"[infinity mode] last 2nd child's height(translateY) {bottom}, min-height {htop}"
+                    print(log_text)
+                    self.driver.execute_script(f"window.scrollBy(0,{bottom})")
+                except Exception:
+                    self.driver.execute_script(f"window.scrollBy(0,1000)")
+                finally:
+                    self.driver.implicitly_wait(random.uniform(1, 2))
+                time.sleep(random.uniform(1, 2))
+                eles = self.driver.find_elements(by=By.XPATH,
+                                                 value="//article[@data-testid='tweet']/div/div/div/div[2]/div[2]/div[1]")
+                time.sleep(random.uniform(1, 2))
+                e2 = self.driver.find_elements(by=By.XPATH,
+                                               value="//article[@data-testid='tweet']/div/div/div/div[2]/div[2]/div[2]")
+
+                href = [ele.find_element(By.CSS_SELECTOR, f"a[href^='/{self.username}/status/']").get_attribute("href")
+                        for ele in eles]
+                print(href)
+                # print(len(e2), len(status_links))
+                # filtered_links = [i for i in status_links if 'photo' not in i and 'media_tags' not in i]
+                # if self.debug:
+                #     print(filtered_links, len(filtered_links))
+                #     print(e2, len(e2))
+                for each in href:
+                    i = href.index(each)
+                    print(f"e2 len {len(e2)}, index {i}")
+                    await self.parse_tweets(each, e2[i])
+                if max_scroll_count > 0:
+                    max_scroll_count -= 1
+                # last 2nd element(last tweet) always have a difference of fixed height value,
+                # login: 981px
+                # not login:657px
+                if htop - bottom == 657:
+                    break
+        except KeyError:
+            raise ValueError(
+                f'Oops! Either "{self.username}" does not exist or is private.'
+            )
+        except selenium.common.exceptions.NoSuchElementException as e:
+            print(e)
+        finally:
+            if not self.debug:
+                self.driver.close()
+
+    async def parse_tweets(self, tweet_link, tweet_element):
+        """
+        :param tweet_link:
+        :param tweet_element: The whole <div> containing a tweet
+        :return:
+        """
+        tweet_re = re.compile(f"https://twitter\.com/{self.username}/status/(\d+)")
+        tw_match = re.match(tweet_re, tweet_link)
+        if tw_match is not None:
+            tw_id = tw_match.group(1)
+            if tw_id not in self.parsed_tweets:
+                try:
+                    ereply = tweet_element.find_element(By.CSS_SELECTOR,
+                                                        "[data-testid='reply']")
+                    ereply_text = ereply.get_attribute("aria-label")
+                    m = re.match(re.compile(REPLY_ARIA_LABEL), ereply_text)
+                    reply_count = parse_number(m.group("REPLY_COUNT"))
+                    eretweet = tweet_element.find_element(By.CSS_SELECTOR,
+                                                          "[data-testid='retweet']")
+                    eretweet_text = eretweet.get_attribute("aria-label")
+                    m2 = re.match(re.compile(RETWEET_ARIA_LABEL), eretweet_text)
+                    retweet_count = parse_number(m2.group("RETWEET_COUNT"))
+                    elike = tweet_element.find_element(By.CSS_SELECTOR,
+                                                       "[data-testid='like']")
+                    elike_text = elike.get_attribute("aria-label")
+                    m3 = re.match(re.compile(LIKE_ARIA_LABEL), elike_text)
+                    like_count = parse_number(m3.group("LIKE_COUNT"))
+                    text_content_elem = tweet_element.find_element(By.CSS_SELECTOR,
+                                                                   "div:first-child")
+                    text = text_content_elem.text
+                    pics = []
+                    pics_elem = tweet_element.find_elements(By.CSS_SELECTOR,
+                                                            f"div[data-testid='tweetPhoto'] img")
+                    pics.extend([p.get_attribute("src") for p in pics_elem])
+                    videos = []
+                    try:
+                        video_elem = tweet_element.find_elements(By.CSS_SELECTOR,
+                                                                 f'div[data-testid="videoPlayer"] video[src]')
+
+                        videos.extend([v.get_attribute("src") for v in video_elem])
+                    except selenium.common.exceptions.NoSuchElementException:
+                        pass
+                    # print(ereply_text,eretweet_text,elike_text)
+                    # print(reply_count,retweet_count,like_count)
+                    self.parsed_tweets.append(tw_id)
+                    t = Tweet(fromname=input_name, twid=tw_id, text=text, pic=pics, vid=videos,
+                              comment=reply_count, retweet=retweet_count, like=like_count)
+                    print(t)
+                except Exception as e:
+                    print(f"Error in twid<{tw_id}> because error in {e}, may need to recrawl later")
+
+    # noinspection SqlResolve
+    def parse_single_tweet_from_status_link(self, tweet_id, username: Optional[str] = None):
+        """
+        usage:
+        # example with location
+        t1 = tweet_1.parse_single_tweet_from_status_link(tweet_id='1576238790452318209',
+                                                         username="Verse_Converse")
+        print(t1)
+        # example with content with emojis
+        t2 = tweet_1.parse_single_tweet_from_status_link(tweet_id='1572917375107620864',
+                                                         username='norioo_')
+        print(t2)
+        # example with content with videos
+        t3 = tweet_1.parse_single_tweet_from_status_link(tweet_id="1576135580970356736",
+                                                         username="norioo_")
+        print(t3)
+        """
+        if not username:
+            username = self.username
+        assert isinstance(tweet_id, int) or isinstance(tweet_id, str) and len(tweet_id.strip()) > 0
+        composed_link = f"https://twitter.com/{username}/status/{tweet_id}"
+        need_refresh = True
+        while need_refresh:
+            try:
+                self.driver.get(composed_link)
+                WebDriverWait(self.driver, 10).until(
+                    EC.all_of(
+                        EC.presence_of_element_located((By.ID, "react-root")),
+                        EC.visibility_of_element_located((By.CSS_SELECTOR, 'article[data-testid="tweet"]')),
+                        # loading element invisible
+                        EC.invisibility_of_element_located(
+                            (By.CSS_SELECTOR,
+                             f'div[data-testid="cellInnerDiv"] div[role="progressbar"] svg'
+                             )
+                        )
+                    )
+                )
+                need_refresh = False
+            except selenium.common.exceptions.TimeoutException:
+                print(f"Timeout error, returning when parsing {tweet_id}")
+                self.driver.save_screenshot(f'temp-screenshots/{username}-{tweet_id}-error.png')
+                return None, False
+        tweet_obj = {
+            "tweet_id": tweet_id,
+            "user_name": username
+        }
+        try:
+            post_time_elem = self.driver.find_element(By.CSS_SELECTOR, f'a[href^="/{username}/"]>time')
+            tweet_obj.update({
+                "post_time": post_time_elem.get_attribute("datetime")
+            })
+        except selenium.common.exceptions.NoSuchElementException:
+            print(f"no element with post_time, maybe original tweet https://twitter.com/{username}/status/{tweet_id} "
+                  f"have a redirect to {self.driver.current_url}")
+            return None, False
+        display_name = ""
+        display_name_elem = self.driver.find_elements(By.CSS_SELECTOR,
+                                                      'div[data-testid="cellInnerDiv"]:first-child div[data-testid="User-Names"]>div:first-child div[dir="auto"]>span>span,'
+                                                      'div[data-testid="cellInnerDiv"]:first-child div[data-testid="User-Names"]>div:first-child div[dir="auto"]>span>img')
+        for _each in display_name_elem:
+            if _each.tag_name == "span":
+                display_name += _each.text
+            elif _each.tag_name == "img" and _each.get_attribute("draggable") == "false":
+                # image emojis
+                display_name += _each.get_attribute("alt")
+        tweet_obj.update({
+            "display_name": display_name
+        })
+        place_txt = ''
+        try:
+            place = self.driver.find_element(By.CSS_SELECTOR, 'article[data-testid="tweet"] a[href^="/places/"]>span')
+            place_txt = place.text
+        except selenium.common.exceptions.NoSuchElementException:
+            # print(f"No places element on status {tweet_id}")
+            pass
+        finally:
+            tweet_obj.update({
+                "location_name": place_txt
+            })
+        retweets = 0
+        try:
+            retweet = self.driver.find_element(By.CSS_SELECTOR, f'a[href^="/{username}/"][href$="/retweets"]>div span')
+            retweets = retweet.text
+        except selenium.common.exceptions.NoSuchElementException:
+            pass
+        finally:
+            tweet_obj.update({
+                "retweet_num": retweets
+            })
+        likes = 0
+        try:
+            like = self.driver.find_element(By.CSS_SELECTOR, f'a[href^="/{username}/"][href$="/likes"]>div span')
+            likes = like.text
+        except selenium.common.exceptions.NoSuchElementException:
+            pass
+        finally:
+            tweet_obj.update({
+                "like_num": likes
+            })
+        content = ""
+        try:
+            full_elem = self.driver.find_elements(By.CSS_SELECTOR,
+                                                  'div[data-testid="cellInnerDiv"]:first-child article[data-testid="tweet"] div[lang]>span,'
+                                                  'div[data-testid="cellInnerDiv"]:first-child article[data-testid="tweet"] div[lang]>img,'
+                                                  'div[data-testid="cellInnerDiv"]:first-child article[data-testid="tweet"] div[lang]>a')
+            for each2 in full_elem:
+                if each2.tag_name == "span":
+                    content += each2.text
+                elif each2.tag_name == "img" and each2.get_attribute("draggable") == "false":
+                    # image emojis
+                    content += each2.get_attribute("alt")
+                elif each2.tag_name == "a":
+                    t = each2.text.replace("…", "")
+                    t += " "
+                    content += t
+        except selenium.common.exceptions.NoSuchElementException:
+            pass
+        finally:
+            tweet_obj.update({
+                "content": content
+            })
+        pics = []
+        pics_elem = self.driver.find_elements(By.CSS_SELECTOR,
+                                              f'div[data-testid="cellInnerDiv"]:first-child div[data-testid="tweetPhoto"] img')
+        pics.extend([p.get_attribute("src") for p in pics_elem])
+        videos = []
+        try:
+            video_elem = self.driver.find_elements(By.CSS_SELECTOR,
+                                                   f'div[data-testid="cellInnerDiv"]:first-child div[data-testid="videoPlayer"] video[src]')
+            videos.extend([v.get_attribute("src") for v in video_elem])
+        except selenium.common.exceptions.NoSuchElementException:
+            pass
+        if len(pics) > 0:
+            tweet_obj.update({
+                "images": pics
+            })
+        if len(videos) > 0:
+            tweet_obj.update({
+                "videos": videos
+            })
+        should_update = False
+        if 'location_name' in tweet_obj and tweet_obj['location_name'] is not None:
+            if len(tweet_obj['location_name'].strip()) != 0:
+                should_update = True
+        return tweet_obj, should_update
+
+    def __del__(self):
+        if hasattr(self.driver, 'close') and not self.debug:
+            print('closing selenium window')
+            self.driver.close()
+
+
+if __name__ == '__main__':
+    from comprehensive_tasks.comprehensive_tasks.utils.ddl import DBUtil
+
+    input_name = ""
+    while not input_name:
+        input_name = input("请输入爬取的用户名（@user_name的user_name部分）>>")
+    tweet_1 = TweetScraper(username=input_name, proxy={
+        'http': '填你的VPN带端口号',
+        'https': '填你的VPN带端口号'
+    }, debug=False, single=True)
+    
+    tweet, update = tweet_1.parse_single_tweet_from_status_link(这里填tweet_id)
