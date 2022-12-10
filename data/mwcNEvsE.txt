@@ -1,0 +1,153 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <vector>
+
+enum class Op {
+    Noop,
+    Addx
+};
+
+struct OpCode {
+    void print();
+
+    Op op;
+    int arg;
+};
+
+void OpCode::print() {
+    switch(op) {
+        case Op::Noop: printf("noop"); break;
+        case Op::Addx: printf("addx %d", arg); break;
+        default: assert(0);
+    }
+    printf("\n");
+}
+
+std::vector<OpCode> parse_input(const char *path) {
+    FILE *f = fopen(path, "r");
+    if(!f) assert(0);
+
+    std::vector<OpCode> ops;
+    char buffer[10] = {0}; // should be enough for up to 'addx' with a negative to digit argument.
+    while(fgets(buffer, 10, f)) {
+        if(buffer[0] == 'n') {
+            // noop
+            ops.push_back(OpCode{Op::Noop, 0});
+        } else if(buffer[0] == 'a') {
+            // addx
+            char *arg = buffer + 4 + 1;
+            int n = strtol(arg, NULL, 10);
+            ops.push_back(OpCode{Op::Addx, n});
+        } else {
+            assert(0);
+        }
+    }
+    fclose(f);
+    return ops;
+}
+
+struct Vm {
+    Vm(std::vector<OpCode>& ops) : rx(1), clock(0), ops(ops) {}
+    ~Vm() = default;
+    void reset();
+    void execute_part1();
+    void execute_part2();
+
+    int rx;
+    int clock;
+    std::vector<OpCode> &ops;
+};
+
+void Vm::reset() {
+    rx = 1;
+    clock = 0;
+}
+
+void Vm::execute_part1() {
+    int signal_strength_sum = 0;
+    int check_rx_in = 20;
+    auto cycle = [this, &check_rx_in, &signal_strength_sum]() {
+        clock += 1;
+        //printf("cycle %d: rx = %d\n", clock, rx);
+        if(clock == check_rx_in) {
+            //printf(">> check rx(%d) clock(%d) signal(%d)\n", rx, clock, rx * clock);
+            signal_strength_sum += (clock * rx);
+            check_rx_in += 40;
+        }
+    };
+
+    for(auto &op : ops) {
+        switch(op.op) {
+            case Op::Noop:
+                cycle();
+                break;
+            case Op::Addx:
+                cycle();
+                cycle();
+                rx += op.arg;
+                break;
+            default: assert(0);
+        }
+        //printf(">> rx = %d\n", rx);
+    }
+    printf("part 1: %d\n", signal_strength_sum);
+}
+
+void Vm::execute_part2() {
+    // rx: horizontal position of the middle pixel of the sprite.
+    char screen[6][40] = {0};
+    int y = 0, x = 0;
+
+    auto cycle = [this, &screen, &y, &x]() {
+        clock += 1;
+        //printf("cycle %d: rx = %d\n", clock, rx);
+    
+        // draw screen
+        const int sprite_start = rx - 1, sprite_x = rx, sprite_end = rx + 1;
+        if(x == sprite_start || x == sprite_x || x == sprite_end) {
+            screen[y][x] = '#';
+        } else {
+            screen[y][x] = ' ';
+        }
+        x += 1;
+        if(x == 40) {
+            //puts("newline");
+            x = 0;
+            y += 1;
+        }
+    };
+
+    for(auto &op : ops) {
+        switch(op.op) {
+            case Op::Noop:
+                cycle();
+                break;
+            case Op::Addx:
+                cycle();
+                cycle();
+                rx += op.arg;
+                break;
+            default: assert(0);
+        }
+        //printf(">> rx = %d\n", rx);
+    }
+
+    puts("part 2:");
+    for(int i = 0; i < 6; ++i) {
+        for(int j = 0; j < 40; ++j) {
+            putchar(screen[i][j]);
+        }
+        putchar('\n');
+    }
+}
+
+int main(void) {
+    auto input = parse_input("input.txt");
+    Vm vm(input);
+    vm.execute_part1();
+    vm.reset();
+    vm.execute_part2();
+    return 0;
+}
+
