@@ -1,0 +1,91 @@
+db.articles.aggregate([
+    {
+        $project: {
+          _id: 1,
+          article_sections_info: {
+            $reduce: {
+                input: { $ifNull: [ "$sections", [] ] },
+                initialValue: {n_figures: 0, n_paragraphs: 0, n_subsections: 0},
+                in: {
+                    n_figures: {
+                        $add: [
+                            "$$value.n_figures",
+                            {$size: { $ifNull: [ "$$this.figures", [] ] }},
+                            {
+                                $reduce: {
+                                    input: { $ifNull: [ "$$this.subsections", [] ] },
+                                    initialValue: 0,
+                                    in: {
+                                        $add: [
+                                            "$$value",
+                                            {$size: { $ifNull: [ "$$this.figures", [] ] }},
+                                        ]
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    n_paragraphs: {
+                        $add: [
+                            "$$value.n_paragraphs",
+                            {$size: { $ifNull: [ "$$this.paragraphs", [] ] }},
+                            {
+                                $reduce: {
+                                    input: { $ifNull: [ "$$this.subsections", [] ] },
+                                    initialValue: 0,
+                                    in: {
+                                        $add: [
+                                            "$$value",
+                                            {$size: { $ifNull: [ "$$this.paragraphs", [] ] }},
+                                        ]
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    n_subsections: {
+                        $add: [
+                            "$$value.n_subsections",
+                            {$size: { $ifNull: [ "$$this.subsections", [] ] }}
+                        ]
+                    }
+                }
+            }
+          }
+        }
+    },
+    {
+        $project: {
+            rank: {
+                $sum: [
+                    {
+                        $multiply: [
+                            "$article_sections_info.n_subsections",
+                            10
+                        ]
+                    },
+                    {
+                        $multiply: [
+                            "$article_sections_info.n_paragraphs",
+                            5
+                        ]
+                    },
+                    {
+                        $multiply: [
+                            "$article_sections_info.n_figures",
+                            2
+                        ]
+                    }
+                ]
+            }
+        }
+    },
+    {
+        $sort: {
+            rank: -1
+        }
+    },
+    {
+        $limit: 5
+    }
+])
