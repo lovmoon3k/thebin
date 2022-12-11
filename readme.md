@@ -1,13 +1,5 @@
-[**L0M7jt7j**](/data/L0M7jt7j.txt) (11/12/22 - 23:30)- 3445 bytes
+[**sBbjGP6R**](/data/sBbjGP6R.txt) (11/12/22 - 23:35)- 2043 bytes
 
-[**cZ23BHax**](/data/cZ23BHax.txt) (11/12/22 - 23:30)- 13363 bytes
+**Total Datas**: 8343
 
-[**d49P5FGX**](/data/d49P5FGX.txt) (11/12/22 - 23:30)- 1109 bytes
-
-[**cZ23BHax**](/data/cZ23BHax.txt) (11/12/22 - 23:30)- 13363 bytes
-
-[**d49P5FGX**](/data/d49P5FGX.txt) (11/12/22 - 23:30)- 1109 bytes
-
-**Total Datas**: 8342
-
-**Total Size**: 48.45 MB / 48.5 MB
+**Total Size**: 48.46 MB / 48.5 MB
