@@ -1,0 +1,80 @@
+#!/usr/local/bin/gst -q
+
+Collection extend [
+    apply: method  [ ^self collect: [:x | x perform: method] ]
+    prod           [ ^self inject: 1 into: [:a :b | a * b] ]
+    lcm            [ ^self fold: [:a :b | a lcm: b] ]
+]
+
+Object subclass: Monkey [
+    | num items op arg test pass checks |
+    Monkey class >> new: desc [
+        ^super new init: desc
+    ]
+
+    init: desc [
+        " Monkey 0: (smalltalk arrays start at 1, so +1)"
+        num := desc first second asNumber + 1.
+
+        " Starting items: 79, 98 "
+        items := (desc second allButFirst: 2) apply: #asNumber.
+
+        " Operation: new = old + 19  (ASSUME 0 isn't used here)"
+        " Operation: new = old * old (... so 0 represents this)"
+        op  := (desc third at: 5) asSymbol.
+        arg := desc third last asNumber.
+
+        " Test: divisible by 23 "
+        test := desc fourth last asNumber.
+
+        " If true: throw to monkey 2  (+1 for array indexing)"
+        " If false: throw to monkey 3 (+1 for array indexing)"
+        pass := Dictionary from: {
+                    true  -> ((desc at: 5) last asNumber + 1).
+                    false -> ((desc at: 6) last asNumber + 1).
+                }.
+
+        checks := 0.
+        ^self
+    ]
+
+    inspect: item [
+        checks := checks + 1.
+        ^item perform: op with: (arg = 0 ifTrue: [item] ifFalse: [arg]).
+    ]
+
+    testPass: worry [
+        ^pass at: (worry \\ test = 0).
+    ]
+
+    testValue  [ ^test   ]
+    items      [ ^items  ]
+    numInspect [ ^checks ]
+]
+
+
+"
+| Mainline
+"
+monkeys := ((stdin contents tokenize: '\n\n') collect: [ :blk |
+                blk lines apply: #substrings " break into lines and words "
+           ]) collect: [:txt | Monkey new: txt].
+
+" Get modulus we can use to keep worry levels down "
+modulus := (monkeys apply: #testValue) lcm.
+
+(1 to: 10000) do: [ :round |
+    (round \\ 100 = 0) ifTrue: [
+        stderr nextPutAll: ('Round: %1' % {round}); cr; flush.
+    ].
+
+    monkeys do: [ :monk |
+        [monk items notEmpty] whileTrue: [
+            | item |
+            item := (monk inspect: monk items removeFirst) \\ modulus.
+            (monkeys at: (monk testPass: item)) items addLast: item.
+        ]
+    ]
+].
+
+('Part 2: %1' % {((monkeys apply: #numInspect) sorted last: 2) prod}) displayNl.
