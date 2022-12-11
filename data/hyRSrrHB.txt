@@ -1,0 +1,322 @@
+package lab5;
+
+import Jama.Matrix;
+
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
+public class kfnast {
+    public static double a;
+    public static double b;
+    public static int n;
+
+    public static List<Double> x = new LinkedList<>();
+    public static double[] coeffOrtogPolynom;
+
+    public static boolean checkForMonom;
+
+    public static void initABN(double a1, double b1, int n1) {
+        a = a1;
+        b = b1;
+        n = n1;
+    }
+
+    public static void main(String[] args) {
+        PrintInfo.printHead();
+        startTask();
+        testMonomial();
+    }
+
+    public static void startTask() {
+        checkForMonom = false;
+        System.out.println("___________________________________________________________________");
+        System.out.println("РЕШЕНИЕ");
+        solve();
+    }
+
+    public static void testMonomial() {
+        checkForMonom = true;
+        System.out.println("ТЕСТИРОВАНИЕ НА ОДНОЧЛЕНАХ ДО x^(2N-1) ПРИ N УЗЛАХ");
+        System.out.println("Введено N = " + n);
+        System.out.print("Тестируем на одночленах до x^" + (2 * n - 1) + " при " + n + " узлах");
+        solve();
+    }
+
+    public static void solve() {
+        if (!checkForMonom) {
+            double[] moments = calculateMomentsOfWeightFunction();
+            coeffOrtogPolynom = solveLinearEquationsForCoeffOrtogPolynom(moments);
+            findNodesX();
+            Map<Double, Double> AkXk = solveLinearEquationsForCoeffAk(moments);
+            double result = calculateSrcIntegral(AkXk);
+            PrintInfo.printResult(result, DescribeFunctions.integral());
+        } else {
+            double[] moments = calculateMomentsOfWeightFunction();
+            coeffOrtogPolynom = solveLinearEquationsForCoeffOrtogPolynom(moments);
+            findNodesX();
+            Map<Double, Double> AkXk = solveLinearEquationsForCoeffAk(moments);
+
+            for (int i = 1; i <= 2 * n - 1; i++) {
+                System.out.println("p(x) * x^" + i + " : ");
+                double result = calculateSrcIntegral(AkXk);
+                PrintInfo.printResult(result, DescribeFunctions.integraltest(i));
+            }
+        }
+
+        x.clear();
+        //System.out.println();
+    }
+
+    public static double[] calculateMomentsOfWeightFunction() {
+        double[] arrayMoments = new double[2 * n];
+        double mk;
+        for (int k = 0; k < 2 * n; k++) {
+            if (checkForMonom) {
+                //mk = integralXk(k);
+                mk = integralPXk(k);
+            } else {
+                mk = integralPXk(k);
+            }
+            arrayMoments[k] = mk;
+        }
+
+        if (!checkForMonom) {
+            System.out.println("Моменты весовой функции: ");
+            for (double arrayMoment : arrayMoments) {
+                System.out.println(arrayMoment);
+            }
+            System.out.println();
+        }
+
+        return arrayMoments;
+    }
+
+    public static double integralXk(int k) {
+        double pow = k + 1.0;
+        double coefficient = 1.0 / (k + 1);
+        return coefficient * (Math.pow(b, pow)) - coefficient * (Math.pow(a, pow));
+    }
+
+    public static double integralPXk(int k) {
+        double pow = 3.0 / 4.0 + k;
+        double coefficient = 1.0 / pow;
+        return coefficient * (Math.pow(b, pow)) - coefficient * (Math.pow(a, pow));
+    }
+
+    public static double[] solveLinearEquationsForCoeffOrtogPolynom(double[] m) {
+        double[][] lhsArray = new double[n][n];
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++) {
+                lhsArray[i][j] = m[n - 1 + i - j];
+            }
+        }
+
+        double[] rhsArray = new double[n];
+        for (int i = 0; i < n; i++) {
+            rhsArray[i] = -1 * m[n + i];
+        }
+
+        Matrix lhs = new Matrix(lhsArray);
+        Matrix rhs = new Matrix(rhsArray, rhsArray.length);
+        Matrix ans = lhs.solve(rhs);
+        var answer = ans.getArray();
+
+        double[] a = new double[n];
+        for (int j = 0; j < n; j++) {
+            a[j] = answer[j][0];
+        }
+
+        if (!checkForMonom) {
+            System.out.println("Найденные коэффициенты ортогонального многочлена: ");
+            for (int i = 0; i < a.length; i++) {
+                System.out.println("a" + (i + 1) + " = " + a[i]);
+            }
+            System.out.println();
+        }
+
+        return a;
+    }
+
+    public static double ortogonalPolynom(double x) {
+        double result = 0;
+        for (int i = 0; i < n + 1; i++) {
+            if (i == n) {
+                result += Math.pow(x, i);
+            } else {
+                result += Math.pow(x, i) * (coeffOrtogPolynom[n - 1 - i]);
+            }
+        }
+        return result;
+    }
+
+    public static void findNodesX() {
+        if (!checkForMonom) {
+            System.out.println("Ищем узлы как корни ортогонального многочлена");
+        }
+        var intervals = separateRoots(100);
+        for (List<Double> interval : intervals) {
+            System.out.println();
+            bisectionMethod(interval.get(0), interval.get(1), 0.00000000000001);
+            //secantMethod(interval.get(0), interval.get(1), 0.00000000000001);
+        }
+
+        if (!checkForMonom) {
+            System.out.println();
+            System.out.println("Найдены узлы: " + x);
+            System.out.println();
+        }
+    }
+
+    public static List<List<Double>> separateRoots(int N) {
+        List<List<Double>> intervals = new LinkedList<>();
+        double H = (b - a) / N;
+        double x1 = a;
+        double x2 = a + H;
+        double y1 = ortogonalPolynom(x1);
+        double y2;
+
+        while (x2 <= b) {
+            y2 = ortogonalPolynom(x2);
+            if (y1 * y2 < 0) {
+                intervals.add(List.of(x1, x2));
+            }
+            x1 = x2;
+            x2 = x1 + H;
+            y1 = y2;
+        }
+
+        PrintInfo.printResultRootSeparation(intervals);
+        return intervals;
+    }
+
+    public static void secantMethod(double a1, double b1, double e) {
+        if (!checkForMonom) {
+            System.out.println("МЕТОД СЕКУЩИХ");
+            System.out.println("Ищем корень уравнения на промежутке [" + a1 + ", " + b1 + "]");
+        }
+        double x0 = a1;
+        double x1 = b1;
+        double x2 = x1 - (ortogonalPolynom(x1) / (ortogonalPolynom(x1) - ortogonalPolynom(x0))) * (x1 - x0);
+
+        while (Math.abs(x2 - x1) >= e) {
+            x0 = x1;
+            x1 = x2;
+            x2 = x1 - (ortogonalPolynom(x1) / (ortogonalPolynom(x1) - ortogonalPolynom(x0))) * (x1 - x0);
+        }
+        if (!checkForMonom) {
+            System.out.println("Найден корень x = " + x2);
+        }
+
+        x.add(x2);
+    }
+
+    public static void bisectionMethod(double a, double b, double e) {
+        if (!checkForMonom) {
+            System.out.println("МЕТОД БИСЕКЦИИ");
+            System.out.println("Ищем корень уравнения на промежутке [" + a + ", " + b + "]");
+        }
+        double c;
+        while (b - a > 2 * e) {
+            c = (a + b) / 2;
+            if (ortogonalPolynom(a) * ortogonalPolynom(c) < 0) {
+                b = c;
+            } else {
+                a = c;
+            }
+        }
+        double x1 = (a + b) / 2;
+        if (!checkForMonom) {
+            System.out.println("Найден корень x = " + x1);
+        }
+        x.add(x1);
+    }
+
+    public static Map<Double, Double> solveLinearEquationsForCoeffAk(double[] moments) {
+        int size = x.size();
+        double[][] lhsArray = new double[size][size];
+        for (int i = 0; i < size; i++) {
+            for (int j = 0; j < size; j++) {
+                if (i == 0) {
+                    lhsArray[0][j] = 1;
+                } else {
+                    double componentXPow = 1;
+                    for (int k = 0; k < i; k++) {
+                        componentXPow *= x.get(j);
+                    }
+                    lhsArray[i][j] = componentXPow;
+                }
+            }
+        }
+
+        double[] rhsArray = new double[size];
+        for (int i = 0; i < size; i++) {
+            rhsArray[i] = moments[i];
+        }
+
+        Matrix lhs = new Matrix(lhsArray);
+        Matrix rhs = new Matrix(rhsArray, rhsArray.length);
+        Matrix ans = lhs.solve(rhs);
+        var answer = ans.getArray();
+
+        Map<Double, Double> mapAX = new LinkedHashMap<>();
+        for (int i = 0; i < answer.length; i++) {
+            mapAX.put(answer[i][0], x.get(i));
+        }
+
+        double sum = 0;
+        if (!checkForMonom) {
+            System.out.println("Найдены коэффициенты Ak: ");
+        }
+
+        for (var entry : mapAX.entrySet()) {
+            if (!checkForMonom) {
+                System.out.println("Ak = " + entry.getKey() + "; xk = " + entry.getValue());
+            }
+            sum += entry.getKey();
+        }
+
+        //System.out.println("Сумма Ak = " + sum);
+
+        return mapAX;
+    }
+
+    public static double calculateSrcIntegral(Map<Double, Double> AkXk) {
+        double result = 0;
+        for (var pair : AkXk.entrySet()) {
+            result += pair.getKey() * lagrangeF(pair.getValue());
+        }
+        return result;
+    }
+
+    public static double lagrangeF(double x1) {
+        System.out.println();
+        double result = 0;
+        for (int k = 0; k < x.size(); k++) {
+            double numerator = productDifferencesWithoutPointK(x1, k);
+            double denominator = productDifferencesWithoutPointK((Double) x.toArray()[k], k);
+            double pointValue = DescribeFunctions.f((Double) x.toArray()[k]);
+
+            result += (numerator / denominator) * pointValue;
+        }
+        return result;
+    }
+
+    public static double productDifferencesWithoutPointK(double x4, int k) {
+        double x0 = (Double) x.toArray()[0];
+        double x1 = (Double) x.toArray()[1];
+        double startFactor = k != 0 ? (x4 - x0) : (x4 - x1);
+        int startIndex = k != 0 ? 1 : 2;
+
+        double res = startFactor;
+
+        for (int i = startIndex; i < x.size(); i++) {
+            if (i != k) {
+                res *= (x4 - (Double) x.toArray()[i]);
+            }
+        }
+        return res;
+    }
+}
+
