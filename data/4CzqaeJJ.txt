@@ -1,0 +1,80 @@
+#include <iostream>
+#include <new>
+#include <type_traits>
+#include <memory>
+
+#ifdef LOCAL
+#include <iostream>
+#endif
+
+template <class vt>
+class smart_ptr {
+public:
+    smart_ptr() noexcept (std::is_nothrow_constructible<vt>::value) {
+        ptr_ = new (std::nothrow) vt;
+    }
+
+    smart_ptr(const smart_ptr& oth) = delete;
+
+    smart_ptr& operator=(const smart_ptr& other) = delete;
+
+    smart_ptr(smart_ptr&& oth) noexcept {
+        ptr_ = oth.ptr_;
+        oth.ptr_ = nullptr;
+    }
+
+    smart_ptr& operator=(smart_ptr&& oth) noexcept(std::is_nothrow_destructible<vt>::value) {
+        if (ptr_ != oth.ptr_) {
+            operator delete (ptr_, std::nothrow);
+            std::destroy_at(ptr_);
+            ptr_ = oth.ptr_;
+            oth.ptr_ = nullptr;
+        }
+        return *this;
+        
+    }
+
+    vt* get() const noexcept {
+        return ptr_;
+    }
+
+    vt* operator->() const noexcept {
+        return ptr_;
+    }
+
+    vt& operator*() const noexcept {
+        return *ptr_;
+    }
+
+    ~smart_ptr() noexcept(std::is_nothrow_destructible<vt>::value) {
+        #ifdef LOCAL
+        std::cout << "kek\n";
+        std::cout << (ptr_ != nullptr) << '\n';
+        #endif
+        if (ptr_ != nullptr) {
+            std::destroy_at(ptr_);
+            operator delete (ptr_, std::nothrow);
+            ptr_ = nullptr;
+        }
+    }
+private:
+    vt* ptr_;
+};
+
+#ifdef LOCAL
+
+struct c {
+    c() {
+        std::cout << "c()\n";
+    }
+    ~c() {
+        std::cout << "~c()\n";
+    }
+    int a = 1;
+};
+
+int main() {
+    smart_ptr<c> ptr;
+    std::cout << ptr.get() << ' ' << nullptr <<  '\n';
+}
+#endif
