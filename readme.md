@@ -1,11 +1,7 @@
-[**RH3j7VVy**](/data/RH3j7VVy.txt) (12/12/22 - 04:41)- 1220 bytes
+[**uFpRuVkD**](/data/uFpRuVkD.txt) (12/12/22 - 04:47)- 265 bytes
 
-[**RH3j7VVy**](/data/RH3j7VVy.txt) (12/12/22 - 04:41)- 1220 bytes
+[**uFpRuVkD**](/data/uFpRuVkD.txt) (12/12/22 - 04:47)- 265 bytes
 
-[**Amfy9iUV**](/data/Amfy9iUV.txt) (12/12/22 - 04:41)- 35403 bytes
-
-[**Amfy9iUV**](/data/Amfy9iUV.txt) (12/12/22 - 04:41)- 35403 bytes
-
-**Total Datas**: 8393
+**Total Datas**: 8394
 
 **Total Size**: 48.67 MB / 48.7 MB
