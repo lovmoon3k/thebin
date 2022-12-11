@@ -1,0 +1,581 @@
+#include <stdio.h>
+
+#include <stdlib.h>
+
+#include <dirent.h>
+
+#include <unistd.h>
+
+#include <string.h>
+
+#include <sys/stat.h>
+
+#include <sys/types.h>
+
+#include <sys/wait.h>
+
+
+
+int main(int argc, char* argv[])
+
+{
+
+    if(argc != 3)
+
+    {
+
+        perror("Number of arguments is different from 2!\n");
+
+        exit(1);
+
+    }
+
+    
+
+    printf("\nThe program gets 2 arguments: a path (%s) and a string of options (%s)\n\n", argv[1], argv[2]);
+
+    
+
+    DIR *dir;
+
+    struct dirent *dp;
+
+
+
+    if((dir = opendir(argv[1]))== NULL)
+
+    {
+
+        perror("Non-existent directory at the given path!");
+
+        exit(1);
+
+    }
+
+    
+
+    while((dp = readdir(dir)) != NULL)
+
+    {
+
+
+
+        char path[500];
+
+        sprintf(path,"%s/%s", argv[1], dp->d_name);
+
+
+
+        struct stat statRes;
+
+
+
+        if(lstat(path, &statRes) == -1)
+
+        {
+
+            perror("Error");
+
+            exit(1);
+
+        }
+
+
+
+        mode_t bits = statRes.st_mode;
+
+
+
+        if(S_ISDIR(bits) && dp->d_name[0] != '.')
+
+        {
+
+            printf("%s is a directory!\n\n", dp->d_name);
+
+        }
+
+
+
+        int l = strlen(dp->d_name);
+
+
+
+        if(dp->d_name[l-2] == '.' && dp->d_name[l-1] == 'c')
+
+        {
+
+            char opt[20], prog[500], exe[500];
+
+            int pid_switch, pid_symlink, pid_compile, pid_filter, status, pipe_filter[2], pipe_compile[2];
+
+
+
+            if((pid_switch = fork()) < 0)
+
+            {
+
+                perror("Error");
+
+                exit(1);
+
+            }
+
+
+
+            if(pid_switch == 0)
+
+            {
+
+                strcpy(opt, argv[2]);
+
+
+
+                if(opt[0] == '-')
+
+                for(int i = 1; i <= strlen(opt); i++)
+
+                {
+
+                    switch(opt[i])
+
+                    {
+
+                        case 'n': 
+
+                                printf("Name of file: %s\n",dp->d_name); 
+
+                                break;
+
+
+
+                        case 'u': 
+
+                                printf("User ID of the owner:%d\n", statRes.st_uid);
+
+                                break;
+
+
+
+                        case 'a': 
+
+                                printf("Access rights:\n"); 
+
+                                printf("User:\n");
+
+                                printf("Read: "); if((bits & S_IRUSR) != 0) printf("YES\n"); else printf("NO\n");
+
+                                printf("Write: "); if((bits & S_IWUSR) != 0) printf("YES\n"); else printf("NO\n");
+
+                                printf("Execute: "); if((bits & S_IXUSR) != 0) printf("YES\n"); else printf("NO\n");
+
+                                printf("Group:\n");
+
+                                printf("Read: "); if((bits & S_IRGRP) != 0) printf("YES\n"); else printf("NO\n");
+
+                                printf("Write: "); if((bits & S_IWGRP) != 0) printf("YES\n"); else printf("NO\n");
+
+                                printf("Execute: "); if((bits & S_IXGRP)!= 0) printf("YES\n"); else printf("NO\n");
+
+                                printf("Other:\n");
+
+                                printf("Read: "); if((bits & S_IROTH) != 0) printf("YES\n"); else printf("NO\n");
+
+                                printf("Write: "); if((bits & S_IWOTH) != 0) printf("YES\n"); else printf("NO\n");
+
+                                printf("Execute: "); if((bits & S_IXOTH) != 0) printf("YES\n"); else printf("NO\n");
+
+                                break;
+
+
+
+                        case 'd': 
+
+                                printf("File size: %ld bytes\n", statRes.st_size);
+
+                                break;
+
+
+
+                        case 'c': 
+
+                                printf("Number of hardlinks: %lu\n", statRes.st_nlink);
+
+                                break;
+
+
+
+                        case 'g': 
+
+                                if((pid_compile = fork()) < 0)
+
+                                {
+
+                                    perror("Error");
+
+                                    exit(1);
+
+                                }
+
+
+
+                                if(pid_compile == 0)
+
+                                {
+
+                                    sprintf(prog,"%s/%s", argv[1], dp->d_name);
+
+                                    sprintf(exe, "%s/%s", argv[1], dp->d_name);
+
+                                    exe[strlen(exe) - 2] = '\0';
+
+
+
+                                    execlp("gcc", "gcc", prog, "-o", exe, NULL);
+
+
+
+                                    printf("Compilation failed");  
+
+                                }
+
+
+
+                                pid_compile = wait(&status);
+
+                                if(status == 0)
+
+                                {
+
+                                    printf("%s compiled successfully\n", dp->d_name);
+
+                                }
+
+                                printf("Child process_compile_g with PID %d exited with code %d\n", pid_compile, status);
+
+                                break;
+
+
+
+                        case 'p': 
+
+                                if(pipe(pipe_filter) < 0)
+
+                                {
+
+                                    perror("Error");
+
+                                    exit(1);
+
+                                }
+
+
+
+                                if(pipe(pipe_compile) < 0)
+
+                                {
+
+                                    perror("Error");
+
+                                    exit(1);
+
+                                }
+
+
+
+                                if((pid_compile = fork()) < 0)
+
+                                {
+
+                                    perror("Error");
+
+                                    exit(1);
+
+                                }
+
+
+
+                                if(pid_compile == 0)
+
+                                {
+
+                                    close(pipe_filter[0]);
+
+                                    close(pipe_filter[1]);
+
+                                    close(pipe_compile[0]);
+
+
+
+                                    dup2(pipe_compile[1], 2);
+
+
+
+                                    sprintf(prog,"%s/%s", argv[1], dp->d_name);
+
+                                    sprintf(exe, "%s/%s", argv[1], dp->d_name);
+
+                                    exe[strlen(exe) - 2] = '\0';
+
+
+
+                                    execlp("gcc", "gcc", prog, "-o", exe, "-Wall", NULL); 
+
+
+
+                                    printf("Compilation failed");            
+
+                                }
+
+
+
+                                if((pid_filter = fork()) < 0)
+
+                                {
+
+                                    perror("Error");
+
+                                    exit(1);
+
+                                }
+
+
+
+                                if(pid_filter == 0)
+
+                                {
+
+                                    close(pipe_filter[0]);
+
+                                    close(pipe_compile[1]);
+
+
+
+                                    dup2(pipe_compile[0], 0);
+
+                                    dup2(pipe_filter[1], 1);
+
+
+
+                                    execlp("grep", "grep", "\\(warning\\|error\\)", NULL);
+
+
+
+                                    printf("Filtering failed");
+
+                                }
+
+
+
+                                close(pipe_compile[0]);
+
+                                close(pipe_compile[1]);
+
+                                close(pipe_filter[1]);
+
+
+
+                                FILE *stream = fdopen(pipe_filter[0], "r");
+
+
+
+                                char line[100];
+
+                                int err = 0, war = 0, points = 0;
+
+
+
+                                while (fgets(line, sizeof(line) / sizeof(char), stream))
+
+                                {
+
+                                    if (strstr(line, "error") != NULL)
+
+                                    {
+
+                                        err++;
+
+                                    }
+
+                                    if (strstr(line, "warning") != NULL)
+
+                                    {
+
+                                        war++;
+
+                                    }
+
+                                }
+
+
+
+                                if(err == 0 && war == 0) 
+
+                                {
+
+                                    points = 10;
+
+                                }
+
+                                if(err > 0) 
+
+                                {
+
+                                    points = 1;
+
+                                }
+
+                                if(err == 0)
+
+                                {
+
+                                    if(war > 10) 
+
+                                    {
+
+                                        points = 2;
+
+                                    }
+
+                                    else 
+
+                                    {
+
+                                        points = 2 + 8 * (10 - war) / 10;
+
+                                    }
+
+                                }
+
+
+
+                                printf("Errors:%d, Warnings:%d, Points:%d\n", err, war, points);
+
+
+
+                                pid_compile = wait(&status);
+
+                                if(status == 0)
+
+                                {
+
+                                    printf("%s compiled successfully\n", dp->d_name);
+
+                                }
+
+                                printf("Child process_compile_p with PID %d exited with code %d\n", pid_compile, status);
+
+                                
+
+                                pid_filter = wait(&status);
+
+                                if(status == 0)
+
+                                {
+
+                                    printf("%s filtered successfully\n", dp->d_name);
+
+                                }
+
+                                printf("Child process_filter with PID %d exited with code %d\n", pid_filter, status);
+
+
+
+                                break;
+
+                    }   
+
+                }
+
+                exit(0);
+
+            }
+
+
+
+            if((pid_symlink = fork()) < 0)
+
+            {
+
+                perror("Error");
+
+                exit(1);
+
+            }
+
+
+
+            if(pid_symlink == 0)
+
+            {
+
+                if(statRes.st_size < 102400)
+
+                {
+
+                    char s_link[20];
+
+
+
+                    strcpy(s_link, dp->d_name);
+
+                    s_link[strlen(s_link) - 2] = '\0';  
+
+
+
+                    int sl = symlink(path, s_link);
+
+
+
+                    if (sl == 0)
+
+                    {
+
+                        printf("Soft link created successfully\n");
+
+                    }
+
+                    else
+
+                    {
+
+                        printf("Soft link already exists or cannot be created\n");
+
+                    }
+
+                }
+
+                exit(0);
+
+            }
+
+
+
+            pid_symlink = wait(&status);
+
+            printf("Child process_symlink with PID %d exited with code %d\n", pid_symlink, status);
+
+
+
+            pid_switch = wait(&status);
+
+            printf("Child process_switch with PID %d exited with code %d\n", pid_switch, status);
+
+
+
+
+
+            printf("\n");
+
+        }
+
+    }
+
+
+
+    closedir(dir);
+
+
+
+    return 0;
+
+}
