@@ -1,11 +1,5 @@
-[**TTQ1AsBj**](/data/TTQ1AsBj.txt) (12/12/22 - 02:55)- 916 bytes
+[**Vwwb50wB**](/data/Vwwb50wB.txt) (12/12/22 - 03:00)- 973 bytes
 
-[**pxVKxdTB**](/data/pxVKxdTB.txt) (12/12/22 - 02:55)- 4500 bytes
+**Total Datas**: 8379
 
-[**TTQ1AsBj**](/data/TTQ1AsBj.txt) (12/12/22 - 02:55)- 916 bytes
-
-[**pxVKxdTB**](/data/pxVKxdTB.txt) (12/12/22 - 02:55)- 4500 bytes
-
-**Total Datas**: 8378
-
-**Total Size**: 48.60 MB / 48.6 MB
+**Total Size**: 48.61 MB / 48.6 MB
