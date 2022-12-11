@@ -1,19 +1,13 @@
-[**nUhm3wtb**](/data/nUhm3wtb.txt) (11/12/22 - 20:09)- 2345 bytes
+[**c21T28xp**](/data/c21T28xp.txt) (11/12/22 - 20:42)- 708 bytes
 
-[**zrkuXX4m**](/data/zrkuXX4m.txt) (11/12/22 - 20:09)- 654 bytes
+[**UncN5Nnj**](/data/UncN5Nnj.txt) (11/12/22 - 20:42)- 6083 bytes
 
-[**zbBc2TT6**](/data/zbBc2TT6.txt) (11/12/22 - 20:09)- 2487 bytes
+[**ZCqjh3aP**](/data/ZCqjh3aP.txt) (11/12/22 - 20:42)- 2426 bytes
 
-[**nUhm3wtb**](/data/nUhm3wtb.txt) (11/12/22 - 20:09)- 2345 bytes
+[**UncN5Nnj**](/data/UncN5Nnj.txt) (11/12/22 - 20:42)- 6083 bytes
 
-[**zbBc2TT6**](/data/zbBc2TT6.txt) (11/12/22 - 20:09)- 2487 bytes
+[**ZCqjh3aP**](/data/ZCqjh3aP.txt) (11/12/22 - 20:42)- 2426 bytes
 
-[**zrkuXX4m**](/data/zrkuXX4m.txt) (11/12/22 - 20:09)- 654 bytes
+**Total Datas**: 8320
 
-[**4CzqaeJJ**](/data/4CzqaeJJ.txt) (11/12/22 - 20:09)- 1684 bytes
-
-[**4CzqaeJJ**](/data/4CzqaeJJ.txt) (11/12/22 - 20:09)- 1684 bytes
-
-**Total Datas**: 8317
-
-**Total Size**: 48.32 MB / 48.3 MB
+**Total Size**: 48.33 MB / 48.3 MB
