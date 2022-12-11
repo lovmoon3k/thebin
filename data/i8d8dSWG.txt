@@ -1,0 +1,182 @@
+from math import sqrt, sin, cos, tan, atan2, ceil, pi
+"""
+Our task is to take a DXF ellipse or elliptical arc, and construct a matching set of Bezier curves that approximates the same shape
+
+DXF ellipses are defined as follows:
+xyz coordinates of center point (acx, acy, acz)
+xyz offset of major axis endpoint from center (amx, amy, amz)
+ratio of minor axis to major axis (aratio)
+starting angle in radians (aangle1)
+ending angle in radians (aangle2)
+
+We only handle planar ellipses here, so acz and amz are assumed to be zero, and their values are ignored
+
+First, the easy cases: if aratio is within epsilon of 1.0, we have a circle or circular arc!
+Take acx, acy as the arc center, take sqrt(amx*amx+amy*amy) as the arc radius, and draw an arc from aangle1 to aangle2.
+
+For more complex cases, we need to use Bezier approximations.
+"""
+def dxf_ellipse_to_beziers(acx, acy, amx, amy, aratio, aangle1, aangle2, minsegments=4):
+    """
+    We want at least one cubic Bezier curve per quarter-ellipse of arc to keep the error manageable.
+    We call the number of ellipses per circle "minsegments". minsegments should be at least 4, but can be higher to reduce the error further.
+    
+    So first of all, find out how many Beziers we're going to need by calculating 
+    
+    """
+    n=ceil(abs(aangle2-aangle1)/(2*pi/minsegments));
+    """
+    
+    Then, calculate the angle of each section: 
+    """
+    angleincrement=(aangle2-aangle1)/n
+    """
+    Now, let's assume a circle of radius 1, centered on origin, with angle aangle1 x-axis-aligned. We'll move, scale, and rotate it later.
+    We're creating bezier curves that hug this circle as closely as possible, with the angles that will be used on the final ellipse too.
+    
+    Thanks to the beautiful and excellent https://pomax.github.io/bezierinfo we know how to define a curve that hugs a circle as closely as possible.
+    
+    we need the value k, which is the optimal distance from the endpoint to the control point to make the curve match the circle for a given circle arc angle.
+    
+    k = 4/3 * tan(θ/4), where θ is the angle of the arc. In our case, θ=angleincrement
+    """
+    θ=angleincrement
+    k = 4/3 * tan(θ/4)
+    """
+    Starting point for the first curve is:
+    """
+    start_p = (1,0)
+    """
+    The first control point has the same x coordinate, but k as y coordinate:
+    """
+    control_1 = (1,k)
+    """
+    The endpoint is only dependent on the angle:
+    """
+    end_p = (cos(θ), sin(θ))
+    """
+    The second control point is offset by k from the ending point and the vector between them is tangent to the circle
+    """
+    control_2 = (cos(θ)+k*sin(θ), sin(θ)-k*cos(θ))
+    """
+    
+    Our resulting bezier curve segment is 
+    """
+    bezier_segment = (start_p, control_1, control_2, end_p)
+    
+    """
+    Now, we need to construct n of them, each rotated by aangle1+i*angleincrement, and transform them to match the ellipse:
+    """
+    majorlength=sqrt(amx*amx+amy*amy)
+    minorlength=aratio*majorlength
+    ellipseangle=atan2(amy, amx)
+    
+    bezier_segments=[]
+    for i in range(n):
+        
+        transformed_segment=[]
+        
+        for point in bezier_segment:
+            rotated_point=rotate_point(point, aangle1+i*angleincrement)
+            
+            # Next, we have to scale the entire set of points by the ellipse major and minor axis lengths:
+            scaled_point=scale_point(rotated_point, majorlength, minorlength)
+            
+            # Next, we rotate the scaled points to match the angle of the ellipse in the original coordinate system:
+            rotated_ellipse_point=rotate_point(scaled_point, ellipseangle)
+            
+            # Finally, we translate the points by the vector between the center position and the origin
+            translated_point=translate_point(rotated_ellipse_point, acx, acy)
+            
+            # and add the point to the transformed segment:
+            transformed_segment.append(translated_point)
+        
+        # Add a copy of the transformed segment to the set of segments
+        bezier_segments.append(transformed_segment[:])
+        
+    """
+    We now have a set of bezier segments that matches our elliptical arc!
+    """
+    return bezier_segments
+
+"""
+
+Helper functions:
+"""
+def rotate_point(point, angle):
+    x,y=point
+    newx=x*cos(angle)-y*sin(angle)
+    newy=y*cos(angle)+x*sin(angle)
+    return (newx, newy)
+    
+def translate_point(point, dx, dy):
+    x,y=point
+    return (x+dx, y+dy)
+    
+def scale_point(point, sx, sy):
+    x,y=point
+    return (x*sx, y*sy)
+
+"""
+Testing code below - it uses p5 to render lots of randomly generated elliptical arcs in red, and their bezier equivalents in blue on top of them
+Any errors or mismatches show up as red pixels
+
+"""
+
+if __name__ == "__main__":
+    
+    def gen_ellipses(count=20):
+        output=[]
+        import random
+        for i in range(count):
+            posx=random.uniform(0,800)
+            posy=random.uniform(0,800)
+            majorx=random.uniform(0,800)
+            majory=random.uniform(0,800)
+            aratio=random.uniform(0.01,10)
+            angle1=random.uniform(0,2*pi)
+            angle2=random.uniform(0,2*pi)
+            output.append((posx,posy,majorx,majory,aratio,angle1,angle2))
+        return output
+    
+    from p5 import *
+    
+    def draw_dxf_ellipse(acx, acy, amx, amy, aratio, aangle1, aangle2):
+        with push_matrix():
+            stroke('red')
+            no_fill()
+            translate(acx, acy);
+            ellipseangle=atan2(amy, amx)
+            rotate(ellipseangle)
+            majorlength=sqrt(amx*amx+amy*amy)
+            minorlength=aratio*majorlength
+            try: #when rendering randomly generated ellipses of a size smaller than one pixel, the renderer breaks, so skip those
+                arc((0, 0),majorlength*2, minorlength*2, aangle1, aangle2)
+            except:
+                pass
+            
+    
+    def draw_bezier(bezier_segment, show_points=False):
+        if(show_points):
+            stroke('black')
+            fill('red')
+            for b_point in bezier_segment:
+                x,y=b_point
+                ellipse((x,y), 5, 5)
+        stroke('blue')
+        no_fill()
+        bezier(*bezier_segment)
+        
+    def setup():
+        size(800,800)
+        
+    def draw():
+        background('white')
+        for i in gen_ellipses(50):
+            draw_dxf_ellipse(*i)
+            for bez_segment in dxf_ellipse_to_beziers(*i):
+                draw_bezier(bez_segment)
+            
+        
+    run()
+    
