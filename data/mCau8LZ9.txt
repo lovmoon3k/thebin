@@ -1,0 +1,85 @@
+
+struct DataConfiguration {
+    destination_resolution: vec2<f32>,
+    source_resolution: vec2<f32>,
+};
+
+@group(0) @binding(0) var<uniform> data_configuration: DataConfiguration;
+@group(0) @binding(1) var source_texture: texture_2d<f32>;
+@group(0) @binding(2) var sampler_nearest: sampler;
+
+// VERTEX SHADER.
+
+struct DataVertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) color: vec4<f32>,
+    @location(3) clip: vec4<f32>,
+};
+
+struct DataVertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+    @location(2) clip: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    data_vertex_input: DataVertexInput,
+) -> DataVertexOutput
+{
+    let destination_resolution = vec2<f32>(
+        data_configuration.destination_resolution.x,
+        data_configuration.destination_resolution.y
+    );
+    let destination_resolution_half = vec2<f32>(
+        data_configuration.destination_resolution.x / 2.0,
+        data_configuration.destination_resolution.y / 2.0
+    );
+    // Generate result for output position and fragment data.
+    // Vertex position is configured to start at the top-left and to end at the bottom-right.
+    var data_vertex_output: DataVertexOutput;
+    data_vertex_output.position = vec4<f32>(
+        (data_vertex_input.position.x - destination_resolution_half.x) / destination_resolution_half.x,
+        (-1.0 * data_vertex_input.position.y + destination_resolution_half.y) / destination_resolution_half.y,
+        0.0,
+        1.0
+    );
+    //data_vertex_output.position = vec4<f32>(
+    //    data_vertex_input.position.x / destination_resolution_half.x,
+    //    (-1.0 * data_vertex_input.position.y) / destination_resolution_half.y,
+    //    0.0,
+    //    1.0
+    //);
+    data_vertex_output.uv = data_vertex_input.uv;
+    data_vertex_output.color = data_vertex_input.color;
+    data_vertex_output.clip = data_vertex_input.clip;
+    return data_vertex_output;
+}
+
+// FRAGMENT SHADER.
+
+struct DataFragmentInput {
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+    @location(2) clip: vec4<f32>,
+};
+
+struct DataFragmentOutput {
+    @location(0) output_color: vec4<f32>,
+};
+
+@fragment
+fn fs_main(data_fragment: DataFragmentInput) -> DataFragmentOutput
+{
+    let uv_normalized = vec2<f32>(
+        data_fragment.uv.x / data_configuration.source_resolution.x,
+        data_fragment.uv.y / data_configuration.source_resolution.y
+    );
+    let texture_color = textureSample(source_texture, sampler_nearest, uv_normalized);
+    // Generate result for output color.
+    var data_vertex_output: DataFragmentOutput;
+    data_vertex_output.output_color = texture_color * data_fragment.color;
+    return data_vertex_output;
+}
