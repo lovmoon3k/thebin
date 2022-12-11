@@ -1,0 +1,80 @@
+const fs = require('fs')
+
+// const input = fs.readFileSync('test.txt').toString().trim()
+const input = fs.readFileSync('input.txt').toString().trim()
+
+const range = (n) => [...Array(n).keys()]
+
+const monkeys = input.split('\n\n').map((string) => {
+  const lines = string.split('\n')
+  return {
+    items: lines.at(1).split(': ').at(1).split(', ').map(Number),
+    operation: lines.at(2).split('= ').at(1),
+    divisor: +lines.at(3).split('by ').at(1),
+    truthy: +lines.at(4).at(-1),
+    falsy: +lines.at(5).at(-1),
+    inspections: 0,
+  }
+})
+const cloneMonkeys = (arr) => arr.map(x => ({ ...x, items: x.items.slice() }))
+
+const getWorry = (divisor = 1) => (eq) => {
+  const [x, sign, y] = eq.split(' ')
+  return Math.floor(({
+    '+': (a, b) => a + b,
+    '-': (a, b) => a - b,
+    '*': (a, b) => a * b,
+    '/': (a, b) => a / b,
+  })[sign](+x, +y) / divisor)
+}
+
+const monkeyBusiness = range(20).reduce((acc, round) => {
+  const finish = cloneMonkeys(acc[round])
+
+  for (const monkey of finish) {
+    const inspections = monkey.items.length
+    if (!inspections) continue
+    monkey.inspections += inspections
+
+    for (const item of monkey.items) {
+      const worry = getWorry(3)(monkey.operation.replaceAll('old', item))
+      finish[worry % monkey.divisor ? monkey.falsy : monkey.truthy].items.push(worry)
+    }
+    monkey.items = []
+  }
+  return [...acc, finish]
+}, [cloneMonkeys(monkeys)])
+  .at(-1)
+  .map(({ inspections }) => inspections)
+  .sort((a, b) => b - a)
+  .slice(0, 2)
+  .reduce((a, b) => a * b, 1)
+
+console.log(monkeyBusiness)
+
+const gcd = monkeys.map(({divisor}) => divisor).reduce((acc, i) => acc * i, 1)
+
+const grandMonkeyBusiness = range(10000).reduce((acc) => {
+  const finish = cloneMonkeys(acc)
+
+  for (const monkey of finish) {
+    const inspections = monkey.items.length
+    if (!inspections) continue
+    monkey.inspections += inspections
+
+    for (const item of monkey.items) {
+      const worry = getWorry()(monkey.operation.replaceAll('old', item)) // diff is here
+      finish[worry % monkey.divisor ? monkey.falsy : monkey.truthy].items.push(worry > gcd ? worry % gcd : worry) // and here
+    }
+
+    monkey.items = []
+  }
+
+  return finish
+}, cloneMonkeys(monkeys))
+  .map(({ inspections }) => inspections)
+  .sort((a, b) => b - a)
+  .slice(0, 2)
+  .reduce((a, b) => a * b, 1)
+
+console.log(grandMonkeyBusiness)
