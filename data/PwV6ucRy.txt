@@ -1,0 +1,71 @@
+apt update
+apt install -y debootstrap systemd-container mc
+
+mkdir -p /var/lib/machines/debian
+debootstrap --arch amd64  --include=systemd-container,systemd,dbus stable  /var/lib/machines/debian
+
+sudo systemd-nspawn -D /var/lib/machines/debian-stable -U --machine debian-stable
+	passwd
+	echo 'pts/1' >> /etc/securetty
+
+machinectl enable debian
+machinectl start debian
+
+machinectl login debian
+	# unutar virtualke:
+	systemctl enable systemd-networkd.service
+	systemctl start systemd-networkd.service
+	echo 'virtualka' > /etc/hostname
+	sed -i "s|127.0.0.1.*localhost|127.0.0.1       localhost virtualka|g" /etc/hosts
+
+sudo systemctl enable systemd-networkd.service
+sudo systemctl start systemd-networkd.service
+
+# na host masini:
+cp /usr/lib/systemd/network/80-container-ve.network /etc/systemd/network/80-container-ve.network
+mcedit /etc/systemd/network/80-container-ve.network
+---
+[Match]
+Name=ve-*
+Driver=veth
+
+[Network]
+# Default to using a /28 prefix, giving up to 13 addresses per container.
+Address=192.168.45.2/24
+LinkLocalAddressing=yes
+#DHCPServer=yes
+IPMasquerade=yes
+LLDP=yes
+EmitLLDP=customer-bridge
+---
+
+# unutar virtualke:
+	 cp /usr/lib/systemd/network/80-container-host0.network /etc/systemd/network/80-container-host0.network
+	 apt install -y mc
+	 mcedit /etc/systemd/network/80-container-host0.network
+	 ---
+[Match]
+Virtualization=container
+Name=host0
+
+[Network]
+#DHCP=yes
+Address=192.168.45.10
+Gateway=192.168.45.2
+DNS=192.168.2.10
+#LinkLocalAddressing=yes
+#LLDP=yes
+#EmitLLDP=customer-bridge
+
+[DHCP]
+UseTimezone=yes
+	---
+
+# na host masini:
+systemctl restart systemd-networkd.service
+# ovo iz nekog razloga treba okinuti posle svakog host reboota, u protivnom host ne dobije 192.168.45.2 vec 169.254.49.33
+
+# unutar virtualke:
+	systemctl restart systemd-networkd.service
+	apt install net-tools
+	ifconfig
