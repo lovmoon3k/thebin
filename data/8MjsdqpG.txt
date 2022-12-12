@@ -1,0 +1,33 @@
+class UdpConnection {
+    private var connection: NWConnection?
+    private var isConnectionReady = false
+    private var connectionEstablishWaiter = DispatchSemaphore(value: 0)
+    
+    init?(host: String, port: UInt16) {
+        self.connection = NWConnection(
+            host: NWEndpoint.Host(host),
+            port: NWEndpoint.Port(integerLiteral: port),
+            using: .udp
+        )
+        
+        self.connection?.stateUpdateHandler = { [weak self] (newState) in
+            switch (newState) {
+            case .ready:
+              self?.isConnectionReady = true
+            default :
+              self?.isConnectionReady = false
+            }
+            
+            self?.connectionEstablishWaiter.signal()
+          }
+
+        self.connection?.start(queue: .global())
+        
+        switch connectionEstablishWaiter.wait(timeout: .now() + 1) {
+        case .timedOut:
+            return nil
+        default:
+            ()
+        }
+    }
+}
