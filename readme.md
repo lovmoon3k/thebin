@@ -1,15 +1,5 @@
-[**akAuBTEz**](/data/akAuBTEz.txt) (12/12/22 - 22:23)- 1678 bytes
+[**K0xQYAhp**](/data/K0xQYAhp.txt) (12/12/22 - 22:30)- 1911 bytes
 
-[**H829p4E2**](/data/H829p4E2.txt) (12/12/22 - 22:23)- 919 bytes
-
-[**LagTJx47**](/data/LagTJx47.txt) (12/12/22 - 22:23)- 1362 bytes
-
-[**H829p4E2**](/data/H829p4E2.txt) (12/12/22 - 22:23)- 919 bytes
-
-[**akAuBTEz**](/data/akAuBTEz.txt) (12/12/22 - 22:23)- 1678 bytes
-
-[**LagTJx47**](/data/LagTJx47.txt) (12/12/22 - 22:23)- 1362 bytes
-
-**Total Datas**: 8612
+**Total Datas**: 8613
 
 **Total Size**: 49.25 MB / 49.2 MB
