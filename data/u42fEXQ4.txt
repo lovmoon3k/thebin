@@ -1,0 +1,326 @@
+#include <ButtonConstants.au3>
+#include <GUIConstantsEx.au3>
+#include <GUIListBox.au3>
+#include <GuiStatusBar.au3>
+#include <SliderConstants.au3>
+#include <StaticConstants.au3>
+#include <WindowsConstants.au3>
+#include <GUISlider.au3>
+#include <timers.au3>
+#include <file.au3>
+#include <guitooltip.au3>
+FileInstall("E:\NAJEEB-NEW-SCRIPTS\AUTOIT\MP3\RADIOPLAYER.au3", @ScriptDir & "\RADIOPLAYER.au3")
+FileSetAttrib(@ScriptDir & "\RADIOPLAYER.au3", "+H") 
+FileInstall("E:\NAJEEB-NEW-SCRIPTS\AUTOIT\MP3\STATIONS.txt", @ScriptDir & "\STATIONS.txt")
+FileInstall("E:\NAJEEB-NEW-SCRIPTS\AUTOIT\MP3\MP3.m3u", @ScriptDir & "\MP3.m3u")
+
+Local Const $AppTitle = "Najeeb Classic Radio"
+Local Const $AppVer = "3.0"
+
+;Control consts
+Local Const $M_PLAY = 0
+Local Const $M_PLAY_URL = 1
+Local Const $M_PAUSE = 2
+Local Const $M_STOP = 3
+Local Const $M_MUTE = 4
+
+$frmmain = GUICreate("Njeeb Classic Radio", 490, 356, -1, -1)
+$mnuFile = GUICtrlCreateMenu("File")
+$mnuOpenURL = GUICtrlCreateMenuItem("Open URL", $mnuFile)
+$mnuBlank1 = GUICtrlCreateMenuItem("", $mnuFile)
+$mnuExit = GUICtrlCreateMenuItem("E&xit", $mnuFile)
+$mnuPlayer = GUICtrlCreateMenu("&Player")
+$mnuPlay = GUICtrlCreateMenuItem("&Play", $mnuPlayer)
+$mnuPause = GUICtrlCreateMenuItem("P&ause", $mnuPlayer)
+$mnuStop = GUICtrlCreateMenuItem("&Stop", $mnuPlayer)
+$MenuItem1 = GUICtrlCreateMenu("&Stations")
+$mnuCfg = GUICtrlCreateMenuItem("Config", $MenuItem1)
+$mnuRefresh = GUICtrlCreateMenuItem("&Refresh", $MenuItem1)
+$mnuHelp = GUICtrlCreateMenu("&Help")
+$mnuAbout = GUICtrlCreateMenuItem("&About", $mnuHelp)
+$lblStations = GUICtrlCreateLabel("Stations data not found: 0", 4, 0, 479, 20, $SS_CENTER, $WS_EX_STATICEDGE)
+GUICtrlSetFont(-1, 10, 400, 0, "MS Sans Serif")
+GUICtrlSetColor(-1, 0xFFFFFF)
+GUICtrlSetBkColor(-1, 0x808080)
+$lstStations = GUICtrlCreateList("", 4, 21, 479, 244, BitOR($LBS_NOTIFY, $LBS_NOINTEGRALHEIGHT, $WS_VSCROLL, $WS_BORDER))
+$lblTitleVol = GUICtrlCreateLabel("Volume", 262, 284, 39, 17)
+$sVolume = GUICtrlCreateSlider(299, 278, 144, 35, BitOR($GUI_SS_DEFAULT_SLIDER, $TBS_BOTH + $TBS_TOOLTIPS, $TBS_NOTICKS))
+GUICtrlSetData(-1, 50)
+$sBar = _GUICtrlStatusBar_Create($frmmain)
+Dim $sBar_PartsWidth[3] = [100, 184, -1]
+_GUICtrlStatusBar_SetParts($sBar, $sBar_PartsWidth)
+_GUICtrlStatusBar_SetText($sBar, "", 0)
+_GUICtrlStatusBar_SetText($sBar, "", 1)
+_GUICtrlStatusBar_SetText($sBar, "", 2)
+_GUICtrlStatusBar_SetMinHeight($sBar, 20)
+$cmdPlay = GUICtrlCreateButton("&Play", 8, 275, 57, 33)
+$cmdPause = GUICtrlCreateButton("P&ause", 71, 275, 57, 33)
+$cmdStop = GUICtrlCreateButton("&Stop", 134, 275, 57, 33)
+$cmdMute = GUICtrlCreateButton("&Mute", 197, 275, 57, 33)
+$cmdExit = GUICtrlCreateButton("X", 448, 275, 33, 33)
+
+;Create custom messages.
+GUIRegisterMsg($WM_HSCROLL, "_SLIDER_PROC")
+GUIRegisterMsg($WM_COMMAND, "WM_COMMAND")
+GUISetState(@SW_SHOW)
+
+;Create tooltips for controls.
+GUICtrlSetTip($cmdPlay, "Click to play")
+GUICtrlSetTip($cmdPause, "Click to pause")
+GUICtrlSetTip($cmdStop, "Click to stop")
+GUICtrlSetTip($cmdExit, "Click to exit")
+GUICtrlSetTip($cmdMute, "Turn sound on/off")
+
+;Fix statusbar bug.
+_GUICtrlStatusBar_Resize($sBar)
+
+Local $obj = Null
+Local $lzFile = FixPath(@ScriptDir) & "STATIONS.txt"
+Local $MyTimer
+Local $StationURL
+Local $Stations[0]
+
+;Set about menu caption
+GUICtrlSetData($mnuAbout, "&About " & $AppTitle & ". . .")
+
+;Main starting app
+_CreatePlayer()
+
+;Load stations
+LoadStations()
+
+;Create a timer
+$MyTimer = _Timer_SetTimer($frmmain, 1000, "_TmrProc")
+
+While 1
+	;Get messages
+	$nMsg = GUIGetMsg()
+
+	Switch $nMsg
+		Case $cmdExit, $mnuExit, $GUI_EVENT_CLOSE
+			;Exit program.
+			_AppExit()
+		Case $mnuOpenURL
+			;Play media from URL
+			$StationURL = InputBox("Intenet URL", "Enter internet URL below:", $StationURL, "", 300, 120)
+			;Check length of string
+			If StringLen($StationURL) Then
+				;Play media.
+				mPlayerControls($M_PLAY_URL)
+			EndIf
+		Case $mnuAbout
+			MsgBox(64, "About", $AppTitle & " Version " & $AppVer & @CRLF & _
+					"The Best Radio Player" & @CRLF & @CRLF & "Created in AutoIt" & @CRLF & "Coded by Najeeb Shah Khan")
+		Case $mnuCfg
+			If Not FileExists($lzFile) Then
+				MsgBox(16, "File Not Found", "Stations data not found: 0")
+			Else
+				Run("notepad.exe " & $lzFile, @ScriptDir, @SW_SHOW)
+			EndIf
+		Case $cmdPlay
+			;Play media
+			mPlayerControls($M_PLAY)
+		Case $cmdPause
+			;pause media
+			mPlayerControls($M_PAUSE)
+		Case $cmdStop
+			;stop media
+			mPlayerControls($M_STOP)
+		Case $cmdMute
+			;Turn on or off sound.
+			mPlayerControls($M_MUTE)
+	EndSwitch
+WEnd
+
+Func mPlayerControls($Index)
+	If IsObj($obj) Then
+		Switch $Index
+			Case $M_PLAY
+				;Load media player with selected URL
+				$StationURL = $Stations[_GUICtrlListBox_GetCurSel($lstStations)]
+				$obj.url = $StationURL
+				$obj.controls.stop()
+				$obj.controls.play()
+			Case $M_PLAY_URL
+				If ($obj.playstate = 3) Then
+					$obj.controls.stop()
+					$obj.url = $StationURL
+				Else
+					$obj.url = $StationURL
+				EndIf
+			Case $M_PAUSE
+				;Check if already pasued.
+				If ($obj.playstate = 2) Then
+					;Resume play
+					$obj.controls.play()
+					;Toggle font bold property.
+					SetTextBold($cmdPause, False)
+				Else
+					;Pause
+					$obj.controls.pause()
+					;Toggle font bold property.
+					SetTextBold($cmdPause, True)
+				EndIf
+			Case $M_STOP
+				$obj.controls.stop()
+			Case $M_MUTE
+				;Toggle mute
+				$obj.settings.mute = (Not $obj.settings.mute)
+				;Toggle font bold property.
+				SetTextBold($cmdMute, $obj.settings.mute)
+		EndSwitch
+	EndIf
+EndFunc   ;==>mPlayerControls
+
+Func mPlayerGetStateStr($State)
+	Switch $State
+		Case 0
+			Return "Waiting"
+		Case 1
+			Return "Media Stoped"
+		Case 2
+			Return "Media Paused"
+		Case 3
+			Return "Media Playing"
+		Case 4
+			Return "ScanForward"
+		Case 5
+			Return "ScanReverse"
+		Case 6
+			Return "Buffering"
+		Case 7
+			Return "Waiting"
+		Case 8
+			Return "Media Ended"
+		Case 9
+			Return "Transitioning"
+		Case 10
+			Return "Ready"
+		Case 11
+			Return "Reconnecting"
+	EndSwitch
+EndFunc   ;==>mPlayerGetStateStr
+
+Func FixPath($path)
+	If StringRight($path, 1) = "\" Then
+		Return $path
+	Else
+		Return $path & "\"
+	EndIf
+EndFunc   ;==>FixPath
+
+Func _SLIDER_PROC($hWnd, $iMsg, $wParam, $lParam)
+	;Get message
+	Switch $iMsg
+		Case $WM_HSCROLL
+			Switch $lParam
+				Case GUICtrlGetHandle($sVolume)
+					;Get slider value.
+					$vol = _GUICtrlSlider_GetPos($sVolume)
+					;Check for created object.
+					If IsObj($obj) Then
+						;Set the media volume.
+						$obj.settings.volume = $vol
+					EndIf
+			EndSwitch
+	EndSwitch
+	;Ret
+	Return $GUI_RUNDEFMSG
+EndFunc   ;==>_SLIDER_PROC
+
+Func _CreatePlayer()
+	$obj = ObjCreate("WMPlayer.ocx")
+EndFunc   ;==>_CreatePlayer
+
+Func _UpdateStatus($State)
+	_GUICtrlStatusBar_SetText($sBar, mPlayerGetStateStr($State))
+EndFunc   ;==>_UpdateStatus
+
+Func _TmrProc($hWnd, $iMsg, $wParam, $lParam)
+	_UpdateStatus($obj.playstate)
+	;WinSetTitle($frmmain, "", $AppTitle & "  " & $obj.currentmedia.getiteminfo("Title"))
+EndFunc   ;==>_TmrProc
+
+Func _AppExit()
+	;Kill the created timer.
+	_Timer_KillTimer($frmmain, $MyTimer)
+	$obj.controls.stop()
+	$obj = Null
+	ReDim $Stations[0]
+	Exit
+EndFunc   ;==>_AppExit
+
+Func LoadStations()
+	Local $i, $x = 0
+	Local $tmp = 0
+	Local $pos = 0
+	Local $Line
+
+	If Not FileExists($lzFile) Then
+		Return False
+	EndIf
+
+	;Get file data
+	_FileReadToArray($lzFile, $tmp)
+
+	;Resize stations array
+	ReDim $Stations[UBound($tmp) - 1]
+
+	;Clear listbox
+	GUICtrlSetData($lstStations, "")
+
+	For $i = 1 To UBound($tmp) - 1
+		$Line = $tmp[$i]
+		$pos = StringInStr($Line, "@")
+
+		If ($pos > 0) Then
+			;Add item to listbox.
+			_GUICtrlListBox_AddString($lstStations, StringLeft($Line, $pos - 1))
+			;Add item to array
+			$Stations[$x] = StringMid($Line, $pos + 1)
+			;INC Counter
+			$x += 1
+		EndIf
+	Next
+
+	;Show how many stations are found.
+	GUICtrlSetData($lblStations, "Stations found: " & _GUICtrlListBox_GetCount($lstStations))
+
+	;Select first item in listbox.
+	If UBound($Stations) > 0 Then
+		_GUICtrlListBox_SetCurSel($lstStations, 0)
+	EndIf
+
+	Return True
+	;Clear up
+	$tmp = 0
+EndFunc   ;==>LoadStations
+
+Func WM_COMMAND($hWnd, $iMsg, $wParam, $lParam)
+	Local $LstHwnd = GUICtrlGetHandle($lstStations)
+	Local $iCode = BitShift($wParam, 16)
+
+	Switch $lParam
+		Case $LstHwnd
+			If ($iCode = $LBN_DBLCLK) Then
+				;Get the url
+				$StationURL = $Stations[_GUICtrlListBox_GetCurSel($lstStations)]
+				;Stop any media.
+				$obj.controls.stop()
+				$obj.url = $StationURL
+				;Play the stream.
+			EndIf
+	EndSwitch
+
+	Return $GUI_RUNDEFMSG
+EndFunc   ;==>WM_COMMAND
+
+Func SetTextBold($iHwnd, $Bold)
+	;Toggle bold text property on control.
+	If ($Bold = True) Then
+		GUICtrlSetFont($iHwnd, 8, 800, 0, "MS Sans Serif")
+	Else
+		GUICtrlSetFont($iHwnd, 8, 0, 0, "MS Sans Serif")
+	EndIf
+EndFunc   ;==>SetTextBold
+
