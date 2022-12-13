@@ -1,0 +1,226 @@
+#include <stdio.h>
+
+char input[] = R"([1,1,3,1,1]
+[1,1,5,1,1]
+
+[[1],[2,3,4]]
+[[1],4]
+
+[9]
+[[8,7,6]]
+
+[[4,4],4,4]
+[[4,4],4,4,4]
+
+[7,7,7,7]
+[7,7,7]
+
+[]
+[3]
+
+[[[]]]
+[[]]
+
+[1,[2,[3,[4,[5,6,7]]]],8,9]
+[1,[2,[3,[4,[5,6,0]]]],8,9]
+)";
+
+/*
+* 
+* LEFT := LIST
+* RIGHT := LIST
+* LIST := '[' (BODY)? ']'
+* BODY := ELEM (',' ELEM)*
+* ELEM := NUM | LIST
+* 
+* TODO: s/int&/int*/ 
+*/
+
+int myParseCompareElem(const char* strL, int& posL, const char* strR, int& posR, int& order);
+int myParseCompareBody(const char* strL, int& posL, const char* strR, int& posR, int& order);
+int myParseCompareList(const char* strL, int& posL, const char* strR, int& posR, int& order);
+
+
+int myParseCompareElem(const char* strL, int& posL, const char* strR, int& posR, int& order)
+{
+    int res = 0;
+    char cl = strL[posL];
+    char cr = strR[posR];
+
+    if (('[' != cl) && (cl < '0' || cl > '9'))
+        return posL;    // error
+    if (('[' != cr) && (cr < '0' || cr > '9'))
+        return posR;    // error
+
+    bool isListL = ('[' == cl);
+    bool isListR = ('[' == cr);
+
+    int vall = 0;
+    int valr = 0;
+    if (!isListL)
+    {
+        while (cl >= '0' && cl <= '9')
+        {
+            vall += vall * 10 + cl - '0';
+            posL++;
+            cl = strL[posL];
+        }
+    }
+
+    if (!isListR)
+    {
+        while (cr >= '0' && cr <= '9')
+        {
+            valr += valr * 10 + cr - '0';
+            posR++;
+            cr = strR[posR];
+        }
+    }
+
+    if (isListL && !isListR)
+    {
+        char buf[40];
+        sprintf_s(buf, "[%d]", valr);
+        int tempPos = 0;
+        res = myParseCompareList(strL, posL, buf, tempPos, order);
+        if (res)
+            return res;    // error
+        if (order)
+            return 0;
+    }
+    else if (!isListL && isListR)
+    {
+        char buf[40];
+        sprintf_s(buf, "[%d]", vall);
+        int tempPos = 0;
+        res = myParseCompareList(buf, tempPos, strR, posR, order);
+        if (res)
+            return res;    // error
+        if (order)
+            return 0;
+    }
+    else if (isListL && isListR)
+    {
+        res = myParseCompareList(strL, posL, strR, posR, order);
+        if (res)
+            return res;    // error
+        if (order)
+            return 0;
+    }
+    else if (!isListL && !isListR)
+    {
+        order = valr - vall;
+    }
+
+    return 0;
+}
+
+int myParseCompareBody(const char* strL, int& posL, const char* strR, int& posR, int& order)
+{
+    int res = 0;
+    res = myParseCompareElem(strL, posL, strR, posR, order);
+    if (res)
+        return res;    // error
+    if (order)
+        return 0;
+
+    int contL = (',' == strL[posL]);
+    int contR = (',' == strR[posR]);
+
+    order = contR - contL;
+    if (order)
+        return 0;
+
+    while (contL && contR)
+    {
+        posL++;
+        posR++;
+
+        res = myParseCompareElem(strL, posL, strR, posR, order);
+        if (res)
+            return res;    // error
+        if (order)
+            return 0;
+
+        int contL = (',' == strL[posL]);
+        int contR = (',' == strR[posR]);
+
+        order = contR - contL;
+        if (order)
+            return 0;
+    }
+
+    return 0;
+}
+
+int myParseCompareList(const char* strL, int & posL, const char* strR, int& posR, int & order)
+{
+    int res = 0;
+    if ('[' != strL[posL])
+        return posL;    // error
+    if ('[' != strR[posR])
+        return posR;    // error
+    posL++;
+    posR++;
+
+    int bodyPresentL = (']' != strL[posL]);
+    int bodyPresentR = (']' != strR[posR]);
+
+    order = bodyPresentR - bodyPresentL;
+    if (order)
+        return 0;
+
+    if (bodyPresentL && bodyPresentR)
+    {
+        res = myParseCompareBody(strL, posL, strR, posR, order);
+        if (res)
+            return res;    // error
+        if (order)
+            return 0;
+    }
+
+    posL++;
+    posR++;
+
+    return 0;
+}
+
+
+int main()
+{
+    int i = 0;
+    int pos = 0;
+    int index = 0;
+    int score = 0;
+
+    int beginL = 0;
+    int beginR = 0;
+
+    while (input[i])
+    {
+        char c = input[i++];
+
+        if ('\n' == c)
+        {
+            pos++;
+            pos %= 3;
+            if (0 == pos)
+                beginL = i;
+            if (1 == pos)
+                beginR = i;
+            if (2 == pos)
+            {
+                int order = 0;
+
+                int err = myParseCompareList(input, beginL, input, beginR, order);
+
+                index++;
+                if (order >= 0)
+                    score += index;
+            }
+            continue;
+        }
+    }
+
+    printf("%d\n", score);
+}
