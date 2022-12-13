@@ -1,0 +1,166 @@
+#!/usr/local/bin/gst -q
+
+Collection extend [
+    apply: method  [ ^self collect: [:x | x perform: method] ]
+]
+
+"
+|  Definition of a tree node in out Packet structure
+"
+Object subclass: PacketNode [
+    | value children |
+    " Constructors "
+    PacketNode class >> new: aStream [
+        ^super new init: aStream
+    ]
+
+    init: aStream [
+        value    := nil.
+        children := OrderedCollection new.
+        ^self parseNode: aStream.
+    ]
+
+    " Construct a leaf (Integer) node "
+    PacketNode class >> leaf: val [
+        ^super new initLeaf: val
+    ]
+
+    initLeaf: val [
+        value    := val.
+        children := OrderedCollection with: self. " for promotion to list "
+        ^self
+    ]
+
+    " Access methods "
+    isInteger [ ^value notNil ]
+    value     [ ^value        ]
+
+    isList    [ ^value isNil      ]
+    listSize  [ ^children size    ]
+    at: idx   [ ^children at: idx ]
+
+    " Tree parser and builder "
+    parseNode: aStream [
+        | chr val |
+        val := nil.
+        [ aStream atEnd not ] whileTrue: [
+            chr := aStream next.
+
+            (chr = $[) ifTrue: [
+                children add: (PacketNode new: aStream)
+            ].
+
+            (chr isDigit) ifTrue: [
+                " Can't assume single digits this time! "
+                val isNil ifTrue:  [ val := chr digitValue ]
+                          ifFalse: [ val := 10 * val + chr digitValue ]
+            ].
+
+            ((chr = $,) or: [chr = $]]) ifTrue: [
+                val ifNotNil: [
+                    children add: (PacketNode leaf: val).
+                    val := nil.
+                ].
+                (chr = $]) ifTrue: [^self]
+            ]
+        ].
+        ^self
+    ]
+
+    " Test: true on less-than, false on greater than, nil on equal "
+    < other [
+        (self isInteger & other isInteger) ifTrue: [
+            " Test integer values (nil on equal) "
+            (self value = other value) ifTrue: [ ^nil ].
+            ^(self value < other value)
+
+        ] ifFalse: [
+            | minLen ret |
+            " First try the elements up to the size of the smaller list: "
+            minLen := self listSize min: other listSize.
+            (1 to: minLen) do: [ :i |
+                (ret := (self at: i) < (other at: i)) ifNotNil: [ ^ret ]
+            ].
+
+            " Tests for when we run out of elements in a list: "
+            (self listSize = other listSize) ifTrue: [ ^nil ].
+            ^self listSize < other listSize
+        ]
+    ]
+
+    " For display "
+    printOn: aStream [
+        (self isInteger) ifTrue: [
+            aStream nextPutAll: value asString.
+        ] ifFalse: [
+            aStream nextPutAll: '['.
+            (children size > 0) ifTrue: [
+                (children allButLast) do: [ :kid |
+                    kid printOn: aStream.
+                    aStream nextPutAll: ','.
+                ].
+                children last printOn: aStream.
+            ].
+            aStream nextPutAll: ']'.
+        ]
+    ]
+]
+
+"
+| Definition of a packet
+"
+Object subclass: Packet [
+    | root |
+    Packet class >> new: aString [
+        ^super new init: (PacketNode new: (ReadStream on: aString)).
+    ]
+
+    init: node [
+        root := node.
+        ^self
+    ]
+
+    root  [ ^root ]
+
+    " For part 1 (NOTE: returns nil on equal!) "
+    < right [ ^self root < right root ]
+
+    " Needed for smalltalk sort, used in part 2 "
+    <= right [
+        ((self root < right root) = false) ifTrue: [ ^false ].
+        ^true
+    ]
+
+    printOn: aStream [
+        root printOn: aStream.
+    ]
+]
+
+"
+| Mainline
+"
+pairs := (stdin contents tokenize: '\n\n') apply: #lines.
+
+allPackets := SortedCollection new.
+
+" Part 1 "
+part1 := 0.
+
+pairs keysAndValuesDo: [ :idx :p |
+    allPackets add: (left  := Packet new: p first).
+    allPackets add: (right := Packet new: p second).
+
+    (left < right) ifTrue: [ part1 := part1 + idx ].
+].
+
+('Part 1: %1' % {part1}) displayNl.
+
+" Part 2 "
+part2 := 0.
+
+" Add marker items: "
+packet2 := allPackets add: (Packet new: '[[2]]').
+packet6 := allPackets add: (Packet new: '[[6]]').
+
+part2 := (allPackets indexOf: packet2) * (allPackets indexOf: packet6).
+('Part 2: %1' % {part2}) displayNl.
