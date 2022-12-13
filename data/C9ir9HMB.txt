@@ -1,0 +1,144 @@
+from csv import reader
+from re import sub
+
+
+def get_salary_list(current_data: list, counter=10) -> list:
+    salary_list = list()
+    for element in current_data:
+        salary_list.append(element)
+        if len(salary_list) == counter:
+            break
+
+    return salary_list
+
+
+def get_clean_string(current_string: str) -> str:
+    current_string = sub(r'<[^>]*>', '', current_string)
+    return ' '.join(current_string.split(' '))
+
+
+def get_cities_top(current_data: list) -> tuple:
+    cities_and_their_salary, cities_top_list = dict(), list()
+    for element in current_data:
+        city_key, salary_value = element['area_name'], \
+            calculate_average(element['salary_from'],
+                              element['salary_to'])
+        if city_key in cities_and_their_salary.keys():
+            cities_and_their_salary[city_key][0] += salary_value
+            cities_and_their_salary[city_key][1] += 1
+        else:
+            cities_and_their_salary[city_key] = [salary_value, 1]
+
+    for city, salary in cities_and_their_salary.items():
+        if round(salary[1] / len(current_data), 3) >= 0.01:
+            average_salary = salary[0] // salary[1]
+            cities_top_list.append((city, average_salary, salary[1]))
+
+    cities_top_list.sort(key=lambda skill: skill[1], reverse=True)
+
+    return cities_top_list, len(cities_and_their_salary)
+
+
+def get_popular_skills_list(current_data: list) -> list:
+    skills_list, skills_and_their_count = list(), dict()
+    for string in current_data:
+        for current_skill in string['key_skills'].split('\n'):
+            if current_skill not in skills_and_their_count.keys():
+                skills_and_their_count[current_skill] = 1
+            else:
+                skills_and_their_count[current_skill] += 1
+
+    for skill, count in skills_and_their_count.items():
+        skills_list.append((skill, count))
+    skills_list.sort(key=lambda el: el[1], reverse=True)
+
+    return skills_list
+
+
+def calculate_average(salary_from: int, salary_to: int) -> int:
+    return int(float(salary_from) + float(salary_to)) // 2
+
+
+def define_suffix_right_form(number: int, word: list) -> str:
+    if 11 <= number % 100 <= 19:
+        return f'{number} {word[2]}'
+    if number % 10 == 1:
+        return f'{number} {word[0]}'
+    elif 2 <= number % 10 <= 4:
+        return f'{number} {word[1]}'
+    else:
+        return f'{number} {word[2]}'
+
+
+def print_top_skills(top_skills_list: list) -> None:
+    skills_suffixes = ['скилла', 'скиллов', 'скиллов']
+    print(f'Из {define_suffix_right_form(len(top_skills_list), skills_suffixes)}, '
+          f'самыми популярными являются:')
+    count_suffixes = ['раз', 'раза', 'раз']
+
+    for i in range(0, min(len(top_skills_list), 10)):
+        print(f'    {i + 1}) {top_skills_list[i][0]} - '
+              f'упоминается {define_suffix_right_form(top_skills_list[i][1], count_suffixes)}')
+    print()
+
+
+def print_top_cities(top_cities_list: list, needed_count: int) -> None:
+    cities_suffixes = ['города', 'городов', 'городов']
+    print(f'Из {define_suffix_right_form(needed_count, cities_suffixes)}, самые высокие средние ЗП:')
+    rubles_suffixes = ['рубль', 'рубля', 'рублей']
+    vacancies_suffixes = ['вакансия', 'вакансии', 'вакансий']
+
+    for i in range(0, min(len(top_cities_list), 10)):
+        print(f'    {i + 1}) {top_cities_list[i][0]} - средняя зарплата'
+              f' {define_suffix_right_form(top_cities_list[i][1], rubles_suffixes)} ('
+              f'{define_suffix_right_form(top_cities_list[i][2], vacancies_suffixes)})')
+
+
+def print_top_salaries(top_salaries: list, caption: str) -> None:
+    rubles_suffixes = ['рубль', 'рубля', 'рублей']
+    print(caption)
+    for i in range(len(top_salaries)):
+        name = top_salaries[i]["name"]
+        employer_name = top_salaries[i]["employer_name"]
+        average_salary = calculate_average(top_salaries[i]['salary_from'], top_salaries[i]['salary_to'])
+        city = top_salaries[i]['area_name']
+        print(f'    {i + 1}) {name} в компании "{employer_name}"'
+              f' - {define_suffix_right_form(average_salary, rubles_suffixes)} (г. {city})')
+    print()
+
+
+def csv_reader(file_naming: str) -> tuple:
+    csv_file = reader(open(file_naming, encoding='utf_8_sig'))
+    all_needed_data = [current_data for current_data in csv_file]
+
+    return all_needed_data[0], \
+        [x for x in all_needed_data[1:]
+         if x.count('') == 0 and len(x) == len(all_needed_data[0])]
+
+
+def csv_filer(current_reader: tuple, headline: list) -> list:
+    vacancies_list = list()
+
+    for vacancy in current_reader:
+        vacancies_list.append({headline[i]: get_clean_string(vacancy[i]) for i in range(len(headline))})
+
+    return vacancies_list
+
+
+headlines, vacancies = csv_reader(input())
+all_start_data, data_filtered = csv_filer(vacancies, headlines), list()
+for cur_data in all_start_data:
+    if 'RUR' == cur_data['salary_currency']:
+        data_filtered.append(cur_data)
+
+key_for_sorting = lambda d: calculate_average(d['salary_from'], d['salary_to'])
+
+top_high_salaries = get_salary_list(sorted(data_filtered, key=key_for_sorting, reverse=True), True)
+top_low_salaries = get_salary_list(sorted(data_filtered, key=key_for_sorting, reverse=False), False)
+cities_top, cities_count = get_cities_top(data_filtered)
+
+print_top_salaries(top_high_salaries, 'Самые высокие зарплаты:')
+print_top_salaries(top_low_salaries, 'Самые низкие зарплаты:')
+
+print_top_skills(get_popular_skills_list(data_filtered))
+print_top_cities(cities_top, cities_count)
