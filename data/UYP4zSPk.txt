@@ -1,0 +1,129 @@
+using UnityEngine;
+using System.Collections;
+using KazePashaMSK;
+
+/**
+ * Scares birds off their landing spots around the objects
+ * NOTE: LandingSpots *MUST* have a collider for this to work. You can set colleder.isTrigger to true to avoid physics interactions.
+ */
+public class ScareCrow : MonoBehaviour
+{
+    [Tooltip("Distance in which to scare birds")]
+    public float radius = 5f;
+
+    [Tooltip("How often to trigger scaring logic, in seconds")]
+    [Range(0.1f,float.PositiveInfinity)]
+    public float interval = 0.1f;
+
+    [Tooltip("0 to 1 curve describing probability of scaring a bird over distance. At 0 - probability of scaring the bird at the object's location, at 1 - probablity of scaring the bird at distance equal to radius (max distance)")]
+    public AnimationCurve ProbabilityCurve = AnimationCurve.Constant(0f,1f,1f);
+
+    [Tooltip("Layers on which to look for birds")]
+    public LayerMask LayerMask = (LayerMask)(-1);
+
+    [Tooltip("IDs of the Ghost's Dialogue Lines after scaring the crows")]
+    [SerializeField]
+    protected string[] GhostTextIDsCrows;
+    [Tooltip("IDs of the Ghost's Dialogue Lines after scaring the butterflies")]
+    [SerializeField]
+    protected string[] GhostTextIDsButterflies;
+
+    [Tooltip("Probability of Ghost saying something after scaring the crows")]
+    [SerializeField]
+    protected float DialogueChance = 50f;
+
+    private LandingSpot LastLandingSpot = null;
+
+
+    // Reusable buffer of colliders, used by Physics overlap queries
+    private static Collider[] colliders = new Collider[128];
+
+    // track time
+    private float TimeSinceLastScare = 0f;
+
+    private void Scare()
+    {
+        TimeSinceLastScare = 0f;
+
+        int hit_count = Physics.OverlapSphereNonAlloc(transform.position, radius, colliders, LayerMask);
+
+        for(int i = 0; i<hit_count; i++)
+        {
+            var collider = colliders[i];
+
+            var landing_spot = collider.gameObject.GetComponent<LandingSpot>();
+
+            if(landing_spot == null)
+            {
+                // no landing spot
+                continue;
+            }
+
+            // check probability
+            var distance_to_spot = Vector3.Distance(collider.transform.position, transform.position);
+
+            // normalize distance to 0...1 range
+            var normalied_distance = Mathf.InverseLerp(0, radius, distance_to_spot);
+
+            var probability = Mathf.Clamp01(ProbabilityCurve.Evaluate(normalied_distance));
+
+            if(Random.value > probability)
+            {
+                // failed random roll
+                continue;
+            }
+
+            // scare
+            ScareFlock(landing_spot);
+            //landing_spot.ReleaseFlockChild();
+        }
+    }
+    
+    
+    void Update()
+    {
+        TimeSinceLastScare += Time.deltaTime;
+
+        if(TimeSinceLastScare > interval)
+        {
+            Scare();
+        }
+    }
+
+    private void OnDrawGizmos()
+    {
+        Gizmos.color = new Color(1f,1f,0f,.1f);
+        Gizmos.DrawWireSphere(transform.position, radius);
+    }
+
+    private void ScareFlock(LandingSpot LS)
+    {
+        if ((LastLandingSpot != LS) && (Random.Range(1, 101) <= DialogueChance) && (LS.landingChild != null))
+        {
+            if (LS.landingChild.CompareTag("Crow"))
+            {
+                GhostReaction(GhostTextIDsButterflies);
+            }
+            if (LS.landingChild.CompareTag("Butterfly"))
+            {
+                GhostReaction(GhostTextIDsCrows);
+            }
+        }
+        
+        LS.ReleaseFlockChild();          
+
+
+    }
+
+    private void GhostReaction (string[] ghostLines)
+    {
+        if (ghostLines.Length < 1)
+            return;
+        int randomID = Random.Range(0, (ghostLines.Length-1));
+        Debug.Log(randomID);
+        if (ghostLines[randomID] != "")
+        {
+            DialogueManager.Instance.PlayDialogue(ghostLines[randomID]);
+        }
+    }
+}
