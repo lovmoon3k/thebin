@@ -1,0 +1,115 @@
+#include <stdio.h>
+#include <math.h>
+
+#define inch 0.0254
+#define foot 0.3048
+#define mile 1609.344
+#define hour 3600.0
+#define TAU (M_PI*2.0)
+#define MAX_IT 100000000
+
+double mpsToMph(double mps) {
+	return mps/mile*hour;
+}
+
+double mphToMps(double mph) {
+	return mph*mile/hour;
+}
+
+double sqr(double x) {
+	return x*x;
+}
+
+double groundDist(
+	double ax, double ay, double az,
+	double bx, double by, double bz,
+	double radius
+) {
+	double al = sqrt(ax*ax + ay*ay + az*az);
+	double bl = sqrt(bx*bx + by*by + bz*bz);
+	double dx = ax/al - bx/bl;
+	double dy = ay/al - by/bl;
+	double dz = az/al - bz/bl;
+	double chord = sqrt(dx*dx + dy*dy + dz*dz);
+	double angle = asin(chord/2)*2;
+	return angle*radius;
+}
+
+char* strDist(double val) {
+	static char buff[256];
+	if (val < foot) {
+		sprintf(buff, "%g in", val/inch);
+	} else if (val < mile) {
+		sprintf(buff, "%g ft", val/foot);
+	} else {
+		sprintf(buff, "%g mi", val/mile);
+	}
+	return buff;
+}
+
+int main() {
+
+	double rotationPeriod = 24*hour;
+	double radius = 3959*mile;
+	double height = 120000*foot;
+	double ground_acc = 9.81;
+	double G = ground_acc*sqr(radius);
+	double shootingSpeed = mphToMps(1000.0);
+	double eastSpeed = TAU*(radius + height)/rotationPeriod;
+	double dt = 1.0/(1 << 12);
+
+	printf("Radius: %g mi\n", radius/mile);
+	printf("Height: %g ft\n", height/foot);
+	printf("Tangential speed at the elevation: %g mph\n", mpsToMph(eastSpeed));
+	printf("Shooting speed: %g mph\n", mpsToMph(shootingSpeed));
+	printf("Surface tangential speed: %g\n", mpsToMph(TAU*radius/rotationPeriod));
+	printf("Inertial net speed: %g mph\n", mpsToMph(sqrt(sqr(eastSpeed) + sqr(shootingSpeed))));
+	printf("Delta t: %g s\n", dt);
+	printf("Initial g: %g m/s^2\n", G/sqr(radius + height));
+
+	double x0 = 0, y0 = 0, z0 = radius + height;
+	double x = x0, y = y0, z = z0;
+	double vx = eastSpeed;
+	double vy = shootingSpeed;
+	double vz = 0;
+	double time = 0;
+
+	printf("Initial position (mi): %g, %g, %g\n", x0/mile, y0/mile, z0/mile);
+
+	double lastLog = 0;
+	int itCount = 0;
+
+	while (itCount < MAX_IT) {
+		double d = sqrt(x*x + y*y + z*z);
+		if (d <= radius) break;
+		double m = G/(d*d*d)*dt;
+		vx -= x*m;
+		vy -= y*m;
+		vz -= z*m;
+		x += vx*dt;
+		y += vy*dt;
+		z += vz*dt;
+		time += dt;
+		++ itCount;
+	}
+
+	double rot = TAU/rotationPeriod*time;
+	double gx = x0*cos(rot) + z0*sin(rot);
+	double gy = y;
+	double gz = z0*cos(rot) - x0*sin(rot);
+
+	printf("Number of iterations: %d\n", itCount);
+	printf("Earth total rotation: %g deg\n", 360/rotationPeriod*time);
+	printf("Final g: %g m/s^2\n", G/(x*x + y*y + z*z));
+	printf("Final position (mi): %g, %g, %g\n", x/mile, y/mile, z/mile);
+	printf("Duration: %g s\n", time);
+	printf("Ground distance: %s\n", strDist(groundDist(gx, gy, gz, x, y, z, radius)));
+
+	double fx = x*cos(rot) - z*sin(rot);
+	double fy = y;
+	double fz = z*cos(rot) + x*sin(rot);
+	double lat = asin(fy/sqrt(fx*fx + fy*fy + fz*fz));
+	double lon = acos(fz/sqrt(fx*fx + fz*fz))*(fx>=0?1:-1);
+
+	printf("Landing coordinates: %g %s, %g %s\n", fabs(lat)/M_PI*180, lat>=0?"N":"S", fabs(lon)/M_PI*180, lon>=0?"E":"W");
+}
