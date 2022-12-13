@@ -1,0 +1,167 @@
+##utility code to make some stuff easier
+from datetime import datetime
+from functools import wraps
+def cache(func):
+	cached = {}
+	@wraps(func)
+	def wrapper(*args, **kwargs):
+		key = str(args) + str(kwargs)
+		if key not in cached:
+			cached[key] = func(*args, **kwargs)
+		else:
+			print(f'using cache {args}')
+		return cached[key]
+	return wrapper
+class simpledate(datetime):
+	def simplify(self, **kwargs):
+		[kwargs.pop(key, None) for key in ['hour', 'minute', 'second', 'microsecond']]
+		return super().replace(**kwargs, hour=0, minute=0, second=0, microsecond=0)
+	def replace(self, **kwargs):
+		return self.simplify(**kwargs)		
+	@classmethod
+	def now(cls, tz=None):
+		return super().now(tz=tz).simplify()
+##end of utility code
+
+from collections.abc import Callable
+from dateutil.relativedelta import relativedelta
+from tkinter import *
+from tkinter.simpledialog import askstring, askinteger
+from rapidTk import *
+
+root = rapidTk()
+root.geometry("400x400+300+300")
+
+
+class Calendar(cFrame):
+	def __init__(self, master, **kwargs):
+		self.days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+		self.short_days = ['Mon', 'Tues', 'Wed', 'Thur', 'Fri', 'Sat', 'Sun']
+		self.months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+		self.short_months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+		self.master = master
+		self.date = kwargs.pop('date', simpledate.now())
+		self.func = kwargs.pop('func', self.__ignore)
+		super(Calendar, self).__init__(self.master)
+		self.configure(**kwargs)
+		pp = PackProcess()
+		t_frame = pp.add(cFrame(self), side=TOP, fill=X)
+		self.c_frame = pp.add(cFrame(self), side=TOP, fill=X)
+		pp.add(cButton(t_frame, text="<", command=self.previous_month), side=LEFT)
+		self.month_l = pp.add(cLabel(t_frame, text=self.date.strftime("%B %Y"), borderwidth=1, relief='raised', height=2), side=LEFT, fill=X, expand=1)
+		pp.add(cButton(t_frame, text=">", command=self.next_month), side=RIGHT)
+		pp.pack()
+		self.create_month_view(self.get_month(self.date), self.func)
+		self.__buttons = {}
+		context = {
+		'Reset':self.reset,
+		'Select Year':self.select_year,
+		'Select Month':self.select_month,
+		}
+		self.menu = cMenu(self, context=context)
+		self.month_l.bind("<Button-3>", self.menu._do_popup)
+	def reset(self):
+		self.specific_date(simpledate.now())
+	def select_year(self):
+		x = askinteger('Year Selection', 'Please input the year')
+		self.specific_date(self.date.replace(year=x))
+	def select_month(self):
+		x = askstring('Month Selection', 'Please Enter the month').lower()
+		if x in self.months:
+			x = self.months.index(x)+1
+		elif x in self.short_months:
+			x = self.short_months.index(x)+1
+		else:
+			try:
+				x = int(x)
+			except:
+				return
+		self.specific_date(self.date.replace(month=int(x)))
+	@staticmethod
+	def pad(tx: str) -> str:
+		return f'{tx if int(tx)>=10 else "0"+tx}'
+	@cache
+	def get_month(self, date: datetime) -> list:
+		first = date.replace(day=1)
+		last = date.replace(day=1,
+								month=date.month+1 if date.month+1 < 13 else 1,
+								year=date.year if date.month+1 < 13 else date.year+1
+								) - relativedelta(days=1)
+		weeks = list(range(1, last.day+1))
+		for _ in range(first.weekday()): weeks.insert(0, 0) ##pad extra days at start of month
+		month = [weeks[s:s+7] for s in range(0,len(weeks),7)] ##create the basic output from splitting weeks into segments
+		for _ in range(7-len(month[-1])): month[-1].append(0) ##padd extra days at end of month
+		for index1, w in enumerate(month):
+			for index2, d in enumerate(w):
+				month[index1][index2] = self.pad(str(d)) ##makes sure all numbers are strings of 2 digits.
+		return month
+	@classmethod
+	def date(self) -> datetime:
+		return self.date
+	def set_date(self, d: datetime) -> datetime:
+		self.date = d
+		return self.date
+	def specific_date(self, date:datetime):
+		self.set_date(date)
+		self.month_l.configure(text=self.date.strftime("%B %Y"))
+		self.create_month_view(self.get_month(self.date), self.func)
+	def next_month(self):
+		self.set_date(
+			self.date.replace(
+				day=1,
+				month=self.date.month+1 if self.date.month+1 < 13 else 1,
+				year=self.date.year if self.date.month+1 < 13 else self.date.year+1,
+				hour=0
+				)
+		)
+		self.month_l.configure(text=self.date.strftime("%B %Y"))
+		self.create_month_view(self.get_month(self.date), self.func)
+	def previous_month(self):
+		self.set_date(
+			self.date.replace(
+				day=1,
+				month=self.date.month-1 if self.date.month > 1 else 12,
+				year=self.date.year if self.date.month > 1 else self.date.year-1,
+			)
+		)
+		self.month_l.configure(text=self.date.strftime("%B %Y"))
+		self.create_month_view(self.get_month(self.date), self.func)
+	def create_month_view(self, dates: list, func:Callable[[Event, str], None]):
+		if len(dates) < 6:
+			dates.append(['00']*7)
+		dates = [item for sublist in dates for item in sublist]
+		for child in self.c_frame.winfo_children():
+			child.grid_forget()
+			child.destroy()
+		row = 1
+		self.__buttons = {}
+		
+		gp = GridProcess()
+		for index, day in enumerate(self.short_days):
+			gp.add(cLabel(self.c_frame, text=day, width=5, height=2, borderwidth=1, relief='ridge'), row=0, column=index)
+		for index, date in enumerate(dates):
+			if index != 0 and index%7 == 0:
+				row +=1
+			self.__buttons[date] = gp.add(cButton(self.c_frame, 
+												text=date if date != '00' else '',
+												state='disabled' if date == '00' else 'normal',
+												cursor='' if date == '00' else 'hand2',
+												width=4,
+												command=lambda e=Event(), d=date: func(e, d)
+												), row=row, column=index%7)
+		del self.__buttons['00']
+		gp.grid()
+	def __ignore(self, event, day):
+		pass
+
+def get_day(event:Event, day:str):
+	print(day)
+if __name__ == "__main__":
+	pp=PackProcess()
+	c_frame = pp.add(cFrame(root), side=TOP, fill=X, expand=1)
+	t_frame = pp.add(cFrame(root), side=TOP, fill=X, expand=1)
+	cholder = pp.add(cFrame(c_frame), side=TOP, fill=X, expand=1)
+	cal = pp.add(Calendar(cholder), side=TOP)
+	pp.pack()
+	
+	root.mainloop()
