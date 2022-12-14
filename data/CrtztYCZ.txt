@@ -1,0 +1,71 @@
+alias: Отправка сообщения (whatsapp)
+description: Отправка сообщения контакту с помощью API Whatsapp (callmebot)
+trigger:
+  - platform: event
+    event_type: yandex_intent
+    event_data:
+      text: Напиши сообщение
+action:
+  - service: media_player.play_media
+    data:
+      media_content_id: Кому отправить сообщение?
+      media_content_type: dialog:Умный дом:сообщение
+    target:
+      entity_id: "{{ trigger.event.data.entity_id }}"
+  - wait_for_trigger:
+      - platform: event
+        event_type: yandex_intent
+        event_data:
+          session:
+            dialog: сообщение
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ wait.trigger.event.data.text in ['маме', 'брату', 'мне',
+              'тетя'] }}
+        sequence:
+          - variables:
+              user_num: >-
+                {% if (wait.trigger.event.data.text) == 'маме' -%} 1  {% elif
+                (wait.trigger.event.data.text) == 'брату' -%} 2 {% elif
+                (wait.trigger.event.data.text) == 'мне' -%} 3 {% elif
+                (wait.trigger.event.data.text) == 'тетя' -%} 4 {% endif -%}
+          - event: yandex_intent_response
+            event_data:
+              text: Продиктуйте текст сообщения
+              session:
+                dialog: сообщение
+              end_session: false
+          - wait_for_trigger:
+              - platform: event
+                event_type: yandex_intent
+                event_data:
+                  session:
+                    dialog: сообщение
+          - service: input_text.set_value
+            data:
+              value: "{{ wait.trigger.event.data.text }}"
+            target:
+              entity_id: input_text.text_message
+          - service: persistent_notification.create
+            data:
+              message: >-
+                http://api.callmebot.com/whatsapp.php?source=HA&{{
+                states('input_text.phone' ~ user_num) }}&text={{
+                states('input_text.text_message') | regex_replace('\s+', '+',
+                false)}}
+          - service: notify.whatsapp
+            data:
+              message: >-
+                http://api.callmebot.com/whatsapp.php?source=HA&{{
+                states('input_text.phone' ~ user_num) }}&text={{
+                states('input_text.text_message') | regex_replace('\s+', '+',
+                false)}}
+          - event: yandex_intent_response
+            event_data:
+              text: Сообщение {{ states('input_text.text_message') }} отправлено
+              session:
+                dialog: сообщение
+              end_session: true
+mode: single
