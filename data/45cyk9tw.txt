@@ -1,0 +1,146 @@
+//Simulation UNIPI -STRAC
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
+
+// IN 1.1 1.2 1.3 1.4 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 2.10 2.11 2.12 2.13 2.14 2.15 2.16
+//IN UNIPI BLOC 20
+
+// OUTS 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 2.10 2.11 2.12 2.13 2.14 
+//OUT UNIPI BLOC 14
+
+
+unsigned int bitset;//word
+unsigned int wordindex;//word
+
+//définit la mémoire d'un système strac
+unsigned int inStrac[128] ;//128*16=2048
+unsigned int outStrac[128] ;//128*16=2048
+
+//définit les IN/OUT  d'Unipi
+unsigned int inUnipi[2];//Chaque cellule représente un bit, même si c'est plus.
+unsigned int outUnipi[1];//Chaque cellule représente un bit, même si c'est plus.
+
+//--------------------------Unipi---------------------------------------
+void readUnipi(unsigned int *ptr,int taille){
+	//Read in/out unipi like bits !!!
+	for (int i=0;i<16*taille;i++){ //bit index inUnipi 20 but 16*2=32
+		printf ("%d\t",i);
+	}
+	printf ("\n");
+	
+	
+	for (int word=0;word<taille;word++){
+		
+		for (int bit=0;bit<16;bit++){
+			printf ("%d \t", (*(ptr) >>bit) & 0x01  );
+		}
+		
+		ptr++;//Next word
+	}
+	printf ("\n");
+}
+
+int getMem(unsigned int *ptr,int n_pin){
+	//Get Pin in/out value in unipi
+	wordindex=n_pin/16; //Block
+	bitset = 1<< ( n_pin % 16 );//Bit in block
+	
+	return ((*(ptr+wordindex) & bitset) >0 ? 1:0);
+}
+
+void setMem(unsigned int *ptr,int n_pin){
+	//Set simulation pin  Unipin
+	wordindex=n_pin/16; //Block
+	bitset = 1<< ( n_pin % 16 );//Bit in block
+	
+	(*(ptr+wordindex)) |= bitset;
+}
+
+void clrMem (unsigned int *ptr,int n_pin){
+	//Clear simulation pin Unipin
+	wordindex=n_pin/16; //Block
+	bitset = 1<< ( n_pin % 16 );//Bit in block
+	
+	*(ptr+wordindex) &= ~bitset;
+}
+
+//--------------------------Strac---------------------------------------
+void readMem (unsigned int *ptr,int taille,char *name){
+//Lecture de la mémoire strac IN/OUT	
+
+	printf ("\n------------ %s ------------\n",name);
+
+	for (int bloc=0;bloc<taille;bloc++){	
+		
+		//Print bloc value in HEX 
+		printf ("\nbloc[%d]= 0x%04X\n\n",bloc,(*ptr));
+		
+		for (int index=0;index<16;index++){//boucle sur les bits d'un bloc
+			printf ("%X ",index);
+		}
+		
+		printf ("\n");
+		
+		
+		
+		for (int bit=0;bit<16;bit++){//boucle sur les bits d'un bloc 
+			//printf ("bloc[%d] bit[%d] = %d \n",bloc,bit,  (( *(ptr) >>bit) & 0x01) ); 	
+			printf ("%d ",(( *(ptr) >>bit) & 0x01) ); 
+		}
+		
+		printf ("\n");
+		ptr--;//Next block
+	}
+}
+
+void stracMem (unsigned int *strac_in ,unsigned int *strac_out,unsigned int *unipi_in,unsigned int *unipi_out,int offset_in ,int offset_out ){	
+	
+	//Read unipi in ->write in ->strac in	
+	for (int pin=0;pin<20;pin++){//loop unipi INs 20
+		
+		if ( getMem(unipi_in,pin) >0){setMem (strac_in+offset_in,pin);} //1
+		else{ clrMem (strac_in+offset_in,pin);}//0
+	}
+	
+		
+	//Write unipi out <-from <-strac out	
+	for (int pin=0;pin<14;pin++){//loop unipi OUTs 14
+		
+		if ( getMem(strac_out,pin) >0){setMem (unipi_out,pin);} //1
+		else{ clrMem (unipi_out,pin);}//0		
+	}	
+	
+}
+
+//--------------------------Strac---------------------------------------
+int main (){
+	
+	//We give some initial virtual data
+	
+	inUnipi[0]=0xFF;// IN 1.1 1.2 1.3 1.4 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 2.10 2.11 2.12
+	inUnipi[1]=0x0F;// IN 2.13 2.14 2.15 2.16
+	
+	//outUnipi[0]=0x01;//OUTS 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 2.10 2.11 2.12 2.13 2.14 
+	
+	//unsigned int outStrac[128] ;//128*16=2048	
+	outStrac[0]=0xEE;//We write some values in the Strac outs 
+		
+	//Read Unipi ins they will be written in the strac memory
+	readMem(inUnipi,2,"Unipi in Real input");//Read Unipi's Ins 
+		
+	//Data exchange between strac and virtual unipi
+	stracMem (inStrac,outStrac,inUnipi,outUnipi,0,0);//Strac <-> unipi
+	
+	//Read Strac Ins 	
+	readMem(inStrac,2,"Strac INs");//Read Strac IN  Memory 2 bank(16) over 128
+		
+	//Read Strac outs they will be written on unipi
+	readMem(outStrac,2,"Strac OUTs");//Read Strac OUT Memory 2 bank(16) over 128	
+	
+	//Read Unipi outs
+	readMem(outUnipi,1,"Unipi OUT real output");//Read Unipi Real OUTs 
+	
+}
