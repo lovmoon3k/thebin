@@ -1,0 +1,85 @@
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"math/rand"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
+)
+
+var categoryCache map[string]string
+var lock sync.RWMutex
+
+func main() {
+	var wg sync.WaitGroup
+	categoryCache = make(map[string]string)
+	jobs := make(chan string, 1000)
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go workerStart(&wg, jobs)
+	}
+	getJobs(jobs)
+	close(jobs)
+	wg.Wait()
+	fmt.Printf("All jobs finished\n")
+}
+func getJobs(jobs chan string) {
+	file, _ := os.Open("jobfile.txt")
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		str1 := scanner.Text()
+		fmt.Printf("Creating new job %s\n", str1)
+		jobs <- str1
+	}
+}
+func workerStart(wg *sync.WaitGroup, jobs chan string) {
+	defer wg.Done()
+	for job := range jobs {
+		tmp := strings.Split(job, "\t")
+		category := tmp[0]
+		jobData := tmp[1]
+		categoryConfig := getConfig(category)
+		fmt.Printf("Doing Job of category: %s job=%s config=%s\n", category, jobData, categoryConfig)
+		randSleep()
+	}
+}
+func randSleep() {
+	rand.Seed(time.Now().UnixNano())
+	n := rand.Intn(1000)
+	time.Sleep(time.Duration(n) * time.Millisecond)
+}
+
+func getConfig(category string) string {
+	lock.RLock()
+	if c, ok := categoryCache[category]; ok {
+		lock.RUnlock()
+		fmt.Printf("Got category config from cache %s\n", category)
+		return c
+	}
+	lock.RUnlock()
+	lock.Lock()
+	defer lock.Unlock()
+	if c, ok := categoryCache[category]; ok {
+		fmt.Printf("Got category config from cache next time %s\n", category)
+		return c
+	}
+	var client http.Client
+	url := fmt.Sprintf("http://127.0.0.1/cgi-bin/getConfig?%s", category)
+	resp, err := client.Get(url)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		categoryCache[category] = string(bodyBytes)
+		return categoryCache[category]
+	}
+	return ""
+}
