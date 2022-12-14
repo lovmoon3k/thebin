@@ -1,0 +1,103 @@
+#!/usr/local/bin/gst -q
+
+Collection extend [
+    apply: method  [ ^self collect: [:x | x perform: method] ]
+]
+
+String extend [
+    asPoint [
+        | coords |
+        coords := self substrings: ','.
+        ^coords first asNumber @ coords second asNumber
+    ]
+]
+
+"
+| Cover class for an Array to speed this up.
+| Using a Dictionary for the grid takes minutes (with all the garbage collection).
+| This gets all the allocation done up front, but puts a hardlimit on the size.
+"
+Object subclass: RockWall [
+    | grid Xstart Xwidth maxY |
+
+    RockWall class >> new: maxDepth [
+        ^super new init: maxDepth
+    ]
+
+    init: maxDepth [
+        maxY := maxDepth.
+        Xstart := 500 - maxY + 1.
+        Xwidth := maxY * 2 - 1.
+
+        grid := Array new: (Xwidth * maxY) withAll: $..
+        ^self
+    ]
+
+    at: pt           [ ^grid at: pt y * Xwidth + pt x - Xstart + 1 ]
+    at: pt put: chr  [ ^grid at: pt y * Xwidth + pt x - Xstart + 1 put: chr ]
+
+    printOn: aStream [
+        (0 to: maxY - 1) do: [ :y |
+            (Xstart to: Xstart + Xwidth - 1) do: [ :x |
+                aStream nextPut: (self at: x @ y).
+            ].
+            aStream nl.
+        ]
+    ]
+]
+
+"
+| Mainline
+"
+grid := RockWall new: 500.   " 500 should be way more than enough depth "
+maxY := 0.
+
+" Load rock face: "
+stdin linesDo: [ :line |
+    corners := (line tokenize: ' -> ') apply: #asPoint.
+
+    pos := corners first.
+    grid at: pos put: $#.
+    maxY := maxY max: pos y.
+
+    corners allButFirst do: [ :next |
+        delta := (next x - pos x) sign @ (next y - pos y) sign.
+
+        [ pos = next ] whileFalse: [
+            pos := pos + delta.
+            grid at: pos put: $#.
+        ].
+
+        maxY := maxY max: pos y.
+    ].
+].
+
+maxY := maxY + 1.                  " Add distance to infinite floor "
+prec := { 0 @ 1. -1 @ 1. 1 @ 1 }.  " Order to check for falling sand "
+
+path := OrderedCollection with: (500 @ 0).  " Path to avoid redoing work "
+sand := 0.
+
+" Drop sand: "
+[ path notEmpty ] whileTrue: [
+    pos := path removeLast.
+
+    falling := true.
+    [ falling and: [pos y < maxY] ] whileTrue: [
+        fall := prec detect: [:dir | (grid at: pos + dir) = $.] ifNone: [nil].
+
+        (fall) ifNil:    [ falling := false ]
+               ifNotNil: [ path add: pos. pos := pos + fall ].
+    ].
+
+    grid at: pos put: $o.
+    (part1 isNil and: [pos y = maxY]) ifTrue: [ part1 := sand ].
+
+    sand := sand + 1.
+    (sand \\ 1000 = 0) ifTrue: [
+        stderr nextPutAll: ('Sand: %1' % {sand}); cr; flush.
+    ]
+].
+
+('Part 1: %1 ' % {part1}) displayNl.
+('Part 2: %1' % {sand}) displayNl.
