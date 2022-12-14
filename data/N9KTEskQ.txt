@@ -1,0 +1,90 @@
+const fs = require('fs')
+
+// const input = fs.readFileSync('test.txt').toString().trim()
+const input = fs.readFileSync('input.txt').toString().trim()
+
+const asc = (a, b) => a - b
+const range = (length, start = 0) => [...Array(length).keys()]
+  .map((_, index) => index + start)
+
+const rocks = input.split('\n')
+  .map(line => line.split(' -> ').map(pair => pair.split(','))
+    .map(([x, y]) => ({ x: +x, y: +y })))
+
+const caveMap = []
+
+rocks.forEach((coordinates) => {
+  coordinates.forEach((rock, index) => {
+    if (!index) {
+      caveMap[rock['x']] = caveMap[rock['x']] ?? []
+      caveMap[rock['x']][rock['y']] = '#'
+      return
+    }
+
+    const prev = coordinates.at(index - 1)
+    const xs = [prev['x'], rock['x']].sort(asc)
+    const ys = [prev['y'], rock['y']].sort(asc)
+
+    const xRange = range(xs.at(1) - xs.at(0) + 1, xs.at(0))
+    const yRange = range(ys.at(1) - ys.at(0) + 1, ys.at(0))
+
+    if (xRange.length === 1 && yRange.length === 1) {
+      caveMap[rock['x']] = caveMap[rock['x']] ?? []
+      caveMap[rock['x']][rock['y']] = '#'
+      return
+    }
+
+    range(Math.max(xRange.length, yRange.length)).forEach((index) => {
+      const xIndex = xRange[index % xRange.length]
+      const yIndex = yRange[index % yRange.length]
+      caveMap[xIndex] = caveMap[xIndex] ?? []
+      caveMap[xIndex][yIndex] = '#'
+    })
+  })
+})
+
+const max = Math.max.apply(null, rocks.flat().map(({ y }) => y))
+
+const drop = ({ x, y }, limit, floor = false) => {
+  if (y > limit || caveMap[x][y] === 'o') {
+    return false
+  }
+
+  if (!caveMap[x - 1]) caveMap[x - 1] = []
+  if (!caveMap[x + 1]) caveMap[x + 1] = []
+  if (floor && !caveMap[x][limit]) caveMap[x][limit] = '#'
+  if (floor && !caveMap[x + 1][limit]) caveMap[x + 1][limit] = '#'
+  if (floor && !caveMap[x - 1][limit]) caveMap[x - 1][limit] = '#'
+
+  const bottom = caveMap[x][y + 1]
+  const bottomLeft = caveMap[x - 1][y + 1]
+  const bottomRight = caveMap[x + 1][y + 1]
+
+  if (['#', 'o'].includes(bottom)) {
+    if (bottomLeft === undefined) {
+      return drop({ x: x - 1, y: y + 1 }, limit, floor)
+    }
+    if (bottomRight === undefined) {
+      return drop({ x: x + 1, y: y + 1 }, limit, floor)
+    }
+
+    caveMap[x][y] = 'o'
+    return true
+  }
+  return drop({ x, y: y + 1 }, limit, floor)
+}
+
+const run = true
+while (run) {
+  if (!drop({ x: 500, y: 0 }, max + 1, false)) {
+    break
+  }
+}
+console.log(caveMap.flat().filter(x => x === 'o').length)
+
+while (run) {
+  if (!drop({ x: 500, y: 0 }, max + 2, true)) {
+    break
+  }
+}
+console.log(caveMap.flat().filter(x => x === 'o').length)
