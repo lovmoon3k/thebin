@@ -1,0 +1,151 @@
+        private async void DownloadPastebin()
+        {
+            var progress = new Common.Progress<ProgressInfo>(TimeSpan.FromMilliseconds(50), this.view.UpdateProgressAction);
+            await TaskDownloadPastebin(progress);
+        }
+        public async Task TaskDownloadPastebin(IProgress<ProgressInfo> progress)
+        {
+            //before using any class in the api you must enter your api dev key
+            Pastebin.DevKey = "iCv_LuM23pCxy1OUT-OgWkYx7ofrWx4z";
+            //you can see yours here: https://pastebin.com/api#1
+            try
+            {
+                progress.Report(new ProgressInfo((double)(10), "10"));
+
+                User me = await Pastebin.LoginAsync("Landromm", "Pastebin_21!03@1993#");
+
+                progress.Report(new ProgressInfo((double)(50), "50"));
+
+                foreach (Paste paste in await me.ListPastesAsync(10)) // we limmit the results to 3
+                {
+                    if (paste.Title.Equals("MyNotebookDB"))
+                    {                                               
+                        var str = ConvertHexToString(_encryptionData.DencryptionMethod(await paste.GetRawAsync()));
+                        Console.WriteLine(str);                        
+                    }
+                    progress.Report(new ProgressInfo((double)(100), "100"));
+                }
+
+                ////deletes the paste we just created
+                //await me.DeletePasteAsync(newPaste);
+            }
+            catch (PastebinException ex) //api throws PastebinException
+            {
+                //in the Parameter property you can see what invalid parameter was sent
+                //here we check if the exeption is thrown because of invalid login details
+                if (ex.Parameter == PastebinException.ParameterType.Login)
+                {
+                    Console.Error.WriteLine("Invalid username/password");
+                }
+                else
+                {
+                    Console.Error.WriteLine(ex);
+                    throw; //all other types are rethrown and not swalowed!
+                }
+                view.Message = "Загрузка данных c Pastebin прервалась!\n\n" + ex;
+            }
+            finally
+            {
+                //view.IsPastePastebin = true;
+                view.Message = "Загрузка данных c Pastebin, прошла успешно!";
+            }
+        }
+
+        private async void UploadPastebin()
+        {
+            var progress = new Common.Progress<ProgressInfo>(TimeSpan.FromMilliseconds(50), this.view.UpdateProgressAction);
+            await TaskUploadPastebin(progress);
+        }        
+        public async Task TaskUploadPastebin(IProgress<ProgressInfo> progress)
+        {
+            //before using any class in the api you must enter your api dev key
+            Pastebin.DevKey = "iCv_LuM23pCxy1OUT-OgWkYx7ofrWx4z";
+            //you can see yours here: https://pastebin.com/api#1
+            try
+            {
+                progress.Report(new ProgressInfo((double)(10), "10"));
+                // login and get user object
+                User me = await Pastebin.LoginAsync("Landromm", "Pastebin_21!03@1993#");
+                // user contains information like e-mail, location etc...
+                Console.WriteLine("{0}({1}) lives in {2}", me, me.Email, me.Location);
+                // lists all pastes for this user
+                progress.Report(new ProgressInfo((double)(25), "25"));
+
+                string code = _encryptionData.EncryptionMethod(ReadFile("TodoList.xml"));                
+
+                //creates a new paste and get paste object
+                Paste newPaste = await me.CreatePasteAsync(ConvertStringToHex(code), "MyNotebookDB", Language.None, Visibility.Public, Expiration.Never);
+                //newPaste now contains the link returned from the server
+                //Console.WriteLine("URL: {0}", newPaste.Url);
+                //Console.WriteLine("Paste key: {0}", newPaste.Key);
+                //Console.WriteLine("Content: {0}", newPaste.Text);
+                progress.Report(new ProgressInfo((double)(50), "50"));
+
+                //deletes the paste we just created
+                await me.DeletePasteAsync(newPaste);
+
+                //lists all currently trending pastes(similar to me.ListPastes())
+                //foreach (Paste paste in await Pastebin.ListTrendingPastesAsync())
+                //{
+                //    Console.WriteLine("{0} - {1}", paste.Title, paste.Url);
+                //}
+                //you can create pastes directly from Pastebin static class but they are created as guests and you have a limited number of guest uploads
+                //Paste anotherPaste = await Paste.CreateAsync("another paste", "MyPasteTitle2", Language.CSharp, Visibility.Unlisted, Expiration.OneHour);
+                //Console.WriteLine(anotherPaste.Title);
+                progress.Report(new ProgressInfo((double)(100), "100"));
+
+            }
+            catch (PastebinException ex) //api throws PastebinException
+            {
+                //in the Parameter property you can see what invalid parameter was sent
+                //here we check if the exeption is thrown because of invalid login details
+                if (ex.Parameter == PastebinException.ParameterType.Login)
+                {
+                    Console.Error.WriteLine("Invalid username/password");
+                }
+                else
+                {
+                    throw; //all other types are rethrown and not swalowed!
+                }
+                view.Message = "Загрузка данных на Pastebin прервалась!\n\n" + ex;
+            }
+            finally
+            {
+                //view.IsPastePastebin = true;
+                view.Message = "Загрузка данных на Pastebin, прошла успешно!";
+            }
+        }
+
+        private string ConvertStringToHex(string str)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(str);
+            string[] h = bytes.Select(x => x.ToString("x2")).ToArray();
+            string hex = string.Concat(h);
+            Console.WriteLine(hex);
+
+            return hex;
+        }
+        private string ConvertHexToString(string str)
+        {
+            string[] hexBytes = new string[str.Length / 2];
+            for (int i = 0; i < hexBytes.Length; i++)
+            {
+                hexBytes[i] = str.Substring(i * 2, 2);
+            }
+            byte[] resultBytes = hexBytes.Select(value => Convert.ToByte(value, 16)).ToArray();
+            string result = Encoding.UTF8.GetString(resultBytes);
+            Console.WriteLine(result);
+
+            return result;
+        }
+
+        private string ReadFile(string path)
+        {
+            string text = "";
+            using (StreamReader reader = new StreamReader(path))
+            {
+                text = reader.ReadToEnd();
+                //Console.WriteLine(text);
+            }
+            return text;           
+        }
