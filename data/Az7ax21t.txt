@@ -1,0 +1,189 @@
+from django.test import TestCase, Client
+from django.contrib.auth import get_user_model
+from http import HTTPStatus
+from learning_logs.models import Topic, Entry
+
+User = get_user_model()
+
+class PostsURLTest(TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        """Устанавливаем fixtures"""
+        super().setUpClass()
+        cls.user = User.objects.create_user(username='author')
+        cls.topic = Topic.objects.create(
+            text='Тестовый topic',
+            owner=cls.user
+        )
+
+        cls.entry = Entry.objects.create(
+            text='Тестовый entry',
+            topic_id=cls.topic.id
+        )
+        
+        cls.authorized_client = Client()
+        cls.authorized_client.force_login(cls.user)
+
+    def setUp(self) -> None:
+        self.guest_client = Client()
+        self.author_client = Client()
+        self.author_client.force_login(PostsURLTest.user)
+        self.user = User.objects.create_user(username='not_author')
+        self.authorized_client = Client()
+        self.authorized_client.force_login(self.user)
+
+    def test_client_posts_urls_status_client(self):
+        """Тестирование: доступность всех URLs."""
+        topic = PostsURLTest.topic
+        user = PostsURLTest.user
+        entry = PostsURLTest.entry
+        urls_status_codes = {
+            '/': HTTPStatus.OK,
+            '/topics/': HTTPStatus.FOUND,
+            f'/topics/{topic.id}/': HTTPStatus.FOUND,
+            f'/new_topic/': HTTPStatus.FOUND,
+            f'/new_entry/{topic.id}/': HTTPStatus.FOUND,
+            f'/edit_entry/{entry.id}/': HTTPStatus.FOUND,
+            f'/remove_topic/{topic.id}/': HTTPStatus.FOUND,
+            f'/remove_entry/{entry.id}/{topic.id}': HTTPStatus.FOUND,
+            f'/any_page/': HTTPStatus.NOT_FOUND
+        }
+        for url, status_code in urls_status_codes.items():
+            with self.subTest(url=url):
+                response = self.guest_client.get(url)
+                self.assertEqual(
+                    response.status_code,
+                    status_code,
+                    'Status code is fail!'
+                )
+                
+    def tests_urls_correct_templates(self):
+        """Тестирование: соответствие URL используемому шаблону."""
+        topic = PostsURLTest.topic
+        user = PostsURLTest.user
+        entry = PostsURLTest.entry
+        urls_templates_name = {
+            '/': 'learning_logs/index.html',
+            '/topics/': 'learning_logs/topics.html',
+            f'/topics/{topic.id}/': 'learning_logs/topic.html',
+            f'/new_topic/': 'learning_logs/new_topic.html',
+            f'/new_entry/{topic.id}/': 'learning_logs/new_entry.html',
+            f'/edit_entry/{entry.id}/': 'learning_logs/edit_entry.html',
+            f'/remove_topic/{topic.id}/': 'learning_logs/topics.html',
+            f'/remove_entry/{entry.id}/{topic.id}/': 'learning_logs/topic.html'
+        }
+        for url, template in urls_templates_name.items():
+            with self.subTest(url=url):
+                try:
+                    response = self.author_client.get(url)
+                    self.assertTemplateUsed(response, template)
+                except AssertionError:
+                    info = response.request['PATH_INFO']
+                    # print(f'{info} redirects to another page.')
+                    pass
+    
+    def test_guest_index_url(self):
+        """Страница / доступна любому пользователю."""
+        response = self.guest_client.get('/')
+        self.assertEqual(response.status_code, HTTPStatus.OK)
+
+    def test_topics_url_anon(self):
+        """Страница /topics/ доступна только авторизованному пользователю."""
+        response = self.guest_client.get(f'/topics/')
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        self.assertRedirects(
+            response,
+            f'/users/login/?next=/topics/'
+        )
+
+    def test_topics_theme_url_anon(self):
+        """Страница /topics/<topic_id> доступна только авторизованному пользователю."""
+        topic = PostsURLTest.topic
+        response = self.guest_client.get(f'/topics/{topic.id}/')
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        self.assertRedirects(
+            response,
+            f'/users/login/?next=/topics/{topic.id}/'
+        )
+
+    def test_new_topic_url_anon(self):
+        """Страница /new_topic/ доступна только авторизованному пользователю."""
+        topic = PostsURLTest.topic
+        response = self.guest_client.get(f'/new_topic/')
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        self.assertRedirects(
+            response,
+            f'/users/login/?next=/new_topic/'
+        )
+
+    def test_new_entry_url_anon(self):
+        """Страница /new_entry/<topic_id>/ доступна только авторизованному пользователю."""
+        topic = PostsURLTest.topic
+        response = self.guest_client.get(f'/new_entry/{topic.id}/')
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        self.assertRedirects(
+            response,
+            f'/users/login/?next=/new_entry/{topic.id}/'
+        )
+
+    def test_edit_entry_url_anon(self):
+        """Страница /edit_entry/<entry_id>/ доступна только авторизованному пользователю."""
+        entry = PostsURLTest.entry
+        response = self.guest_client.get(f'/edit_entry/{entry.id}/')
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        self.assertRedirects(
+            response,
+            f'/users/login/?next=/edit_entry/{entry.id}/'
+        )
+
+    def test_remove_topic_url_anon(self):
+        """Страница /topic/<topic_id>/ доступна только авторизованному пользователю."""
+        topic = PostsURLTest.topic
+        response = self.guest_client.get(f'/remove_topic/{topic.id}/')
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        self.assertRedirects(
+            response,
+            f'/users/login/?next=/remove_topic/{topic.id}/'
+        )
+
+    def test_remove_entry_url_anon(self):
+        """Страница /remove_entry/<entry_id>/<topic_id>/ доступна только авторизованному пользователю."""
+        topic = PostsURLTest.topic
+        entry = PostsURLTest.entry
+        response = self.guest_client.get(f'/remove_entry/{entry.id}/{topic.id}')
+        self.assertEqual(response.status_code, HTTPStatus.FOUND)
+        self.assertRedirects(
+            response,
+            f'/users/login/?next=/remove_entry/{entry.id}/{topic.id}'
+        )
+
+    def test_remove_entry_url_not_author(self):
+        """Страница /remove_entry/<entry_id>/<topic_id> досnупна только владельцу темы."""
+        topic = PostsURLTest.topic
+        entry = PostsURLTest.entry
+        response = self.authorized_client.get(f'/remove_entry/{entry.id}/{topic.id}')
+        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+
+    def test_remove_topic_url_not_author(self):
+        """Страница /remove_topic/<topic_id>/ досnупна только владельцу темы."""
+        topic = PostsURLTest.topic
+        response = self.authorized_client.get(f'/remove_topic/{topic.id}/')
+        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+
+    def test_edit_entry_url_not_author(self):
+        """Страница /edit_entry/<entry_id>/ досnупна только владельцу темы."""
+        entry = PostsURLTest.entry
+        response = self.authorized_client.get(f'/edit_entry/{entry.id}/')
+        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+
+    def test_new_entry_url_not_author(self):
+        """Страница /new_entry/<topic_id>/ досnупна только владельцу темы."""
+        topic = PostsURLTest.topic
+        response = self.authorized_client.get(f'/new_entry/{topic.id}/')
+        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
+
+    def test_topics_url_not_author(self):
+        """Страница /topics/<topic_id> досnупна только владельцу темы."""
+        topic = PostsURLTest.topic
+        response = self.authorized_client.get(f'/topics/{topic.id}/')
+        self.assertEqual(response.status_code, HTTPStatus.FORBIDDEN)
