@@ -1,0 +1,353 @@
+/*
+ *  This sketch sends data via HTTP GET requests to data.sparkfun.com service.
+ *
+ *  You need to get streamId and privateKey at data.sparkfun.com and paste them
+ *  below. Or just customize this script to talk to other HTTP servers.
+ *
+ */
+
+extern "C" {
+#include "user_interface.h"
+}
+#include <ESP8266WiFi.h>
+#include <WiFiUDP.h>
+#include "nau7802.h"
+
+IPAddress ip(192, 168, 57, 5);
+IPAddress gateway(192, 168, 57, 1);  
+IPAddress subnet(255, 255, 255, 0); //- See more at: http://www.esp8266.com/viewtopic.php?f=32&t=2773#sthash.SgPBmkmu.dpuf
+
+const char* ssid     = "WifiScale";
+const char* password = "W171Scale";
+boolean wifiConnected = false;
+boolean enable_ontr_test= true;
+unsigned int localPort = 1001;
+WiFiUDP UDP;
+boolean udpConnected = false;
+unsigned int ConnectTimeOut= 90;  // ha 15 percig nincs kapcsolat, kikapcsol 
+
+char packetBuffer[UDP_TX_PACKET_MAX_SIZE]; //buffer to hold incoming packet
+char ReplyBuffer[] = "acknowledged"; 
+// a string to send back
+
+os_timer_t myTimer;
+
+#define ONSW  13
+#define LED   14
+#define ONTR  15
+#define NAU   12
+
+char blink_timer; // számláló a villogás időzítéséhez
+unsigned char kikapcs;     // számláló hogy meddig tartják nyomva a bekapcs gombot.
+boolean KIKAPCS= false;  // ha true, akkor kikapcs ütenet jött a pc-től
+
+float Vacc;       // akkumulátor feszültség
+unsigned char need_read_accu= 0;
+
+unsigned char AD_Cntr;  
+unsigned long AD_AVG;
+unsigned int NAU_timeout_cntr;
+unsigned char NAU_timeout_error;
+unsigned long ADResult;
+unsigned long AD_Table[5];
+unsigned char AD_ptr= 0;
+
+unsigned char checkWifi= 50;
+unsigned char wifiTimeOutCntr= 10;
+
+// start of timerCallback, 100ms-onként belép ide
+void timerCallback(void *pArg) {
+
+   
+    // Kikapcsolja a bekapcsolva tartó tranzisztort.
+    if (enable_ontr_test) 
+      digitalWrite( ONTR, LOW);
+    // a delay-t nem lehet itt használni, ezért így vár egy kicsit
+    
+    if (need_read_accu) need_read_accu--;
+    if (checkWifi) checkWifi--; 
+
+    // villogtatja a LED-et
+    blink_timer++;
+    if (blink_timer<=1){
+       if (KIKAPCS==0) digitalWrite(LED, HIGH);
+    }else{
+       digitalWrite(LED, LOW);
+       if (blink_timer>=6){
+        blink_timer= 0;
+       }
+    }
+
+    // megnézi hogy nyomvatartják e a begombot, kikapcsoláshoz.
+/*    char s[10];
+    itoa( kikapcs, s, 10);
+    Serial.print( s);
+    Serial.print( "  onsw ");
+    itoa( digitalRead( ONSW), s, 10);
+    Serial.println( s);
+*/
+    if (enable_ontr_test){
+      if (digitalRead( ONSW)== LOW || Vacc<11 || KIKAPCS) {
+          if (kikapcs>10){
+            // várja hogy elengedjék a begombot.
+            KIKAPCS= true;
+          }
+          else{
+            kikapcs++;
+            digitalWrite( ONTR, HIGH);
+          }
+      }
+      else {
+          digitalWrite( ONTR, HIGH);
+          kikapcs= 0;
+      }
+    }
+
+    NAU_timeout_cntr--;
+    if (NAU_timeout_cntr==0){
+      NAU_timeout_error= 1;
+    }
+
+} // End of timerCallback
+
+
+// connect to UDP – returns true if successful or false if not
+boolean connectUDP()
+{
+  boolean state = false;
+
+  Serial.println("");
+  Serial.println("Connecting to UDP");
+
+  if (UDP.begin(localPort) == 1){
+    Serial.println("Connection successful");
+    state = true; 
+  }
+  else{
+    Serial.println("Connection failed");
+  }
+  return state;
+}
+
+// connect to wifi – returns true if successful or false if not
+boolean connectWifi()
+{
+  boolean state = true;
+  int i = 0;
+  enable_ontr_test= false;
+  WiFi.config(ip, gateway, subnet);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  // Wait for connection
+  Serial.print("Connecting");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(200);
+    Serial.print(".");
+    if (i > 25){
+      state = false;
+      break;
+    }
+    i++;
+  }
+  if (state){
+    Serial.println("");
+    Serial.print("Connected to ");
+    Serial.println(ssid);
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+  }
+  else {
+    Serial.println("");
+    Serial.println("Connection failed.");
+    WiFi.disconnect(); 
+  }
+  enable_ontr_test= true;
+  return state;
+}
+
+
+// receive udp messages
+void udpReceive( void)
+{
+  if(wifiConnected && udpConnected){
+      // if there’s data available, read a packet
+      int packetSize = UDP.parsePacket();
+      if(packetSize) {
+        // read the packet into packetBufffer
+        UDP.read(packetBuffer,UDP_TX_PACKET_MAX_SIZE);
+        Serial.print("Receive:");
+        Serial.println(packetBuffer);
+        if (strcmp(packetBuffer, "KI")==0){
+          kikapcs= 121;
+          KIKAPCS= true;
+        }
+        wifiTimeOutCntr= 10;
+      }
+  }
+}
+
+/********************************************************************
+ *  SETUP 
+ ********************************************************************/
+void setup() {  
+  // bekapcsolja a LED-et
+  pinMode(LED, OUTPUT);
+  digitalWrite( LED, HIGH);
+
+  // bekapcsolja a bekapcsolva tartó tranzisztort.
+  pinMode(ONTR, OUTPUT);
+  digitalWrite( ONTR, HIGH);
+  pinMode(ONSW, INPUT);
+  
+  // bekapcsolja a mérleget
+  pinMode(NAU, OUTPUT);
+  digitalWrite( NAU, LOW);
+
+  // timer interrupt konfugurálása
+  os_timer_setfn(&myTimer, timerCallback, NULL);
+  os_timer_arm(&myTimer, 100, true);
+
+  // soros port beállítása 
+  Serial.begin(115200);
+  delay(10);
+
+  // We start by connecting to a WiFi network
+
+  Serial.println();
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  
+  wifiConnected= connectWifi();
+    
+  if (wifiConnected){
+      udpConnected = connectUDP();
+  }
+
+  InitNAU7802();
+  AD_AVG= 0;
+  AD_Cntr= 0;
+  NAU_timeout_error=0;
+  NAU_timeout_cntr= 20;
+}
+
+/********************************************************************
+ * LOOP
+ ********************************************************************/
+void loop() {
+
+  delay( 1);
+  
+  if (need_read_accu==0){
+    float V= analogRead(A0);
+    V*= 16.6;
+    V/=1024;
+    Vacc= V;
+    //Serial.print( "Accu: ");
+    //Serial.print(Vacc);
+    //Serial.println( " V");
+    need_read_accu= 20;
+  }
+
+
+  if (AD_Ready())
+  { 
+    unsigned long AD= GetADCResult_NAU7802();
+
+    AD>>=4;
+    AD_AVG+= AD;
+    AD_Cntr++;
+
+    //Serial.print( " AD: ");
+    //Serial.print(  AD);
+    
+    if (AD_Cntr>=5) { 
+      
+      AD_AVG/=AD_Cntr;
+      //Serial.print( " AVG: ");
+      //Serial.println(  AD_AVG);
+      AD_AVG>>=1;
+      if (AD_AVG & 1) AD_AVG+=1;
+      AD_AVG>>=1;
+      
+      AD_Table[AD_ptr++]= AD_AVG;
+      if (AD_ptr>4) AD_ptr= 0;
+      
+      ADResult= 0;
+      for (byte i=0; i<5; i++)
+        ADResult+= AD_Table[i];
+      ADResult/=5;  
+      
+      AD_AVG= 0;
+      AD_Cntr= 0;
+
+      if (wifiConnected && udpConnected){
+        UDP.beginPacket("192.168.23.1", 1001);
+        dtostrf( ADResult, 8, 0, ReplyBuffer);
+        char s[10];
+        dtostrf( Vacc, 8, 2, s);
+        strcat( ReplyBuffer, s);
+        enable_ontr_test= false;
+        Serial.println(ReplyBuffer);
+        UDP.write(ReplyBuffer);
+        if (UDP.endPacket()) wifiTimeOutCntr= 10;
+        enable_ontr_test= true;
+      }
+    }
+    NAU_timeout_cntr= 20;
+  }
+  
+  if (NAU_timeout_error==1)
+  { InitNAU7802();
+    NAU_timeout_error=0;
+    NAU_timeout_cntr= 20;
+    Serial.println( "NAU TIME OUT");
+  }
+
+  udpReceive();
+  
+  if (checkWifi==0) {
+    checkWifi= 10;
+    wifiTimeOutCntr--;
+    if (wifiTimeOutCntr==0){
+      Serial.println( "WIFI TIME OUT");
+      wifiTimeOutCntr= 10;
+      UDP.stop();
+      WiFi.disconnect();
+      delay( 1000);
+      wifiConnected= connectWifi();
+      if (wifiConnected) udpConnected = connectUDP();
+
+      if (wifiConnected==0){
+        if (ConnectTimeOut) {
+          ConnectTimeOut--;
+          if (ConnectTimeOut==0) KIKAPCS=true;
+        }
+        
+      }
+      else
+      {
+        ConnectTimeOut= 60; // kikapcsolás 10 perc múlva.
+      }
+    }
+  }
+
+  if (KIKAPCS)
+  {
+    Serial.println( "Kikapcsol");
+    Serial.print("Vacc:");
+    Serial.println(Vacc);
+    Serial.print("cntr:");
+    char s[10];
+    itoa( kikapcs, s, 10);
+    Serial.println(s);
+    if (ConnectTimeOut==0) Serial.println("Connection Time Out");
+    delay(100);
+    digitalWrite( ONTR, LOW);
+    delay( 10000);
+  }
+}
+
+
+
