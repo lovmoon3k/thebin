@@ -1,0 +1,1264 @@
+--[[
+    Release version of Lattix, version a0.2
+    A lot of features from Lattice weren't adopted yet :/ but at least you can enjoy the extra stability
+   
+    Made by Konlab
+   
+    If you wonder why the screen is so stable (no flickering) then it's because of the awesomeness of CrazedProgrammmer's Surface API, go check it out here: http://www.computercraft.info/forums2/index.php?/topic/22397-surface-api-162/
+]]
+
+local tArgs = { "/R_Files", "/R_Files"}
+local version = "a0.2"
+
+--CONFIG
+--colors of lattix
+local lat_theme = {
+	menu_back = colors.green;
+	menu_text = colors.black; 
+	main_back = colors.black;
+	main_text = colors.green;
+	selected_text = colors.cyan;
+	dir_text = colors.yellow;
+	multiselect_back = colors.lightGray;
+	blank_back = colors.black;
+	blank_text = colors.green;
+}
+--colors of lattix on basic comps
+local lat_basic_theme = {
+	menu_back = colors.gray;
+	menu_text = colors.white; 
+	main_back = colors.white;
+	main_text = colors.black;
+	selected_text = colors.lightGray;
+	dir_text = colors.black;
+	multiselect_back = colors.white;
+	blank_back = colors.white;
+	blank_text = colors.black;
+}
+local dirprefix = "Terminal/" --this text gets added before dirs
+local basic_dirprefix = "[] " --this text gets added before dirs on non-advanced computers
+local selectprefix = "" --this text gets added before selected things (even in multiselect)
+local basic_selectprefix = "> " --this text gets added before selected things (even in multiselect) on non-advanced computers
+--which programs to use to open .<xtension> files. Special codes: "run" and "api" and special extension "def" - def will be used for every extension not listed (def must be something), run runs it without args, api loads it with os.loadAPI (yes ikr very useful rn since os.loadAPI doesn't like weird extensions). The empty string indicates no extension
+--the file is opened by running the program chosen below with arg #1 being the path to the file
+local defaultPrograms = {
+	[""] = "/rom/programs/edit.lua",
+	["txt"] = "/rom/programs/edit.lua",
+	["cfg"] = "/rom/programs/edit.lua",
+	["config"] = "/rom/programs/edit.lua",
+	["nfp"] = "/rom/programs/fun/advanced/paint.lua",
+	["lua"] = "run",
+--	["api"] = "api", --if a custom OS sets up os.loadAPI to work with .api and stores its apis in .api then this could work
+	["def"] = "/rom/programs/edit.lua"
+}
+--which programs can be used to create files (think clicking the New... button) Special code: choose means the program is chosen manually through a dialog
+--these programs are run with the path to the file that is to be created as first argument
+local editors = {
+	["Other"] = "choose",
+	["NFP painting"] = "/rom/programs/fun/advanced/paint.lua",
+	["Lua script"] = "/rom/programs/edit.lua",
+	["Text file"] = "/rom/programs/edit.lua"
+	
+	
+	
+}
+--Extensions for the above editors
+local editors_extensions = {
+	["NFP painting"] = "nfp",
+	["Lua script"] = "lua",
+	["Text file"] = "txt"
+	
+	
+}
+
+local surfacepath = "surface"
+
+--code adopted and modified from CC's source code
+local function pastebinGet(paste, path)
+	
+	if not http then
+		error("HTTP disabled", 2)
+	end
+	--- Attempts to guess the pastebin ID from the given code or URL
+	local extractId = function (paste)
+		local patterns = {
+			"^([%a%d]+)$",
+			"^https?://pastebin.com/([%a%d]+)$",
+			"^pastebin.com/([%a%d]+)$",
+			"^https?://pastebin.com/raw/([%a%d]+)$",
+			"^pastebin.com/raw/([%a%d]+)$",
+		}
+
+		for i = 1, #patterns do
+			local code = paste:match( patterns[i] )
+			if code then return code end
+		end
+
+		return nil
+	end
+
+	local get = function (url)
+		local paste = extractId( url )
+		if not paste then
+			error( "Invalid pastebin code.", 0 )
+			return
+		end
+
+		-- Add a cache buster so that spam protection is re-checked
+		local cacheBuster = ("%x"):format(math.random(0, 2^30))
+		local response, err = http.get(
+			"https://pastebin.com/raw/"..textutils.urlEncode( paste ).."?cb="..cacheBuster
+		)
+
+		if response then
+			-- If spam protection is activated, we get redirected to /paste with Content-Type: text/html
+			local headers = response.getResponseHeaders()
+			if not headers["Content-Type"] or not headers["Content-Type"]:find( "^text/plain" ) then
+				error( "Pastebin blocked the download due to spam protection. Please complete the captcha in a web browser: https://pastebin.com/" .. textutils.urlEncode( paste ) , 0)
+				return
+			end
+
+			local sResponse = response.readAll()
+			response.close()
+			return sResponse
+		else
+			error (err, 0)
+		end
+	end
+
+	-- Determine file to download
+	local sCode = paste
+	local sPath = path
+	if fs.exists( sPath ) then
+		error( "File already exists", 0 )
+		return
+	end
+
+	-- GET the contents from pastebin
+	local res = get(sCode)
+	if res then
+		local file = fs.open( sPath, "w" )
+		file.write( res )
+		file.close()
+	end
+end
+local function wGet(url, sPath)
+
+	if not http then
+		error( "HTTP disabled", 2 )
+	end
+
+	local function getFilename( sUrl )
+		sUrl = sUrl:gsub( "[#?].*" , "" ):gsub( "/+$" , "" )
+		return sUrl:match( "/([^/]+)$" )
+	end
+
+	local function get( sUrl )
+		-- Check if the URL is valid
+		local ok, err = http.checkURL( url )
+		if not ok then
+			error( err or "Invalid URL.", 0 )
+			return
+		end
+
+		local response = http.get( sUrl , nil , true )
+		if not response then
+			error( "Failed." )
+		end
+
+		local sResponse = response.readAll()
+		response.close()
+		return sResponse
+	end
+
+	if fs.exists( sPath ) then
+		error( "File already exists", 0 )
+		return
+	end
+
+	local res = get(url)
+	if not res then return end
+
+	local file = fs.open( sPath, "wb" )
+	file.write( res )
+	file.close()
+end
+
+
+local function program()
+
+--api loading
+if not surface then
+	if fs.exists(surfacepath) then
+		os.loadAPI(surfacepath)
+	else
+		print("installing missing component: " .. surfacepath)
+		pastebinGet("J2Y288mW", surfacepath)
+		os.loadAPI(surfacepath)
+	end
+end
+--term args
+local home --the directory Lattix is opened in
+local root --the root directory that you're not allowed to go above
+
+if #tArgs > 0 then
+	home = tArgs[1]
+else
+	home = ""
+end
+if #tArgs > 1 then
+	root = tArgs[2]
+else
+	root = ""
+end
+
+root = fs.combine("", root)
+home = fs.combine("", home)
+
+--variables
+local clipboard --a file path/table of files
+local clip_cut = false -- original file(s) will be deleted if this is true
+local history = {}
+local w,h = term.getSize()
+
+
+
+--setting up path
+if not term.isColor() then
+	lat_theme = lat_basic_theme
+	dirprefix = basic_dirprefix
+	selectprefix = basic_selectprefix
+end
+local path = root
+
+if fs.isDir(fs.combine(root,home)) then
+	path = fs.combine(root,home)
+elseif fs.isDir(root) then
+	path = root
+else
+	error("Not valid root folder",0)
+end
+local scroll = 0
+local selected = 0
+local endprogram = false
+local isCtrlDown = false
+local isShiftDown = false
+local selection = {}
+local isMultiSelect = false
+
+local index = 0
+local empty = function() end
+local shell_input = ""
+
+local itemNames = {} --displayed texts
+local itemPaths = {} --paths to items
+local customTitle --if not nil then the title of the program is replaced with this
+
+
+--setting up the second session
+local alt_histories = {
+{path}, {path}, {path}, {path}
+}
+local alt_paths = {
+	[1] = path,
+	[2] = path,
+	[3] = path,
+	[4] = path
+}
+local alt_scrolls = {
+	0,0,0,0
+}
+local alt_selected = {
+	0,0,0,0
+}
+local cSession = 1
+
+local surf = surface.create(w,h," ",lat_theme.blank_back, lat_theme.blank_text) 
+
+local pathValid = true
+
+--functions yet undefined:
+local redraw --so that any gui drawing can call a redraw
+local remap --so that redraw and remap can be overwritten if neccessary
+local restore --so that special popups that use the main loop can restore the file browser functionality
+--helpers
+local function mathdown(num)
+	if num % 1 ~= 0 then
+		return math.floor(num)
+	end
+	return num - 1
+end
+local function sort(path) --returns a sorted table of folder names and file names at path with folders being first
+	local tbl = {}
+	items = fs.list(path)
+	table.sort(items)
+	--insert dirs
+	for i=1,#items do
+		if fs.isDir(fs.combine(path,items[i])) then
+			tbl[#tbl+1] = fs.combine(path, items[i])
+		end
+	end
+	for i=1,#items do
+		if not fs.isDir(fs.combine(path,items[i])) then
+			tbl[#tbl+1] = fs.combine(path, items[i])
+		end
+	end
+	return tbl
+end
+local function formatNumber(num)
+	local extra = {"B","KB","MB"}
+	local eindex = 1
+	while num > 1024 do
+		num = num / 1024
+		num = math.floor(num)
+		eindex = eindex + 1
+	end
+	return tostring(num..extra[eindex])
+end
+local function posToIndex(maxn,x,y,scroll)
+	return y+scroll-2 < maxn and y+scroll-1 or 0
+end
+local function IndexToPos(index,scroll)
+	return 2,index-scroll
+end
+local function clear()
+	surf:clear()
+	surf:render()
+	term.setCursorPos(1,1)
+end
+
+local function readFolderRaw(folder)
+	customTitle = nil --to quit all special view modes
+	pathValid = true
+	path = folder
+	itemNames = {}
+	itemPaths = {}
+	
+	local t = sort(folder)
+	for i=1,#t do
+		itemNames[i] = fs.getName(t[i])
+		itemPaths[i] = t[i]
+	end
+	
+end
+
+local function switchFolderRaw(folder) --folder is in absolute path, does not add to history
+	readFolderRaw(folder)
+	selected = 0
+	scroll = 0
+	shell_input = ""
+end
+
+local function switchFolder(folder) --folder is in absolute path
+	history[#history + 1] = path
+	switchFolderRaw(folder)
+end
+
+local function waitForKeyOrClick()
+	while true do
+		local e = os.pullEvent()
+		if e == "key" or e == "mouse_click" then
+			break
+		end
+	end
+end
+local function split(inputstr, sep)
+        if sep == nil then
+                sep = "%s"
+        end
+        local t={} ; i=1
+        for str in string.gmatch(inputstr, "([^"..sep.."]+)") do
+                t[i] = str
+                i = i + 1
+        end
+        return t
+end
+local function switchSessions(newI)
+	--if newI == cSession then return end
+	alt_histories[cSession] = history
+	alt_paths[cSession] = path
+	alt_scrolls[cSession] = scroll
+	alt_selected[cSession] = selected
+	history = alt_histories[newI]
+	--after all we need to update the item list
+	switchFolderRaw(alt_paths[newI])
+	scroll = alt_scrolls[newI]
+	selected = alt_selected[newI]
+	cSession = newI
+end
+local function extensionRead(extension, width, bcolor, tcolor, dtext)
+	local x,y = term.getCursorPos()
+	term.setCursorBlink(true)
+	local t = dtext or ""
+	local i = #t
+	local scroll = 0
+	local tbasis
+	
+	while true do
+		surf:drawLine(x,y,x+width,y," ", bcolor,tcolor)
+		tbasis = t .. extension
+		if i < scroll then
+			scroll = i
+		end
+		if i > scroll + width - #extension then
+			scroll = i - width + #extension
+		end
+		if #tbasis > width then
+			if scroll + width > #tbasis then
+				scroll = #tbasis - width
+			end
+			tbasis = tbasis:sub(1+scroll, width+scroll)
+		else
+			scroll = 0
+		end
+		surf:drawText(x,y,tbasis,bcolor,tcolor)
+		surf:render()
+		term.setCursorPos(x+i-scroll, y)
+		local ev = {os.pullEvent()}
+		local e,k = ev[1], ev[2]
+		repeat
+			if e == "paste" then
+				e = "char"
+				table.remove(ev, 1)
+				k = table.concat(ev, " ")
+			end
+			if e == "char" then
+				if i == #t then
+					t = t .. k
+					i = i + #k
+				elseif i == 0 then
+					t = k .. t
+					i = i + #k
+				else
+					t = t:sub(1,i) .. k .. t:sub(i+1, #t)
+					i = i + #k
+				end
+			end
+			
+			if e == "key" then
+				local mini = 0
+				local maxi = #t
+				if k == keys.left and i > mini then
+					i = i - 1
+					break
+				end
+				if k == keys.right and i < maxi then
+					i = i + 1
+					break
+				end
+				
+				if k == keys.up then
+					i = mini
+					break
+				end
+				if k == keys.down then
+					i = maxi
+					break
+				end
+				if k == keys.enter then
+					term.setCursorBlink(false)
+					return t .. extension
+				end
+				if k == keys.delete and i < #t then
+					t = t:sub(1,i) .. t:sub(i+2,#t)
+					break
+				end
+				if k == keys.backspace and i > 0 then
+					t = t:sub(1,i-1) .. t:sub(i+1, #t)
+					i = i - 1
+					break
+				end
+			end
+		until true
+	end
+end
+--custom dialoges (just the GUI, it also draws it)
+local function drawInfobox(txt) --just info text, no buttons
+	surf:fillRect(math.floor(w/2-(#txt+2)/2), math.floor(h/2)-2, math.floor(w/2+(#txt+2)/2),math.floor(h/2)+2, " ", lat_theme.menu_back, lat_theme.menu_text)
+	surf:drawText(math.floor(w/2-(#txt+2)/2)+1,math.floor(h/2)-1, txt, lat_theme.menu_back, lat_theme.menu_text)
+	surf:render()
+end
+local function drawTextbox(txt) --text feedback
+	surf:fillRect(math.floor(w/2-(#txt+2)/2),math.floor(h/2)-2,math.floor(w/2+(#txt+2)/2),math.floor(h/2)+2, " ", lat_theme.menu_back, lat_theme.menu_text)
+	surf:drawText(math.floor(w/2-(#txt+2)/2)+1,math.floor(h/2)-1, txt, lat_theme.menu_back, lat_theme.menu_text)
+	surf:render()
+	term.setCursorPos(math.floor(w/2-(#txt+2)/2)+1,math.floor(h/2)+1)
+end
+local function drawButtonBox(txt,buttons) --multiple buttons, configurable
+	if type(buttons) ~= "table" then
+		buttons = {{" Yes ",colors.red,colors.white},{" No ",colors.gray,colors.white}}
+	end
+	if txt == "" or txt == nil then
+		txt = " Are you sure? "
+	end
+	
+	drawTextbox(txt) --reuse the rectangle
+	local x,y = term.getCursorPos()
+	
+	for i=1,#buttons do
+		x = math.floor((w/2-(#txt+2)/2)+((#txt+2)/i)*(i-1)) + 1
+		if term.isColor() then
+			surf:drawText(x,y, buttons[i][1], buttons[i][2], buttons[i][3])
+		else
+			surf:drawText(x,y,buttons[i][1], lat_theme.main_back, lat_theme.main_text)
+		end
+	end
+	surf:render()
+	return y
+end
+local function drawPopupBox(x,y,buttons) --x and y are the corners
+	local ydir = y < h/2 and 1 or -1
+	surf:fillRect(x,y,x+15,y+(#buttons+1)*ydir, " ", lat_theme.menu_back, lat_theme.menu_text)
+	for k,v in pairs(buttons) do
+		surf:drawText(x+1,y+k*ydir, v, lat_theme.menu_back, lat_theme.menu_text)
+	end
+	surf:render()
+end
+--custom dialogue functionality (difference from popups is that they stop the main program flow, program cannot close, etc. they are allowed to handle events)
+local function infoBox(txt, noredraw)
+	drawInfobox(txt)
+	waitForKeyOrClick()
+	if not noredraw then
+		redraw()
+	end
+end
+local function textBox(txt, dtext)
+	drawTextbox(txt)
+	local resp = extensionRead("", #txt, lat_theme.menu_back, lat_theme.menu_text, dtext)
+	redraw()
+	return resp
+end
+local function xtensionTextBox(txt, xts)
+	drawTextbox(txt)
+	local resp = extensionRead(xts, #txt, lat_theme.menu_back, lat_theme.menu_text)
+	redraw()
+	return resp
+end
+local function fileChooseBox(txt)
+	return textBox(txt)
+end
+local function dirChooseBox(txt)
+	return textBox(txt)
+end
+local function buttonBox(txt, buttons)
+	local y = drawButtonBox(txt, buttons)
+	while true do
+		local _,b,x2,y2 = os.pullEvent("mouse_click")
+		if b == 1 and y == y2 then
+			for i=1,#buttons do
+				local x = math.floor((w/2-(#txt+2)/2)+((#txt+2)/i)*(i-1)) + 1
+				if x2 > x - 1 and x2 < x + #buttons[i][1] then
+					redraw()
+					return i
+				end
+			end
+		end
+	end
+end
+--these were moved above popupbox:
+local function safeRun(func, ...)
+	local succ, msg = pcall(func, ...)
+	if not succ then
+		infoBox(msg)
+	end
+end
+local function refresh()
+	if pathValid then
+		readFolderRaw(path)
+	else
+		local t = {}
+		for k,v in pairs(itemPaths) do
+			if fs.exists(v) then
+				t[#t+1] = v
+			end
+		end
+		itemPaths = t
+	end
+end
+local function popupBox(x,y,buttons,functions) --popups defined to have width 15
+	drawPopupBox(x,y,buttons)
+	local ydir = y < h/2 and 1 or -1
+	while true do
+		local _,b,cx,cy = os.pullEvent("mouse_click")
+		if b == 1 then
+			if cx < x or cx > x + 15 then
+				os.queueEvent("mouse_click", b, cx, cy)
+				break
+			end
+			if not (cy*ydir > y*ydir and cy*ydir - y*ydir < #buttons+1) then
+				os.queueEvent("mouse_click", b, cx, cy)
+				break
+			end
+			--for menus inside popup boxes
+			redraw()
+			safeRun(functions[ydir*cy-ydir*y],x,y)
+			refresh()
+			break
+		else
+			os.queueEvent("mouse_click", b, cx, cy)
+			break
+		end
+	end
+	
+end
+
+local findFileBox --for later
+local findDirBox
+
+--file editing functionality
+local function run(path, ...)
+	local tArgs = {...}
+	local function box()
+		clear()
+		
+		shell.run(fs.combine("/", path), unpack(tArgs)) --better alternative to shell.run?
+		print("Press any key or click to return to Lattix")
+		waitForKeyOrClick()
+	end
+	local cor = coroutine.create(box)
+	coroutine.resume(cor)
+	--later better sandboxing required that doesn't allow modification of _G or some file defense
+	while (coroutine.status(cor) ~= "dead") do
+		local event = {os.pullEventRaw()} --terminate works only on the sub-program
+		coroutine.resume(cor, unpack(event))
+	end
+end
+local function mkdir(path, name)
+	fs.makeDir(fs.combine(path, name))
+end
+local function paste(path, clipboard, cutEnabled) --i wonder what happens if you try to move something inside of itself
+	if type(clipboard) == "table" then
+		for i=1,#clipboard do
+			paste(path, clipboard[i], cutEnabled)
+		end
+		return
+	end
+	if not clipboard then error("Clipboard is empty",0) end
+	if not fs.exists(clipboard) then error("File copied doesn't exist",0) end
+	local func = cutEnabled and fs.move or fs.copy
+	local goal = fs.combine(path, fs.getName(clipboard))
+	local i = 1
+	while fs.exists(goal) do
+		goal = fs.combine(path, "Copy" .. (i>1 and tostring(i) or "") .. " of " .. fs.getName(clipboard))
+		i = i + 1
+	end
+	func(clipboard, goal)
+end
+local function advFind(path, wildcard, results)
+	if not results then results = {} end
+	local t = fs.find(fs.combine(path, wildcard))
+	for i=1,#t do
+		results[#results+1] = t[i]
+	end
+	local dirs = fs.list(path)
+	for i=1,#dirs do
+		if fs.isDir(fs.combine(path, dirs[i])) then
+			results = advFind(fs.combine(path, dirs[i]), wildcard, results)
+		end
+	end
+	
+	return results
+end
+--GUI core functionality
+
+local function doubleClick(path) --contains a reference to refresh
+	selected = 0
+	if fs.isDir(path) then
+		switchFolder(path)
+	else
+		local elements = split(fs.getName(path), ".")
+		if #elements == 1 then
+			elements[2] = "" --no extension
+		end
+		if not defaultPrograms[elements[#elements]] then
+			elements[#elements] = "def" --unknown extension
+		end
+		if (defaultPrograms[elements[#elements]]) == "api" then
+			os.loadAPI(path)
+			refresh()
+		elseif defaultPrograms[elements[#elements]] == "run" then
+			run(path)
+			refresh()
+		else
+			shell.run(defaultPrograms[elements[#elements]], path)
+			refresh()
+		end
+	end
+end
+local function gotoFolder()
+	local target
+		target = textBox("Please specify target folder")
+		if target == "" then return end --cancel if empty
+		if not target or not fs.exists(target) or not fs.isDir(target) then
+			infoBox("    Not a valid directory   ")
+			return
+		end
+		switchFolder(fs.combine("", target))
+end
+local function makeDirPrompt()
+	local name = textBox("Enter the name of the new directory")
+	if name == "" then return end
+	if fs.exists(fs.combine(path, name)) then
+		infoBox("Failure - File name already used")
+	end
+	mkdir(path, name)
+end
+local function pastebin()
+	local link = textBox("Enter the pastebin link")
+	if link == "" then return end
+	local name = textBox("Enter the name of the file")
+	if name == "" then return end
+	if fs.exists(fs.combine(path,name)) then
+		infoBox("Failure - File name already used")
+		return
+	end
+	pastebinGet(link, fs.combine(path, name))
+end
+local function wgetPrompt()
+	local link = textBox("Enter the url")
+	if link == "" then return end
+	local name = textBox("Enter the name of the file")
+	if name == "" then return end
+	if fs.exists(fs.combine(path,name)) then
+		infoBox("Failure - File name already used")
+		return
+	end
+	wGet(link, fs.combine(path, name))
+end
+local function runPrompt(appath)
+	if not appath then
+		appath = fs.combine(path, textBox("Enter the name of the script"))
+	end
+	if not fs.exists(appath) then
+		infoBox("Script doesn't exist: " .. appath)
+		return
+	end
+	if fs.isDir(appath) then
+		infoBox("Cannot run a directory: " .. appath)
+		return
+	end
+	args = textBox("Please enter the arguments")
+	run(appath, split(args, " "))
+end
+local function copy(name)--name actually means full path
+	clip_cut = false
+	clipboard = name
+end
+local function cut(name) --name actually means full path here
+	copy(name)
+	clip_cut = true
+end
+local function renamePrompt(path)
+	if not fs.exists(path) then infoBox("Nothing to rename") return end
+	local name = textBox("Enter the new name", fs.getName(path))
+	if name == "" then return end
+	if fs.exists(fs.combine(fs.getDir(path), name)) then
+		infoBox("Failure - File already exists")
+		return
+	end
+	fs.move(path, fs.combine(fs.getDir(path), name))
+end
+local function deletePrompt(path)
+	if not fs.exists(path) then infoBox("Nothing to delete") return end
+	local response = buttonBox("Do you really want to delete " .. fs.getName(path) .. "?", {{" Delete ", colors.white, colors.red}, {" Cancel ", colors.yellow, colors.black }})
+	if response == 1 then
+		fs.delete(path)
+	end
+end
+local function findFilesPrompt()
+	local wildCard = textBox("Enter filename or part of it")
+	if wildCard == "" then return end --cancel option
+	local finds = advFind(path, "*" .. wildCard .. "*")
+	if #finds == 0 then
+		infoBox("No files found")
+		return
+	end
+	itemNames = {}
+	itemPaths = {}
+	for i=1,#finds do
+		itemNames[i] = finds[i]
+		itemPaths[i] = finds[i]
+		customTitle = "Search results"
+		pathValid = false
+	end
+	
+end
+--GUI functionality - event mapping
+local buttons = {}
+local keymap = {}
+local eventmap = {}
+
+for i=1,w do
+	buttons[i] = {}
+	for j=1,h do
+	
+		buttons[i][j] = {function() end, function() end}
+	end
+end
+local function newButton(x, y, w, h, func_left, func_right)
+	for i=x, x+w-1 do
+		for j=y, y+h-1 do
+			buttons[i][j] = {func_left, func_right}
+		end
+	end
+end
+local function clearButtons(x, y, w, h)
+	newButton(x,y,w,h, empty, empty)
+end
+
+local function clearAllEvents()
+	keymap = {}
+	eventmap = {}
+	clearButtons(1,1,w,h)
+end
+local popup_newmenu_names = {
+	"New ...",
+	"New dir",
+	"Paste",
+	"Pastebin",
+	"wget"
+}
+local popup_newmenu_functions = {
+	function(x,y) 
+		local options = {}
+		local functions = {}
+		for k,v in pairs(editors) do
+			local i = #options+1 
+			options[i] = k
+			functions[i] = function()
+				local ext = ""
+				if editors_extensions[k] then
+					ext = editors_extensions[k]
+				end
+				local app
+				if v == "choose" then
+					
+				else
+					app = v
+				end
+				local item = xtensionTextBox("What should the new file be called?", "." .. ext)
+				local target = fs.combine(path, item)
+				if not fs.exists(target) then
+					shell.run(app, target)
+				else
+					infoBox("Failure - file already exists")
+				end
+			end
+		end
+		popupBox(x,y,options,functions)
+	end,
+	function() makeDirPrompt() end,
+	function() paste(path, clipboard, clip_cut) end,
+	function() pastebin() end,
+	function() wgetPrompt() end,
+	
+}
+local popup_lockednewmenu_names = {
+	"Refresh"
+}
+local popup_lockednewmenu_functions = {
+	function() refresh() end
+}
+
+local popup_menu_names = {
+	"Go to dir",
+	"Find file",
+	"Version: "..version
+}
+local popup_menu_functions = {
+	function() gotoFolder() end,
+	function() findFilesPrompt() end,
+	function() infoBox("Lattix version " .. version) end,
+}
+local filePopupNames = {
+--	"Edit", --opens default editor, as double click would, expect that for .lua it opens edit too
+	"Run", --runs
+	"Run w/ args", --runs with args
+--	"Open With", --select a program from a list and use it to open this, config file will be huge i see
+	"Rename",
+	"Copy",
+	"Cut",
+	"Delete"
+}
+local function getSelectedPath()
+	return itemPaths[selected]
+end
+local filePopupFunctions = {
+	function(x,y) run(getSelectedPath()) end,--run
+	function(x,y) runPrompt(getSelectedPath()) end,--run w args
+	function(x,y) renamePrompt(getSelectedPath()) end, --rename,
+	function(x,y) copy(getSelectedPath()) end, --copy
+	function(x,y) cut (getSelectedPath()) end, --cut
+	function(x,y) deletePrompt(getSelectedPath()) end --delete
+}
+local folderPopupNames = {
+	"Open",
+--	"Open in ...", --1,2,3,4 and program, TODO later bc open in and open with need some design decisions
+--	"Unpack",
+	"Rename",
+	"Copy",
+	"Cut",
+	"Delete"
+}
+local folderPopupFunctions = {
+	function(x,y) switchFolder(getSelectedPath()) end, --open
+	function(x,y) renamePrompt(getSelectedPath()) end, --rename
+	function(x,y) copy(getSelectedPath()) end, --copy
+	function(x,y) cut(getSelectedPath()) end, --cut
+	function(x,y) deletePrompt(getSelectedPath()) end --delete
+}
+local multiPopupNames = {}
+local multiPopupFunctions = {}--for multiselect, copy, cut, pack into folder, delete
+
+local function mapMenu()
+	local back = function() 
+		if not pathValid then
+			pathValid = true
+			refresh()
+			
+			return
+		end
+		if #history > 1 then
+			switchFolderRaw(history[#history])
+			table.remove(history, #history)
+		end
+	end
+	local up = function()
+		if not pathValid then
+			pathValid = true
+			refresh()
+			return
+		end
+		if path == "" or path == "/" then return end
+		switchFolder(fs.combine(path, ".."))
+	end
+	local menu = function()
+		--open advanced menu
+		popupBox(9,2,popup_menu_names, popup_menu_functions)
+	end
+	local root = function()
+		if not pathValid then
+			pathValid = true
+		end
+		switchFolder(root)
+	end
+	local plus = function()
+		--open new menu
+		if pathValid then
+			popupBox(5,2,popup_newmenu_names, popup_newmenu_functions)
+		else
+			popupBox(5,2,popup_lockednewmenu_names, popup_lockednewmenu_functions)
+		end
+	end
+	local quit = function()
+		clear()
+		endprogram = true
+	end
+	local switch = function(e)
+		switchSessions(e[3]-w+6)
+	end
+	newButton(1,1,1,1, back, empty)
+	newButton(3,1,1,1, up, empty)
+	newButton(7,1,1,1, root, empty)
+	newButton(5,1,1,1, plus, empty)
+	newButton(9,1,1,1, menu, empty)
+	newButton(w,1,1,1, quit, empty)
+	newButton(w-5,1,4,1, switch, empty) 
+	keymap[keys.left] = up
+end
+local drawFiles
+
+local function enterPress()
+	words = split(shell_input, " ")
+	if words and #words > 0 and commands[words[1]] then
+		commands[words[1]](words)
+	elseif selected > 0 and selected <= #itemPaths then
+		doubleClick(itemPaths[selected])
+	end
+	shell_input = ""
+end
+local function filePopup(x,y,path)
+	if fs.isDir(path) then
+		--directory
+		popupBox(x,y,folderPopupNames, folderPopupFunctions)
+	else
+		--file
+		popupBox(x,y,filePopupNames, filePopupFunctions)
+	end
+end
+local function mapFiles()
+	--popup menu implementation (right click)
+	local file_rightclick = function(e)
+		local i = posToIndex(#itemNames,e[3],e[4],scroll) --get index
+		if itemPaths[i] then
+			if selected ~= i then --select if not selected
+				selected = i --just for aesthetics
+				redraw()
+			end
+			--show file/folder/multiselect relevant popup
+			if selection and #selection > 0 then
+				--multiselect
+			else
+				filePopup(e[3],e[4],getSelectedPath())
+			end
+		else
+			selected = 0
+			--show the same popup as the + button in the menu
+			if pathValid then
+				popupBox(e[3],e[4],popup_newmenu_names, popup_newmenu_functions)
+			else
+				popupBox(e[3], e[4], popup_lockednewmenu_names, popup_lockednewmenu_functions)
+			end
+		end
+	end
+	--select implementation (left click)
+	local file_leftclick = function(e)
+		local i = posToIndex(#itemNames,e[3],e[4],scroll)
+		if itemPaths[i] then
+			if selected == i then
+				doubleClick(itemPaths[i])
+			else
+				selected = i
+			end
+		else
+			selected = 0
+		end
+	end
+	
+	newButton(1,2,w,h-2,file_leftclick, file_rightclick)
+	--multiselect stuff
+	
+	--scrolling
+	eventmap["mouse_scroll"] = function(e)
+		local b = e[2]
+		if b == 1 and #itemPaths - scroll > h-2 then
+			scroll = scroll + 1
+		end
+		if b == -1 and scroll > 0 then
+			scroll = scroll - 1
+		end
+	end
+	
+	keymap[keys.enter] = enterPress
+	keymap[keys.up] = function()
+		if selected > 1 then
+			selected = selected - 1
+			if scroll >= selected then
+				scroll = selected - 1
+			end
+		end
+		if selected == 0 then
+			selected = #itemPaths
+			if scroll + h - 2 < selected then
+				scroll = selected - h + 2
+			end
+		end
+	end
+	keymap[keys.down] = function()
+		if selected < #itemPaths then
+			selected = selected + 1
+			if scroll + h - 2 < selected then
+				scroll = selected - h + 2
+			end
+		end
+	end
+	keymap[keys.right] = function()
+		if selected > 0 and selected <= #itemPaths then
+			local x,y = IndexToPos(selected, scroll)
+			if x < 2 then
+				x = 2
+			end
+			if x > h-1 then
+				x = h-1
+			end
+			filePopup(x,y, getSelectedPath()) 
+		end
+	end
+end
+local commands = { --table of functions, arg: list of words typed, including the command itself
+	["run"] = function(words)
+		if #words == 1 then
+			runPrompt()
+			return
+		end
+		local path = fs.combine(path, words[2])
+		local args = {}
+		if #words > 2 then
+			for i=3, #words do
+				args[i-2] = words[i]
+			end
+		end
+		if fs.exists(path) and not fs.isDir(path) then
+			run(path, unpack(args))
+		end
+	end,
+	["goto"] = function(words)
+		local target
+		if #words < 2 then
+			gotoFolder()
+			return
+		else
+			target = words[2]
+		end
+		if not target or not fs.exists(target) or not fs.isDir(target) then
+			infoBox("    Not a valid directory   ")
+			return
+		end
+		switchFolder(fs.combine("", target))
+	end
+}
+local function mapBar()
+	eventmap.char = function(e) 
+		shell_input = shell_input .. e[2]
+	end
+	keymap[keys.backspace] = function()
+		shell_input = shell_input:sub(1, #shell_input-1)
+	end
+	--enter is mapped in mapFiles for the bar too
+end
+--draw components
+local function drawMenu()
+	surf:drawLine(1,1,w,1," ", lat_theme.menu_back, lat_theme.menu_text)
+	if term.isColor() then
+		surf:drawText(1,1,"< ^ + / m", lat_theme.menu_back, lat_theme.menu_text)
+	end
+	local str
+	if customTitle then
+		str = customTitle
+	else
+		if path ~= "" then
+			str = cSession .. " - " .. path
+		else
+			str = tostring(cSession)
+		end
+	end
+	str = #str < w/2 and str or str:sub(1,math.floor(w/2)) .. "..."
+	surf:drawText(8+math.floor((w-12)/2-#str/2),1,str, lat_theme.menu_back, lat_theme.menu_text)
+	
+	if term.isColor() then
+		surf:drawText(w-5,1,"1234", lat_theme.menu_back, lat_theme.menu_text)
+		surf:drawPixel(w,1,"x", colors.red, colors.white)
+	end
+	
+end
+
+drawFiles = function()
+	if selection == nil then selection = {} end --just in case selection was nilled
+	local cy = 2 --current y pos of drawing
+	local i = scroll + 1 --index in "items"
+	local tcol
+	local bcol
+	while IndexToPos(i,scroll) < h do
+		if not itemNames[i] then break end --because the while condition checks for screen size, this checks for file count
+		local twrite = ""
+		bcol = (lat_theme.main_back)
+		if selection[i] then
+			bcol = (lat_theme.multiselect_back)
+			twrite = twrite .. selectprefix
+		end
+		if i ~= selected then
+			if not fs.isDir(itemPaths[i]) then
+				tcol = (lat_theme.main_text)
+			else
+				tcol = (lat_theme.dir_text)
+				
+			end
+		else
+			tcol = (lat_theme.selected_text)
+		end
+		if fs.isDir(itemPaths[i]) then
+			twrite = twrite .. dirprefix
+		end
+		twrite = twrite .. itemNames[i]
+		surf:drawLine(1, cy, w, cy, " ", bcol, tcol)
+		surf:drawText(2, cy, twrite, bcol, tcol)
+		local mwrite = "-"
+		if not fs.isDir(itemPaths[i]) then
+			mwrite = formatNumber(fs.getSize(itemPaths[i]))
+		end
+		local startX = w-6
+		surf:drawLine(startX-1, cy, w, cy, " ", bcol, tcol)
+		surf:drawText(startX,cy, mwrite, bcol, tcol)
+		i = i + 1
+		cy = cy + 1 --up both indexes
+	end
+	return itemNames
+end
+
+local function drawBar()
+	surf:drawLine(1,h,w,h, " ", lat_theme.menu_back, lat_theme.menu_text)
+	surf:drawText(1,h, path .. "> " .. shell_input, lat_theme.menu_back, lat_theme.menu_text)
+end
+
+
+--GUI drawing functions
+redraw = function()
+	if not fs.exists(path) or not fs.isDir(path) then
+		infoBox("Error: " .. path .. " is not a valid directory", true)
+		path = root
+	end
+	
+	surf:clear(" ", lat_theme.blank_back, lat_theme.blank_text)
+	drawMenu()
+	
+	drawFiles()
+	
+	drawBar()
+	
+	surf:render()
+end
+
+remap = function()
+	clearAllEvents()
+	mapMenu()
+	mapFiles()
+	mapBar()
+end
+local oRedraw = redraw --orginal backup
+local oRemap = remap
+restore = function()
+	redraw = oRedraw
+	remap = oRemap
+end
+
+do --choose file/folder dialog
+
+end
+
+switchFolder(path)
+
+--main loop
+while not endprogram do
+	redraw()
+	remap()
+	local e = { os.pullEvent() }
+	if e[1] == "mouse_click" then
+		buttons[e[3]][e[4]][e[2]](e)
+	elseif e[1] == "key" then
+		if keymap[e[2]] then
+			keymap[e[2]](e)
+		end
+	elseif eventmap[e[1]] then
+		eventmap[e[1]](e)
+	end	
+end
+
+end
+
+local succ, msg = pcall(program)
+
+term.setBackgroundColor(colors.black)
+term.setTextColor(colors.white)
+term.clear()
+term.setCursorPos(1,1)
+	
+if not succ and msg ~= "Terminated" then
+	print("Congratulations, The file browser has crashed.")
+	print()
+	print("Please report to a RobCo Technical Help Facility.")
+	print()
+	print(msg)
+end
+if succ or msg == "Terminated" then
+
+end
