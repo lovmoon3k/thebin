@@ -1,0 +1,117 @@
+@author Nikita Merzlyakov
+
+//// Доброго че у вас там ща
+//// я уже не надеюсь, но ладно...
+//// З.Ы. передаю привет 4ому курсу
+
+// если забыли где работаем: docker run -d -it --name ubuntu_osi -p 5600:95 ubuntu:20.04 /bin/bash
+
+apt-get update
+
+//// ставим компилятор
+apt-get install build-essential
+
+//// комиляция таска
+
+gcc program.c -o program   
+
+//// пример запуска таска
+
+./program 
+
+//// И сам код ////
+//// program.c ////
+
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/sem.h> // semget(), semop(), semctl()
+#include <signal.h> // sigaction()
+#include <stdio.h> // printf(), getchar()
+#include <unistd.h> // alarm()
+#include <sys/queue.h> // TAILQ_ENTRY(), TAILQ_HEAD(), TAILQ_INIT(), TAILQ…()
+#include <stdlib.h> // malloc(), free()
+#include <termios.h> // tcgetattr(), tcsetattr()
+ 
+void rwlock_create(const char *pathname, int proj_id, int mode)
+{
+	key_t key = ftok(pathname, proj_id);
+	int semid = semget(key, 1, IPC_CREAT | mode);
+	unsigned short values[] = { 1 };
+	semctl(semid, 0, SETALL, values);
+}
+ 
+int rwlock_open(const char *pathname, int proj_id)
+{
+	key_t key = ftok(pathname, proj_id);
+	return semget(key, 0, 0);
+}
+ 
+void rwlock_wlock(int semid)
+{
+	struct sembuf ops[] =
+	{
+		{.sem_num = 0, .sem_op = -1 }
+	};
+	semop(semid, ops, 1);
+}
+ 
+void rwlock_wunlock(int semid)
+{
+	struct sembuf ops[] =
+	{
+		{.sem_num = 0, .sem_op = 1 }
+	};
+	semop(semid, ops, 1);
+}
+ 
+void rwlock_destroy(const char *pathname, int proj_id)
+{
+	key_t key = ftok(pathname, proj_id);
+	int semid = semget(key, 0, 0);
+	semctl(semid, 0, IPC_RMID);
+}
+ 
+ 
+ 
+int main()
+{
+	rwlock_create("semkey", 1, 0600);
+ 
+	pid_t pid = fork();
+	if (pid == -1)
+	{
+	  perror("fork");
+	  return 1;
+	}
+	else if (!pid) {
+		int semid = rwlock_open("semkey", 1);
+		while (1)
+		{
+			rwlock_wlock(semid);
+			for (int i = 0; i < 10; i++)
+			{
+			putchar('C'); fflush(stdout);
+			usleep(10000 /* us */); 
+			}
+			putchar('\n');
+			rwlock_wunlock(semid);
+		}
+	}
+ 
+	int semid = rwlock_open("semkey", 1);
+    while (1)
+    {
+		rwlock_wlock(semid);
+		for (int i = 0; i < 10; i++)
+		{
+			putchar('P'); fflush(stdout);
+			usleep(10000 /* us */); 
+		}
+		putchar('\n');
+		rwlock_wunlock(semid);
+	}
+ 
+  	return 0;
+}
+
+////////
