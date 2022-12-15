@@ -1,0 +1,257 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <wctype.h>
+#include <wchar.h>
+#include <locale.h>
+#include <time.h>
+
+#define BUFF_SIZE 200
+#define MEM_STEP 20
+struct Sentence {
+    wchar_t *str;
+    int length;
+};
+
+struct Text {
+    struct Sentence **text;
+    int length;
+};
+
+struct SubTime {
+    double time_dif;
+    int sent_numb;
+};
+
+typedef struct Sentence Sentence;
+typedef struct Text Text;
+typedef struct SubTime SubTime;
+
+Sentence *readSentence() {
+    wchar_t c;
+    int length = 0;
+    int size = MEM_STEP;
+    wchar_t *str;
+    str = (wchar_t *) malloc(size * sizeof(wchar_t));
+    do {
+        if (length >= size - 2) {
+            wchar_t *tmp;
+            size += MEM_STEP;
+            tmp = (wchar_t *) realloc(str, size * sizeof(wchar_t));
+            if (tmp == NULL) {
+                free(str);
+                return NULL;
+            }
+            str = tmp;
+        }
+        c = (wchar_t) getwchar();
+        str[length] = c;
+        length++;
+    } while (c != L'\n' && c != L'.' && c != L'!' && c != L'?');
+    str[length] = L'\0';
+    Sentence *sentence = (Sentence *) malloc(sizeof(Sentence));
+    sentence->str = str;
+    sentence->length = length;
+    return sentence;
+}
+
+
+Sentence *fix_of_sentence(Sentence *sentence) {
+    if (sentence->str[0] == '\t' || sentence->str[0] == ' ' || sentence->str[0] == '\n' || sentence->str[0] == '.') {
+        for (int i = 0; i <= sentence->length; i++)
+            sentence->str[i] = sentence->str[i + 1];
+        sentence->length--;
+    }
+    return sentence;
+}
+
+
+Text readText() {
+    int size = BUFF_SIZE;
+    int length = 0;
+    int nlcount = 0;
+    Sentence **text = malloc(size * sizeof(Sentence *));
+    Sentence *sentence;
+    do {
+        sentence = readSentence();
+        sentence->length != 1 ? fix_of_sentence(sentence) : sentence;
+        if (sentence->str[0] == L'\n') {
+            nlcount++;
+            free(sentence);
+        } else {
+            nlcount = 0;
+            text[length++] = sentence;
+            if (length == size - 2) {
+                size += MEM_STEP;
+                text = realloc(text, size * sizeof(wchar_t *));
+                if (text == NULL) {
+                    for (int i = 0; i < length; i++) {
+                        free(text[i]->str);
+                        free(text[i]);
+                    }
+                    Text txt;
+                    txt.text = NULL;
+                    txt.length = length;
+                    return txt;
+                }
+            }
+        }
+    } while (nlcount < 2);
+    Text txt;
+    txt.text = text;
+    txt.length = length;
+    return txt;
+}
+
+
+SubTime *check_time(Text txt, struct tm timeinfo, int *len) {
+    int size = MEM_STEP, fl;
+    SubTime *times = (SubTime *) malloc(size * sizeof(SubTime *));
+    SubTime time_stamp;
+    struct tm tmp = timeinfo;
+    for (int i = 0; i < txt.length; i++) {
+        fl = 0;
+        for (int j = 0; j < txt.text[i]->length - 5; j++) {
+            if (iswdigit(txt.text[i]->str[j]) && iswdigit(txt.text[i]->str[j + 1]) && iswdigit(txt.text[i]->str[j + 3]) &&
+                iswdigit(txt.text[i]->str[j + 4]) && txt.text[i]->str[j + 2] == L':'){
+                wchar_t hours[2] = {txt.text[i]->str[j], txt.text[i]->str[j + 1]};
+                wchar_t minutes[2] = {txt.text[i]->str[j + 3], txt.text[i]->str[j + 4]};
+                tmp.tm_hour = atoi((char *)hours);
+                tmp.tm_min = atoi((char *)minutes);
+                printf("%s", asctime(&timeinfo));
+                double seconds = difftime(mktime(&timeinfo), mktime(&tmp));
+                time_stamp.time_dif = seconds;
+                time_stamp.sent_numb = i;
+                fl = 1;
+            }
+        }
+        if(fl) {
+            times[*len] = time_stamp;
+            ++*len;
+        }
+    }
+    return times;
+}
+
+void printSubTime(SubTime *times, int len){
+    for(int i = 0; i < len; i++){
+        printf("%lf %d\n", times[i].time_dif, times[i].sent_numb);
+    }
+}
+
+void free_text(Text text) {
+    for (int i = 0; i < text.length; i++) {
+        free(text.text[i]->str);
+    }
+    free(text.text);
+}
+
+
+void print_txt(Text txt) {
+    for (int i = 0; i < txt.length; i++) {
+        wprintf(L"%ls\n", txt.text[i]->str);
+    }
+}
+
+
+Text del_copy(Text txt) {
+    int i, j;
+    int size = txt.length;
+    for (i = 0; i < size; i++) {
+        for (j = i + 1; j < size; j++) {
+            if (!wcscasecmp(txt.text[i]->str, txt.text[j]->str)) {
+                free(txt.text[j]->str);
+                free(txt.text[j]);
+                txt.text[j] = txt.text[--size];
+                j--;
+            }
+        }
+    }
+    txt.length = size;
+    return txt;
+}
+
+//добавить удаление по спец символу к удалению копий
+
+void del_caps(Text txt) {
+    for (int k = 0; k < txt.length; k++) {
+        int i = 0;
+        Sentence *sentence = txt.text[k];
+        while (sentence->str[i]) {
+            if (iswupper(sentence->str[i])) {
+                for (int j = i; sentence->str[j]; j++)
+                    sentence->str[j] = sentence->str[j + 1];
+                i--;
+            }
+            i++;
+        }
+        fix_of_sentence(sentence);
+    }
+}
+
+int count_cyrillic(Sentence *sentence) {
+    int count = 0;
+    for (int i = 0; i < sentence->length; i++) {
+        if ((65 > (int) sentence->str[i] || (int) sentence->str[i] > 122) && iswalpha(sentence->str[i])) {
+            count++;
+        }
+    }
+    return count;
+}
+
+int cmp(const void *s1, const void *s2) {
+    Sentence **f1 = (Sentence **) s1;
+    Sentence **f2 = (Sentence **) s2;
+    if (count_cyrillic(*f1) < count_cyrillic(*f2))
+        return 1;
+    if (count_cyrillic(*f1) > count_cyrillic(*f2))
+        return -1;
+    return 0;
+}
+
+
+Text del_sent_without_spec_symbols(Text txt) {
+    int i, j;
+    int size = txt.length;
+    for (i = 0; i < size; i++) {
+        int sent_size = txt.text[i]->length, fl = 0;
+        for (j = 0; j < sent_size; j++) {
+            if (iswcntrl(txt.text[i]->str[j])) {
+                fl = 1;
+                break;
+            }
+        }
+        if (fl) {
+            continue;
+        } else {
+            free(txt.text[i]->str);
+            free(txt.text[i]);
+            txt.text[i] = txt.text[--size];
+            i--;
+        }
+    }
+    txt.length = size;
+    return txt;
+}
+
+void sort_txt(Text txt) {
+    qsort(txt.text, txt.length, sizeof(Sentence *), cmp);
+}
+
+int main() {
+    setlocale(LC_ALL, "");
+    time_t rawtime;
+    time(&rawtime);
+    struct tm timeinfo;
+    timeinfo = *localtime (&rawtime);
+    Text txt = readText();
+    txt = del_copy(txt);
+    del_caps(txt);
+    sort_txt(txt);
+    int len = 0;
+    SubTime *times = check_time(txt, timeinfo, &len);
+    printSubTime(times, len);
+//    txt = del_sent_without_spec_symbols(txt);
+//    print_txt(txt);
+    free_text(txt);
+    return 0;
+}
