@@ -1,0 +1,30 @@
+def reaction_tag_tops(date, depth, spark):
+    #функция, возвращающая список адресов, по которым брать файлы
+    input_p = input_paths(date, depth)
+    #взять события за все даты, но только с тэгом - сообщение
+    #отбираем только номер сообщения и его тэги
+    messages = spark \
+    .read \
+    .parquet('hdfs://rc1a-dataproc-m-dg5lgqqm7jju58f9.mdb.yandexcloud.net:8020/user/larisfdz/data/events/event_type=message') \
+    .filter(F.col('event.message_channel_to').isNotNull()) \
+    .select(['event.message_from', 'event.message_id', F.explode(F.col('event.tags')) \
+             .alias('tag')])
+    #reactions
+    reactions = spark.read.parquet(*input_p).select(['event.message_id', 'event.reaction_type'])
+    #join messages and reactions
+    m_r = messages.join(reactions, 'message_id', 'inner').groupBy(F.col('message_from').alias('user_id'), F.col('tag'), F.col('reaction_type')) \
+                                                       .count().orderBy(F.col('count'))
+    window = Window().partitionBy('user_id', 'reaction_type').orderBy(F.desc('count'), F.desc('tag'))
+    m_r_w = m_r \
+    .withColumn("row_number", F.row_number().over(window)).filter(F.col('row_number')<=3) \
+    .withColumn('reaction_n', F.concat(F.col('reaction_type'), F.col('row_number'))) \
+    .groupBy(F.col('user_id')).pivot('reaction_n').agg(F.first('tag'))
+    
+    result = m_r_w.withColumnRenamed('like1', 'like_tag_top_1') \
+    .withColumnRenamed('like2', 'like_tag_top_2') \
+    .withColumnRenamed('like3', 'like_tag_top_3') \
+    .withColumnRenamed('dislike1', 'dislike_tag_top_1') \
+    .withColumnRenamed('dislike2', 'dislike_tag_top_2') \
+    .withColumnRenamed('dislike3', 'dislike_tag_top_3')
+
+    return result
