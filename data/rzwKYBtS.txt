@@ -1,0 +1,97 @@
+using ConfigurableDashboard.Data.Model.Components.Core;
+using ConfigurableDashboard.Data.Model.Core;
+using ConfigurableDashboard.Data.Model.Core.Extensions;
+using ConfigurableDashboard.Pages.Dashboard;
+using Microsoft.AspNetCore.Components;
+using Syncfusion.Blazor.Layouts;
+
+namespace ConfigurableDashboard.Services;
+
+public class DynamicComponentService {
+    public List<Data.Model.Core.DynamicComponent> ComponentsToRender { get; set; } = new() { };
+    public Main? Main { get; set; }
+
+    public void AddDashboardLayoutPanel(Data.Model.Core.DynamicComponent dynamicComponent, bool isFixed=false) {
+        dynamicComponent.Position.Row = !isFixed ? this.ProvideEmptyRow() : dynamicComponent.Position.Row;
+
+        this.AddDashboardLayoutPanel(
+            content: this.CreateComponentFragment(dynamicComponent.T, dynamicComponent.args),
+            header: 
+                dynamicComponent.HeaderText is null ? null :
+                    this.CreateFragment<ComponentPanelHeader>(new() {
+                        { "Value", dynamicComponent.HeaderText },
+                        { "Style", "" }
+                    }),
+            minSizeX: dynamicComponent.Position.MinSizeX,
+            minSizeY: dynamicComponent.Position.MinSizeY,
+            sizeX : dynamicComponent.Position.SizeX,
+            sizeY : dynamicComponent.Position.SizeY,
+            row: dynamicComponent.Position.Row,
+            column: dynamicComponent.Position.Column
+        );
+    }
+
+    public void RemoveDashboardLayoutPanel(string id) {
+        var panel = ComponentsToRender.FirstOrDefault(c => c.Id.ToString() == id);
+
+        if(panel is not null) {
+            ComponentsToRender.Remove(panel);
+        }
+
+        Main?.StateHasChanged();
+    }
+
+    private void AddDashboardLayoutPanel(RenderFragment content, RenderFragment? header, int minSizeX = 1, int minSizeY = 1, int sizeX=1, int sizeY=1, int? row = default, int? column = default) {
+        var component = new Data.Model.Core.DynamicComponent() {
+            T = typeof(DashboardLayoutPanel),
+            args = new() {
+                new(){ Key = nameof(DashboardLayoutPanel.Row), Value = row ?? 1 },
+                new(){ Key = nameof(DashboardLayoutPanel.Column), Value = column ?? 1 },
+                new(){ Key = nameof(DashboardLayoutPanel.Content), Value = content },
+                new(){ Key = nameof(DashboardLayoutPanel.SizeX), Value = sizeX },
+                new(){ Key = nameof(DashboardLayoutPanel.SizeY), Value = sizeY },
+                new(){ Key = nameof(DashboardLayoutPanel.MinSizeX), Value = minSizeX },
+                new(){ Key = nameof(DashboardLayoutPanel.MinSizeY), Value = minSizeY },
+            }
+        };
+
+        if(header is not null) {
+            component.args.Add(new() { Key = nameof(DashboardLayoutPanel.Header), Value = header });
+        }
+
+        component.args.Add(new() { Key = "Id", Value = component.Id.ToString() });
+        ComponentsToRender.Add(component);
+    }
+
+    private RenderFragment CreateFragment(Type T, Dictionary<string, object>? args = null) => this.GetType().GetMethod(nameof(this.CreateFragment<>))!.MakeGenericMethod(T).Invoke(this, new object[] { args });
+
+
+    private RenderFragment CreateFragment<T>(Dictionary<string, object>? args = null) where T : IComponent {
+        int c = 0;
+
+        RenderFragment frag = new RenderFragment(builder => {
+            builder.OpenComponent<T>(c);
+
+            if (args is not null) {
+                foreach (var kv in args) {
+                    c++;
+                    builder.AddAttribute(c, kv.Key, kv.Value.CloneDeep());
+                }
+            }
+
+            builder.CloseComponent();
+        });
+
+        return frag;
+    }
+
+    private void ProvideEmptyRow() {
+        int emptyRow = 0;
+
+        foreach (var c in ComponentsToRender) {
+            if (c.Position.Row > emptyRow) emptyRow = c.Position.Row + 1;
+        }
+
+        return emptyRow;
+    }
+}
