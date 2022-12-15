@@ -1,11 +1,5 @@
-[**mJY51Btg**](/data/mJY51Btg.txt) (16/12/22 - 01:24)- 3487 bytes
+[**ZDj0A0vQ**](/data/ZDj0A0vQ.txt) (16/12/22 - 01:30)- 1574 bytes
 
-[**mJY51Btg**](/data/mJY51Btg.txt) (16/12/22 - 01:24)- 3487 bytes
+**Total Datas**: 127
 
-[**Nyqkyr7R**](/data/Nyqkyr7R.txt) (16/12/22 - 01:24)- 3586 bytes
-
-[**Nyqkyr7R**](/data/Nyqkyr7R.txt) (16/12/22 - 01:24)- 3586 bytes
-
-**Total Datas**: 126
-
-**Total Size**: 0.47 MB / 484.0 KB
+**Total Size**: 0.47 MB / 485.5 KB
