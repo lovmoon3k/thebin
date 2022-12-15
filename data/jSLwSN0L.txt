@@ -1,0 +1,65 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+no warnings 'recursion';
+
+use List::AllUtils   qw(max pairwise);
+
+sub vec_sum  ($$) { return [pairwise {$a + $b}   @{$_[0]}, @{$_[1]}] }
+sub vec_step ($$) { return [pairwise {$b <=> $a} @{$_[0]}, @{$_[1]}] }
+sub point_eq ($$) { return ($_[0]->[0] == $_[1]->[0] and $_[0]->[1] == $_[1]->[1]) }
+
+my %grid;
+my $maxY = 0;
+
+# Read in rock structure:
+foreach (<>) {
+    my @corners = map { [split ','] } m#(\d+,\d+)#g;
+
+    my $pos = shift @corners;
+    $grid{ $pos->[0], $pos->[1] } = '#';
+
+    $maxY = max ($maxY, $pos->[1]);
+
+    while (my $next = shift @corners) {
+        my $delta = vec_step( $pos, $next );
+
+        do {
+            $pos = vec_sum( $pos, $delta );
+            $grid{ $pos->[0], $pos->[1] } = '#';
+        } until (point_eq( $pos, $next ));
+
+        $maxY = max ($maxY, $pos->[1]);
+    }
+}
+
+$maxY += 1;                         # add in space to infinite floor
+
+my $part1;
+my $placed = 0;
+
+sub recurse_fall {
+    my ($px,$py) = @_;
+    my $sand = 0;
+
+    return (0) if ($py > $maxY);
+
+    foreach my $fall ([0,1], [-1,1], [1,1]) {
+        my ($nx,$ny) = ($px + $fall->[0], $py + $fall->[1]);
+
+        if (!$grid{$nx, $ny}) {         # place to fall
+            $sand += &recurse_fall( $nx, $ny );
+        }
+    }
+
+    $grid{$px, $py} = 'o';
+    $part1 //= $placed if ($py == $maxY);
+    $placed++;
+
+    return ($sand + 1);
+}
+
+print "Part 2: ", &recurse_fall( 500, 0 ), "\n";
+print "Part 1: $part1\n";
