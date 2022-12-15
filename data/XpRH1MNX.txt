@@ -1,0 +1,164 @@
+<?php
+/**
+ * Deals with fields used for ordering.
+ *
+ * First, it allows backend admin ordering.
+ * Then, it makes sure numbers in order fields cannot be duplicated, or in wrong sequence.
+ * It also deals with delete posts.
+ */
+
+/**
+ * Dynamic Values
+ */
+$field_slug     = 'wpcf-order';
+$post_type_slug = 'features';
+
+add_filter( 'manage_' . $post_type_slug . '_posts_columns', 'pp_filter_posts_order_columns' );
+add_action( 'manage_' . $post_type_slug . '_posts_custom_column', 'pp_filter_posts_order_column', 10, 2 );
+add_filter( 'manage_edit-' . $post_type_slug . '_sortable_columns', 'pp_filter_posts_order_sortable_columns' );
+add_action( 'pre_get_posts', 'pp_posts_orderby_order_field' );
+add_action( 'wp_trash_post', 'pp_orchestrate_orderby_fields_on_delete' );
+add_action( 'save_post', 'pp_orchestrate_orderby_fields', 10, 2 );
+
+/**
+ * Add order by in WP Admin for order number fields
+ */
+function pp_filter_posts_order_columns( $columns ) {
+	$columns[ $field_slug ] = __( 'Order' );
+	return $columns;
+}
+/**
+ * Add order by in WP Admin for order number fields
+ */
+function pp_filter_posts_order_column( $column, $post_id ) {
+	// Image column
+	if ( $field_slug === $column ) {
+		echo (int) get_post_meta( $post_id, $field_slug, true );
+	}
+}
+/**
+ * Add order by in WP Admin for order number fields
+ */
+function pp_filter_posts_order_sortable_columns( $columns ) {
+	$columns[ $field_slug ] = $field_slug;
+	return $columns;
+}
+
+/**
+ * Add order by in WP Admin for order number fields
+ */
+function pp_posts_orderby_order_field( $query ) {
+	if ( ! is_admin() || ! $query->is_main_query() ) {
+		return;
+	}
+
+	if ( $field_slug === $query->get( 'orderby' ) ) {
+		$query->set( 'orderby', 'meta_value' );
+		$query->set( 'meta_key', $field_slug );
+		$query->set( 'meta_type', 'numeric' );
+	}
+}
+
+/**
+ * Ensure logic to update fields when post is trashed
+ *
+ * Does not yet deal with "what if removed, but the number actually was wrong" (such as duplicated)
+ * Technically this should never happen, because validated on save... but, you know.
+ */
+function pp_orchestrate_orderby_fields_on_delete( $post_id ) {
+
+	// If this is just a revision, don't send the email.
+	if ( wp_is_post_revision( $post_id ) ) {
+		return;
+	}
+
+	if ( get_post_type( $post_id ) == $post_type_slug ) {
+
+		$args = array(
+			'numberposts' => -1,
+			'post_type'   => $post_type_slug,
+			'fields'      => 'ids',
+		);
+
+		$all_posts_of_this_type = get_posts( $args );
+
+		$removed_value = get_post_meta( $post_id, $field_slug, true );
+
+		$all_field_values = array();
+		foreach ( $all_posts_of_this_type as  $post_id_available ) {
+			$all_field_values[ $post_id_available ] = get_post_meta( $post_id_available, $field_slug, true );
+		}
+		asort( $all_field_values, SORT_NUMERIC );
+
+		ksort( $all_field_values, SORT_NUMERIC );
+		$post_id_to_start_from = array_search( $removed_value + 1, $all_field_values );
+		$position_in_array     = array_search( $post_id_to_start_from, array_keys( $all_field_values ) );
+		$posts_to_update       = array_slice( $all_field_values, $position_in_array, null, true );
+		foreach ( $posts_to_update as $post_to_update ) {
+			update_post_meta( $post_to_update, $field_slug, $all_field_values[ $post_to_update ] - 1 );
+		}
+	}
+
+}
+
+/**
+ * Ensure logic to update felds when field a field is updated.
+ */
+function pp_orchestrate_orderby_fields( $post_id, $post ) {
+
+	// If this is just a revision, don't send the email.
+	if ( wp_is_post_revision( $post_id ) ) {
+		return;
+	}
+
+	if ( $post->post_type == $post_type_slug ) {
+
+		$field_value_added = $_POST[ $field_slug ];
+		$args              = array(
+			'numberposts' => -1,
+			'post_type'   => $post_type_slug,
+			'fields'      => 'ids',
+		);
+
+		$all_posts_of_this_type = get_posts( $args );
+		$all_field_values       = array();
+		foreach ( $all_posts_of_this_type as  $post_id_available ) {
+			$all_field_values[ $post_id_available ] = get_post_meta( $post_id_available, $field_slug, true );
+		}
+		asort( $all_field_values, SORT_NUMERIC );
+
+		/**
+		 * If number added matches a already used number, it keeps the number and increase all others
+		 */
+		if ( in_array( $field_value_added, $all_field_values ) ) {
+			ksort( $all_field_values, SORT_NUMERIC );
+			$post_id_to_start_from = array_search( $field_value_added, $all_field_values );
+			$position_in_array     = array_search( $post_id_to_start_from, array_keys( $all_field_values ) );
+			$posts_to_update       = array_slice( $all_field_values, $position_in_array, null, true );
+			foreach ( $posts_to_update as $post_to_update ) {
+				update_post_meta( $post_to_update, $field_slug, $all_field_values[ $post_to_update ] + 1 );
+			}
+		}
+
+		/**
+		 * If there are missing numbers in the array, it adds this new number in the empty slot
+		 */
+		$missing_number = missing_number( $all_field_values );
+		if ( ! empty( $missing_number ) ) {
+			asort( $missing_number, SORT_NUMERIC );
+			$field_value_added = $missing_number[0];
+		}
+
+		update_post_meta( $post_id, $field_slug, $field_value_added );
+
+	}
+
+}
+
+function missing_number( $num_list ) {
+
+	$new_arr = range( $num_list[0], max( $num_list ) );
+
+	return array_diff( $new_arr, $num_list );
+
+}

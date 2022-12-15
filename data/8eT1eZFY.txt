@@ -1,0 +1,53 @@
+from src.utils import now_utc
+from src.document_reader import *
+import aiobotocore
+import datetime
+
+
+s3 = AsyncS3Storage()
+await s3.create_file(
+            str(urns.s3_id),
+            b't' * 1024 * 10 
+        )
+
+urns = FileURNs.create(str('test'), 'income_document')
+await s3.create_file(
+            str(urns.s3_id),
+            b't' * 1024 * 10 
+        )
+await s3.delete_file(urns.s3_id)
+
+
+session = aiobotocore.get_session()
+async def listfiles(client):
+    paginator = client.get_paginator('list_objects')
+    async for res in paginator.paginate(Bucket=s3._bucket, Prefix=prefix):
+        for fileinfo in res.get('Contents', {}):
+            yield fileinfo
+                
+    
+
+prefix = ''
+i = 0
+async with session.create_client('s3', **s3._config) as client:
+    async for f in listfiles(client):
+        if i > 10: 
+            break
+        i += 1
+        print(f)
+    
+
+prefix = 'hub/meta/documents/'
+end_date = now_utc() - datetime.timedelta(days=30*3)
+i = 0
+async with session.create_client('s3', **s3._config) as client:
+    async for f in listfiles(client):
+        if i > 1000: 
+            break
+        if f['LastModified'] < end_date:
+            print(f)
+            # await s3.delete_file(f['Key'])
+            await client.delete_object(Bucket=s3._bucket, Key=f['Key'])
+            logger.debug("File from s3 {} deleted.", f['Key'])
+            i += 1
+
