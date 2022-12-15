@@ -1,0 +1,567 @@
+#include "OA8000SwitchDayNight.h"
+
+#include "./../../Logger.h"
+
+namespace Vms { namespace Camera {
+    OA8000SwitchDayNight::OA8000SwitchDayNight(MM::Manager* mgr, const Camera::AvailableStreamIds streamId) : mgr_(mgr), streamId_(streamId)
+    {
+        DAYNIGHT_DEBUG(Vms::Grabbers::logger(), "Call constructor OA8000SwitchDayNight");
+        if (mgr_ == nullptr) {
+            LOG4CPLUS_ERROR(Vms::Grabbers::logger(), "mgr_ == nullptr");
+        } else {
+            runTask_ = std::make_shared<Core::TimedTask>(mgr_->ioService());
+
+            // -- set default value -- //
+            currentStateMode_ = INIT_MODE;
+
+            irLedPidController = std::unique_ptr<OA8000IrLedPidController>(new OA8000IrLedPidController());
+            irCut = std::unique_ptr<OA8000IrCutControl>(new OA8000IrCutControl());
+            irLed = std::unique_ptr<OA8000IrLedControl>(new OA8000IrLedControl());
+#ifndef ANALOG_ALS
+            ltrAls = std::unique_ptr<OA8000LtrAlsLib>(new OA8000LtrAlsLib());
+#endif
+            this->process();
+        }
+    }
+
+    OA8000SwitchDayNight::~OA8000SwitchDayNight()
+    {
+        DAYNIGHT_DEBUG(Vms::Grabbers::logger(), "Call destructor OA8000SwitchDayNight");
+        irLed->deinitPwm();
+#ifndef ANALOG_ALS
+        ltrAls->ltrAlsDeinit();
+#endif
+
+    }
+
+    void OA8000SwitchDayNight::setActiveStreamId(const Camera::AvailableStreamIds streamId) { streamId_ = streamId; }
+
+    Camera::AvailableStreamIds OA8000SwitchDayNight::getCurrStreamId(void) { return streamId_; }
+
+    void OA8000SwitchDayNight::process()
+    {
+#if defined(DEBUG_DAYNIGHT_TIME_PROFILING)
+        if (!stampProcessPrevFixed_) {
+            gettimeofday(&stampProcessPrev, NULL);
+            stampProcessPrevFixed_ = true;
+        } else {
+            gettimeofday(&stampProcessNow, NULL);
+
+            int fullStampProcessPrev = (stampProcessPrev.tv_sec * 1000) + (stampProcessPrev.tv_usec / 1000);
+            int fullStampProcessNow = (stampProcessNow.tv_sec * 1000) + (stampProcessNow.tv_usec / 1000);
+
+            PROFILING_TIME_DEBUG(Vms::Grabbers::logger(),
+                "Daynight process timestamp delta : " << std::to_string(fullStampProcessNow - fullStampProcessPrev) << " ms");
+
+            stampProcessPrev = stampProcessNow;
+        }
+#endif
+        // this is implemented to avoid the delay in filling the ALS filter
+        if (currentStateMode_ == INIT_MODE) {
+            this->initDayNightAlgo();
+            ltrAls->ltrAlsInit();
+        }
+#ifdef ANALOG_ALS
+        if (this->getTimeDelta(&timeAlsPrev_) >= ALS_POLL_TIME_MIN) {
+            alsIsCorrect_ = this->getAlsFromFile();
+            gettimeofday(&timeAlsPrev_, NULL);
+        }
+#else   
+        else {
+            alsIsCorrect_ = true;
+            float alsValue = ltrAls->getAlsData();
+            alsFilteredValue_ = (uint32_t)((float)alsValue * ALS_LUX_SHIFT_NUMBER);
+            DAYNIGHT_DEBUG(Vms::Grabbers::logger(), "[GET ALS] alsFilteredValue = " << std::to_string(alsFilteredValue_));
+        }
+#endif
+        // get through the ALS cycle even ALS isn't correct when process of switching is in process
+        // bin order to let the switching to be finished in time
+        if (alsIsCorrect_ || irCutIsSwitching()) {
+            switch (currentStateMode_) {
+                case DAY_MODE: {
+                    if (alsFilteredValue_ <= thresholdDayToNight_) {
+                        this->switchToNightModeStart();
+                        gettimeofday(&timeSwitchStart_, NULL);
+                        DAYNIGHT_DEBUG(Vms::Grabbers::logger(), "[DAY_MODE] Need to switch to the Night mode");
+                        currentStateMode_ = SWITCHING_TO_NIGHT;
+                    }
+                    break;
+                }
+                case SWITCHING_TO_NIGHT: {
+                    if (this->getTimeDelta(&timeSwitchStart_) >= IR_CUT_SWITCH_TIME_MAX) {
+                        this->switchToNightModeFinish();
+                        currentStateMode_ = NIGHT_MODE;
+                        DAYNIGHT_DEBUG(Vms::Grabbers::logger(), "[SWITCHING_TO_NIGHT] I'm in Night mode");
+                    }
+                    break;
+                }
+                case NIGHT_MODE: {
+                    if (alsFilteredValue_ >= thresholdNightToDay_) {
+                        this->switchToDayModeStart();
+                        gettimeofday(&timeSwitchStart_, NULL);
+                        currentStateMode_ = SWITCHING_TO_DAY;
+                        DAYNIGHT_DEBUG(Vms::Grabbers::logger(), "[NIGHT_MODE] Need switch to the Day mode");
+                    } else {
+                        int meanY = libvs_get_meanY(streamId_);
+                        int gain = libvs_get_gain(streamId_);
+                        int exp = libvs_get_exp(streamId_);
+                        float meanYComp = (float)(meanY * 1000) / (exp * gain);
+                        int meanYCompInt = (int)(meanYComp * 10000);
+
+                        irBrightness_ = irLedPidController->controllerUpdate(setpoint_, meanYCompInt);
+                        irLed->setIrBrightness(irBrightness_);
+                    }
+                    break;
+                }
+                case SWITCHING_TO_DAY: {
+                    if (this->getTimeDelta(&timeSwitchStart_) >= IR_CUT_SWITCH_TIME_MAX) {
+                        this->switchToDayModeFinish();
+                        currentStateMode_ = DAY_MODE;
+                        DAYNIGHT_DEBUG(Vms::Grabbers::logger(), "[SWITCHING_TO_DAY] I'm in Day mode");
+                    }
+                    break;
+                }
+                case INIT_MODE: {
+                    this->initDayNightAlgo();
+                    break;
+                }
+            }
+
+            // reset ALS invalid counter and flag
+            if (alsIsCorrect_) {
+                invalidAlsCounter_ = 0;
+                alsInvalidFlag_ = false;
+            }
+
+        } else if (!alsInvalidFlag_) {
+            if (++invalidAlsCounter_ >= INVALID_ALS_LIMIT) {
+                // fallback to Daymode in case of ALS fail
+                this->switchToDayModeStart();
+                gettimeofday(&timeSwitchStart_, NULL);
+                currentStateMode_ = SWITCHING_TO_DAY;
+                LOG4CPLUS_ERROR(Vms::Grabbers::logger(), "ALS failed - fallback to default Day mode");
+                alsInvalidFlag_ = true;
+            }
+        }
+
+        if(!scheduleStopFlag_)
+            runTask_->schedule(
+            [this](bool) { process(); }, std::chrono::milliseconds((currentStateMode_ == INIT_MODE) ?  (2 * ltrAls->getAlsIntegrationTime()) : PROCESS_PERIOD));
+        else
+            this->~OA8000SwitchDayNight();
+        
+#if defined(DEBUG_DAYNIGHT_TIME_PROFILING)
+        {
+            gettimeofday(&stampProcessNow, NULL);
+
+            int fullStampProcessPrev = (stampProcessPrev.tv_sec * 1000) + (stampProcessPrev.tv_usec / 1000);
+            int fullStampProcessNow = (stampProcessNow.tv_sec * 1000) + (stampProcessNow.tv_usec / 1000);
+
+            PROFILING_TIME_DEBUG(Vms::Grabbers::logger(),
+                "Daynight process execution time " << std::to_string(fullStampProcessNow - fullStampProcessPrev) << " ms");
+            stampProcessPrev = stampProcessNow;
+        }
+#endif
+    }
+
+    void OA8000SwitchDayNight::switchToNightModeStart(void)
+    {
+        //libvs_set_daynight(streamId_, Vms::Camera::ISP_NIGHT);  // 
+        // need call switch datapath
+        easyav_daynight_switch(Vms::Camera::ISP_NIGHT);
+
+        irCut->setNightModeTransitionOn();
+    }
+
+    void OA8000SwitchDayNight::switchToNightModeFinish(void)
+    {
+        irCut->setNightModeTransitionOff();
+        irLed->startPwm();
+        irLed->setIrBrightness(irBrightness_);
+    }
+
+    void OA8000SwitchDayNight::switchToDayModeStart(void)
+    {
+        irLed->stopPwm();
+        irCut->setDayModeTransitionOn();
+    }
+
+    void OA8000SwitchDayNight::switchToDayModeFinish(void)
+    {
+        irCut->setDayModeTransitionOff();
+        
+        //libvs_set_daynight(streamId_, Vms::Camera::ISP_DAY);    // 
+        // need call switch datapath
+        
+        // FIX: green frame after switch 'night to day' mode
+        // uint32_t aec_exp  = 128;
+        // uint32_t aec_gain = 1;
+        // uint16_t bgain    = 350;
+        // uint16_t ggain    = 128;
+        // uint16_t rgain    = 250;
+        // uint32_t stretch  = 67109344;
+
+        // libvs_set_initaecagc_stage2(streamId_, ( aec_exp << 16 ) | aec_gain, bgain, ggain, rgain, stretch);
+        // end FIX
+
+        easyav_daynight_switch(Vms::Camera::ISP_DAY);
+    }
+
+    bool OA8000SwitchDayNight::irCutIsSwitching(void)
+    {
+        if (currentStateMode_ == SWITCHING_TO_NIGHT || currentStateMode_ == SWITCHING_TO_DAY) {
+            return true;
+        } else
+            return false;
+    }
+
+    uint8_t OA8000SwitchDayNight::getThresholdDayToNight(void) { return thresholdDayToNight_; }
+
+    uint8_t OA8000SwitchDayNight::getThresholdNightToDay(void) { return thresholdNightToDay_; }
+
+    void OA8000SwitchDayNight::setThresholdDayToNight(uint8_t thresholdDayToNight) { thresholdDayToNight_ = thresholdDayToNight; }
+
+    void OA8000SwitchDayNight::setThresholdNightToDay(uint8_t thresholdNightToDay) { thresholdNightToDay_ = thresholdNightToDay; }
+
+    bool OA8000SwitchDayNight::getAlsFromFile(void)
+    {
+        const uint8_t ALS_MAX_VALUE = 100;
+        std::string alsDirStr("/userfs/bin/als_val");
+        std::ifstream alsFileHandl;
+        std::string als;
+        int alsRaw = 0;
+        bool result = false;
+
+        alsFileHandl.open(alsDirStr);
+        if (!alsFileHandl.is_open()) {
+            DAYNIGHT_DEBUG(Vms::Grabbers::logger(), "[switchDayNight->getAlsFromFile()] Error: open " + alsDirStr + " failed");
+            result = false;
+        } else {
+            getline(alsFileHandl, als);
+            alsRaw = stoi(als);
+            alsFileHandl.close();
+
+            if (alsRaw <= ALS_MAX_VALUE) {
+                alsFilteredValue_ = filterMovingAverage(alsRaw);
+
+                // -- waiting filling filter buff for accept valid data -- //
+                if (!filterIsFilling_) {
+                    counterForFillingFilter_++;
+                    if (counterForFillingFilter_ >= FILTER_ARRAY_SIZE) {
+                        filterIsFilling_ = true;
+                        result = true;
+                    }
+                } else {
+                    result = true;
+                }
+            }
+        }
+        return result;
+    }
+
+    int OA8000SwitchDayNight::filterMovingAverage(int value)
+    {
+        filterArray_[filterIndexArray_] = value;
+        filterIndexArray_ = (filterIndexArray_ + 1) % FILTER_ARRAY_SIZE;
+        value = 0;
+
+        for (int i = 0; i < FILTER_ARRAY_SIZE; i++) {
+            value = value + filterArray_[i];
+        }
+        return value / FILTER_ARRAY_SIZE;
+    }
+
+    unsigned long long OA8000SwitchDayNight::getTimeDelta(struct timeval* timePrev)
+    {
+        struct timeval timeNow;
+
+        if (nullptr == timePrev) {
+            DAYNIGHT_DEBUG(Vms::Grabbers::logger(), "Segmentation fault has you");
+            return 0;
+        } else if (timePrev->tv_sec == 0 && timePrev->tv_usec == 0) {
+            DAYNIGHT_DEBUG(Vms::Grabbers::logger(), "[switchDayNight->getTimeDelta()] timePrev == 0");
+            gettimeofday(timePrev, NULL);
+            return 0;
+        }
+
+        gettimeofday(&timeNow, NULL);
+        unsigned long long fullStampPrev = (unsigned long long)(timePrev->tv_sec * 1000) + (timePrev->tv_usec / 1000);
+        unsigned long long fullStampNow = (unsigned long long)(timeNow.tv_sec * 1000) + (timeNow.tv_usec / 1000);
+        return fullStampNow - fullStampPrev;
+    }
+
+    void OA8000SwitchDayNight::initDayNightAlgo(void)
+    {
+        std::string envname = "isp.daynight";
+        std::string retEnvVal(fw_env_get(envname.c_str()));
+        int retEnvValInt = stoi(retEnvVal);
+        irLed->initPwm();
+
+        switch (retEnvValInt) {
+            case ISP_NIGHT: {
+                this->switchToNightModeStart();
+                currentStateMode_ = SWITCHING_TO_NIGHT;
+                break;
+            }
+            default: {
+                this->switchToDayModeStart();
+                currentStateMode_ = SWITCHING_TO_DAY;
+                break;
+            }
+        }
+        gettimeofday(&timeSwitchStart_, NULL);
+    }
+
+    void OA8000SwitchDayNight::scheduleCancel(void) { scheduleStopFlag_ = true; }
+
+    int OA8000SwitchDayNight::easyav_daynight_switch(int daynight)
+    {
+        int ret = 0;
+        t_av_ctx * easyav = this->easyav_lock_shadow();
+        if(daynight == 0)   
+        {    // day
+            easyav->settings.isp.hdr.en = 1;
+            easyav->settings.isp.led    = 0;
+            easyav->settings.isp.color  = 1;
+        }
+        else
+        {    // night
+            easyav->settings.isp.hdr.en = 0;
+            easyav->settings.isp.led    = 1;
+            easyav->settings.isp.color  = 0;
+        }
+
+        easyav->settings.isp.daynight = daynight;
+        ret = this->easyav_config_unlock(easyav);
+
+        return ret;
+    }
+
+    t_av_ctx * OA8000SwitchDayNight::easyav_lock_shadow(void)
+    {
+        int locked_cnt = libdatapath_lock();
+
+        //init status everytime
+        g_easyav_ctx.status = &g_easyav_status;
+        g_easyav_ctx_shadow.status = &g_easyav_status;
+
+        //if locked_cnt >= 2, means already locked by current thread. then 'g_easyav_ctx_shadow' is already copied when first time lock.
+        //if copy here again, the shadow changes after 1st time lock maybe overwritten, so don't copy if locked_cnt >= 2
+        if(locked_cnt <= 1){
+            memcpy(&g_easyav_ctx_shadow, &g_easyav_ctx, sizeof(g_easyav_ctx));
+        }
+
+        return &g_easyav_ctx_shadow;
+    }
+
+    int OA8000SwitchDayNight::easyav_config_unlock(t_av_ctx * easyav)
+    {
+        int ret = easyav_sanity_check(easyav);
+        if ( !(ret < 0) )   // if: no error
+        {
+            /* copy shadow to reg */
+            if(easyav != &g_easyav_ctx)
+            {
+                memcpy(&g_easyav_ctx.settings, &easyav->settings, sizeof(g_easyav_ctx.settings));
+            }
+            /* apply new setting */
+	        ret = easyav_config_datapath(&g_easyav_ctx);
+        }
+        else
+        {
+            LOG4CPLUS_ERROR(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_config_unlock] EASYAV set sanity check fail");
+        }
+        libdatapath_unlock();
+        return ret;
+    }
+
+    int OA8000SwitchDayNight::easyav_sanity_check(t_av_ctx * easyav)
+    {   
+        return (board_ioctl(BIOC_EASYAV_SANITY_CHECK, (u32)easyav, NULL) > 0) ? -1 : 0;
+    }
+
+    /* this func must be called with libdatapath_lock() */
+    /* return: <0: error, 0:ok, 1:ok */
+    int OA8000SwitchDayNight::easyav_config_datapath(t_av_ctx * easyav)
+    {
+
+        // LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->" << std::string (__func__) << "] easyav->settings.sensor.framerate = " << std::to_string(easyav->settings.sensor.framerate));
+
+        // FIXME : clockmode isn't in settings. so need set ctx directly.
+        //set clock mode
+        if( easyav->settings.sensor.framerate > 24 )
+        {   //fps 25->30
+            easyav->clockmode = 2;
+        }
+        else if( easyav->settings.sensor.framerate > 15 )
+        {   //fps 16->24
+            easyav->clockmode = 0;
+        }
+        else
+        {   //clockmode 1 for sensor framerate <= 15
+            easyav->clockmode = 1;
+        }
+        
+        
+    #ifndef CONFIG_LINUX_AUTO_EN
+        easyav->dp_subcase = (easyav->settings.isp.b720p.en << 20) | (easyav->settings.isp.b1080p.en << 16) | (easyav->settings.isp.smartzoom.en << 12) | (easyav->settings.isp.hdr.en << 8) | (easyav->settings.isp.led << 6) | (easyav->settings.isp.dewarping.en << 4) | easyav->clockmode;
+    #endif
+
+        
+        int ret;
+        int status = libdatapath_status();
+
+        // LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->" << std::string (__func__) << "] status = " << std::to_string(status));
+
+        if(status < 0)
+        {
+            return easyav_start_datapath(easyav);
+        }
+
+        u8  dp_status = status & 0xff;
+        int current_dp_id = (status >> 8)&0xffffff;
+
+        // LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->" << std::string (__func__) << "] dp_status          = " << std::to_string(dp_status));
+        // LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->" << std::string (__func__) << "] current_dp_id      = " << std::to_string(current_dp_id));
+        // LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->" << std::string (__func__) << "] easyav->dp_subcase = " << std::to_string(easyav->dp_subcase));
+        
+        if(dp_status == 0)
+        {   //not current running, start datapath
+            return easyav_start_datapath(easyav);
+        }
+
+        if(current_dp_id == easyav->dp_subcase)
+        {
+            //same dp_id, do nothing
+            //TODO: apply video setting?
+    #ifdef __LINUX__
+            // Do nothing, just for adding one DATAPATH ref cnt in kernel
+            // libdatapath_init & start will be ingnored by kernel
+            int dpcfg_id = fw_env_getint("dpcfg_id", 0);
+            // LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->" << std::string (__func__) << "] (fw_env) dpcfg_id = " << std::to_string(dpcfg_id));
+            libdatapath_init(dpcfg_id);
+            libdatapath_start();
+    #endif
+            return 0;
+
+        }
+        else
+        {
+            // if(ticks - datapath_switch_ticks < 10)
+            // {
+            //     //ertos_timedelay(10);
+            // }
+            
+            board_ioctl(BIOC_EASYAV_DPSWITCH_START, (u32)easyav, NULL);
+            ///<check dp switch
+            ret = libdatapath_switch_stop(easyav->dp_subcase);
+            // LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->" << std::string (__func__) << "] (libdatapath_switch_stop) ret = " << std::to_string(ret));
+
+            // ///<config datapath clock
+            board_ioctl(BIOC_EASYAV_DP_PRE, (u32)easyav, NULL);
+            board_ioctl(BIOC_EASYAV_DPSWITCH_PRE, (u32)easyav, NULL);
+
+            ret = libdatapath_switch_init(easyav->dp_subcase);
+            // LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->" << std::string (__func__) << "] (libdatapath_switch_init) ret = " << std::to_string(ret));
+
+            // TODO: need set fix
+            if (easyav->settings.isp.daynight == Vms::Camera::ISP_DAY) {
+                // FIX: green frame after switch 'night to day' mode
+                uint32_t aec_exp  = 8;
+                uint32_t aec_gain = 1;
+                uint16_t bgain    = 150;
+                uint16_t ggain    = 128;
+                uint16_t rgain    = 150;
+                uint32_t stretch  = 67109344;
+
+                libvs_set_initaecagc_stage2(streamId_, ( aec_exp << 16 ) | aec_gain, bgain, ggain, rgain, stretch);
+                // end FIX
+            }
+
+            // ///<config the initial parameter(flip/mirror/daynight and DCPC LUT loaded if needed)
+            this->easyav_config_video_param(easyav);
+            
+            ret = libdatapath_switch_start(easyav->dp_subcase);
+            // LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->" << std::string (__func__) << "] (libdatapath_switch_start) ret = " << std::to_string(ret));
+
+            // datapath_switch_ticks = ticks;
+            board_ioctl(BIOC_EASYAV_DPSWITCH_DONE, (u32)easyav, NULL);
+
+            if(ret != 0){
+                LOG4CPLUS_ERROR(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_config_datapath] datapath switch to " << std::to_string(easyav->dp_subcase) << " error: " << std::to_string(ret));
+            }else{
+                LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_config_datapath] datapath switch ok: " << std::to_string(ret));
+            }
+
+            libvs_set_daynight(0, (easyav->settings.isp.color ? 0 : 1));
+        }
+        return 0;
+    }
+
+    int OA8000SwitchDayNight::easyav_start_datapath(t_av_ctx * easyav)
+    {
+        LOG4CPLUS_ERROR(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_start_datapath] TODO: Need Check this!");
+
+        int ret = libdatapath_config(easyav->dp_subcase);
+        ///<config datapath clock
+        board_ioctl(BIOC_EASYAV_DP_PRE, (u32)easyav, NULL);
+
+        int dpcfg_id = fw_env_getint("dpcfg_id", 0);
+        int dp_id = fw_env_getint("dp_id", 0);
+
+
+
+        ret = libdatapath_init(dpcfg_id);
+        if( ret != 0 )
+        {
+            LOG4CPLUS_ERROR(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_start_datapath] datapath init error: " << std::to_string(ret));
+            return -1;
+        }
+        else
+        {
+            LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_start_datapath] datapath init ok: " << std::to_string(ret));
+        }
+
+        ///<config the initial parameter(flip/mirror/daynight and DCPC LUT loaded if needed)
+        if ((dpcfg_id == 1 || !dpcfg_id) && (dp_id == 0)) {
+
+            easyav_config_video_param(easyav);
+        }
+
+        ret = libdatapath_start();
+
+        if(ret != 0){
+            LOG4CPLUS_ERROR(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_start_datapath] datapath start error: " << std::to_string(ret));
+            return -1;
+        }else{
+            LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_start_datapath] datapath start ok: " << std::to_string(ret));
+        }
+        
+        return ret;
+    }
+
+    int OA8000SwitchDayNight::easyav_config_video_param(t_av_ctx * easyav)
+    {
+        board_ioctl(BIOC_EASYAV_CONFIGVIDEOPARAM_PRE, (u32)easyav, NULL);
+        int ret = libvs_set_daynight(0, (easyav->settings.isp.color ? 0 : 1));
+
+        if(ret != 0) {
+            // syslog(LOG_WARNING, "[ERROR]: set video color to %s mode fail!\n", easyav->settings.isp.color?"COLOR":"GRAY");
+            if (easyav->settings.isp.color == 1) {
+                LOG4CPLUS_ERROR(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_config_video_param] set video color to COLOR mode fail!");
+            } else if (easyav->settings.isp.color == 0) {
+                LOG4CPLUS_ERROR(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_config_video_param] set video color to GRAY mode fail");
+            }
+            
+        }else{
+            // syslog(LOG_INFO, "set video color to %s mode\n", easyav->settings.isp.color?"COLOR":"GRAY");
+            if (easyav->settings.isp.color == 1) {
+                LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_config_video_param] set video color to COLOR mode");
+            } else if (easyav->settings.isp.color == 0) {
+                LOG4CPLUS_DEBUG(Vms::Grabbers::logger(), "[OA8000SwitchDayNight->easyav_config_video_param] set video color to GRAY mode");
+            }
+        }
+        return ret;
+    }
+
+}}  // namespace Vms::Camera
