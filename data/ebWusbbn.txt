@@ -1,0 +1,92 @@
+/// Sensors can see closest beacons, which means others may be out there.
+/// 1) find 'clear' points on a given line.
+/// 2) find only 'unclear' point in a given area.
+///Sensor at x=2, y=18: closest beacon is at x=-2, y=15
+import 'dart:math';
+import 'package:more/more.dart';
+
+class Cover {
+  int start, end;
+  Cover(this.start, this.end);
+  bool contains(int i) => i >= start && i <= end;
+}
+
+var sensorRanges = <Point<int>, int>{};
+var beacons = <Point<int>>{};
+int dist(Point<int> p1, Point<int> p2) =>
+    (p1.x - p2.x).abs() + (p1.y - p2.y).abs();
+
+addLines(List<String> lines) {
+  sensorRanges = <Point<int>, int>{};
+  beacons = <Point<int>>{};
+
+  var re = RegExp(r'(-?\d+)');
+  lines
+      .map((e) => re.allMatches(e).map((m) => int.parse(m.group(1)!)).toList())
+      .forEach((e) {
+    sensorRanges[Point(e[0], e[1])] =
+        dist(Point(e[0], e[1]), Point(e[2], e[3]));
+    beacons.add(Point(e[2], e[3]));
+  });
+}
+
+clearCovered() {
+  for (var s in sensorRanges.entries) {
+    for (var t in sensorRanges.entries) {
+      var diff = dist(s.key, t.key);
+      if (s.key == t.key) continue;
+      if (t.value <= s.value - diff) {
+        sensorRanges.remove(t);
+      }
+    }
+  }
+}
+
+var covers = <Cover>{};
+addCover(Cover c) {
+  for (var t in covers.toList()) {
+    if (c.end < t.start - 1 || c.start > t.end + 1) continue;
+    covers.remove(t);
+    c = Cover(min(c.start, t.start), max(c.end, t.end));
+  }
+  covers.add(c);
+}
+
+void buildCovers(int y) {
+  covers = <Cover>{};
+  for (var s in sensorRanges.keys) {
+    var d = sensorRanges[s]!;
+    var halfWidth = d - (s.y - y).abs();
+    if (halfWidth < 0) continue;
+    var r = Cover(s.x - halfWidth, s.x + halfWidth);
+    addCover(r);
+  }
+}
+
+part1(int y, List<String> lines) {
+  addLines(lines);
+  clearCovered();
+
+  buildCovers(y);
+  var seen = 0;
+  var bs = beacons.where((e) => e.y == y);
+  for (var c in covers) {
+    seen += c.end - c.start + 1;
+    for (var b in bs) {
+      if (c.contains(b.x)) seen -= 1;
+    }
+  }
+  return seen;
+}
+
+int part2(int size, List<String> lines) {
+  addLines(lines);
+  clearCovered();
+
+  for (var y in 0.to(size + 1)) {
+    buildCovers(y);
+    if (covers.length == 1) continue;
+    return covers.map((e) => e.end + 1).min() * 4000000 + y;
+  }
+  return 0; // never!
+}
