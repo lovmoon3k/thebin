@@ -1,0 +1,51 @@
+WITH log_stat_code AS 
+(
+    SELECT 
+        CAST(log_status AS BIGINT) AS log_status,
+        log_status_description
+    FROM (
+            (VALUES
+                ('0','LOGISTICS_NOT_STARTED'), ('1','LOGISTICS_REQUEST_CREATED'), ('2','LOGISTICS_PICKUP_DONE'), ('3','LOGISTICS_PICKUP_RETRY'), ('4','UNMAPPED_STATUS'), ('5','LOGISTICS_DELIVERY_DONE'), ('6','LOGISTICS_DELIVERY_FAILED'), ('7','LOGISTICS_REQUEST_CANCELED'), ('8','LOGISTICS_COD_REJECTED'), ('9','LOGISTICS_READY'), ('10','LOGISTICS_INVALID'), ('11','LOGISTICS_LOST'), ('12','LOGISTICS_PEDING_ARRANGE')
+)
+    ) AS a (log_status, log_status_description)
+),
+package_amount AS
+(
+    SELECT
+        DATE(FROM_UNIXTIME(dim_order.mtime) AT TIME ZONE 'America/Sao_Paulo') AS update_date,
+        dim_status_code.log_status_description,
+        COUNT(*) AS amount 
+    FROM sls_mart.dwd_order_detail_info_nonsensitive_df_br AS dim_order
+        LEFT JOIN log_stat_code AS dim_status_code
+            ON dim_order.order_log_status = dim_status_code.log_status
+    WHERE CAST(shop_id AS BIGINT) = 445382139
+        AND dim_order.grass_date >= DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo' - INTERVAL '2' MONTH)
+        AND DATE(FROM_UNIXTIME(dim_order.mtime) AT TIME ZONE 'America/Sao_Paulo') BETWEEN DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo' - INTERVAL '2' MONTH)
+            AND DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo' - INTERVAL '1' DAY)
+    GROUP BY 1,2
+),
+map_agg AS
+(
+    SELECT
+        package_amount.update_date,
+        MAP_AGG(package_amount.log_status_description, package_amount.amount) AS key
+    FROM package_amount AS package_amount
+    GROUP BY package_amount.update_date
+)
+-- SELECT * FROM map_agg
+SELECT
+    map_agg.update_date,
+    KEY['LOGISTICS_NOT_STARTED'] AS LOGISTICS_NOT_STARTED,
+    KEY['LOGISTICS_REQUEST_CREATED'] AS LOGISTICS_REQUEST_CREATED,
+    KEY['LOGISTICS_PICKUP_DONE'] AS LOGISTICS_PICKUP_DONE,
+    KEY['LOGISTICS_PICKUP_RETRY'] AS LOGISTICS_PICKUP_RETRY,
+    KEY['UNMAPPED_STATUS'] AS UNMAPPED_STATUS,
+    KEY['LOGISTICS_DELIVERY_DONE'] AS LOGISTICS_DELIVERY_DONE,
+    KEY['LOGISTICS_DELIVERY_FAILED'] AS LOGISTICS_DELIVERY_FAILED,
+    KEY['LOGISTICS_REQUEST_CANCELED'] AS LOGISTICS_REQUEST_CANCELED,
+    KEY['LOGISTICS_COD_REJECTED'] AS LOGISTICS_COD_REJECTED,
+    KEY['LOGISTICS_READY'] AS LOGISTICS_READY,
+    KEY['LOGISTICS_INVALID'] AS LOGISTICS_INVALID,
+    KEY['LOGISTICS_LOST'] AS LOGISTICS_LOST,
+    KEY['LOGISTICS_PEDING_ARRANGE'] AS LOGISTICS_PEDING_ARRANGE
+FROM map_agg AS map_agg
