@@ -1,0 +1,113 @@
+#include <iostream>
+#include <vector>
+#include <utility>
+
+unsigned BitWidth(unsigned n) {
+    unsigned p = 0;
+    while (n > 0) {
+        n >>= 1;
+        ++p;
+    }
+    return p;
+}
+
+class TRootTree {
+private:
+    unsigned number;
+    std::vector<unsigned> parent;
+    std::vector<std::vector<unsigned>> children;
+    unsigned requests;
+    unsigned long long a_odd, a_even;
+    unsigned x, y, z;
+
+    std::vector<std::pair<unsigned, unsigned>> time;
+    unsigned timer;
+    unsigned width;
+    std::vector<std::vector<unsigned>> up;
+
+    TRootTree(unsigned n, unsigned m) : number(n), parent(number),
+            children(number), requests(m),
+            a_odd(0), a_even(0), x(0), y(0), z(0),
+            time(number), timer(0), width(BitWidth(number)),
+            up(number, std::vector<unsigned>(width + 1, 0)) {}
+
+    void ReadFromStream(std::istream& stream) {
+        for (auto iter = parent.begin() + 1; iter != parent.end(); ++iter) {
+            stream >> *iter;
+        }
+        stream >> a_odd >> a_even >> x >> y >> z;
+    }
+
+    void DFS(unsigned v, unsigned p = 0) {
+        time[v].first = ++timer;
+        {
+            unsigned curr;
+            curr = up[v][0] = p;
+            for (unsigned i = 1; i <= width; ++i) {
+                curr = up[v][i] = up[curr][i - 1];
+            }
+        }
+        for (unsigned to: children[v]) {
+            if (to != p) {
+                DFS(to, v);
+            }
+        }
+        time[v].second = ++timer;
+    }
+
+    void Preprocessing() {
+        for (unsigned i = 1; i < number; ++i) {
+            children[parent[i]].push_back(i);
+        }
+        DFS(0);
+    }
+
+    bool IsAncestor(unsigned v1, unsigned v2) {
+        return time[v1].first <= time[v2].first && time[v1].second >= time[v2].second;
+    }
+
+    unsigned LCA(unsigned v1, unsigned v2) {
+        if (IsAncestor(v1, v2)) {
+            return v1;
+        } else if (IsAncestor(v2, v1)) {
+            return v2;
+        } else {
+            for (int i = width; i >= 0; --i) {
+                if (!IsAncestor(up[v1][i], v2)) {
+                    v1 = up[v1][i];
+                }
+            }
+            return up[v1][0];
+        }
+    }
+
+public:
+    unsigned Respond() {
+        unsigned ans = LCA(a_odd, a_even);
+        unsigned long long sum = ans;
+        for (unsigned i = 1; i < requests; ++i) {
+            a_odd = (x * a_odd + y * a_even + z) % number;
+            a_even = (x * a_even + y * a_odd + z) % number;
+            ans = LCA((a_odd + ans) % number, a_even);
+            sum += ans;
+        }
+        return sum;
+    }
+
+    friend TRootTree create(std::istream&);
+};
+
+TRootTree create(std::istream& stream) {
+    unsigned n, m;
+    stream >> n >> m;
+    TRootTree t(n, m);
+    t.ReadFromStream(stream);
+    t.Preprocessing();
+    return t;
+}
+
+int main() {
+    TRootTree a = create(std::cin);
+    std::cout << a.Respond() << std::endl;
+    return 0;
+}

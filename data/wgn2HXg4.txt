@@ -1,0 +1,182 @@
+local mon = peripheral.wrap("top")
+local modem = peripheral.wrap("back")
+
+modem.open(1)
+
+mon.clear()
+mon.setBackgroundColor(colors.black)
+mon.clear()
+
+sizeX, sizeY = mon.getSize()
+
+function boxe(x,y,xa,ya,mon,titre)
+
+    mon.setTextScale(1)
+    mon.setCursorPos(x,y)
+    mon.setBackgroundColor(colors.gray)
+    mon.write("  ")
+    mon.setBackgroundColor(colors.black)
+    mon.setTextColor(colors.yellow)
+    mon.setCursorPos(x+2,y)
+    mon.write(" "..titre.." ")
+
+    local xc, yc = mon.getCursorPos()
+    for xc=xc,xa-1 do
+        mon.setCursorPos(xc,y)
+        mon.setBackgroundColor(colors.gray)
+        mon.write(" ")
+        xc = xc+1
+    end
+    local xc, yc = mon.getCursorPos()
+    yc = y+1
+    for yc=y,ya do
+        mon.setCursorPos(x,yc)
+        mon.setBackgroundColor(colors.gray)
+        mon.write(" ")
+        mon.setCursorPos(xa,yc)
+        mon.setBackgroundColor(colors.gray)
+        mon.write(" ")
+        yc = yc + 1
+    end
+    xb = x
+    for xb=x,xa do
+        mon.setCursorPos(xb,ya)
+        mon.setBackgroundColor(colors.gray)
+        mon.write(" ")
+        xb = xb + 1
+    end
+end
+
+local Prod = {}
+
+for i=1,3600 do
+    Prod[i] = 1
+end
+
+local zoomTemp = 0
+
+function graph(x,y,xa,ya,mon,name,dataTable,value,zoom)
+    
+    xb = xa-x
+    yb = ya-y
+   
+    --set datatable 
+    for i=1,3600 do
+        dataTable[i] = dataTable[i+1]
+    end
+    dataTable[3600] = value
+    maxValue = 1
+    for i=2,3600 do
+        if maxValue < dataTable[i] then
+            maxValue = dataTable[i] + (dataTable[i]*0.1)
+        end
+    end
+   
+    --print graph
+    xc = xb-4
+    yc = yb-8
+    if zoomTemp == 0 then
+        zoomTemp = zoom
+
+        for i=0, xc do
+            tempValue = dataTable[3600-i*zoom]
+            pointY = (yc*(maxValue-tempValue)/maxValue)
+
+            if tempValue >1 then
+                if pointY >= yc then
+                    pointY=yc
+                end
+                for yend=0, pointY do
+                    mon.setBackgroundColor(colors.gray)
+                    mon.setCursorPos((x+2+xc-i),y+2+yend)
+                    mon.write(" ")
+                end
+                for yend=pointY, (yc+0.999999) do
+                    mon.setBackgroundColor(colors.green)
+                    mon.setCursorPos((x+2+xc-i),y+2+yend)
+                    mon.write(" ")
+                end
+            else
+                yend = 0
+                for yend=0, yc do
+                   mon.setBackgroundColor(colors.gray)
+                   mon.setCursorPos((x+2+xc-i),y+2+yend)
+                   mon.write(" ")
+                end 
+            end
+        end 
+
+        right(xa,y+1,maxValue.."rf/t",mon)
+        pointY= (yc*(maxValue-dataTable[3600])/maxValue)
+        right(xa,y+1+pointY,dataTable[3600].."rf/t",mon)
+    end
+
+    for i=0, xa-x do
+        mon.setCursorPos(x+i,ya-4)
+        mon.setBackgroundColor(colors.gray)
+        mon.write(" ")
+    end
+    
+    boxe(x,y,xa,ya,mon,name)
+    
+    mon.setBackgroundColor(colors.black)
+    mon.setCursorPos(x+2,ya-2)
+    mon.write("Zoom : 1/"..zoom)
+    
+    zoomTemp = zoomTemp - 1
+    
+end
+
+function right(rightX,rightY,value,mon)
+    mon.setBackgroundColor(colors.black)
+    mon.setTextColor(colors.black)
+    mon.setCursorPos(1,1)
+    mon.write(value)
+    rightTempX,rightTempY = mon.getCursorPos()
+    mon.setCursorPos(rightX-rightTempX,rightY)
+    mon.setBackgroundColor(colors.gray)
+    mon.setTextColor(colors.white)
+    mon.write(value)
+end
+
+while true do
+
+    event, side, frenquency, replayFrequency, message, distance = os.pullEvent("modem_message")
+    
+    batteryG1 = message.batteryG1
+    batteryG2 = message.batteryG2
+    batteryG3 = message.batteryG3
+    batteryG4 = message.batteryG4
+    batteryG5 = message.batteryG5
+    capacity = message.capacity*5
+    compteur1 = message.compteur1
+    compteur2 = message.compteur2
+    compteur3 = message.compteur3
+    transfer= compteur1+compteur2+compteur3
+    totalBattery = batteryG1+batteryG2+batteryG3+batteryG4+batteryG5
+
+    message = {
+        status = null
+    }
+    if level <= 80 then
+        message = {
+            status  = true
+        }
+    end  
+    if level >= 95 then
+        message = {
+            status = false
+        }
+    end
+    modem.open(5)
+    print(textutils.serialise(message))
+    modem.transmit(5,10,message)
+    modem.close(5)
+
+    graph(2,2,(((sizeX-1)*(2/5))-1),(sizeY-1),mon,"Production",Prod,transfer,2)
+    boxe(((sizeX-1)*(2/5)+1),2,((sizeX-1)*(4/5)-1),(sizeY-1),mon,"Controle room")
+    boxe(((sizeX-1)*(4/5)+1),2,(sizeX-1),(sizeY-1),mon,"Battery level")
+    
+    sleep(1)
+
+end
