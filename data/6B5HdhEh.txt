@@ -1,0 +1,59 @@
+(function () {
+
+	// Main function
+	const getProvenance = async (tokenId) => {
+
+		// We format the token id in a hex readable format for ETH
+		let hexData = `0000000000000000000000000000000000000000000000000000000000000000`;
+		hexData = `${hexData.substring(tokenId.toString(16).length)}${tokenId.toString(16)}`;
+
+		// Get the transfer logs from a range of blocks
+		let transferLogs = await getTransferLogs(hexData);
+		for (let i = 0; i < transferLogs.length; i++) { // Iterate through time
+			let transactionReceipt = await getTransactionReceipt(transferLogs[i].transactionHash) // Get the transaction receipt individually
+			let previousOwner = `0x${transferLogs[i].topics[1].substring(26)}`;
+			let newOwner = `0x${transferLogs[i].topics[2].substring(26)}`;
+
+			let isSale = false;
+			for (let i2 = 0; i2 < transactionReceipt.logs.length; i2++) {
+				let log = transactionReceipt.logs[i2];
+				if (log["topics"][0] != "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef") continue; // If the topic is not Transfer, we don't care
+				if (log["data"] == "0x") continue; // If the data is not > than 0, then we don't care
+				isSale = parseInt(log["data"]) + isSale; // Else, we add the value
+			}
+			console.log((previousOwner == "0x0000000000000000000000000000000000000000") ? `Minting of ${tokenId} by ${newOwner}` : `Transaction of ${tokenId} from ${previousOwner} to ${newOwner}`)
+			console.log((isSale) ? `Is a sale : ${isSale / 1000000000000000000} ETH` : "Not a sale");
+			console.log('---------------------------------')
+		}
+
+	}
+
+	const getTransferLogs = async (tokenId) => {
+		return await ethereum.request({
+			method: 'eth_getLogs',
+			params: [
+				{
+					fromBlock: "0x0",
+					address: "0x49cf6f5d44e70224e2e23fdcdd2c053f30ada28b",
+					topics: [
+						"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", // Transfer topic
+						null, // From previous owner
+						null, // To new owner
+						`0x${tokenId}`, // Token ID
+					],
+				},
+			]
+		});
+	}
+
+	const getTransactionReceipt = async (transactionHash) => {
+		return await ethereum.request({
+			method: 'eth_getTransactionReceipt',
+			params: [transactionHash]
+
+		});
+	}
+
+	getProvenance(6865);
+})();
+
