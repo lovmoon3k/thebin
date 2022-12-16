@@ -1,0 +1,129 @@
+```java
+package main.java.xyz.terrific.mp3_player;
+
+import javazoom.jl.decoder.*;
+import javazoom.jl.player.AudioDevice;
+
+import java.io.InputStream;
+
+public class Player {
+    private int frame;
+    private Bitstream bitstream;
+    private Decoder decoder;
+    private JavaSoundAudioDevice audio;
+    private boolean closed;
+    private boolean complete;
+    private int lastPosition;
+
+    public Player(InputStream stream) throws JavaLayerException {
+        this(stream, (JavaSoundAudioDevice)null);
+    }
+
+    public Player(InputStream stream, JavaSoundAudioDevice device) throws JavaLayerException {
+        this.frame = 0;
+        this.closed = false;
+        this.complete = false;
+        this.lastPosition = 0;
+        this.bitstream = new Bitstream(stream);
+        this.decoder = new Decoder();
+        if (device != null) {
+            this.audio = device;
+        } else {
+            this.audio = new JavaSoundAudioDeviceFactory().createAudioDevice();
+        }
+
+        this.audio.open(this.decoder);
+    }
+
+    public void play() throws JavaLayerException {
+        this.play(Integer.MAX_VALUE);
+    }
+
+    public boolean play(int frames) throws JavaLayerException {
+        boolean ret;
+        for(ret = true; frames-- > 0 && ret; ret = this.decodeFrame()) {
+        }
+
+        if (!ret) {
+            AudioDevice out = this.audio;
+            if (out != null) {
+                out.flush();
+                synchronized(this) {
+                    this.complete = !this.closed;
+                    this.close();
+                }
+            }
+        }
+
+        return ret;
+    }
+
+    public synchronized void close() {
+        AudioDevice out = this.audio;
+        if (out != null) {
+            this.closed = true;
+            this.audio = null;
+            out.close();
+            this.lastPosition = out.getPosition();
+
+            try {
+                this.bitstream.close();
+            } catch (BitstreamException var3) {
+            }
+        }
+
+    }
+
+    public synchronized boolean isComplete() {
+        return this.complete;
+    }
+
+    public int getPosition() {
+        int position = this.lastPosition;
+        AudioDevice out = this.audio;
+        if (out != null) {
+            position = out.getPosition();
+        }
+
+        return position;
+    }
+
+    public boolean setGain(float newGain) {
+        JavaSoundAudioDevice jsAudio = (JavaSoundAudioDevice) audio;
+        try {
+            jsAudio.write(null, 0, 0);
+        } catch (JavaLayerException ex) {
+            ex.printStackTrace();
+        }
+        return jsAudio.setLineGain(newGain);
+    }
+
+    protected boolean decodeFrame() throws JavaLayerException {
+        try {
+            AudioDevice out = this.audio;
+            if (out == null) {
+                return false;
+            } else {
+                Header h = this.bitstream.readFrame();
+                if (h == null) {
+                    return false;
+                } else {
+                    SampleBuffer output = (SampleBuffer)this.decoder.decodeFrame(h, this.bitstream);
+                    synchronized(this) {
+                        out = this.audio;
+                        if (out != null) {
+                            out.write(output.getBuffer(), 0, output.getBufferLength());
+                            // by dividing bufferlength playback speed can be increased, causes audio fragments tho
+                        }
+                    }
+
+                    this.bitstream.closeFrame();
+                    return true;
+                }
+            }
+        } catch (RuntimeException var7) {
+            throw new JavaLayerException("Exception decoding audio frame", var7);
+        }
+    }
+}
+```

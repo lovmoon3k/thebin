@@ -1,0 +1,110 @@
+```java
+package main.java.xyz.terrific.mp3_player;
+
+import javazoom.jl.decoder.JavaLayerException;
+import javazoom.jl.player.AudioDevice;
+import javazoom.jl.player.FactoryRegistry;
+import javazoom.jl.player.JavaSoundAudioDevice;
+import javazoom.jl.player.advanced.AdvancedPlayer;
+
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class MusicPlayer {
+
+    private File mp3_file;
+    private final String filename;
+    private String filepath;
+
+    private FileInputStream fileInputStream;
+    private BufferedInputStream bufferedInputStream;
+
+    Player player;
+    private final Thread playThread;
+    private final Thread resumeThread;
+
+    private final ExecutorService executor = Executors.newCachedThreadPool();
+
+    private long totalLength;
+    private long pause;
+
+    float gain;
+    Boolean paused = false;
+
+    public MusicPlayer(String mp3_in, float gain) {
+        this(new File(mp3_in), gain);
+    }
+    public MusicPlayer(String mp3_in) {
+        this(new File(mp3_in), 0);
+    }
+    public MusicPlayer(File mp3_in) {
+        this(mp3_in, 0);
+    }
+    public MusicPlayer(File mp3_in, float gain) {
+        mp3_file = mp3_in;
+        filename = mp3_file.getName();
+        filepath = mp3_file.getAbsolutePath();
+        this.gain = gain;
+
+        playThread = new Thread(() -> {
+            try {
+                fileInputStream = new FileInputStream(mp3_file);
+                bufferedInputStream = new BufferedInputStream(fileInputStream);
+
+                player = new Player(bufferedInputStream);
+                player.setGain(gain);
+                totalLength = fileInputStream.available();
+                player.play();
+            } catch (IOException | JavaLayerException e) {
+                e.printStackTrace();
+            }
+        });
+        resumeThread = new Thread(() -> {
+            try {
+                fileInputStream = new FileInputStream(mp3_file);
+                bufferedInputStream = new BufferedInputStream(fileInputStream);
+
+                player = new Player(bufferedInputStream);
+                player.setGain(gain);
+                fileInputStream.skip(totalLength - pause);
+                player.play();
+            } catch (JavaLayerException | IOException e) {
+                e.printStackTrace();
+            }
+        });
+    }
+
+    public void play() {
+        executor.submit(playThread);
+        System.out.println("Now Playing: " + filename.replace(".mp3", ""));
+    }
+
+    public void pause() {
+        if (paused) {
+            paused = false;
+            executor.submit(resumeThread);
+            System.out.println("Resumed Playing: " + filename.replace(".mp3", ""));
+        } else if (player != null) {
+            try {
+                pause = fileInputStream.available();
+                paused = true;
+                player.close();
+                System.out.println("Paused Playing: " + filename.replace(".mp3", ""));
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void stop() {
+        if (player != null) {
+            player.close();
+            System.out.println("Stopped Playing: " + filename.replace(".mp3", ""));
+        }
+    }
+}
+```
