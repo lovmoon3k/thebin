@@ -1,0 +1,141 @@
+package com.company.draft;
+
+import com.company.Automation;
+import com.company.StateSymbol;
+
+import java.util.*;
+
+public class Minimize {
+    public static Automation minimize(Automation srcAutomation) {
+        String[] achievableStates = getAchievableStates(srcAutomation);
+
+        List<List<String>> classes = findKEquivalenceClasses(achievableStates, 0, srcAutomation);
+        Object[] tmpStates = classes.stream().map(x -> String.join(" ", x)).toArray();
+        String[] states = Arrays.copyOf(tmpStates, tmpStates.length, String[].class);
+
+        Object[] tmpEndStates = classes
+                .stream()
+                .filter(x -> x.stream().anyMatch(t -> srcAutomation.endStatesList.contains(t)))
+                .map(x -> String.join(" ", x)).toArray();
+
+        String[] endStates = Arrays.copyOf(tmpEndStates, tmpEndStates.length, String[].class);
+
+        List<String> startStateClass = classes.stream().filter(x -> x.contains(srcAutomation.startState)).findFirst().get();
+        String startState = String.join(" ", startStateClass);
+
+        Map<StateSymbol, String> map = new HashMap<>();
+        for (var cl : classes) {
+            String element = cl.get(0);
+            String state = String.join(" ", cl);
+
+            for (var ch : srcAutomation.alphabet) {
+                var stateSymbol = new StateSymbol(element, ch);
+                if (srcAutomation.map.containsKey(stateSymbol)) {
+                    var value = srcAutomation.map.get(stateSymbol);
+                    var valueClass = classes.stream().filter(x -> x.contains(value)).findFirst().get();
+                    String valueClassStr = String.join(" ", valueClass);
+
+                    map.put(new StateSymbol(state, ch), valueClassStr);
+                }
+            }
+        }
+
+        return new Automation(states, srcAutomation.alphabet, map, startState, endStates);
+    }
+
+    private static String[] getAchievableStates(Automation automation) {
+        List<String> achievableStates = new ArrayList<>(List.of(automation.startState));
+        List<String> newStates = List.of(automation.startState);
+
+        while (true) {
+            List<String> states = new ArrayList<>();
+            for (String state : newStates) {
+
+                List<String> toState = new ArrayList<>();
+                for (var v : automation.map.entrySet()) {
+                    if (v.getKey().getState().equals(state)) {
+                        toState.add(v.getValue());
+                    }
+                }
+
+                toState.removeAll(achievableStates);
+
+                String[] currStates = toState.toArray(String[]::new);
+                states.addAll(Arrays.stream(currStates).toList());
+            }
+
+            if (states.size() == 0) {
+                achievableStates = achievableStates.stream().sorted().toList();
+                return achievableStates.stream().distinct().toArray(String[]::new);
+            }
+
+            achievableStates.addAll(states);
+            newStates = new ArrayList<>(states);
+        }
+    }
+
+    private static List<List<String>> findKEquivalenceClasses(String[] states, int k, Automation automation) {
+        List<List<String>> classes = splitKEquivalenceClasses(states, k++, automation);
+
+        if (classes.size() == 1)
+            return classes;
+
+        List<List<String>> subclasses = new ArrayList<>();
+        for (var c : classes) {
+            List<List<String>> currClasses = findKEquivalenceClasses(c.toArray(String[]::new), k, automation);
+            subclasses.addAll(currClasses);
+        }
+
+        return subclasses;
+    }
+
+    private static List<List<String>> splitKEquivalenceClasses(String[] states, int k, Automation automation) {
+        List<List<String>> equivalenceClasses = new ArrayList<>();
+
+        for (int i = 0; i < states.length; ++i) {
+            final int g = i;
+            if (equivalenceClasses.stream().anyMatch(x -> x.contains(states[g]))) {
+                continue;
+            }
+
+            equivalenceClasses.add(List.of(states[i]));
+
+            for (int j = i + 1; j < states.length; ++j) {
+                if (checkKEqual(states[i], states[j], k, automation)) {
+                    List<String> innerList = new ArrayList<>(equivalenceClasses.get(equivalenceClasses.size() - 1));
+                    innerList.add(states[j]);
+
+                    equivalenceClasses.remove(equivalenceClasses.size() - 1);
+                    equivalenceClasses.add(innerList);
+                }
+            }
+        }
+
+        return equivalenceClasses;
+    }
+
+    private static boolean check0Equal(String firstState, String secondState, Automation automation) {
+        if (automation.endStatesList.contains(firstState) && automation.endStatesList.contains(secondState)) {
+            return true;
+        }
+
+        return (!automation.endStatesList.contains(firstState)) && (!automation.endStatesList.contains(secondState));
+    }
+
+    private static boolean checkKEqual(String firstState, String secondState, int k, Automation automation) {
+        if (k == 0) {
+            return check0Equal(firstState, secondState, automation);
+        }
+
+        for (var c : automation.alphabet) {
+            var firstValue = automation.map.get(new StateSymbol(firstState, c));
+            var secondValue = automation.map.get(new StateSymbol(secondState, c));
+
+            if (firstValue != null && !firstValue.equals(secondValue)) {
+                return false;
+            }
+        }
+
+        return checkKEqual(firstState, secondState, k - 1, automation);
+    }
+}
