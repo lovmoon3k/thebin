@@ -1,0 +1,43 @@
+-- Utwórz tabelę o nazwie Raport. Powinna ona zawierać informacje o liczbie studentów egzaminowanych w poszczególnych
+-- miesiacach w kolejnych latach. Numer roku należy umieścić w kolumnie o nazwie Rok, a nazwa miesiaca i liczba studentów
+-- powinny być w kolekcji, uporzadkowane wedug numeru miesiaca w roku. Uporzadkowac dane wprowadzane do tabeli wg roku.
+
+create or replace type t_Miesiac_Studenci as object
+        (nazwa_miesiac  varchar2(15),
+        liczba_studentow number);
+
+create or replace type tkol_Miesiac_Studenci is table of t_Miesiac_Studenci ;
+
+create table raport (
+    rok        number,
+    lista   tkol_Miesiac_Studenci
+    ) nested table lista store as lista_tab;
+
+declare
+    kol_Roczne_Dane     tkol_Miesiac_Studenci ;
+    cursor c1 is select distinct extract(year from data_egzamin) Rok from egzaminy order by 1 ;
+    function return_kol_msc(prok number) return tkol_Miesiac_Studenci 
+        is 
+        kol_msc     tkol_Miesiac_Studenci := tkol_Miesiac_Studenci();
+        cursor c2 is select extract(month from data_egzamin) NumerMsc, to_char(data_egzamin, 'month') NazwaMsc, 
+            count(distinct id_student) LiczbaSt
+            from egzaminy
+            where extract(year from data_egzamin) = prok 
+            group by extract(month from data_egzamin), to_char(data_egzamin, 'month')
+            order by 1 ;
+        begin
+            for vc2 in c2 loop
+                kol_msc.extend ;
+                kol_msc(c2%rowcount) := t_Miesiac_Studenci(vc2.NazwaMsc, vc2.LiczbaSt);
+            end loop;
+            return kol_msc ;
+        end return_kol_msc;
+begin
+    for vc1 in c1 loop
+        kol_Roczne_Dane := return_kol_msc(vc1.rok);
+        insert into raport values(vc1.rok, kol_roczne_dane);
+    end loop;
+end;
+
+select rok, nazwa_miesiac, liczba_studentow 
+from raport , table(lista) t ;
