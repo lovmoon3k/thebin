@@ -1,0 +1,130 @@
+-- 1
+CREATE PROC KOLS_N
+	@kol AS INT,
+	@NAME AS VARCHAR(10)
+AS
+	SELECT COUNT(*) FROM Salespeople
+	WHERE SNUM >= @kol AND SNAME LIKE @NAME;
+GO
+
+-- Проверка
+EXEC KOLS_N 1002, 'S%' -- 1
+EXEC KOLS_N 1001, 'S%' -- тоже 1
+EXEC KOLS_N 1003, 'S%' -- 0
+GO
+
+-- 2
+CREATE PROC Summ_month
+	@date AS INT
+AS
+BEGIN
+	SELECT SUM(PRICE * QUANTITY)
+	FROM Orders JOIN Order_Details ON Orders.ONUM = Order_Details.ONUM
+	JOIN Product ON Order_Details.PNUM = Product.PNUM
+	WHERE MONTH(ODATE) = @date; -- Для текстовых DATENAME(month, ODATE)
+END
+GO
+
+-- Проверка
+EXEC Summ_month 3
+EXEC Summ_month 4
+EXEC Summ_month 5
+EXEC Summ_month 6
+GO
+
+-- 3
+CREATE TRIGGER Products_INSERT_UPDATE ON dbo.Product
+AFTER INSERT, UPDATE
+AS BEGIN
+	SET NOCOUNT ON;
+	UPDATE dbo.Product
+	SET Product.PRICE = Product.PRICE * 1.05
+	FROM inserted
+	WHERE inserted.PNUM = Product.PNUM;
+END
+GO
+
+-- Проверка
+INSERT INTO Product VALUES (3010, 'Product 11', 1238); -- Должно быть 1299.9
+SELECT * FROM Product WHERE PNUM = 3010; -- Работает
+UPDATE Product SET PRICE = 4172  WHERE PNUM = 3007; -- 4380.6
+SELECT * FROM Product WHERE PNUM = 3007; -- Работает
+
+-- 4
+CREATE TABLE Category (
+	CategoryID INT identity(1,1) NOT NULL,
+	CategoryName VARCHAR(25) NOT NULL,
+	Description TEXT NULL
+	CONSTRAINT PK_Category PRIMARY KEY (CategoryID)
+)
+CREATE TABLE Supplier (
+	SupplierID INT identity(1,1) NOT NULL,
+	CompanyName VARCHAR(25) NOT NULL,
+	City VARCHAR(10) NOT NULL
+	CONSTRAINT PK_Supplier PRIMARY KEY (SupplierID)
+)
+GO
+
+-- 5
+ALTER TABLE Product ADD CategoryID INT
+ALTER TABLE Product ADD SupplierID INT
+GO
+ALTER TABLE Product ADD CONSTRAINT CAT_FOR_KEY FOREIGN KEY (CategoryID) REFERENCES Category(CategoryID)
+ALTER TABLE Product ADD CONSTRAINT SUPP_FOR_KEY FOREIGN KEY (SupplierID) REFERENCES Supplier(SupplierID)
+GO
+
+-- 6
+INSERT INTO Category(CategoryName, Description) VALUES
+	('Category 1', 'idk man'),
+	('Category 2', 'test description'),
+	('Category 3', 'null'),
+	('Category 4', null);
+GO
+
+INSERT INTO Supplier(CompanyName, City) VALUES
+	('Supplier 1', 'San Jose'),
+	('Supplier 2', 'London'),
+	('Supplier 3', 'Barselona'),
+	('Supplier 4', 'San Jose'),
+	('Supplier 5', 'New York');
+GO
+
+UPDATE Product SET CategoryID = 1
+WHERE Product.PNUM BETWEEN 3000 AND 3002;
+UPDATE Product SET CategoryID = 2
+WHERE Product.PNUM BETWEEN 3004 AND 3006;
+UPDATE Product SET CategoryID = 3
+WHERE Product.PNUM BETWEEN 3007 AND 3009;
+UPDATE Product SET CategoryID = 4
+WHERE Product.PNUM = 3010;
+
+UPDATE Product SET SupplierID = 1
+WHERE Product.PNUM BETWEEN 3000 AND 3001;
+UPDATE Product SET SupplierID = 2
+WHERE Product.PNUM BETWEEN 3002 AND 3004;
+UPDATE Product SET SupplierID = 3
+WHERE Product.PNUM BETWEEN 3005 AND 3006;
+UPDATE Product SET SupplierID = 4
+WHERE Product.PNUM BETWEEN 3007 AND 3008;
+UPDATE Product SET SupplierID = 5
+WHERE Product.PNUM BETWEEN 3009 AND 3010;
+
+-- 7
+SELECT
+	PRICE as 'Стоимость',
+	ROUND(18 * PRICE / 118, 2) as 'НДС',
+	ROUND(100 * PRICE / 118, 2) as 'Стоимость без НДС'
+FROM Product
+ORDER BY PRICE;
+
+-- 8
+SELECT PNAME, PRICE
+FROM Product
+WHERE 18 * PRICE / 1.05 / 118 <= 150
+ORDER BY PRICE;
+
+-- 9
+SELECT PNAME, CASE WHEN PRICE >= 200 THEN ROUND(PRICE * 93/100, 2)
+					ELSE ROUND(PRICE * 95/100, 2)
+				END AS PRICE
+FROM Product;
