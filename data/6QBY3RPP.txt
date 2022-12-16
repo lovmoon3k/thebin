@@ -1,0 +1,61 @@
+from django.test import Client, TestCase
+from django.urls import reverse
+from django.contrib.auth import get_user_model
+from users.forms import UserCreateForm, UserUpdateForm, ProfileUpdateForm
+from users.models import Profile
+
+User = get_user_model()
+
+def check_fields_profile(self_name, form) -> None:
+    """Функция проверки полей поста."""
+    form_data = form
+    self_name.assertTrue(
+        User.objects.filter(
+            username=form_data['username'],
+            email=form_data['email']
+        ).exists()
+    )
+
+class ProfileTextFormTests(TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.user, cls.created = User.objects.get_or_create(username='author',
+                                                           password='268151016PAq',
+                                                           email='lalala@gmail.com')
+        cls.profile = Profile.objects.create(
+            id=cls.user.id,
+            user=cls.user,
+            image='default.jpg'
+        )
+    
+    def setUp(self) -> None:
+        self.author_client = Client()
+        self.author_client.force_login(ProfileTextFormTests.user)
+    
+    def test_user_profile_edit_text_complete(self):
+        user_count = User.objects.count()
+        profile_count = Profile.objects.count()
+        
+        form_data = {
+            'username': 'MakeHate',
+            'email': 'solarium223@gmail.com'
+        }
+        response = self.author_client.post(
+            reverse(
+                'users:profile'
+            ),
+            data=form_data,
+            follow=True
+        )
+        check_fields_profile(self, form_data)
+        self.assertRedirects(
+            response,
+            reverse('users:profile'
+            )
+        )
+        
+        edited_user_profile = User.objects.get(username='MakeHate').profile
+        self.assertEqual(User.objects.count(), user_count)
+        self.assertEqual(Profile.objects.count(), profile_count)
+        self.assertNotEqual(edited_user_profile, ProfileTextFormTests.user.username)
