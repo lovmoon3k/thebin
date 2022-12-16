@@ -1,0 +1,83 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use List::AllUtils  qw(min max);
+
+$| = 1;
+
+sub try_merge {
+    my ($p, $q) = @_;
+
+    my $intStart = max ($p->[0], $q->[0]);
+    my $intEnd   = min ($p->[1], $q->[1]);
+
+    if ($intStart - 1 <= $intEnd) {
+        return ([min ($p->[0], $q->[0]), max ($p->[1], $q->[1])]);
+    }
+
+    return (0);
+}
+
+my $max = 4_000_000;
+my @ranges;
+
+sub add_range {
+    my ($y, $new_range) = @_;
+
+    if (!$ranges[$y]) {
+        push( @{$ranges[$y]}, $new_range );
+        return;
+    }
+
+    return if ($ranges[$y] == 1);
+    return if ($new_range->[0] > $max or $new_range->[1] < 0);
+
+    my @new;
+    my $res;
+    my $acc = $new_range;
+    foreach my $r (@{$ranges[$y]}) {
+        $res = &try_merge( $acc, $r );
+        if ($res == 0) {
+            push( @new, $r );
+        } else {
+            $acc = $res;
+        }
+    }
+    push( @new, $acc );
+
+    if ($acc->[0] <= 0 && $acc->[1] >= $max) {
+        $ranges[$y] = 1;
+    } else {
+        @{$ranges[$y]} = @new;
+    }
+}
+
+foreach my $line (<>) {
+    my ($x, $y, $bx, $by) = ($line =~ m#(-?\d+)#g);
+    print $line;
+
+    my $dist = abs( $x - $bx ) + abs( $y - $by );
+
+    for (my $i = 1; $i <= $dist; $i++) {
+        my $w = $dist - $i;
+        &add_range( $y - $i, [$x - $w, $x + $w] ) if ($y - $i >= 0);
+        &add_range( $y + $i, [$x - $w, $x + $w] ) if ($y + $i <= $max);
+    }
+
+    &add_range( $y, [$x - $dist, $x + $dist] ) if (0 <= $y <= $max);
+}
+
+my $part2;
+foreach my $y (0 .. $max) {
+    next if ($ranges[$y] == 1);
+    if ($ranges[$y][0][0] - $ranges[$y][1][1] == 2) {
+        $part2 = 4_000_000 * ($ranges[$y][0][0] - 1) + $y;
+    } else {
+        $part2 = 4_000_000 * ($ranges[$y][1][0] - 1) + $y;
+    }
+    last;
+}
+
+print "\nPart 2: $part2\n";
