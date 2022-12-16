@@ -1,0 +1,51 @@
+--период покрытия в новинках
+ drop table if exists tmp_cover_old;
+
+create temp table tmp_cover_old (store bigint, supp varchar, cover bigint)
+    with (appendonly = 'true', compresslevel = '1', orientation = 'column', compresstype = zstd)
+        distributed randomly;
+
+insert into tmp_cover_old (store, supp, cover)
+    select lmv.SPSSITE AS store
+    	, f.FOUCNUF AS supp
+    	, max(1 + coalesce(lmv.SPSDP,0) + coalesce(lmv.SPSDR,0) + coalesce(lmv.SPSXDDP,0) + coalesce(lmv.SPSXDDR,0)
+    		- coalesce((lmv2.DELIVERY_EXC),0) + coalesce(lmv1.R_SROK,0)) AS cover
+    from gold_refgwr_ods.v_lmv_fouscheme lmv
+    JOIN gold_refcesh_ods.v_foudgene f ON f.FOUCFIN =lmv.SPSCFIN and f.is_actual = '1'
+    JOIN gold_refgwr_ods.v_lmv_supfrancorep lmv1 ON lmv1.R_SUPP =f.FOUCNUF AND lmv1.R_STORE = lmv.SPSSITE and lmv1.is_actual = '1'
+    LEFT JOIN gold_refgwr_ods.v_lmv_intfouscheme_exception lmv2 ON cast (lmv2.SUPPLIER as text) = f.FOUCNUF AND lmv2.site =lmv.SPSSITE and lmv2.is_actual = '1'
+    where current_date between lmv.SPSDDEB and lmv.SPSDFIN
+    and lmv.is_actual = '1'
+    group by lmv.SPSSITE, f.FOUCNUF;
+
+   
+--период покрытия из источника для голда, отображается в бланке заказа Голд в репортс
+drop table if exists tmp_cover;
+create temp table tmp_cover (store int, supp varchar, cover int)
+    with (appendonly = 'true', compresslevel = '1', orientation = 'column', compresstype = zstd)
+        distributed randomly;
+
+insert into tmp_cover (store, supp, cover)
+SELECT rep_site, rep_sup, MAX(rep_coverp) as rep_coverp
+FROM  gold_refgwr_ods.v_lmv_intstockrep_hist_v2 v
+where rep_coverp >= 0 and
+exists (
+select 1 from 
+(select rep_site, rep_sup, MAX(rep_dcre) as latest_rep_dcre
+FROM  gold_refgwr_ods.v_lmv_intstockrep_hist_v2 
+group by rep_site, rep_sup) as latest 
+where latest.rep_site = v.rep_site and 
+latest.rep_sup = v.rep_sup and 
+latest.latest_rep_dcre = v.rep_dcre 
+)
+group by rep_site, rep_sup;
+
+--сравниваем обе версии
+select o.*, n.*,
+(coalesce(o.store,0) != coalesce(n.store, 0) or 
+coalesce(o.supp,'0') != coalesce(n.supp,'0')) as compare
+from tmp_cover_old o
+left join tmp_cover n
+on
+o.store = n.store and 
+o.supp = n.supp
