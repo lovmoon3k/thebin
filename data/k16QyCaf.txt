@@ -1,0 +1,142 @@
+void Exec::EM(int k) {
+    std::vector<Point *> points = id_field.get_points();
+    int size = points.size();
+
+    std::vector<double> cov(4*k, 0);
+    std::vector<double> means(2*k, 0.0);
+    std::vector<double> probs(k, 1.0/k);
+    std::vector<double> probxc(size*k, 1.0/k);
+    std::vector<double> probcx(size*k, 1.0/k);
+
+    std::vector<bool> clusters(k*size, false);
+    std::vector<bool> rcluster(size, false);
+
+    double sumX = 0, sumY = 0;
+    double osc = 2e-4;
+    double eps = 1e-4;
+    double power;
+    double a, b, m1, m2, c1, c2;
+    double dets;
+    double P;
+    double Pr;
+    double denompc;
+    double prmax;
+    double sumpc, summc;
+
+    std::ofstream out;
+    out.open("SCHEISSE.txt");
+
+    int turns = 0;
+    int clust;
+    int maxturns = 1e4;
+
+    for (Point * point : points) {
+        sumX += (*point).x;
+        sumY += (*point).y;
+    }
+    for (int i = 0; i < k; i++) {
+        cov[4*i] = sumX*sumX/size;
+        cov[4*i+3] = sumY*sumY/size;
+    }
+    
+    while (osc > eps && turns < maxturns) {
+        turns++;
+        // ? Расчет матрицы P(x|c)
+        for (int c = 0; c < k; c++) {
+            dets = cov[4*c]*cov[4*c+3] - cov[4*c+1]*cov[4*c+2];
+            //std::cout << dets << std::endl;
+            m1 = means[2*c];
+            m2 = means[2*c+1];
+            for (int x = 0; x < size; x++) {
+                a = (*points[x]).x;
+                b = (*points[x]).y;
+                c1 = a-m1;
+                c2 = b-m2;
+                power = -0.5 * (c1*(cov[4*c+3]*c1 - cov[4*c+2]*c2) + c2*(cov[4*c]*c2 - cov[4*c+1]*c1))/dets;
+                Pr = probxc[size*c + x];
+                P = pow(2*M_PI*dets, -0.5) * exp(power);
+                //std::cout << P << std::endl;
+                probxc[size*c + x] = P;
+                if (fabs(Pr - P) > osc) {
+                    osc = fabs(Pr - P);
+                }
+            }
+        }
+        // ? Расчет матрицы P(c|x)
+        for (int c = 0; c < k; c++) {
+            for (int x = 0; x < size; x++) {
+                denompc = 0;
+                for (int cc = 0; cc < k; cc++) {
+                    denompc += probxc[size*cc + x] * probs[cc];
+                }
+                probcx[c*size + x] = (probxc[c*size + x]*probs[c])/denompc;
+            }
+        }
+        /*
+        for (int i = 0; i < k*size; i++) {
+            if (i % 6 == 0) {
+                out << std::endl;
+            }
+            out << probcx[i] << " ";
+        }
+        */
+        // ? Расчет P(c)
+        for (int c = 0; c < k; c++) {
+            sumpc = 0;
+            for (int x = 0; x < size; x++) {
+                sumpc += probcx[size*c + x];
+            }
+
+            probs[c] = (1.0/size) * sumpc;
+        }
+        // ? Расчет центров
+        for (int c = 0; c < k; c++) {
+            means[2*c] = 0;
+            means[2*c+1] = 0;
+            for (int x = 0; x < size; x++) {
+                means[2*c] += (probcx[c*size + x]/(size*probs[c]))*(*points[x]).x;
+                means[2*c+1] += (probcx[c*size + x]/(size*probs[c]))*(*points[x]).y;
+            }
+
+            //sout << means[2*c] << " " << means[2*c+1] << std::endl;
+        }
+        // ? Расчет ковариаций
+        for (int c = 0; c < k; c++) {
+            m1 = means[2*c];
+            m2 = means[2*c+1];
+            cov[4*c] = 0;
+            cov[4*c+1] = 0;
+            cov[4*c+2] = 0;
+            cov[4*c+3] = 0;
+            for (int x = 0; x < size; x++) {
+                a = (*points[x]).x;
+                b = (*points[x]).y;
+                cov[4*c] += (probcx[size*c + x]/(size*probs[c]))*(a-m1)*(a-m1);
+                cov[4*c+1] += (probcx[size*c + x]/(size*probs[c]))*(a-m1)*(b-m2);
+                cov[4*c+3] += (probcx[size*c + x]/(size*probs[c]))*(b-m2)*(b-m2);
+            }
+            cov[4*c+2] = cov[4*c+1];
+        }
+        //std::cout << turns << std::endl;
+    }
+    for (int x = 0; x < size; x++) {
+        prmax = 0;
+        clust = 0;
+        for (int c = 0; c < k; c++) {
+            if (probcx[c*size + x] > prmax) {
+                prmax = probcx[c*size + x];
+                clust = c;
+            }
+        }
+        clusters[size*clust + x] = true;
+    }
+
+    for (int cluster = 0; cluster < k; cluster++) {
+        rcluster.clear();
+        for (int x = 0; x < size; x++) {
+            rcluster.push_back(clusters[size*cluster + x]);
+        }
+        rclusters.push_back(rcluster);
+    }
+    out.close();
+}

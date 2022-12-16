@@ -1,0 +1,211 @@
+
+format  PE console
+
+
+
+entry   start
+include 'win32ax.inc'
+include 'api\kernel32.inc'
+
+
+
+;------------------------------------------------
+;
+;
+;    Создание переменных !
+;
+;------------------------------------------------
+section '.data' data readable writeable
+
+
+
+         sz1     db   17 dup(0)        ; Строка с координатами клеток    ( char sz1[17] )
+
+
+
+           i     dd    0
+        nCell    dd    7 dup(0)        ; E2D3: Буква, цифра, Буква, цифра
+          pos    dd    0               ; Счётчик опознанных символов координат (должно быть 4)
+
+       cell_1    dd    0               ; 0 = Чёрный цвет 1-й клетки (по умолчанию)
+       cell_2    dd    0               ; 0 = Чёрный цвет 2-й клетки (по умолчанию)
+
+        sz2      db   'black.', 13, 10, 0                          ; по умолчанию
+        sz3      db   'white.', 13, 10, 0
+
+        psz1     dd    ?               ; Указатели на строки
+        psz2     dd    ?
+
+;  A, B, C, D, E, F, G, H
+;  a, b, c, d, e, f, g, h
+;  1, 2, 3, 4, 5, 6, 7, 8
+
+;  Нечётная буква + нечётная цифра = ЧЁРНЫЙ цвет   (A, C, E: нечётные буквы, как 1, 3, 5)
+;    чётная буква +   чётная цифра = ЧЁРНЫЙ цвет   (B, D, F:   Чётные буквы, как 2, 4, 6)
+;  Нечётная буква +   чётная цифра =  белый
+;    чётная буква + нечётная цифра =  белый
+
+;    E2E4    ->  (1, 0, 1, 0)  ->  1+0, 1+0 -> нечётное и нечётное (  Yes, same colors.)
+;    h3-e5   ->  (0, 1, 1, 1)  ->  0+1, 1+1 -> нечётное и   ЧЁТНОЕ (No, various colors.)
+;------------------------------------------------
+;
+;
+;    Код программы
+;
+;------------------------------------------------
+section '.code' code readable executable
+
+
+start:     call Get_string
+
+L_01:      mov  edx, [i]
+           xor  eax, eax
+           mov   al, [sz1 + edx]
+
+           cmp  eax,  0             ;  Если строка кончилась раньше, чем мы нашли 4 символа, соо-
+           jz   L_06                ;              ...тветсвующие координатам двух клеток (E2-E4)
+
+           inc  [i]
+           cmp   al,   '1'          ;  Сравниваем очередной символ с '1' (= 49)
+           jge  L_08                ;  больше или равно (al >= 49)
+
+L_02:      mov  eax, [pos]
+           cmp  eax,  4
+           jl   L_01
+
+
+           mov   [psz1] , sz2
+           mov   [psz2] , sz2
+           mov     eax  , [nCell     ]
+           add     eax  , [nCell +  4]
+           test    eax  ,  1
+           jz      L_03              ; если чётное, то переход...
+           mov  [cell_1],  1         ; Белый цвет у первой клетки
+           mov   [psz1] , sz3
+
+L_03:      mov     eax  , [nCell +  8]
+           add     eax  , [nCell + 12]
+           test    eax  ,  1
+           jz      L_04              ; если чётное, то переход...
+           mov  [cell_2],  1         ; Белый цвет у 2-й клетки
+           mov   [psz2] , sz3
+
+L_04:      mov  eax, [cell_1]
+           cmp  eax, [cell_2]
+           jz   L_07
+           cinvoke  printf, <"No, various colors.", 10, 0>
+
+
+L_05:      cinvoke  printf, <"1st cell is %s">,  [psz1]
+           cinvoke  printf, <"2nd cell is %s">,  [psz2]
+           cinvoke  scanf, <"%d", 10, 0>, pos
+           invoke   ExitProcess, 0             ; Завершаем программу
+           ; - - - - - - - - - - - - - - - - - -
+
+L_06:      cinvoke  printf, <"Error! You entered the coordinates incorrectly.", 10, 0>
+           cinvoke  printf, <"pos = %d. All 4 positions must be filled.", 10, 0>, [pos]
+           cinvoke  printf, <"%d, %d, %d, %d", 10, 0>, [nCell], [nCell+4], [nCell+8], [nCell+12]
+           cinvoke  printf, <"cell_1 = %d", 10, 0>,   [cell_1]
+           cinvoke  printf, <"cell_2 = %d", 10, 0>,   [cell_2]
+           jmp   L_05
+
+L_07:      cinvoke  printf, <"Yes, same colors.", 10, 0>
+           jmp   L_05
+
+L_08:      ccall  parity_check, eax
+           jmp   L_02
+
+
+
+
+
+
+
+
+
+;   Так производитим проверку на чётность числа в аккумуляторе.
+;   - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+;   test  eax,1
+;   jnz   Odd    ;нечетное, переход на метку Odd
+;   jz    Even   ;четное, переход на метку Even
+;    ........
+;   Odd:.....
+;    ........
+;   Even:....
+
+
+
+
+
+
+
+
+
+; Функция ожидает от пользователя ввод координат двух клеток на шахматной доске
+; Например: E2E4
+;           e2e3
+;           f7-G1
+;/////////////////////////////////////////////////////////////
+proc    Get_string                                         ;//
+
+        cinvoke  printf, <"Enter the coordinates of 2 cells.", 0>
+        cinvoke  printf, <"  For example: E2-E4, e2-e4, E2E4, e2e4.", 10, 0>
+        cinvoke  scanf, <"%s">, sz1
+        ret
+endp
+
+
+
+
+;//   arg % 2  Проверяем чётная ли буква или цифра
+;//   результат (0 или 1) поместим  в nCell[pos]
+;/////////////////////////////////////////////////////////////
+proc    parity_check, arg                                  ;//
+
+        mov   eax, [arg]
+        mov    bl, 2
+        div    bl                                          ;//    ah - хранит остаток от деления
+        shr   eax, 8
+
+        ; cinvoke  printf, <"    =  %d", 10, 0>, eax       ;//         Печать остатка от деления
+
+        mov  edx,   [pos]
+        mov [nCell + edx * 4], eax
+        inc [pos]
+        ret
+endp
+
+
+
+
+
+
+
+
+
+
+
+;------------------------------------------------
+;
+;
+;    Подключение библиотек
+;
+;------------------------------------------------
+
+; CINVOKE макрос в составе FASM.  Позволяет вызывать CDECL-функции.
+
+
+
+
+
+section '.idata' import data readable
+library kernel32, 'kernel32.dll',\
+        msvcrt,   'msvcrt.dll'
+ 
+import msvcrt,\
+       printf, 'printf',\
+        scanf,  'scanf'
+
+
+
+         
