@@ -1,0 +1,94 @@
+/**
+ * GULPFILE.JS - Config script for the Gulp.js build system
+ *
+ * Instructions:
+ *  - Make sure you have NPM installed in your system
+ *  - Install all dependencies specified by `package.json`
+ *      $ npm install
+ *  - Specify `DEPLOY_PATH` in your `.env` file
+ *  - Finally run a gulp task in the project root dir
+ *      $ gulp
+ */
+const { src, dest, series, watch } = require('gulp');
+const gap = require('gulp-append-prepend');
+const clean = require('gulp-clean');
+const minify = require('gulp-clean-css');
+const env = require('gulp-env');
+const rename = require('gulp-rename');
+const sass = require('gulp-sass')(require('sass'));
+const mergeStream = require('merge-stream');
+
+/**
+ * Parse the user-defined `.env` file and set `process.env` accordingly.
+ */
+env({ file: '.env', type: 'ini' });
+
+/**
+ * Compile SASS (.scss) theme source files to the final theme file `theme.css`
+ * and `theme.min.css` (minified version).
+ * Files shall be saved to the `dist` folder.
+ */
+function compileTheme() {
+  // Compile and save to dist/theme.css
+  const theme_css = src('src/theme.scss')
+    .pipe(sass())
+    .pipe(dest('dist'));
+
+  // Compile and save to dist/style-settings.css
+  const settings_css = src('src/style-settings.scss')
+    .pipe(sass())
+    .pipe(dest('dist'));
+
+  // Minify theme.css and prepend the style-settings.css
+  const min_css = src('dist/theme.css')
+    .pipe(minify())
+    .pipe(gap.prependFile('dist/style-settings.css'))
+    .pipe(rename({ extname: '.min.css' }))
+    .pipe(dest('dist'));
+
+  return mergeStream(theme_css, settings_css, min_css);
+}
+
+/**
+ * Deploy theme files to the user defined `DEPLOY_PATH` in `.env` file.
+ */
+function deployTheme() {
+  const deploy_path = process.env.DEPLOY_PATH;
+
+  // Get theme.css
+  const theme = src('dist/theme.min.css')
+    .pipe(rename('theme.css'))
+    .pipe(dest(deploy_path));
+
+  // Get manifest.json
+  const manifest = src('manifest.json')
+    .pipe(dest(deploy_path));
+
+  return mergeStream(theme, manifest);
+}
+
+/**
+ * Clean (remove) all CSS files from the src dir.
+ */
+function cleanCssFiles() {
+  return src('src/**/*.css', { read: false })
+    .pipe(clean());
+}
+
+/**
+ * Default task - Build and deploy the theme files
+ *   $ gulp
+ *
+ * Watch source files and execute the build task when a change occurs
+ *   $ gulp watch
+ *
+ * Clean (remove) all CSS files from the src dir.
+ *   $ gulp clean
+ */
+exports.default = series(compileTheme, deployTheme);
+
+exports.watch = function () {
+  watch('src/**/*.scss', { ignoreInitial: false }, series(compileTheme, deployTheme));
+};
+
+exports.clean = cleanCssFiles;
