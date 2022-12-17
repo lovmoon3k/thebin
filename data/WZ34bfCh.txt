@@ -1,0 +1,67 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use List::Util  qw(max all reduce);
+
+my %Grid;
+my %Dirs = ('>' => [0,1], '<' => [0,-1]);
+
+my @Blocks = ([[ 0,0], [ 0,1], [ 0,2], [ 0,3]],              # —
+              [[-2,1], [-1,0], [-1,1], [-1,2], [0,1]],       # ✚
+              [[-2,0], [-2,1], [-2,2], [-1,2], [0,2]],       # ⅃
+              [[-3,0], [-2,0], [-1,0], [ 0,0]],              # |
+              [[-1,0], [-1,1], [ 0,0], [ 0,1]]);             # ⬜
+
+my $Num_blocks = scalar @Blocks;
+
+my @Input = map { chomp; split // } <>;
+my $Input_len = scalar @Input;
+my $Inptr = 0;
+
+sub vec_sum ($$) {
+    my ($p,$q) = @_;
+    return ([$p->[0] + $q->[0], $p->[1] + $q->[1]]);
+}
+
+sub move_block {
+    my ($blk, $pos) = @_;
+    my $dropped;
+
+    my @squares = map { vec_sum($pos, $_) } $Blocks[$blk]->@*;
+
+    do {
+        my $move = $Input[$Inptr];
+        $Inptr = ($Inptr + 1) % $Input_len;
+
+        # Try sliding
+        my @try = map { vec_sum( $_, $Dirs{$move} ) } @squares;
+        @squares = @try if (all {0 <= $_->[1] < 7 and !$Grid{$_->[0],$_->[1]}} @try);
+
+        # Try dropping
+        @try = map { vec_sum( $_, [-1,0] ) } @squares;
+        @squares = @try if ($dropped = all {!$Grid{$_->[0],$_->[1]}} @try);
+    } while ($dropped);
+
+    # Place piece:
+    $Grid{$_->[0],$_->[1]} = '#' foreach (@squares);
+
+    # Return top row of piece:
+    return (reduce { max($a, $b->[0]) } (0, @squares));
+}
+
+#
+# Mainline
+#
+my $top = 0;
+$Grid{$top,$_} = '-' foreach (0 .. 6);
+
+foreach my $rock (0 .. 2021) {
+    my $blk = $rock % $Num_blocks;
+    my $pos = [$top + 4 - $Blocks[$blk][0][0], 2];
+
+    $top = max($top, &move_block( $blk, $pos ));
+}
+
+print "Part 1: $top\n";

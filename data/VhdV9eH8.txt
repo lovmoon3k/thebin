@@ -1,0 +1,98 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use List::Util  qw(max all reduce);
+
+my $Num_rocks = 1_000_000_000_000;
+
+my %Grid;
+my %Dirs = ('>' => [0,1], '<' => [0,-1]);
+
+my @Blocks = ([[ 0,0], [ 0,1], [ 0,2], [ 0,3]],             # —
+              [[-2,1], [-1,0], [-1,1], [-1,2], [0,1]],      # ✚
+              [[-2,0], [-2,1], [-2,2], [-1,2], [0,2]],      # ⅃
+              [[-3,0], [-2,0], [-1,0], [ 0,0]],             # |
+              [[-1,0], [-1,1], [ 0,0], [ 0,1]]);            # ⬜
+
+my $Num_blocks = scalar @Blocks;
+
+my @Input = map { chomp; split // } <>;
+my $Input_len = scalar @Input;
+my $Inptr = 0;
+
+sub vec_sum ($$) {
+    my ($p,$q) = @_;
+    return ([$p->[0] + $q->[0], $p->[1] + $q->[1]]);
+}
+
+sub move_block {
+    my ($blk, $pos) = @_;
+    my $dropped;
+
+    my @squares = map { vec_sum( $pos, $_ ) } $Blocks[$blk]->@*;
+
+    do {
+        my $move = $Input[$Inptr];
+        $Inptr = ($Inptr + 1) % $Input_len;
+
+        # Try sliding
+        my @try = map { vec_sum( $_, $Dirs{$move} ) } @squares;
+        @squares = @try if (all {0 <= $_->[1] < 7 and !$Grid{$_->[0],$_->[1]}} @try);
+
+        # Try dropping
+        @try = map { vec_sum( $_, [-1,0] ) } @squares;
+        @squares = @try if ($dropped = all {!$Grid{$_->[0],$_->[1]}} @try);
+    } while ($dropped);
+
+    # Place piece:
+    $Grid{$_->[0],$_->[1]} = '#' foreach (@squares);
+
+    return (@squares);
+}
+
+#
+# Mainline
+#
+my %hash;
+
+# Initialize floor
+my @tops;
+my $peak = 0;
+
+foreach (0 .. 6) {
+    $tops[$_] = 0;
+    $Grid{$peak,$_} = '-';
+}
+
+for (my $rock = 0; $rock < $Num_rocks; $rock++) {
+    my $blk = $rock % $Num_blocks;
+    my $pos = [$peak + 4 - $Blocks[$blk][0][0], 2];
+
+    my @squares = &move_block( $blk, $pos );
+    my $blktop  = reduce { max($a, $b->[0]) } (0, @squares);
+
+    # Adjust relative top positions if needed:
+    if ($blktop > $peak) {
+        my $delta = $blktop - $peak;
+        @tops = map { $_ - $delta } @tops;
+        $peak = $blktop;
+    }
+
+    # Account for piece changing top positions:
+    $tops[$_->[1]] = max( $tops[$_->[1]], $_->[0] - $peak ) foreach (@squares);
+
+    # Look for looping cycle and jump ahead:
+    my $key = "$Inptr:$blk:" . join( ',', @tops );
+    if (!exists $hash{$key}) {
+        $hash{$key} = [$rock,$peak];
+    } elsif (($Num_rocks - $rock - 1) % ($rock - $hash{$key}[0]) == 0) {
+        my $len_cycle  = $rock - $hash{$key}[0];
+        my $num_cycles = ($Num_rocks - $rock - 1) / $len_cycle;
+
+        $peak += $num_cycles * ($peak - $hash{$key}[1]);
+        print "Part 2: $peak\n";
+        exit;
+    }
+}
