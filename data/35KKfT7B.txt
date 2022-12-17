@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Stretchy Cloth Simulation</title>
+</head>
+<body>
+  <canvas id="clothCanvas" width="600" height="400"></canvas>
+  <button id="resetButton">Reset</button>
+  <script>
+    // Get canvas and context
+    const canvas = document.getElementById('clothCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Set up cloth properties
+    const clothWidth = 50;
+    const clothHeight = 10;
+    const clothSpacing = 10;
+    const clothStiffness = 0.1;
+    const clothDamping = 0.98;
+    const clothMass = 1;
+    const gravity = 0.1;
+
+    // Set up cloth points and constraints
+    let points = [];
+    let constraints = [];
+    for (let y = 0; y <= clothHeight; y++) {
+      for (let x = 0; x <= clothWidth; x++) {
+        let point = {
+          x: x * clothSpacing,
+          y: y * clothSpacing,
+          oldX: x * clothSpacing,
+          oldY: y * clothSpacing,
+          pinned: (x === 0 && y === 0) || (x === clothWidth && y === 0),
+          mass: clothMass
+        };
+        points.push(point);
+        if (x > 0) {
+          constraints.push({
+            pointA: points[points.length - 1],
+            pointB: points[points.length - 2],
+            length: clothSpacing,
+            stiffness: clothStiffness
+          });
+        }
+        if (y > 0) {
+          constraints.push({
+            pointA: points[points.length - 1],
+            pointB: points[points.length - clothWidth - 1],
+            length: clothSpacing,
+            stiffness: clothStiffness
+          });
+        }
+      }
+    }
+
+    // Set up mouse interaction
+    let dragging = false;
+    let dragPoint;
+    canvas.addEventListener('mousedown', e => {
+      let rect = canvas.getBoundingClientRect();
+      let x = e.clientX - rect.left;
+      let y = e.clientY - rect.top;
+      points.forEach(point => {
+        if (Math.abs(point.x - x) < clothSpacing && Math.abs(point.y - y) < clothSpacing) {
+          dragPoint = point;
+          dragging = true;
+        }
+      });
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (dragging) {
+        let rect = canvas.getBoundingClientRect();
+        let x = e.clientX - rect.left;
+        let y = e.clientY - rect.top;
+        dragPoint.x = x;
+        dragPoint.y = y;
+      }
+    });
+    canvas.addEventListener('mouseup', () => {
+      dragging = false;
+      dragPoint = null;
+    });
+    canvas.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      if (dragPoint) {
+    dragPoint.pinned = !dragPoint.pinned;
+      }
+    });
+// Set up reset button
+const resetButton = document.getElementById('resetButton');
+resetButton.addEventListener('click', () => {
+  points.forEach(point => {
+    point.x = point.oldX;
+    point.y = point.oldY;
+  });
+});
+
+// Set up animation loop
+function animate() {
+  // Update points
+  points.forEach(point => {
+    if (!point.pinned) {
+      let velocityX = (point.x - point.oldX) * clothDamping;
+      let velocityY = (point.y - point.oldY) * clothDamping;
+      point.oldX = point.x;
+      point.oldY = point.y;
+      point.x += velocityX;
+      point.y += velocityY + gravity;
+    }
+  });
+
+  // Satisfy constraints
+  constraints.forEach(constraint => {
+    let pointA = constraint.pointA;
+    let pointB = constraint.pointB;
+    let length = constraint.length;
+    let stiffness = constraint.stiffness;
+
+    let dx = pointB.x - pointA.x;
+    let dy = pointB.y - pointA.y;
+    let distance = Math.sqrt(dx * dx + dy * dy);
+    let difference = length - distance;
+    let percentage = difference / distance / 2;
+    let offsetX = dx * percentage;
+    let offsetY = dy * percentage;
+    if (!pointA.pinned) {
+      pointA.x -= offsetX;
+      pointA.y -= offsetY;
+    }
+    if (!pointB.pinned) {
+      pointB.x += offsetX;
+      pointB.y += offsetY;
+    }
+  });
+
+  // Draw cloth
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.beginPath();
+  points.forEach(point => {
+    ctx.lineTo(point.x, point.y);
+  });
+  ctx.stroke();
+  ctx.closePath();
+
+  // Draw points
+  ctx.fillStyle = 'red';
+  points.forEach(point => {
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, clothSpacing / 2, 0, 2 * Math.PI);
+    ctx.fill();
+  });
+
+  requestAnimationFrame(animate);
+}
+
+animate();
+</script>
+</body>
+</html>
