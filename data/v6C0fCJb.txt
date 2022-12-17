@@ -1,0 +1,236 @@
+#include <iostream>
+#include <vector>
+#include <cmath>
+#define CUBE
+
+constexpr double EPS = 1e-16,CUB=2.966181e-8;
+constexpr double X_BEGIN = - 12.0;
+constexpr double X_END = 1;
+constexpr size_t ELEMS_NUM = 20;
+constexpr double L = (X_END - X_BEGIN) / ELEMS_NUM;
+constexpr double a=11.0,B=0.0,C=-3.0,D=4.0,usl_left=-2.0, usl_right=10.0;
+
+std::vector<double> solve_with_gauss(std::vector<std::vector<double>>& A, std::vector<double>& b){
+    size_t row_size = A.size();
+    size_t col_size = A.back().size();
+    // Прямой ход Гаусса
+    double pivot = 0.0;
+    for (size_t i = 0; i < row_size; i++) {
+        for (size_t j = i + 1; j < col_size; j++) {
+            if (std::abs(A.at(j).at(i)) < EPS) {
+                continue;
+            }
+            pivot = A.at(j).at(i) / A.at(i).at(i);
+            b.at(j) -= pivot * b.at(i);
+            for (size_t k = 0; k < row_size; k++) {
+                A.at(j).at(k) -= pivot * A.at(i).at(k) ;
+            }
+        }
+    }
+    // Обратный ход Гаусса
+    std::vector<double> x(row_size);
+    for (int i = row_size - 1.0; i >= 0; i--) {
+        x.at(i) = b.at(i);
+        for (size_t j = i + 1; j < row_size; j++) {
+            x.at(i) -= x.at(j) * A.at(i).at(j);
+        }
+        x.at(i) /= A.at(i).at(i);
+    }
+    return x;
+}
+
+double analytical_solution(double x) {
+    double a=2*sqrt(33)*exp(sqrt(3.0/11.0)*x)+2*sqrt(33)*exp(sqrt(3.0/11.0)*x+26*sqrt(3.0/11.0))-33*exp(2*sqrt(3.0/11.0)*x+12*sqrt(3.0/11.0))+13*sqrt(33)*exp(2*sqrt(3.0/11.0)*x+25*sqrt(3.0/11.0)) + 13*sqrt(33)*exp(sqrt(3.0/11.0))+33*exp(14*sqrt(3.0/11.0));
+    
+    double b=3*sqrt(33)*(1+exp(26*sqrt(3.0/11.0)));
+    double rez=2*exp(-sqrt(3.0/11.0)*x)*a/b;
+    
+    return rez;
+}
+
+std::vector<double> build_analytical_solution(std::vector<double>& x_vec) {
+    size_t x_vec_size = x_vec.size();
+    std::vector<double> y_vec = std::vector<double>(x_vec_size);
+    for (size_t i = 0; i < x_vec_size; i++) {
+        y_vec.at(i) = analytical_solution(x_vec.at(i));
+    }
+    return y_vec;
+}
+
+std::vector<double> build_linear_solution(size_t elems_num) {
+    double L = (X_END - X_BEGIN) / elems_num;
+    size_t size = elems_num + 1;
+    std::vector< std::vector<double> > A(size, std::vector<double>(size));
+    std::vector<double> b(size);
+    
+    // Локальная матрица жесткости для линейного КЭ
+    std::vector< std::vector<double> > local_matrix = {
+        { a/L - C * L/3, -a/L - C * L/6},
+        { -a/L - C * L/6, a/L - C*L/3},
+    };
+    
+    // Ансамблирование и получение глобальной матрицы жесткости для линейного КЭ
+    for (size_t i = 0; i < elems_num; i++) {
+        for (size_t j = 0; j < 2; j++) {
+            for (size_t k = 0; k < 2; k++) {
+                A.at(i + j).at(i + k) += local_matrix.at(j).at(k);
+            }
+        }
+    }
+    
+        for (size_t i = 0; i < size ; i++) {
+        b.at(i) = D * L;
+    }
+    
+    // Учет ГУ
+    b.at(0) = D*L/2 -a*usl_left;
+
+    b.at(size - 1) = usl_right;
+    A.at(size - 1).at(size - 1) = 1;
+    A.at(size - 1).at(size - 2)=0;
+
+    
+    // Решение полученной СЛАУ методом Гаусса
+    std::vector<double> res = solve_with_gauss(A, b);
+    return res;
+}
+
+std::vector<double> build_cube_solution(size_t elems_num) {
+    double L = (X_END - X_BEGIN) / elems_num;
+    size_t size = elems_num + 1;
+    std::vector< std::vector<double> > A(size,std::vector<double>(size));
+    std::vector<double> b(size);
+    
+    // Локальная матрица жесткости для кубического КЭ
+    std::vector< std::vector<double> > local_matrix = {
+
+        {  a*37.0/(10.0*L) - C*8*L/105.0 ,     -a*189.0/(40.0*L) - C*33*L/560.0,    a*27.0/(20.0*L) + C*3*L/140.0,   -a*13.0/(40.0*L) -  C*19.0*L/1680.0},
+        { -a*189.0/(40.0*L) - C*33*L/560.0,     a*54.0/(5.0*L)-C*27*L/70.0,        -a*297.0/(40*L) + C*27*L/560.0,    a*27.0/(20.0*L) +  C*3*L/140.0},
+        {  a*27.0/(20.0*L) + C*3*L/140.0,      -a*297.0/(40.0*L) + C*27*L/560.0,     a*54.0/(5.0*L) - C*27*L/70.0,    -a*189.0/(40.0*L) - C*33*L/560.0},
+        { -a*13.0/(40.0*L) - C*19.0*L/1680.0,   a*27.0/(20.0*L) + C*3*L/140.0,     -a*189.0/(40.0*L) - C*33*L/560.0,  a*37.0/(10.0*L) - C*8*L/105.0}
+        
+   };
+    
+    // Локальный вектор нагрузок (дополнительные слагаемые для первого и последнего элементов учитываются далее)
+    std::vector<double> local_b = { D * L / 8.0,
+                                    D*3.0 * L / 8.0,
+                                    D*3.0 * L / 8.0, 
+                                    D * L / 8.0 };
+
+    
+    // Производим матричные преобразования для обнуления элементов локальной матрицы жесткости, относящихся к внутренним узлам
+    for (size_t i = 1; i < 3; i++) {
+        for (size_t j = 0; j < 4; j++) {
+            if (std::fabs(local_matrix.at(j).at(i)) > EPS && i != j) {
+                double  val = local_matrix.at(j).at(i) /local_matrix.at(i).at(i);
+                local_b.at(j) -= val * local_b.at(i);
+                for (size_t k = 0; k < 4; k++) {
+                    local_matrix.at(j).at(k) -= val *local_matrix.at(i).at(k);
+                }
+            }
+            continue;
+        }
+    }
+    
+    
+    // Исключаем внутренние узлы из рассмотрения
+    std::vector< std::vector<double> >  local_matrix_mod  = {{ local_matrix.at(0).at(0), local_matrix.at(0).at(3) }, 
+                                                             { local_matrix.at(3).at(0), local_matrix.at(3).at(3) }};
+    std::vector<double> local_b_mod = { local_b.at(0), 
+                                        local_b.at(3)};
+    
+    // Ансамблирование и получение глобальной матрицы жесткости для кубического КЭ
+    for (size_t i = 0; i < elems_num; i++) {
+        for (size_t j = 0; j < 2; j++) {
+            for (size_t k = 0; k < 2; k++) {
+                A.at(i + j).at(i + k) += local_matrix_mod.at(j).at(k);
+            }
+        }
+    }
+        for (size_t i = 0; i < elems_num; i++) {
+        b.at(i) += local_b_mod.at(0);
+        b.at(i+1) += local_b_mod.at(1);
+    }
+       
+    // Учет ГУ
+    b.at(0) =local_b_mod.at(0) - a*usl_left;
+    b.at(elems_num) = usl_right;
+    A.at(elems_num).at(elems_num) = 1.0;
+    A.at(elems_num).at(elems_num - 1)=0.0;
+    
+    // Решение полученной СЛАУ методом Гаусса
+    std::vector<double> res = solve_with_gauss(A, b);
+    return res;
+}
+
+double calc_abs_error(const std::vector<double>& y_real, const std::vector<double>& y) {
+    double max_err = 0.0;
+    for (size_t i = 0; i < y_real.size(); i++) {
+        double err = std::fabs(y_real.at(i) - y.at(i));
+        if (err > max_err) {
+            max_err = err;
+        }
+    }
+    return max_err;
+}
+
+int main() {
+
+//     std::vector<double> x(ELEMS_NUM + 1);
+//     for (size_t i = 0; i < x.size(); i++) {
+//         x.at(i) = X_BEGIN + i * L;
+//     }
+//     size_t x_size = x.size();
+//     
+// #ifdef CUBE
+//     std::vector<double> y = build_cube_solution(ELEMS_NUM);
+//     
+// #else
+//     std::vector<double> y = build_linear_solution(ELEMS_NUM);
+// #endif
+//     std::vector<double> y_real = build_analytical_solution(x);
+//     
+// 
+//     FILE* gp = popen("gnuplot -persist", "w");
+//     fprintf(gp, "$predict << EOD\n");
+//     for (size_t i = 0; i < x_size; i++) {
+//         fprintf(gp, "%lf %lf\n", x.at(i), y.at(i));
+//     }
+//     fprintf(gp, "EOD\n");
+//     fprintf(gp, "$real << EOD\n");
+//     for (size_t i = 0; i < x_size; i++) {
+//         fprintf(gp, "%lf %lf\n", x.at(i), y_real.at(i));
+//     }
+//     fprintf(gp, "EOD\n");
+//     fprintf(gp, "set grid\n");
+//      fprintf(gp, "plot '$predict' using 1:2 with lp lc '#20155e' lw 1.5 pt 7 ps 0.5 title 'МКЭ-решение (%zu КЭ)'," "'$real' using 1:2 with lines lc rgb '#c93c20' lt 1 lw 2 title 'аналитическое решение (%zu КЭ)',\n", ELEMS_NUM, ELEMS_NUM);
+//     printf("Абсолютная погрешность: %e\n", calc_abs_error(y_real, y));
+    
+    //нахождение количества линейных КЭ
+    int N=ELEMS_NUM,n=0;
+    double err=10;
+    
+    while (err>CUB){
+        double L = (X_END - X_BEGIN) / N;
+        std::vector<double> x(N + 1);
+        for (size_t i = 0; i < x.size(); i++) {
+            x.at(i) = X_BEGIN + i * L;
+        }
+        
+        std::vector<double> y_r(N + 1);
+        std::vector<double> y(N + 1);
+        
+        y = build_linear_solution(N);
+        y_r = build_analytical_solution(x);
+        
+        err=calc_abs_error(y_r, y);
+        printf("Абсолютная погрешность: %e\n", calc_abs_error(y_r, y));
+        N+=1;
+        //n+=1;
+    }
+    std::cout<<"Количество линейных КЭ "<<N-1<<std::endl;
+    printf("Абсолютная погрешность: %e\n", err);
+
+  
+    return 0;
+}
