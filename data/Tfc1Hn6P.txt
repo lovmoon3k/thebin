@@ -1,0 +1,148 @@
+from csv import reader
+
+
+class Vacancy:
+    currency_to_rub = \
+        {
+            "AZN": 35.68,
+            "BYR": 23.91,
+            "EUR": 59.90,
+            "GEL": 21.74,
+            "KGS": 0.76,
+            "KZT": 0.13,
+            "RUR": 1,
+            "UAH": 1.64,
+            "USD": 60.66,
+            "UZS": 0.0055,
+        }
+
+    def __init__(self, separate_vacancy: dict) -> None:
+        self.salary_currency = separate_vacancy['salary_currency']
+        self.salary_from = int(float(separate_vacancy['salary_from']))
+        self.salary_to = int(float(separate_vacancy['salary_to']))
+        self.salary_average = self.currency_to_rub[self.salary_currency] * (self.salary_from + self.salary_to) / 2
+        self.area_name = separate_vacancy['area_name']
+        self.year = int(separate_vacancy['published_at'][:4])
+        self.name = separate_vacancy['name']
+
+
+class InputConnect:
+    def __init__(self) -> None:
+        self.file_name = input('Введите название файла: ')
+        self.vacancy_name = input('Введите название профессии: ')
+
+        dataset = DataSet(self.file_name, self.vacancy_name)
+        dataset.reader_by_csv()
+
+
+class DataSet:
+    def __init__(self, csv_file_name: str, needed_vacancy: str) -> None:
+        self.needed_vacancy = needed_vacancy
+        self.csv_file_name = csv_file_name
+
+    def reader_by_csv(self):
+        headline_list = list()
+        salaries_dict, vacancies_number_dict, vacancies_names_dict, \
+            vacancies_numbers_dict, city_salaries, numbers_salaries = dict(), dict(), dict(), \
+            dict(), dict(), dict()
+        vacancies_counter = 0
+        with open(self.csv_file_name, mode='r', encoding='utf-8-sig') as current_file:
+            csv_reader = reader(current_file)
+            for reader_index, row_value in enumerate(csv_reader):
+                if reader_index == 0:
+                    csv_header_length = len(row_value)
+                    headline_list = row_value
+                elif '' not in row_value and \
+                        len(row_value) == csv_header_length:
+                    current_vacancy = Vacancy(dict(zip(headline_list, row_value)))
+
+                    if current_vacancy.year not in vacancies_number_dict:
+                        vacancies_number_dict[current_vacancy.year] = 1
+                    else:
+                        vacancies_number_dict[current_vacancy.year] += 1
+
+                    if current_vacancy.year not in salaries_dict:
+                        salaries_dict[current_vacancy.year] = [current_vacancy.salary_average]
+                    else:
+                        salaries_dict[current_vacancy.year].append(current_vacancy.salary_average)
+
+                    if current_vacancy.area_name not in city_salaries:
+                        city_salaries[current_vacancy.area_name] = [current_vacancy.salary_average]
+                    else:
+                        city_salaries[current_vacancy.area_name].append(current_vacancy.salary_average)
+
+                    if current_vacancy.area_name not in numbers_salaries:
+                        numbers_salaries[current_vacancy.area_name] = 1
+                    else:
+                        numbers_salaries[current_vacancy.area_name] += 1
+
+                    if current_vacancy.name.find(self.needed_vacancy) != -1:
+                        if current_vacancy.year not in vacancies_numbers_dict:
+                            vacancies_numbers_dict[current_vacancy.year] = 1
+                        else:
+                            vacancies_numbers_dict[current_vacancy.year] += 1
+
+                        if current_vacancy.year not in vacancies_names_dict:
+                            vacancies_names_dict[current_vacancy.year] = [current_vacancy.salary_average]
+                        else:
+                            vacancies_names_dict[current_vacancy.year].append(current_vacancy.salary_average)
+
+                    vacancies_counter += 1
+
+        if not vacancies_names_dict:
+            vacancies_names_dict = salaries_dict.copy()
+            vacancies_names_dict = dict([(key, list()) for key, value in vacancies_names_dict.items()])
+            vacancies_numbers_dict = vacancies_number_dict.copy()
+            vacancies_numbers_dict = dict([(key, 0) for key, value in vacancies_numbers_dict.items()])
+
+        first_calculated_statistic = dict()
+
+        for current_year, salaries_list in salaries_dict.items():
+            first_calculated_statistic[current_year] = int(sum(salaries_list) / len(salaries_list))
+
+        second_calculated_statistic = dict()
+
+        for current_year, salaries_list in vacancies_names_dict.items():
+            if len(salaries_list) == 0:
+                second_calculated_statistic[current_year] = 0
+            else:
+                second_calculated_statistic[current_year] = int(sum(salaries_list) / len(salaries_list))
+
+        third_calculated_statistic = dict()
+
+        for current_year, salaries_list in city_salaries.items():
+            third_calculated_statistic[current_year] = int(sum(salaries_list) / len(salaries_list))
+
+        fourth_calculated_statistic = dict()
+
+        for current_year, salaries_list in numbers_salaries.items():
+            fourth_calculated_statistic[current_year] = round(salaries_list / vacancies_counter, 4)
+
+        fourth_calculated_statistic = list(filter(lambda a: a[-1] >= 0.01,
+                                                  [(key, value) for key, value in
+                                                   fourth_calculated_statistic.items()]))
+
+        fourth_calculated_statistic.sort(key=lambda value: value[-1],
+                                         reverse=True)
+
+        fifth_calculated_statistic = fourth_calculated_statistic.copy()
+
+        fourth_calculated_statistic = dict(fourth_calculated_statistic)
+
+        third_calculated_statistic = list(filter(lambda a: a[0] in list(fourth_calculated_statistic.keys()),
+                                                 [(key, value) for key, value in third_calculated_statistic.items()]))
+
+        third_calculated_statistic.sort(key=lambda a: a[-1],
+                                        reverse=True)
+        third_calculated_statistic = dict(third_calculated_statistic[:10])
+
+        print('Динамика уровня зарплат по годам: ' + str(first_calculated_statistic))
+        print('Динамика количества вакансий по годам: ' + str(vacancies_number_dict))
+        print('Динамика уровня зарплат по годам для выбранной профессии: ' + str(second_calculated_statistic))
+        print('Динамика количества вакансий по годам для выбранной профессии: ' + str(vacancies_numbers_dict))
+        print('Уровень зарплат по городам (в порядке убывания): ' + str(third_calculated_statistic))
+        print('Доля вакансий по городам (в порядке убывания): ' + str(dict(fifth_calculated_statistic[:10])))
+
+
+if __name__ == '__main__':
+    InputConnect()
