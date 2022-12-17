@@ -1,0 +1,218 @@
+import 'package:collection/collection.dart';
+//import 'package:more/more.dart';
+
+class Node implements Comparable {
+  String id;
+  int rate;
+  int totalRate = 0;
+  var edges = <Node, int>{};
+  var timeTo = <Node, int>{};
+  var routeTo = <Node, List<Node>>{};
+  Node(this.id) : rate = 0;
+  @override
+  String toString() {
+    var v = edges.entries.map((e) => "${e.key.id} [${e.value}]").join(" ");
+    return '$id ($rate) $v';
+  }
+
+  @override
+  int compareTo(other) {
+    //if (!other is Node) throw Exception('Not a node: $other');
+    return id.compareTo(other.id);
+  }
+
+  @override
+  int get hashCode => id.hashCode;
+
+  @override
+  bool operator ==(Object other) => other is Node && other.id == id;
+}
+
+class Graph {
+  var nodes = <Node>{};
+  Graph();
+
+  Node ensure(Node n) {
+    if (nodes.contains(n)) return nodes.firstWhere((e) => e == n);
+    nodes.add(n);
+    return n;
+  }
+
+  // Building algo means that both directions get created separately.
+  void addEdge(Node from, Node to, int weight) {
+    from.edges[to] = weight;
+  }
+
+  List<Node> neighboursOf(Node node) => node.edges.keys.toList();
+
+  simplify() {
+    for (var n in nodes.toList()) {
+      if (n.rate == 0 && n.edges.length == 2) {
+        var na = n.edges.keys.first;
+        var nb = n.edges.keys.last;
+        var d = n.edges.values.sum;
+        na.edges.remove(n);
+        na.edges[nb] = d;
+        nb.edges.remove(n);
+        nb.edges[na] = d;
+        nodes.remove(n);
+      }
+    }
+  }
+}
+
+var cameFrom = <Node, Node>{};
+// Returns map of Points examined and their distances from the start.
+Map<Node, int> dijkstra(Graph graph, Node start, Node end) {
+  cameFrom = {start: Node('')};
+  var bestCost = {start: 0};
+  var frontier =
+      PriorityQueue<Node>((a, b) => (bestCost[a]!).compareTo((bestCost[b]!)));
+  frontier.add(start);
+  while (frontier.isNotEmpty) {
+    var current = frontier.removeFirst();
+    if (current == end) break;
+    // could use this shortcut here if the Part 2 search takes too long
+    // if (graph.nodes[current].height = 0) break;
+    for (var next in current.edges.keys) {
+      var newCost = bestCost[current]! + current.edges[next]!;
+      if (!bestCost.containsKey(next) || newCost < bestCost[next]!) {
+        bestCost[next] = newCost;
+        frontier.add(next);
+        cameFrom[next] = current;
+      }
+    }
+  }
+  return bestCost;
+}
+
+Graph buildGraph(List<String> lines) {
+  var g = Graph();
+  var reD = RegExp(r'\d+');
+  var re = RegExp(r'[A-Z]{2}');
+  for (var l in lines) {
+    var rate = int.parse(reD.stringMatch(l)!);
+    var ms = re.allMatches(l);
+    var n = g.ensure(Node(ms.first[0]!));
+    n.rate = rate;
+    for (var m in ms.skip(1)) {
+      var nn = g.ensure(Node(m[0]!));
+      g.addEdge(n, nn, 1);
+    }
+  }
+  return g;
+}
+
+// late Point start, end;
+part1(List<String> lines) {
+  Graph g = buildGraph(lines);
+  g.simplify();
+  // Build up list of times between each pair of nodes
+  for (var n in g.nodes) {
+    var bestTimes = dijkstra(g, n, Node('NOPE'));
+    for (var nn in bestTimes.keys.where((e) => e != n)) {
+      n.timeTo[nn] = bestTimes[nn]!;
+    }
+  }
+  var ns = g.nodes;
+  var start = g.nodes.firstWhere((e) => e.id == 'AA');
+  ns.remove(start);
+  return bestFlow(start, ns, 0, 0, 0);
+}
+
+int bestFlow(Node start, Set<Node> ln, int t, int rate, int totalFlow) {
+  if (ln.isEmpty) {
+    if (t <= 30) totalFlow += rate * (30 - t);
+    return totalFlow;
+  }
+  var maxFlow = totalFlow;
+  for (var node in ln) {
+    var ns = ln.toSet();
+    ns.remove(node);
+    var delta = start.timeTo[node]! + 1;
+    if (t + delta > 30) {
+      maxFlow = [maxFlow, totalFlow + rate * (30 - t)].max;
+      break;
+    }
+    maxFlow = [
+      maxFlow,
+      bestFlow(node, ns, t + delta, rate + node.rate, totalFlow + rate * delta)
+    ].max;
+  }
+  return maxFlow;
+}
+
+int bestFlow2(int lim, Node s1, Node s2, List<Node> ln, int t1, int t2, int t,
+    int rate, int totalFlow) {
+  //print('t: $t\t ($t1, $t2) ${s1.id} ${s2.id} \t $rate \t $totalFlow');
+  if (t >= lim) {
+    return totalFlow;
+  }
+  if (t < t1 && t < t2) {
+    return bestFlow2(lim, s1, s2, ln, t1, t2, t + 1, rate, totalFlow + rate);
+  }
+  if (t1 > lim && t2 > lim) {
+    return totalFlow + rate * (lim - t);
+  }
+
+  // t = t1 or t2 and we have time, and we have nodes.
+  // Each branch below takes zero time, but opens the valve (increases rate
+  // but doesn't count it yet), finds a next target, and updates teh target time
+  //
+  var maxFlow = totalFlow;
+  if (t == t1) {
+    rate += s1.rate;
+    // odd exception to add indicating my logic is bad...
+    if (ln.isEmpty) {
+      return bestFlow2(
+          lim, s1, s2, ln, t + 1000, t2, t + 1, rate, totalFlow + rate);
+    }
+    for (var node in ln) {
+      var ns = ln.toList();
+      ns.remove(node);
+      maxFlow = [
+        maxFlow,
+        bestFlow2(
+            lim, node, s2, ns, t + s1.timeTo[node]! + 1, t2, t, rate, totalFlow)
+      ].max;
+    }
+    return maxFlow;
+  }
+  if (t == t2) {
+    rate += s2.rate;
+    if (ln.isEmpty) {
+      return bestFlow2(
+          lim, s1, s2, ln, t1, t2 + 10000, t + 1, rate, totalFlow + rate);
+    }
+
+    for (var node in ln) {
+      var ns = ln.toList();
+      ns.remove(node);
+      maxFlow = [
+        maxFlow,
+        bestFlow2(
+            lim, s1, node, ns, t1, t + s2.timeTo[node]! + 1, t, rate, totalFlow)
+      ].max;
+    }
+    //return maxFlow;
+  }
+
+  return maxFlow;
+}
+
+// Dance with the elephant.
+part2(List<String> lines) {
+  Graph g = buildGraph(lines);
+  g.simplify();
+  // Build up list of times between each pair of nodes
+  for (var n in g.nodes) {
+    var bestTimes = dijkstra(g, n, Node('NOPE'));
+    for (var nn in bestTimes.keys.where((e) => e != n)) {
+      n.timeTo[nn] = bestTimes[nn]!;
+    }
+  }
+  var ns = g.nodes.toList();
+  var start = g.nodes.firstWhere((e) => e.id == 'AA');
+  ns.remove(start);
+  return bestFlow2(26, start, start, ns, 0, 0, 0, 0, 0);
+}
