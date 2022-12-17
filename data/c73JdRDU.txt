@@ -1,0 +1,316 @@
+from re import sub
+from csv import reader
+
+from prettytable import PrettyTable
+
+
+class Salary:
+    currency_to_rub = {
+        "AZN": 35.68,
+        "BYR": 23.91,
+        "EUR": 59.90,
+        "GEL": 21.74,
+        "KGS": 0.76,
+        "KZT": 0.13,
+        "RUR": 1,
+        "UAH": 1.64,
+        "USD": 60.66,
+        "UZS": 0.0055,
+    }
+
+    currency_name = {
+        'AZN': 'Манаты',
+        'BYR': 'Белорусские рубли',
+        'EUR': 'Евро',
+        'GEL': 'Грузинский лари',
+        'KGS': 'Киргизский сом',
+        'KZT': 'Тенге',
+        'RUR': 'Рубли',
+        'UAH': 'Гривны',
+        'USD': 'Доллары',
+        'UZS': 'Узбекский сум'
+    }
+
+    def __str__(self) -> str:
+        return '{0:,} - {1:,} ({2}) ({3})'.format(self.salary_from,
+                                                  self.salary_to,
+                                                  Salary.currency_name[self.salary_currency],
+                                                  self.salary_gross).replace(',', ' ')
+
+    def __init__(self, separate_vacancy: dict) -> None:
+        self.salary_to = int(float(separate_vacancy['salary_to']))
+        self.salary_from = int(float(separate_vacancy['salary_from']))
+        self.salary_currency = separate_vacancy['salary_currency']
+        self.salary_gross = 'Без вычета налогов' \
+            if separate_vacancy['salary_gross'].lower() == 'true' \
+            else 'С вычетом налогов'
+        self.salary_average = Salary.currency_to_rub[self.salary_currency] * (self.salary_from + self.salary_to) / 2
+
+
+class Vacancy:
+    headline_naming = ['index',
+                       'name',
+                       'description',
+                       'key_skills',
+                       'experience_id',
+                       'premium',
+                       'employer_name',
+                       'salary',
+                       'area_name',
+                       'published_at']
+
+    specific_weights = \
+        {
+            'Нет опыта': 1,
+            'От 1 года до 3 лет': 2,
+            'От 3 до 6 лет': 3,
+            'Более 6 лет': 4
+        }
+
+    work_experience_ru = \
+        {
+            'noExperience': 'Нет опыта',
+            'between1And3': 'От 1 года до 3 лет',
+            'between3And6': 'От 3 до 6 лет',
+            'moreThan6': 'Более 6 лет',
+        }
+
+    def __init__(self, separate_vacancy: dict) -> None:
+        self.index = 0
+        self.name = self.get_html_tag_free_string(separate_vacancy['name'])
+        self.description = self.get_short_string(self.get_html_tag_free_string(separate_vacancy['description']))
+        self.skills = separate_vacancy['key_skills'].split('\n')
+        self.key_skills = self.get_short_string(separate_vacancy['key_skills'])
+        self.skills_length = len(self.skills)
+        self.experience_id = self.work_experience_ru[separate_vacancy['experience_id']]
+        self.premium = 'Да' \
+            if separate_vacancy['premium'].lower() == 'true' \
+            else 'Нет'
+        self.employer_name = separate_vacancy['employer_name']
+        self.salary_class = Salary(separate_vacancy)
+        self.salary = str(self.salary_class)
+        self.area_name = separate_vacancy['area_name']
+        self.published = separate_vacancy['published_at']
+        self.published_at = '{0[2]}.{0[1]}.{0[0]}'.format(separate_vacancy['published_at'][:10].split('-'))
+
+    def drag_current_object_to_list(self) -> list:
+        return [getattr(self, key) for key in self.headline_naming]
+
+    @property
+    def salary_average(self):
+        return self.salary_class.salary_average
+
+    @property
+    def salary_currency(self):
+        return self.salary_class.salary_currency
+
+    @property
+    def salary_from(self):
+        return self.salary_class.salary_from
+
+    @property
+    def salary_to(self):
+        return self.salary_class.salary_to
+
+    @property
+    def experience_weight(self):
+        return self.specific_weights[self.experience_id]
+
+    @staticmethod
+    def get_short_string(string: str) -> str:
+        if len(string) <= 100:
+            return string
+        return string[:100] + '...'
+
+    @staticmethod
+    def get_html_tag_free_string(string: str) -> str:
+        result = sub(r'<.*?>', '', string)
+        result = sub(r'\s+', ' ', result)
+        return result.strip()
+
+
+class DataSet:
+    dictionary_translator = \
+        {
+            'Премиум-вакансия': 'premium',
+            'Идентификатор валюты оклада': 'salary_currency',
+            'Название': 'name',
+            'Название региона': 'area_name',
+            'Компания': 'employer_name',
+            'Описание': 'description',
+            'Навыки': 'skills_length',
+            'Оклад': 'salary_average',
+            'Дата публикации вакансии': 'published',
+            'Опыт работы': 'experience_weight',
+        }
+
+    lambda_sorter_dictionary = \
+        {
+            'Идентификатор валюты оклада': lambda vacancy, value:
+            Salary.currency_name[vacancy.salary_currency] == value,
+            'Название': lambda vacancy, value: vacancy.name == value,
+            'Название региона': lambda vacancy, value: vacancy.area_name == value,
+            'Компания': lambda vacancy, value: vacancy.employer_name == value,
+            'Навыки': lambda vacancy, value: all([skill in vacancy.skills for skill in value.split(', ')]),
+            'Оклад': lambda vacancy, value: vacancy.salary_from <= float(value) <= vacancy.salary_to,
+            'Дата публикации вакансии': lambda vacancy, value: vacancy.published_at == value,
+            'Опыт работы': lambda vacancy, value: vacancy.experience_id == value,
+            'Премиум-вакансия': lambda vacancy, value: vacancy.premium == value,
+        }
+
+    def __init__(self,
+                 naming,
+                 filter_measure,
+                 measure_to_sort,
+                 sort_factor_to_reverse,
+                 sort_factor_to_range):
+        self.sort_factor_to_reverse = sort_factor_to_reverse
+        self.sort_factor_to_range = sort_factor_to_range
+        self.naming = naming
+        self.filter_measure = filter_measure
+        self.measure_to_sort = measure_to_sort
+        self.vacancies_list = list()
+
+    def for_ranging(self) -> None:
+        needed_vacancies_list = list()
+        for index, vacancy in enumerate(self.vacancies_list):
+            if (len(self.sort_factor_to_range) > 1 and
+                self.sort_factor_to_range[0] <= index < self.sort_factor_to_range[1]) or \
+                    (len(self.sort_factor_to_range) == 1 and
+                     self.sort_factor_to_range[0] <= index) or \
+                    len(self.sort_factor_to_range) == 0:
+                needed_vacancies_list.append(vacancy)
+                vacancy.index = index + 1
+        self.vacancies_list = needed_vacancies_list
+
+    def get_rows_list(self) -> list:
+        return [current_vacancy.drag_current_object_to_list()
+                for current_vacancy in self.vacancies_list]
+
+    def to_sort_rows_list(self) -> None:
+        if self.measure_to_sort != '':
+            self.vacancies_list.sort(key=lambda vacancy: getattr(vacancy,
+                                                                 DataSet.dictionary_translator[self.measure_to_sort]),
+                                     reverse=self.sort_factor_to_reverse)
+        elif self.sort_factor_to_reverse and self.measure_to_sort == '':
+            self.vacancies_list.reverse()
+
+    def to_filter_rows(self):
+        if len(self.filter_measure) == 0:
+            return
+        self.vacancies_list = list(filter(lambda current_vacancy:
+                                          self.lambda_sorter_dictionary[
+                                              self.filter_measure[0]](current_vacancy,
+                                                                      self.filter_measure[1]), self.vacancies_list))
+
+    def csv_reader(self) -> None:
+        header = list()
+        with open(self.naming, mode='r', encoding='utf-8-sig') as file:
+            csv_reader = reader(file)
+            for index, row_value in enumerate(csv_reader):
+                if index == 0:
+                    header = row_value
+                    csv_header_length = len(row_value)
+                elif '' not in row_value and \
+                        len(row_value) == csv_header_length:
+                    self.vacancies_list.append(Vacancy(dict(zip(header, row_value))))
+        if len(self.vacancies_list) == 0:
+            if len(header) == 0:
+                print('Пустой файл')
+            else:
+                print('Нет данных')
+            exit()
+
+
+class InputConnect:
+    headline_list = ['№',
+                     'Название',
+                     'Описание',
+                     'Навыки',
+                     'Опыт работы',
+                     'Премиум-вакансия',
+                     'Компания',
+                     'Оклад',
+                     'Название региона',
+                     'Дата публикации вакансии']
+
+    def __init__(self):
+        self.errors_list = list()
+        self.file_name = input('Введите название файла: ')
+        self.filter_param = self.to_parse_for_filtering(input('Введите параметр фильтрации: '))
+        self.sort_param = self.to_parse_sort_measure(input('Введите параметр сортировки: '))
+        self.sort_reverse = self.to_parsing_sort_reverse(input('Обратный порядок сортировки (Да / Нет): '))
+        self.sort_range = self.to_parse_sort_ranging(input('Введите диапазон вывода: '))
+        self.table_fields = self.to_parse_table_areas(input('Введите требуемые столбцы: '))
+
+        if len(self.errors_list) != 0:
+            print(self.errors_list[0])
+            exit()
+
+        data_set = DataSet(self.file_name, 
+                           self.filter_param, 
+                           self.sort_param, 
+                           self.sort_reverse, 
+                           self.sort_range)
+        
+        data_set.csv_reader()
+        data_set.to_filter_rows()
+        data_set.to_sort_rows_list()
+        data_set.for_ranging()
+
+        rows_list = data_set.get_rows_list()
+
+        if len(rows_list) == 0:
+            print('Ничего не найдено')
+        else:
+            table = PrettyTable(align='l',
+                                field_names=InputConnect.headline_list,
+                                max_width=20,
+                                hrules=1)
+            table.add_rows(rows_list)
+            print(table.get_string(fields=self.table_fields))
+
+    def to_parse_for_filtering(self, filter_value):
+        if filter_value == '':
+            return []
+
+        if ': ' not in filter_value:
+            self.errors_list.append('Формат ввода некорректен')
+            return []
+
+        filter_param = filter_value.split(': ')
+
+        if filter_param[0] not in list(DataSet.lambda_sorter_dictionary.keys()):
+            self.errors_list.append('Параметр поиска некорректен')
+            return []
+
+        return filter_param
+
+    @staticmethod
+    def to_parse_table_areas(table_areas):
+        if table_areas == '':
+            return InputConnect.headline_list
+        return ['№'] + [vacancy for vacancy in table_areas.split(', ') 
+                        if vacancy in InputConnect.headline_list]
+    
+    @staticmethod
+    def to_parse_sort_ranging(sort_for_ranging):
+        if sort_for_ranging == '': 
+            return list()
+        return [int(limit) - 1 for limit in sort_for_ranging.split()]
+
+    def to_parse_sort_measure(self, sort_measure):
+        if sort_measure not in InputConnect.headline_list + ['']:
+            self.errors_list.append('Параметр сортировки некорректен')
+        return sort_measure
+
+    def to_parsing_sort_reverse(self, sort_for_reversing):
+        if sort_for_reversing not in ('', 'Да', 'Нет'):
+            self.errors_list.append('Порядок сортировки задан некорректно')
+
+        return True if sort_for_reversing == 'Да' else False
+
+
+if __name__ == '__main__':
+    InputConnect()
+   
