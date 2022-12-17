@@ -1,0 +1,136 @@
+import 'package:collection/collection.dart';
+import 'package:more/more.dart';
+import 'package:mylibraries/mylibraries.dart';
+
+// Starring, in order of appearance. (but upside down).
+var rocks = {
+  'dash': [Index(0, 0), Index(0, 1), Index(0, 2), Index(0, 3)],
+  'plus': [Index(0, 1), Index(1, 0), Index(1, 1), Index(1, 2), Index(2, 1)],
+  'bend': [Index(0, 0), Index(0, 1), Index(0, 2), Index(1, 2), Index(2, 2)],
+  'pole': [Index(0, 0), Index(1, 0), Index(2, 0), Index(3, 0)],
+  'cube': [Index(0, 0), Index(0, 1), Index(1, 0), Index(1, 1)],
+};
+
+late ListGrid<String> grid;
+var width = 7;
+
+canMove(List<Index> rock, Index offset) => rock
+    .map((e) => e + offset)
+    .every((e) => grid.isInBounds(e) && grid[e] == '.');
+
+printIt(Grid grid, Index pos, {shape = const <Index>[]}) {
+  for (var r in 0.to(pos.r + 5).reversed) {
+    var p = '';
+    for (var c in 0.to(grid.width)) {
+      p += (shape.contains(Index(r, c) - pos)) ? '@' : grid[Index(r, c)];
+    }
+    print('${r.toString().padLeft(4)}: #$p#');
+  }
+  print('      ${'#' * (width + 2)}');
+  print('');
+}
+
+part1(List<String> lines) {
+  var jets =
+      lines.first.split('').map((e) => e == '>' ? Index(0, 1) : Index(0, -1));
+  grid = ListGrid.ofSize(2022 * 3, width, '.');
+  var topRow = -1;
+  var fall = Index(-1, 0);
+  var rockSource = rocks.keys.repeat().iterator;
+  var jetSource = jets.repeat().iterator;
+  for (var _ in 0.to(2022)) {
+    //drop a rock (upwards!)
+    var rock = (rockSource..moveNext()).current;
+    // print(rock);
+    var row = topRow + 4;
+    var col = 2;
+    var pos = Index(row, col);
+    while (true) {
+      var jet = (jetSource..moveNext()).current;
+      if (canMove(rocks[rock]!, pos + jet)) pos += jet;
+      // print('blown by jet');
+      // printIt(grid, pos, shape: rocks[rock]!);
+
+      // fall
+      if (!(canMove(rocks[rock]!, pos + fall))) {
+        break;
+      }
+      pos += fall;
+      // print('fallen');
+      // printIt(grid, pos, shape: rocks[rock]!);
+    }
+    topRow = [rocks[rock]!.map((e) => pos.r + e.r).max, topRow].max;
+    rocks[rock]!.forEach((e) => grid[e + pos] = '#');
+    //printIt(grid, pos, shape: rocks[rock]!);
+  }
+  return topRow + 1;
+}
+
+part2(List<String> lines) {
+  var targetRock = 1000000000000;
+  var shortCutRun = false;
+  var jets = lines.first
+      .split('')
+      .map((e) => e == '>' ? Index(0, 1) : Index(0, -1))
+      .toList();
+  // Much bigger headroom
+  grid = ListGrid.ofSize(2022 * 30, width, '.');
+  var topRow = -1;
+  var fall = Index(-1, 0);
+  // cycle through the indexes, rather than the values.
+  var rockSource = 0.to(rocks.keys.length).repeat().iterator;
+  var rk = rocks.keys.toList();
+  var jetSource = 0.to(jets.length).repeat().iterator;
+  var seen = <int, List<int>>{};
+  var cycle = 0;
+  var rockCount = 0;
+  var topAdd = 0;
+  // counting cycles manually to allow adjustment
+  while (true) {
+    //drop a rock (upwards!)
+    var rock = rk[(rockSource..moveNext()).current];
+    var row = topRow + 4;
+    var col = 2;
+    var pos = Index(row, col);
+    while (true) {
+      var jet = jets[(jetSource..moveNext()).current];
+      cycle += 1;
+      // blow
+      if (canMove(rocks[rock]!, pos + jet)) pos += jet;
+      // fall
+      if (!(canMove(rocks[rock]!, pos + fall))) {
+        break;
+      }
+      pos += fall;
+    }
+    topRow = [rocks[rock]!.map((e) => pos.r + e.r).max, topRow].max;
+    rocks[rock]!.forEach((e) => grid[e + pos] = '#');
+    var targetLength = 200;
+    if (!shortCutRun && jetSource.current == 0 && topRow > targetLength) {
+      var key = (topRow - targetLength)
+          .to(topRow)
+          .map((e) => grid.row(e))
+          .join('')
+          .hashCode;
+      if (seen.containsKey(key)) {
+        shortCutRun = true;
+        //we have a repeat
+        // printIt(grid, Index(topRow, 0));
+        // print('repeat ${seen[key]} -- $cycle $rockCount $topRow');
+        // print('');
+
+        var rDiff = rockCount - seen[key]![1];
+        var topDiff = topRow - seen[key]!.last;
+
+        var mult = (targetRock - rockCount) ~/ rDiff;
+        rockCount += rDiff * mult;
+        topAdd += topDiff * mult;
+      } else {
+        seen[key] = [cycle, rockCount, topRow];
+      }
+    }
+    rockCount += 1;
+    if (rockCount >= targetRock) break;
+  }
+  return topRow + 1 + topAdd;
+}
