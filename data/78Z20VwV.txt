@@ -1,0 +1,87 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Text;
+using NUnit.Framework;
+
+namespace StructBenchmarking
+{
+    public class Benchmark : IBenchmark
+	{
+        public double MeasureDurationInMs(ITask task, int repetitionCount)
+        {
+            GC.Collect();                  
+            GC.WaitForPendingFinalizers();  
+
+            task.Run();
+
+            var stopwatch = Stopwatch.StartNew();
+            for (var i = 0; i < repetitionCount; i++)
+            {
+                task.Run();
+            }
+            stopwatch.Stop();
+            return stopwatch.ElapsedMilliseconds / (double)repetitionCount;
+		}
+	}
+
+    [TestFixture]
+    public class RealBenchmarkUsageSample
+    {
+        [Test]
+        public void StringConstructorFasterThanStringBuilder()
+        {
+            var repetitionCount = 10_000;
+            var stirngLength = 10_000;
+
+            var sbTask = new StringBuilderTask(stirngLength);
+            var scTask = new StringConstructorTask(stirngLength);
+
+            var benchmark = new Benchmark();
+
+            var actualSbMeasure = benchmark.MeasureDurationInMs(sbTask, repetitionCount);
+            var actualScMeasure = benchmark.MeasureDurationInMs(scTask, repetitionCount);
+
+            Assert.Less(actualScMeasure, actualSbMeasure);
+        }
+    }
+
+    public class StringBuilderTask : ITask
+    {
+        private readonly int stringLength;
+        private string result;
+
+        public StringBuilderTask(int stringLength)
+        {
+            this.stringLength = stringLength;
+        }
+
+        public void Run()
+        {
+            var sb = new StringBuilder();
+
+            for (var i = 0; i < stringLength; i++)
+            {
+                sb.Append('a');
+            }
+
+            result = sb.ToString();
+        }
+    }
+
+    public class StringConstructorTask : ITask
+    {
+        private readonly int stringLength;
+        private string result;
+
+        public StringConstructorTask(int stringLength)
+        {
+            this.stringLength = stringLength;
+        }
+
+        public void Run()
+        {
+            result = new string('a', stringLength);
+        }
+    }
+}
