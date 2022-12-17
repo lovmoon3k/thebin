@@ -1,0 +1,917 @@
+--ExportUETClassSp start
+
+--****************************************************************************************************************************
+
+SET QUOTED_IDENTIFIER OFF
+
+
+GO
+
+SET ANSI_NULLS ON
+
+
+GO
+
+ 
+
+IF OBJECT_ID('dbo.ExportUETClassSP')IS NOT NULL
+
+DROP PROCEDURE ExportUETClassSP
+
+GO
+
+ 
+
+CREATE PROCEDURE ExportUETClassSP (
+
+@PClassName Infobar
+
+)
+
+AS
+
+DECLARE
+
+@ClassName ClassNameType
+
+, @ClassLabel LabelType
+
+, @ClassDesc DescriptionType
+
+, @SysHasFields ListYesNoType
+
+, @SysHasTables ListYesNoType
+
+, @SysApply UetSysApplyType
+
+, @SysDelete ListYesNoType
+
+, @FldName FldNameType
+
+, @FldDataType UetDataTypeType
+
+, @FldInitial UetDefaultType
+
+, @FldDecimals UetScaleType
+
+, @FldDesc ToolTipType
+
+, @FldUDT sysname
+
+, @FldPrec tinyint
+
+, @IndexName IndexNameType
+
+, @IndexDesc DescriptionType
+
+, @IndexUnique ListYesNoType
+
+, @IndexWord ListYesNoType
+
+, @IndexSeq UetIndexSeqType
+
+, @IndexAsc ListYesNoType
+
+, @TableName TableNameType
+
+, @TableRule QueryExpressionType
+
+, @ExtendAllRecs ListYesNoType
+
+, @AllowRecordAssoc ListYesNoType
+
+, @Active ListYesNoType
+
+, @SQLCmd InfobarType
+
+, @SQLCmdWait InfobarType
+
+, @Severity INT
+
+, @Quote NCHAR(1)
+
+, @RecordDate CurrentDateType
+
+, @RowPointer RowPointerType
+
+, @CommittedRowPointer RowPointerType
+
+, @CreatedBy UsernameType
+
+, @UpdatedBy UsernameType
+
+, @CreateDate CurrentDateType
+
+, @InWorkflow FlagNyType
+
+ 
+
+SET @Severity = 0
+
+SET @Quote =''''
+
+DECLARE UserClassCrs CURSOR LOCAL STATIC
+
+FOR SELECT
+
+uc.class_name
+
+, uc.class_label
+
+, uc.class_desc
+
+, uc.sys_has_fields
+
+, uc.sys_has_tables
+
+, uc.sys_apply
+
+, uc.sys_delete
+
+FROM user_class uc
+
+ 
+
+WHERE class_name = @PClassName
+
+ 
+
+OPEN UserClassCrs
+
+ 
+
+WHILE @Severity = 0
+
+ 
+
+BEGIN-- cursor loop
+
+ 
+
+FETCH UserClassCrs INTO
+
+ 
+
+@ClassName
+
+ 
+
+, @ClassLabel
+
+ 
+
+, @ClassDesc
+
+ 
+
+, @SysHasFields
+
+ 
+
+, @SysHasTables
+
+ 
+
+, @SysApply
+
+ 
+
+, @SysDelete
+
+ 
+
+IF @@FETCH_STATUS=-1
+
+ 
+
+BREAK
+
+ 
+
+SET @SQLCmd ='INSERT INTO user_class ( class_name, class_label,
+
+ 
+
+class_desc, sys_has_fields, '
+
+ 
+
+SET @SQLCmd = @SQLCmd +'sys_has_tables, sys_apply, sys_delete
+
+) VALUES ( '
+
+ 
+
+SET @SQLCmd = @SQLCmd + dbo.Quote(@ClassName)+', '+
+
+ 
+
+dbo.Quote(@ClassLabel)
+
+ 
+
+SET @SQLCmd = @SQLCmd +', '+ dbo.Quote(@ClassDesc)+', '+
+
+ 
+
+STR(ISNULL(@SysHasFields, 0))
+
+ 
+
+SET @SQLCmd = @SQLCmd +', '+STR(ISNULL(@SysHasTables, 0))+
+
+ 
+
+', '+ dbo.Quote(@SysApply)
+
+ 
+
+SET @SQLCmd = @SQLCmd +', '+STR(ISNULL(@SysDelete, 0))+' )'
+
+ 
+
+print @SQLCmd
+
+ 
+
+DECLARE UserClassFldCrs CURSOR LOCAL STATIC
+
+ 
+
+FOR SELECT
+
+ 
+
+ucf.class_name
+
+, ucf.fld_name
+
+, ucf.sys_apply
+
+, ucf.sys_delete
+
+FROM user_class_fld ucf
+
+ 
+
+WHERE class_name = @PClassName
+
+ 
+
+OPEN UserClassFldCrs
+
+ 
+
+WHILE @Severity = 0
+
+ 
+
+BEGIN-- cursor loop
+
+ 
+
+FETCH UserClassFldCrs INTO
+
+ 
+
+@ClassName
+
+ 
+
+, @FldName
+
+ 
+
+, @SysApply
+
+ 
+
+, @SysDelete
+
+ 
+
+IF @@FETCH_STATUS=-1
+
+ 
+
+BREAK
+
+ 
+
+SET @SQLCmd ='INSERT INTO user_class_fld ( class_name,
+
+ 
+
+fld_name, sys_apply, sys_delete ) VALUES ( '
+
+ 
+
+SET @SQLCmd = @SQLCmd + dbo.Quote(@ClassName)+', '+
+
+ 
+
+dbo.Quote(@FldName)+', '+ dbo.Quote(@SysApply)+', '+
+
+ 
+
+STR(ISNULL(@SysDelete, 0))+' )'
+
+ 
+
+SET @SQLCmdWait = @SQLCmd
+
+ 
+
+SELECT @FldName = fld_name
+
+, @FldDataType = fld_data_type
+
+, @FldInitial = fld_initial
+
+, @FldDecimals = fld_decimals
+
+, @FldDesc = fld_desc
+
+, @SysApply = sys_apply
+
+, @SysDelete = sys_delete
+
+, @FldUDT = fld_UDT
+
+, @FldPrec = fld_prec
+
+ 
+
+FROM user_fld uf
+
+ 
+
+WHERE uf.fld_name = @FldName
+
+ 
+
+SET @SQLCmd ='INSERT INTO user_fld ( fld_name, fld_data_type,
+
+ 
+
+fld_initial, fld_decimals, fld_desc, sys_apply, sys_delete,
+
+ 
+
+fld_UDT, fld_prec ) VALUES ( '
+
+ 
+
+SET @SQLCmd = @SQLCmd + dbo.Quote(@FldName)+', '+
+
+ 
+
+dbo.Quote(@FldDataType)+', '+ dbo.Quote(@FldInitial)
+
+ 
+
+SET @SQLCmd = @SQLCmd +', '+STR(ISNULL(@FldDecimals, 0))+
+
+ 
+
+', '+ dbo.Quote(@FldDesc)+', '+ dbo.Quote(@SysApply)
+
+ 
+
+SET @SQLCmd = @SQLCmd +', '+STR(ISNULL(@SysDelete, 0))+',
+
+ 
+
+'+ dbo.Quote(@FldUDT)+', '+STR(ISNULL(@FldPrec, 0))+' )'
+
+ 
+
+PRINT @SQLCmd
+
+ 
+
+PRINT @SQLCmdWait
+
+ 
+
+END-- Cursor Loop UserClassFld
+
+ 
+
+CLOSE UserClassFldCrs
+
+ 
+
+DEALLOCATE UserClassFldCrs
+
+ 
+
+DECLARE UserIndexCrs CURSOR LOCAL STATIC
+
+ 
+
+FOR SELECT
+
+ 
+
+ui.class_name
+
+, ui.index_name
+
+, ui.index_desc
+
+, ui.index_unique
+
+, ui.index_word
+
+, ui.sys_apply
+
+, ui.sys_delete
+
+ 
+
+FROM user_index ui
+
+ 
+
+WHERE class_name = @PClassName
+
+ 
+
+OPEN UserIndexCrs
+
+ 
+
+WHILE @Severity = 0
+
+ 
+
+BEGIN-- cursor loop
+
+ 
+
+FETCH UserIndexCrs INTO
+
+ 
+
+@ClassName
+
+, @IndexName
+
+, @IndexDesc
+
+, @IndexUnique
+
+, @IndexWord
+
+, @SysApply
+
+, @SysDelete
+
+ 
+
+IF @@FETCH_STATUS=-1
+
+ 
+
+BREAK
+
+ 
+
+SET @SQLCmd ='INSERT INTO user_index ( class_name, index_name,
+
+ 
+
+index_desc, index_unique, index_word, sys_apply, sys_delete )
+
+ 
+
+VALUES ( '
+
+ 
+
+SET @SQLCmd = @SQLCmd + dbo.Quote(@ClassName)+', '+
+
+ 
+
+dbo.Quote(@IndexName)+', '+ dbo.Quote(@IndexDesc)
+
+ 
+
+SET @SQLCmd = @SQLCmd +', '+STR(ISNULL(@IndexUnique, 0))+
+
+ 
+
+', '+STR(ISNULL(@IndexWord, 0))
+
+ 
+
+SET @SQLCmd = @SQLCmd +', '+ dbo.Quote(@SysApply)+', '+
+
+ 
+
+STR(ISNULL(@SysDelete, 0))+' )'
+
+ 
+
+PRINT @SQLCmd
+
+ 
+
+DECLARE UserIndexFldCrs CURSOR LOCAL STATIC
+
+ 
+
+FOR SELECT
+
+ 
+
+uif.class_name
+
+, uif.index_name
+
+, uif.index_seq
+
+, uif.fld_name
+
+, uif.index_asc
+
+ 
+
+FROM user_index_fld uif
+
+ 
+
+WHERE class_name = @PClassName
+
+ 
+
+AND index_name = @IndexName
+
+ 
+
+OPEN UserIndexFldCrs
+
+ 
+
+WHILE @Severity = 0
+
+ 
+
+BEGIN-- cursor loop
+
+ 
+
+FETCH UserIndexFldCrs INTO
+
+ 
+
+@ClassName
+
+ 
+
+, @IndexName
+
+ 
+
+, @IndexSeq
+
+ 
+
+, @FldName
+
+ 
+
+, @IndexAsc
+
+ 
+
+IF @@FETCH_STATUS=-1
+
+ 
+
+BREAK
+
+ 
+
+SET @SQLCmd ='INSERT INTO user_index_fld ( class_name,
+
+ 
+
+Scripting UET Definitions D-8
+
+ 
+
+Modifying Infor ERP SyteLine
+
+ 
+
+Copyright © 2009 Infor
+
+ 
+
+index_name, index_seq, fld_name, index_asc ) VALUES ( '
+
+ 
+
+SET @SQLCmd = @SQLCmd + dbo.Quote(@ClassName)+', '+
+
+ 
+
+dbo.Quote(@IndexName)+', '+STR(ISNULL(@IndexSeq, 0))
+
+ 
+
+SET @SQLCmd = @SQLCmd +', '+ dbo.Quote(@FldName)+', '+
+
+ 
+
+STR(ISNULL(@IndexAsc, 0))+' )'
+
+ 
+
+PRINT @SQLCmd
+
+ 
+
+END-- Cursor Loop UserIndexFld
+
+ 
+
+CLOSE UserIndexFldCrs
+
+ 
+
+DEALLOCATE UserIndexFldCrs
+
+ 
+
+END-- Cursor Loop UserIndex
+
+ 
+
+CLOSE UserIndexCrs
+
+ 
+
+DEALLOCATE UserIndexCrs
+
+ 
+
+DECLARE TableClassCrs CURSOR LOCAL STATIC
+
+ 
+
+FOR SELECT
+
+ 
+
+tc.table_name
+
+, tc.class_name
+
+, tc.table_rule
+
+, tc.extend_all_recs
+
+, tc.sys_apply
+
+, tc.sys_delete
+
+, tc.allow_record_assoc
+
+, tc.active
+
+ 
+
+FROM table_class tc
+
+ 
+
+WHERE class_name = @PClassName
+
+ 
+
+OPEN TableClassCrs
+
+ 
+
+WHILE @Severity = 0
+
+ 
+
+BEGIN-- cursor loop
+
+ 
+
+FETCH TableClassCrs INTO
+
+ 
+
+@TableName
+
+, @ClassName
+
+, @TableRule
+
+, @ExtendAllRecs
+
+, @SysApply
+
+, @SysDelete
+
+, @AllowRecordAssoc
+
+, @Active
+
+ 
+
+IF @@FETCH_STATUS=-1
+
+ 
+
+BREAK
+
+ 
+
+SET @SQLCmd ='INSERT INTO table_class ( table_name, class_name,
+
+ 
+
+table_rule, extend_all_recs, sys_apply, sys_delete,
+
+ 
+
+allow_record_assoc, active ) VALUES ( '
+
+ 
+
+SET @SQLCmd = @SQLCmd + dbo.Quote(@TableName)+', '+
+
+ 
+
+dbo.Quote(@ClassName)+', '+ dbo.Quote(@TableRule)
+
+ 
+
+SET @SQLCmd = @SQLCmd +', '+STR(ISNULL(@ExtendAllRecs, 0))+
+
+ 
+
+', '+ dbo.Quote(@SysApply)
+
+ 
+
+SET @SQLCmd = @SQLCmd +', '+STR(ISNULL(@SysDelete, 0))+',
+
+ 
+
+'+STR(ISNULL(@AllowRecordAssoc, 0))
+
+ 
+
+SET @SQLCmd = @SQLCmd +', '+STR(ISNULL(@Active, 0))+')'
+
+ 
+
+PRINT @SQLCmd
+
+ 
+
+END-- Cursor Loop TableClass
+
+ 
+
+CLOSE TableClassCrs
+
+ 
+
+DEALLOCATE TableClassCrs
+
+ 
+
+END-- Cursor Loop UserClass
+
+ 
+
+CLOSE UserClassCrs
+
+ 
+
+DEALLOCATE UserClassCrs
+
+ 
+
+RETURN @Severity
+
+ 
+
+GO
+
+ 
+
+SET QUOTED_IDENTIFIER OFF
+
+ 
+
+GO
+
+ 
+
+SET ANSI_NULLS ON
+
+ 
+
+GO
+
+ 
+
+SET ANSI_NULLS ON
+
+ 
+
+GO
+
+ 
+
+SET QUOTED_IDENTIFIER ON
+
+ 
+
+GO
+
+ 
+
+IF OBJECT_ID('dbo.Quote')IS NOT NULL
+
+ 
+
+DROP Function dbo.Quote
+
+ 
+
+GO
+
+ 
+
+CREATE FUNCTION dbo.Quote (
+
+ 
+
+@ColumnValue LongListType
+
+ 
+
+)RETURNS LongListType
+
+ 
+
+AS
+
+ 
+
+BEGIN
+
+ 
+
+DECLARE
+
+ 
+
+@Quote NCHAR(1)
+
+ 
+
+SET @Quote =''''
+
+ 
+
+SET @ColumnValue =ISNULL(@ColumnValue,'NULL')
+
+ 
+
+IF @ColumnValue !='NULL'
+
+ 
+
+SET @ColumnValue ='N'+ @Quote + @ColumnValue + @Quote
+
+ 
+
+RETURN @ColumnValue
+
+ 
+
+END
+
+ 
+
+GO
+
+ 
+
+--ExportUETClassSp end
+
+ 
+
+--****************************************************************************************************************************
