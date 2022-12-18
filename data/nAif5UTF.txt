@@ -1,0 +1,196 @@
+#define _CRT_SECURE_NO_WARNINGS
+
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <cmath>
+#include <stack>
+#include <iomanip>
+#include <fstream>
+#include <string>
+#include <set>
+#include <deque>
+#include <queue>
+#include <map>
+#include <bitset>
+#include <random>
+#include <list>
+#include <unordered_map>
+#include <unordered_set>
+#include <cassert>
+
+using namespace std;
+
+typedef long long ll;
+typedef unsigned long long ull;
+typedef long double ld;
+typedef string str;
+//typedef __int128 ultraint;
+//#define sqrt sqrtl
+#define F first
+#define S second
+#define all(vc666) vc666.begin(), vc666.end()
+
+const ll INF = (ll) 1e18 + 7;
+const ll MOD = (ll) 998244353;
+ld EPS = 1e-6;
+ld PI = 3.1415926535897932384;
+mt19937_64 gen(time(0));
+
+struct SegmentTree {
+    vector<pair<ll, ll>> t;
+    void build(ll n) {
+        t.resize(4 * n, { -INF, -INF });
+    }
+
+    void build2(vector<pair<ll, ll>>& a, int v, int tl, int tr) {
+        if (tl == tr) {
+            t[v] = a[tl];
+        } else {
+            int tm = (tl + tr) / 2;
+            build2(a, v * 2, tl, tm);
+            build2(a, v * 2 + 1, tm + 1, tr);
+            if (t[v * 2].second > t[v * 2 + 1].second) {
+                t[v] = t[v * 2];
+            } else {
+                t[v] = t[v * 2 + 1];
+            }
+        }
+    }
+
+    pair<ll, ll> get(int v, int tl, int tr, int l, int r) {
+        if (tl > r || tr < l) {
+            return { -INF, -INF };
+        }
+        if (tl >= l && tr <= r) {
+            return t[v];
+        }
+        int tm = (tl + tr) / 2;
+        pair<ll, ll> res1, res2;
+        res1 = get(v * 2, tl, tm, l, r);
+        res2 = get(v * 2 + 1, tm + 1, tr, l, r);
+        if (res1.second > res2.second) {
+            return res1;
+        } else {
+            return res2;
+        }
+    }
+};
+
+int lower(vector<pair<ll, ll>>& s, ll x, ll mn) {
+    int l = -1, r = (ll) s.size(), m;
+    while (r - l > 1) {
+        m = (l + r) / 2;
+        if (s[m].first + x < mn) {
+            l = m;
+        } else {
+            r = m;
+        }
+    }
+    return r;
+}
+
+int higher(vector<pair<ll, ll>>& s, ll x, ll mx) {
+    int l = -1, r = (ll) s.size(), m;
+    while (r - l > 1) {
+        m = (l + r) / 2;
+        if (s[m].first + x > mx) {
+            r = m;
+        } else {
+            l = m;
+        }
+    }
+    return l;
+}
+
+signed main() {
+#ifdef _DEBUG
+    freopen("input.txt", "r", stdin);
+    freopen("output.txt", "w", stdout);
+#endif
+    ios_base::sync_with_stdio(0);
+    cin.tie(NULL);
+    cout.tie(NULL);
+    int t = 1;
+    //cin >> t;
+    while (t--) {
+        int n, i, j, bit, pos1, pos2;
+        ll l, r;
+        ll weight, cost, ans = 0;
+        cin >> n >> l >> r;
+        vector<pair<ll, ll>> a, b;
+        map<pair<ll, ll>, vector<int>> keys1;
+        map<pair<ll, ll>, vector<int>> keys2;
+        vector<pair<ll, ll>> s;
+        pair<pair<ll, ll>, pair<ll, ll>> id = { {-INF, -INF}, {-INF, -INF} };
+        a.resize(n / 2);
+        b.resize((n + 1) / 2);
+        for (i = 0; i < n / 2; i++) {
+            cin >> a[i].first >> a[i].second;
+        }
+        for (i = 0; i < (n + 1) / 2; i++) {
+            cin >> b[i].first >> b[i].second;
+        }
+        for (bit = 0; bit < (1 << a.size()); bit++) {
+            weight = 0, cost = 0;
+            vector<int> sup;
+            for (j = 0; j < a.size(); j++) {
+                if (bit & (1 << j)) {
+                    sup.push_back(j);
+                    weight += a[j].first;
+                    cost += a[j].second;
+                }
+            }
+            keys1[make_pair(weight, cost)] = sup;
+            s.push_back({ weight, cost });
+            if (weight >= l && weight <= r) {
+                if (cost > ans) {
+                    ans = cost;
+                    id = { { weight, cost }, {-INF, -INF} };
+                }
+            }
+        }
+        sort(all(s));
+        SegmentTree sp;
+        sp.build(s.size());
+        sp.build2(s, 1, 0, s.size() - 1);
+        for (bit = 0; bit < (1 << b.size()); bit++) {
+            weight = 0, cost = 0;
+            vector<int> sup;
+            for (j = 0; j < b.size(); j++) {
+                if (bit & (1 << j)) {
+                    sup.push_back(a.size() + j);
+                    weight += b[j].first;
+                    cost += b[j].second;
+                }
+            }
+            keys2[make_pair(weight, cost)] = sup;
+            if (weight > r) continue;
+            if (weight >= l && weight <= r) {
+                if (cost > ans) {
+                    ans = cost;
+                    id = { {-INF, -INF}, { weight, cost } };
+                }
+            }
+            pos1 = lower(s, weight, l);
+            pos2 = higher(s, weight, r);
+            if (pos1 < s.size() && pos2 > -1) {
+                pair<ll, ll> result = sp.get(1, 0, s.size() - 1, pos1, pos2);
+                if (cost + result.second > ans) {
+                    ans = cost + result.second;
+                    id = { result, { weight, cost } };
+                }
+            }
+        }
+        cout << keys1[id.first].size() + keys2[id.second].size() << endl;
+        for (auto it : keys1[id.first]) {
+            cout << it + 1 << " ";
+        }
+        for (auto it : keys2[id.second]) {
+            cout << it + 1 << " ";
+        }
+        cout << '\n';
+    }
+}
+//Deisgned by skimono
