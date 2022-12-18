@@ -1,13 +1,7 @@
-[**DPMaVq22**](/data/DPMaVq22.txt) (18/12/22 - 13:21)- 13008 bytes
+[**BpmBcp0h**](/data/BpmBcp0h.txt) (18/12/22 - 13:27)- 12367 bytes
 
-[**DPMaVq22**](/data/DPMaVq22.txt) (18/12/22 - 13:21)- 13008 bytes
+[**BpmBcp0h**](/data/BpmBcp0h.txt) (18/12/22 - 13:27)- 12367 bytes
 
-[**MABkUtjK**](/data/MABkUtjK.txt) (18/12/22 - 13:21)- 13525 bytes
+**Total Datas**: 546
 
-[**MABkUtjK**](/data/MABkUtjK.txt) (18/12/22 - 13:21)- 13525 bytes
-
-[**MzLvRtYb**](/data/MzLvRtYb.txt) (18/12/22 - 13:21)- 7808 bytes
-
-**Total Datas**: 545
-
-**Total Size**: 3.72 MB / 3.7 MB
+**Total Size**: 3.73 MB / 3.7 MB
