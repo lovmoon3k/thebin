@@ -1,0 +1,78 @@
+const fs = require("fs")
+const performance = require("perf_hooks").performance
+const eol = require("os").EOL
+
+let startTime = performance.now()
+let part1 = (part2 = 0)
+let input = fs
+    .readFileSync(__dirname + "/data.txt", "utf8")
+    .split(eol)
+    .map((s) => s.trim())
+
+function str2obj(str, explored = false) {
+    let [x, y, z] = str.split(",").map(Number)
+    return { x, y, z, explored }
+}
+function obj2str(obj) {
+    return `${obj.x},${obj.y},${obj.z}`
+}
+
+let min = str2obj("Infinity,Infinity,Infinity")
+let max = str2obj("-Infinity,-Infinity,-Infinity")
+let voxels = new Map()
+input.map((item) => {
+    voxels.set(item, str2obj(item))
+})
+function getSurface(map, minMax = true) {
+    let surface = 0
+    for (let v of map) {
+        let sides = 6
+        for (let i = -1; i <= 1; i += 2) {
+            let x = +(v[1].x + i) + "," + v[1].y + "," + v[1].z
+            let y = v[1].x + "," + (v[1].y + i) + "," + v[1].z
+            let z = v[1].x + "," + v[1].y + "," + (v[1].z + i)
+            map.has(x) && sides--
+            map.has(y) && sides--
+            map.has(z) && sides--
+        }
+        if (minMax) {
+            min = { x: Math.min(min.x, v[1].x - 1), y: Math.min(min.y, v[1].y - 1), z: Math.min(min.z, v[1].z - 1) }
+            max = { x: Math.max(max.x, v[1].x + 1), y: Math.max(max.y, v[1].y + 1), z: Math.max(max.z, v[1].z + 1) }
+        }
+        surface += sides
+    }
+    return surface
+}
+part1 = getSurface(voxels)
+
+let box = new Map()
+for (let x = min.x; x <= max.x; x++) {
+    for (let y = min.y; y <= max.y; y++) {
+        for (let z = min.z; z <= max.z; z++) {
+            let str = obj2str({ x, y, z })
+            if (!voxels.has(str)) box.set(str, str2obj(str))
+        }
+    }
+}
+
+function flood(str) {
+    let stack = [box.get(str)]
+    while (stack.length) {
+        let v = stack.pop()
+        v.explored = true
+        box.delete(obj2str(v))
+        for (let i = -1; i <= 1; i += 2) {
+            let x = +(v.x + i) + "," + v.y + "," + v.z
+            let y = v.x + "," + (v.y + i) + "," + v.z
+            let z = v.x + "," + v.y + "," + (v.z + i)
+            if (box.has(x) && !box.get(x).explored) stack.push(box.get(x))
+            if (box.has(y) && !box.get(y).explored) stack.push(box.get(y))
+            if (box.has(z) && !box.get(z).explored) stack.push(box.get(z))
+        }
+    }
+}
+flood(obj2str(min))
+part2 = getSurface(new Map([...voxels, ...box]), false)
+
+let time = performance.now() - startTime
+console.log(`Part 1: ${part1}\nPart 2: ${part2}\nTimer: ${time} ms`)
