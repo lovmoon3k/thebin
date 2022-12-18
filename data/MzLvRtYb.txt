@@ -1,0 +1,223 @@
+#include <WinApi.au3>
+#include <WinAPISysWin.au3>
+#include <WindowsConstants.au3>
+#include <Clipboard.au3>
+#include <Array.au3>
+#include <String.au3>
+#include <Misc.au3>
+
+; THIS IS MY MAIN AUTOIT BACKGROUND PROCESS SCRIPT TO DO VARIOUS IMPORTANT THINGS :)
+; IT ALLOWS FOR PINNING WINDOWS TO TOP, FIXING STUPID YOUTUBE KEYBINDINGS THAT F-UP...
+; AND DISPLAYS CRYPTO PRICES (CURRENTLY JUST MONERO AND BITCOIN)
+; **NOTE** DELETE THE MOUSEPROC STUFF - THAT'S JUST TO FIX MY STUPID BUGGY MOUSE WHEEL THAT STICKS
+
+HotKeySet("`", "PinWindow") ; TILDA KEY KEEPS CURRENT WINDOW ON TOP
+HotKeySet("{APPSKEY}", "YouTube_Keymap") ; THE MENU KEY (NEXT TO RIGHT-CTRL) FORCES THE YOUTUBE KEYBINDINGS TO WORK
+HotKeySet("^!b", "CoinPrice") ; CTRL-ALT-B WILL SHOW THE CURRENT COIN PRICE
+HotKeySet("^!n", "DollarToCoin") ; ENTER YOUR AMOUNT OF DOLLARS TO CONVERT TO CURRENT COIN
+HotKeySet("^!m", "CoinToDollar") ; COIN TO DOLLARS
+HotKeySet("^!s", "SwitchCoin") ; SWITCHES WHAT COIN IS CURRENTLY ACTIVE
+HotKeySet("^!g", "GmailSelectAll") ; MASS DELETE EMAILS IN GMAIL HTML MODE (HTML GMAIL DOESN'T HAVE A BUTTON TO SELECT ALL)
+HotKeySet("^g", "MapsXClick") ; REMAP THE LEFT MOUSE CLICK AND MOUSE DOWN, TO X KEY - MAKES GOOGLE MAPS NOT OVER-USE MOUSE BUTTON
+
+Global Const $MSLLHOOKSTRUCT = $tagPOINT & ";dword mouseData;dword flags;dword time;ulong_ptr dwExtraInfo"
+Global $hHook, $n, $delay = 1500
+Local $hFunc, $pFunc, $hMod
+
+Local Const $YT_WINDOW = "- YouTube"
+Local $toggle = False
+Local $currentCoin = "Bitcoin"
+
+Local $mapsToggle = False
+Local $mapsPressed = False
+
+; FIXES THE STUPID MIDDLE MOUSE BUTTON PROBLEM - ANOTHER USER - DELETE IT
+$hFunc = DllCallbackRegister('_MouseProc', 'long', 'int;wparam;lparam')
+$pFunc = DllCallbackGetPtr($hFunc)
+$hMod = _WinAPI_GetModuleHandle(0)
+$hHook = _WinAPI_SetWindowsHookEx($WH_MOUSE_LL, $pFunc, $hMod)
+
+
+; GMAIL HTML MODE SELECT ALL
+; ==========================
+Func GmailSelectAll()
+	Local $count = Number(InputBox("Gmail Selector", "This will select many emails in HTML mode gmail. How many emails do you want to select?", "99"))
+	MsgBox(64, "Gmail Selector", "After pressing OK, quickly check off the first email in the list.")
+	Local $i = 0
+	Sleep(4000)
+	For $i = 1 To $count
+		Send("{TAB}")
+		Sleep(16)
+		Send("{TAB}")
+		Sleep(16)
+		Send("{SPACE}")
+		Sleep(16)
+	Next
+	MsgBox(64, "Gmail Selector", "DONE!")
+EndFunc
+
+; BITCOIN PRICE STUFF
+; ===================
+Func HttpGet($sURL, $sData = "")
+	Local $oHTTP = ObjCreate("WinHttp.WinHttpRequest.5.1")
+	$oHTTP.Open("GET", $sURL & "?" & $sData, False)
+	If (@error) Then Return SetError(1, 0, 0)
+	$oHTTP.Send()
+	If (@error) Then Return SetError(2, 0, 0)
+	If ($oHTTP.Status <> 200) Then Return SetError(3, 0, 0)
+
+	Return SetError(0, 0, $oHTTP.ResponseText)
+EndFunc
+
+Func GetPrice()
+	Local $thePrice = ""
+	If $currentCoin = "Bitcoin" Then
+		$thePrice = HttpGet("https://api.cryptowat.ch/markets/coinbase-pro/btcusd/price")
+	Else
+		$thePrice = HttpGet("https://api.cryptowat.ch/markets/bitfinex/xmrusd/price")
+	EndIf
+	Local $begining = StringInStr($thePrice, '"price":') + 8
+	Local $ending = StringInStr($thePrice, '},')
+
+	Return Int(StringMid($thePrice, $begining, $ending - $begining))
+EndFunc
+
+Func SwitchCoin()
+	Local $oldCoin = $currentCoin
+	Local $hWndCoin
+	If $currentCoin = "Bitcoin" Then
+		$currentCoin = "Monero"
+	Else
+		$currentCoin = "Bitcoin"
+	EndIf
+	If WinExists($oldCoin & " Price") Then
+		$hWndCoin = WinGetHandle($oldCoin & " Price")
+		WinSetTrans($hWndCoin, "", 48)
+		WinSetTitle($hWndCoin, "", $currentCoin & " Price")
+		Sleep(500)
+		WinSetTrans($hWndCoin, "", 255)
+		ControlSetText($hWndCoin, "", "Static1", ". . .")
+	EndIf
+	ToolTip("Current coin is " & $currentCoin, @DesktopWidth / 2, (@DesktopHeight / 2) - 128, "Coin", 1, 2)
+	Sleep(1750)
+	ToolTip("")
+EndFunc
+
+Func CoinPrice()
+	DispPrice(1, 0)
+EndFunc
+
+Func DollarToCoin()
+	Local $dollars = Number(InputBox("Dollars", "Type in your amount of dollars to convert to " & $currentCoin & ":"))
+	If $dollars > 0 Then DispPrice(0, $dollars)
+EndFunc
+
+Func CoinToDollar()
+	Local $coins = Number(InputBox("Enter Coin", "Type in your amount of " & $currentCoin & ":"))
+	If $coins > 0 Then DispPrice($coins, 0)
+EndFunc
+
+Func DispPrice($coins, $dollars)
+	Local $price = 0.0
+	Local $fontSize = 64
+	If $coins <> 1 Then $fontSize = 48
+	If $dollars = 0 Then
+		$price = GetPrice() * $coins
+	Else
+		$price = Round($dollars / GetPrice(), 6)
+	EndIf
+	ClipPut(String($price))
+	SplashTextOn($currentCoin & " Price", $price, -1, 128, -1, -1, -1, -1, $fontSize, 700)
+	Local $hWnd = WinGetHandle($currentCoin & " Price")
+	_WinAPI_EnableWindow($hWnd, True)
+	Local $nStyle = _WinAPI_GetWindowLong($hWnd, $GWL_STYLE)
+	_WinAPI_SetWindowLong($hWnd, $GWL_STYLE, $nStyle + $WS_SYSMENU)
+	_WinAPI_SetWindowPos($hWnd, Null, 0, 0, 0, 0, $SWP_NOSIZE + $SWP_NOMOVE + $SWP_FRAMECHANGED)
+	While WinExists($hWnd)
+		Sleep(3000)
+		If $dollars = 0 Then
+			ControlSetText($hWnd, "", "Static1", GetPrice() * $coins)
+		Else
+			ControlSetText($hWnd, "", "Static1", Round($dollars / GetPrice(), 6))
+		EndIf
+	WEnd
+	SplashOff()
+EndFunc
+
+; YOUTUBE KEYBOARD CONTROL BUG FIX
+; ================================
+Func YouTube_Keymap()
+	Local $sTitle = WinGetTitle("[active]")
+	If StringInStr($sTitle, $YT_WINDOW, 1) <> 0 Then ; If the youtube window is open and has focus
+		Sleep(150)
+		Send("{ESC}")
+		Sleep(50)
+		MouseClick($MOUSE_CLICK_LEFT, 750, 500, 1, 4)
+		Sleep(250)
+		Send("{SPACE}")
+	Else
+		HotKeySet("{APPSKEY}") ; Unhook the hotkey when outside firefox
+		Send("{APPSKEY}") ; Send the key like normal so windows can process it
+		HotKeySet("{APPSKEY}", "YouTube_Keymap") ; Hook the hotkey again
+	EndIf
+EndFunc
+
+; GOOGLE MAPS REMAP MOUSE CLICK TO X KEY
+; ======================================
+Func MapsXClick()
+	If $mapsToggle = False Then
+		$mapsToggle = True
+		MsgBox(64, "Google Maps Engine", "The X key remap is turned ON.")
+	Else
+		$mapsToggle = False
+		MsgBox(64, "Google Maps Engine", "The X key remap is turned OFF.")
+	EndIf
+EndFunc
+
+Func HoldDownMouse($keyCode)
+	If _IsPressed($keyCode) And $mapsPressed = False Then
+		$mapsPressed = True
+		MouseDown($MOUSE_CLICK_LEFT)
+	EndIf
+	If Not _IsPressed($keyCode) And $mapsPressed = True Then
+		MouseUp($MOUSE_CLICK_LEFT)
+		$mapsPressed = False
+	EndIf
+EndFunc
+
+; KEEP THE WINDOW ON TOP BY PRESSING THE TILDA KEY
+; ================================================
+Func PinWindow()
+	If $toggle = False Then
+		$toggle = True
+		; Retrieve the handle of the active window.
+        Local $hWnd = WinGetHandle("[ACTIVE]")
+        ; Set the active window as being ontop using the handle returned by WinGetHandle.
+        WinSetOnTop($hWnd, "", $WINDOWS_ONTOP)
+	Else
+		$toggle = False
+		; Retrieve the handle of the active window.
+        Local $hWnd = WinGetHandle("[ACTIVE]")
+        ; Set the active window as being ontop using the handle returned by WinGetHandle.
+        WinSetOnTop($hWnd, "", $WINDOWS_NOONTOP)
+	EndIf
+EndFunc
+
+; PREVENT THE MIDDLE MOUSE CLICK FROM BEING GLITCHY AND OPENING MULTIPLE TABS
+; ===========================================================================
+Func _MouseProc($iCode, $iwParam, $ilParam)
+    Static $t = $delay
+    If $iCode < 0 Then Return _WinAPI_CallNextHookEx($hHook, $iCode, $iwParam, $ilParam)
+    Local $info = DllStructCreate($MSLLHOOKSTRUCT, $ilParam)
+    Switch $iwParam
+        Case $WM_MBUTTONDOWN
+			If TimerDiff($t) < $delay Then Return 1  ;<<< disable
+			$t = TimerInit()
+    EndSwitch
+    Return _WinAPI_CallNextHookEx($hHook, $iCode, $iwParam, $ilParam)
+EndFunc
+
+While True
+	If $mapsToggle = True Then HoldDownMouse(58) ;if the X key is pressed - hold down the mouse
+	GUIGetMsg()
+WEnd
