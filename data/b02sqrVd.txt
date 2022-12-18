@@ -1,0 +1,61 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use List::Util  qw(max);
+
+my %valve;
+my %unstuck;
+my %dist;
+
+while (<>) {
+    my ($room, $flow, $lead) = m#^Valve (\w\w) has flow rate=(\d+);.*valves? (.*)#;
+    my @paths = ($lead =~ m#(\w\w)#g);
+
+    $valve{$room} = {flow => $flow, paths => \@paths};
+    $unstuck{$room}++  if ($flow > 0);
+}
+
+# BFS to build symmetric table of distances between interesting points
+foreach my $i ('AA', keys %unstuck) {
+    my %visit;
+    my @queue = ([$i,0]);
+
+    while (my $state = shift @queue) {
+        my ($room, $time) = @$state;
+
+        next if ($visit{$room}++);
+
+        if ($unstuck{$room}) {
+            $dist{$i}{$room} = $time;
+            $dist{$room}{$i} = $time;
+        }
+
+        foreach my $tunnel ($valve{$room}{paths}->@*) {
+            push( @queue, [$tunnel, $time + 1] );
+        }
+    }
+}
+
+# Recursive path finding on the new distance weighted directed graph
+sub recurse_path {
+    my ($room, $time, $left, $total) = @_;
+    my $ret = 0;
+
+    $total += $valve{$room}{flow} * (31 - $time);  # Add pressure released
+
+    return ($total) if (!@$left);                  # No more valves, wait
+
+    my @moves = grep { $time + $dist{$room}{$_} + 1 < 30 } @$left;
+    foreach my $tunnel (@moves) {
+        my @remain = grep { $_ ne $tunnel } @moves;
+        my $turns  = $dist{$room}{$tunnel} + 1;    # Time to move + open valve
+
+        $ret = max ($ret, &recurse_path( $tunnel, $time + $turns, [@remain], $total ));
+    }
+
+    return ($ret);
+}
+
+print "Part 1: ", &recurse_path( 'AA', 1, [keys %unstuck], 0 ), "\n";

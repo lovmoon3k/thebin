@@ -1,0 +1,112 @@
+#!/usr/local/bin/gst -q
+
+Collection extend [
+    apply: method  [ ^self collect: [:x | x perform: method] ]
+]
+
+Object subclass: VolcanicTunnels [
+    | rooms valves dist paths |
+    VolcanicTunnels class >> new: desc [
+        ^super new init: desc
+    ]
+
+    init: desc [
+        rooms := Dictionary new.
+
+        desc do: [:r |
+            rooms at:  r first asSymbol
+                  put: {r second asNumber.
+                        (r third substrings: ', ') asArray apply: #asSymbol}.
+        ].
+
+        " Get set of unstuck valves "
+        valves := (rooms select: [:r | r first > 0]) keys.
+
+        " Build table of distances between unstuck valves "
+        dist := Dictionary new.
+        {#(#AA). valves} join do: [ :start |
+            | visit queue room foo |
+            visit := Set new.
+            queue := OrderedCollection with: {start. 0}.
+
+            [ queue notEmpty ] whileTrue: [
+                room := queue removeFirst.
+                (visit includes: room first) ifFalse: [
+                    visit add: room first.
+
+                    (valves includes: room first) ifTrue: [
+                        dist at: (room first, start) put: room second.
+                        dist at: (start, room first) put: room second.
+                    ].
+
+                    queue addAll: ((((rooms at: room first) second) collect: [ :r |
+                                      {r. room second + 1}
+                                  ])).
+                ]
+            ]
+        ].
+        ^self
+    ]
+
+    " Recursive function to build a table of best pressure for each path "
+    recurseAt: room left: time unopen: left open: open pressure: total [
+        | moves newTotal |
+        newTotal := total + ((rooms at: room) first * time).
+
+        ((paths at: open ifAbsentPut: [newTotal]) < newTotal) ifTrue: [
+            paths at: open put: newTotal.
+        ].
+
+        (left isEmpty) ifTrue: [ ^newTotal ].
+
+        moves := left select: [:r | (time - (dist at: (room, r)) - 1) > 0].
+        moves do: [:tunnel |
+            self recurseAt: tunnel
+                      left: (time - (dist at: (room, tunnel)) - 1)
+                    unopen: (left copy remove: tunnel; yourself)
+                      open: (open copy add: tunnel; yourself)
+                  pressure: newTotal.
+        ]
+    ]
+
+    makePaths: maxTime [
+        paths := Dictionary new.
+        self recurseAt: #AA left: maxTime unopen: valves open: (Set new) pressure: 0.
+        ^paths
+    ]
+
+    maxPressure  [ ^paths values sorted last ]
+]
+
+
+"
+| Mainline
+"
+map := VolcanicTunnels new: (stdin lines contents collect: [:line |
+           (line =~ 'Valve (\w\w) has flow rate=(\d+);.*valves? (.*)') asArray
+       ]).
+
+part1 := map makePaths: 30; maxPressure.
+stdout nextPutAll: ('Part 1: %1' % {part1}); nl; flush.
+
+part2 := 0.
+paths := map makePaths: 26.
+
+" Find the best pairing of paths: "
+routes := (paths keys asArray sorted: [:a :b | (paths at: b) < (paths at: a)]).
+(1 to: routes size - 1) do: [:i |
+    j := i.
+    prune := false.
+    [prune not and: [j <= routes size]] whileTrue: [
+        ri := routes at: i.
+        rj := routes at: j.
+        (ri & rj) isEmpty ifTrue: [
+            sum := (paths at: ri) + (paths at: rj).
+            (sum < part2) ifTrue:  [ prune := true ]
+                          ifFalse: [ part2 := sum  ].
+        ].
+        j := j + 1.
+    ].
+].
+
+('Part 2: %1' % {part2}) displayNl.
