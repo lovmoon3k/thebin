@@ -1,0 +1,82 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use List::Util  qw(max);
+
+my %valve;
+my %unstuck;
+my %dist;
+my %memo;
+
+while (<>) {
+    my ($room, $flow, $lead) = m#^Valve (\w\w) has flow rate=(\d+);.*valves? (.*)#;
+    my @paths = ($lead =~ m#(\w\w)#g);
+
+    $valve{$room} = {flow => $flow, paths => \@paths};
+    $unstuck{$room} = (1 << scalar keys %unstuck)  if ($flow > 0);
+}
+
+# BFS to build symmetric table of distances between interesting points
+foreach my $i ('AA', keys %unstuck) {
+    my %visit;
+    my @queue = ([$i,0]);
+
+    while (my $state = shift @queue) {
+        my ($room, $time) = @$state;
+
+        next if ($visit{$room}++);
+
+        if ($unstuck{$room}) {
+            $dist{$i}{$room} = $time;
+            $dist{$room}{$i} = $time;
+        }
+
+        foreach my $tun ($valve{$room}{paths}->@*) {
+            push( @queue, [$tun, $time + 1] );
+        }
+    }
+}
+
+# Recursive path finding on the new distance weighted directed graph
+sub recurse_path {
+    my ($room, $time, $left, $open, $total) = @_;
+    my $ret = 0;
+
+    $total += $valve{$room}{flow} * (27 - $time);  # Add pressure released for valve
+
+    $memo{$open} = $total  if (!exists $memo{$open} or $memo{$open} < $total);
+
+    return ($total) if (!$left);                   # No more valves, wait
+
+    my @moves = grep { $time + $dist{$room}{$_} + 1 < 26 }
+                grep { $unstuck{$_} & $left } keys %unstuck;
+
+    foreach my $tun (@moves) {
+        my $bit = $unstuck{$tun};
+        my $turns = $dist{$room}{$tun} + 1;        # Time to move + open valve
+
+        $ret = max($ret, &recurse_path($tun, $time + $turns, ($left ^ $bit), ($open | $bit), $total));
+    }
+
+    return ($ret);
+}
+
+my $left_mask = (1 << scalar keys %unstuck) - 1;
+&recurse_path( 'AA', 1, $left_mask, 0, 0 );
+
+my @paths = map { int } sort { $memo{$b} <=> $memo{$a} } keys %memo;
+my $part2 = 0;
+
+PATH:
+for (my $i = 0; $i < $#paths; $i++) {
+    for (my $j = $i; $j <= $#paths; $j++) {
+        next if ($paths[$i] & $paths[$j]);
+        next PATH if ($memo{$paths[$i]} + $memo{$paths[$j]} < $part2);
+
+        $part2 = max( $part2, $memo{$paths[$i]} + $memo{$paths[$j]} );
+    }
+}
+
+print "Part 2: $part2\n";
