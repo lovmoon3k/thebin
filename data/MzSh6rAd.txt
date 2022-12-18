@@ -1,0 +1,183 @@
+
+
+	Declare Sub SEQ_DB_To_File( DB() as SEQ_Database, Filename as string )
+
+	Declare Sub SEQ_DB_From_File( DB() as SEQ_Database, Filename as string )
+
+	Declare Sub SEQ_DB_From_Raw( DB() AS SEQ_Database, Buffer As String )
+
+	Declare Function SEQ_DB_To_Raw( DB() AS SEQ_Database ) As String
+
+	Declare Sub SEQ_Raw_To_File( Buffer As String, Filename As String )
+
+	Declare Function SEQ_Raw_From_File( Filename as string ) As String
+
+	Sub SEQ_DB_To_File( DB() as SEQ_Database, Filename as string )
+
+		Dim As String Buffer
+
+		Buffer = ""
+
+		Buffer = SEQ_DB_To_Raw( DB() )
+
+		SEQ_Raw_To_File( Buffer, Filename )
+
+	end sub
+
+	Sub SEQ_DB_From_File( DB() as SEQ_Database, Filename as string )
+
+		Dim As String Buffer
+
+		Buffer = ""
+
+		Buffer = SEQ_Raw_From_File( Filename )
+
+		SEQ_DB_From_Raw( DB(), Buffer )
+
+	end sub
+
+	Sub SEQ_Raw_To_File( Buffer As String, Filename as string )
+
+		if is_file(Filename) then
+
+			kill Filename
+
+		end if
+
+		dim as long filemode = freefile
+
+		if open(Filename for binary as #filemode) then
+
+			close #filemode
+
+			exit sub
+
+		end if
+
+		put #filemode, lof( filemode ) + 1, Buffer
+
+		close #Filemode
+
+	end sub
+
+	Function SEQ_Raw_From_File( Filename as string ) As String
+
+		dim as long filemode=freefile
+
+		Dim As String Buffer
+		
+		Buffer = ""
+		
+		if is_file(Filename) then
+
+			if open(Filename for binary as #filemode) then
+
+				close #filemode
+				
+				Return Buffer
+
+			end if
+
+			Buffer = String( lof( filemode ), Chr(0) )
+
+			If LOF( filemode ) > 0 Then
+
+				get #filemode, 1, Buffer
+
+			End If
+
+			close #filemode
+
+		end if
+		
+		Return Buffer
+
+	End Function
+
+	Sub SEQ_DB_From_Raw( DB() AS SEQ_Database, Buffer As String )
+
+		Dim As SEQ_Database Intermediary
+
+		Dim As Long Iterator = 0
+			
+		Dim As String SEQ_LineBuffer, SEQ_ReserveBuffer
+		
+		SEQ_LineBuffer = ""
+		
+		SEQ_ReserveBuffer = Buffer
+		
+		Do While Len( SEQ_ReserveBuffer ) > 0
+			
+			SEQ_LineBuffer = Prefix( CRLF, SEQ_ReserveBuffer )
+			
+			SEQ_ReserveBuffer = Suffix( CRLF, SEQ_ReserveBuffer )
+			
+			If Len( SEQ_LineBuffer ) = 0 Then Exit Do
+			
+			With Intermediary
+
+				.Label = Prefix( EQ, SEQ_LineBuffer )
+
+				.Value = Suffix( EQ, SEQ_LineBuffer )
+
+				.Iterator = -1
+
+			End With
+
+			If Len( Intermediary.Label ) > 0 And Len( Intermediary.Value ) > 0 Then
+
+				SEQ_Inc_Capacity( DB(), 1 )
+
+				Iterator = UBound( DB, 1 )
+
+				With DB( Iterator )
+
+					.Label = Intermediary.Label
+
+					.Value = Intermediary.Value
+
+					.Iterator = -1
+
+				End With
+
+			End If
+
+		Loop
+
+		SEQ_Bubble_Sort( DB() )
+
+	End Sub
+
+	Function SEQ_DB_To_Raw( DB() AS SEQ_Database ) As String
+
+		SEQ_Bubble_Sort( DB() )
+
+		Dim As String Buffer
+
+		Buffer = ""
+
+		If LBound( DB, 1 ) = 0 And UBound( DB, 1 ) = -1 Then
+
+			Return Buffer
+
+		End if
+
+		For Iterator As Long = LBound( DB, 1 ) To UBound( DB, 1 ) Step 1
+
+			With DB( Iterator )
+
+				IF Len( .Label ) > 0 and Len( .Value ) > 0 Then
+
+					Buffer = PackText ( Buffer, .Label & EQ & .Value )
+
+				End If
+
+			End With
+
+		Next Iterator
+
+		Return Buffer
+
+	End Function
+
+	
