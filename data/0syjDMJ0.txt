@@ -1,0 +1,333 @@
+
+
+Dim Shared As String SEQ_Out_Buffer
+
+SEQ_Out_Buffer = ""
+
+Dim Shared As Long SEQ_Text_Buffer_Count
+
+SEQ_Text_Buffer_Count = 0
+
+Declare Sub SEQ_Inc_Capacity( DB() As SEQ_Database, Counter As Long = 1 )
+
+Declare Function SEQ_CRLF_Buffer(Buffer As String ) As String
+
+Declare Sub SEQ_Digest_Word( DB() As SEQ_Database, Buffer As String = "" )
+
+declare Sub SEQ_Bubble_Sort( DB() As SEQ_Database )
+
+declare Function SEQ_Binary_Find( DB() As SEQ_Database, Request As string, byref WhereToAdd As Long=0 ) As Long
+
+declare Function SEQ_Database_Query( DB() As SEQ_Database, Request As string ) As SEQ_Database
+
+declare Function SEQ_Database_Set( DB() As SEQ_Database, sName As string, sValue As string ) As Long
+
+declare Function SEQ_Database_Delete( DB() As SEQ_Database, sName As string ) As Long    
+
+Declare Function DB_Query_Int( DB() As SEQ_Database, Request As String = "" ) As Long
+
+#include once "./TPlus22/TPlus22 RGBA Macro.bas"
+
+#include once "./TPlus22/TPlus22 Common Conversions.bas"
+
+#include once "./TPlus22/TPlus22 File Support.bas"
+
+#include once "./TPlus22/TPlus22 String Support.bas"
+
+#include once "./TPlus22/TPlus22 WaitKey.bas"
+
+#include once "./TPlus22/TPlus22 Func Support.bas"
+
+#Include Once "./SEQ22/SEQ22 File IO.bas"
+
+#Include Once "./SEQ22/SEQ22 Poll IO.bas"
+
+#Include Once "./SEQ22/SEQ22 Display IO.bas"
+
+Sub SEQ_Inc_Capacity( DB() As SEQ_Database, Counter As Long = 1 )
+
+	Do While Not ( Counter = 0 )
+		
+		Select Case Counter
+		Case Is > 0
+
+			If LBound( DB, 1 ) = 0 And UBound( DB, 1 ) = -1 Then
+
+				Redim DB( 0 To 0 )
+
+			Else
+
+				Redim Preserve DB( LBound( DB, 1 ) To UBound( DB, 1 ) + 1 )
+
+			End If
+
+			Counter -= 1
+
+		Case Is < 0
+
+			If LBound( DB, 1 ) = 0 And UBound( DB, 1 ) = 0 Then
+
+				Erase DB
+
+				Exit Do
+
+			Else
+
+				Redim Preserve DB( LBound( DB, 1 ) To UBound( DB, 1 ) - 1 )
+
+			End If
+
+			Counter += 1
+		
+		Case 0
+			
+			Exit Do
+			
+		End Select
+
+	Loop
+
+End Sub
+
+Function SEQ_CRLF_Buffer(Buffer As String ) As String
+
+	If Len(Buffer) > 0 Then
+
+		Buffer &= CRLF
+
+	End If
+
+	Return Buffer
+
+End Function
+
+Sub SEQ_Digest_Word( DB() As SEQ_Database, Buffer As String = "" )
+
+	Erase DB
+
+	Do While Len( Buffer ) > 0
+
+		If strpos( CRLF, Buffer ) < strpos( Chr(32), Buffer ) Then
+
+			SEQ_Inc_Capacity( DB(), 1 )
+
+			With DB( UBound( DB, 1 ) )
+
+				.Iterator = -1
+
+				.Label = Hex( UBound( DB, 1 ) + 1 )
+
+				.Value = Prefix( CRLF, Buffer )
+
+			End With
+
+			Buffer = Suffix( CRLF, Buffer )
+
+			SEQ_Inc_Capacity( DB(), 1 )
+
+			With DB( UBound( DB, 1 ) )
+
+				.Iterator = -1
+
+				.Label = Hex( UBound( DB, 1 ) + 1 )
+
+				.Value = "{% CRLF %}"
+
+			End With
+
+		Else
+
+			SEQ_Inc_Capacity( DB(), 1 )
+
+			With DB( UBound( DB, 1 ) )
+
+				.Iterator = -1
+
+				.Label = Hex( UBound( DB, 1 ) + 1 )
+
+				.Value = Prefix( Chr(32), Buffer )
+
+			End With
+
+			Buffer = Suffix( Chr(32), Buffer )
+
+		End If
+
+	Loop
+
+	SEQ_Bubble_Sort( DB() )
+
+	SEQ_DB_To_File( DB(), "./Assets (v0x22)/Words.SEQ" )
+
+End Sub
+
+Sub SEQ_Bubble_Sort( DB() As SEQ_Database )
+
+	'Bubble
+	
+	If ( LBound( DB, 1 ) = 0 ) AndAlso ( ( UBound( DB, 1 ) = -1 ) Or ( UBound( DB, 1 ) = 0 ) ) Then
+		
+		Exit Sub
+		
+	End If
+
+	Do
+
+		Dim As Long Sorted = 0
+
+		For Iterator As Long = LBound( DB, 1 ) To UBound( DB, 1 ) - 1
+
+			If DB( Iterator ).Label > DB( Iterator + 1 ).Label Then
+
+				Swap DB( Iterator ).Iterator, DB( Iterator + 1 ).Iterator
+
+				Swap DB( Iterator ), DB( Iterator + 1 )
+
+				Sorted = 1
+
+			End If
+
+		Next
+
+		If Sorted = 0 Then Exit Do
+
+	Loop
+
+End Sub
+
+Function SEQ_Binary_Find( DB() As SEQ_Database, Request As string, byref WhereToAdd As Long = 0 ) As Long
+
+	'Binary
+
+	Dim As Long Lo = LBound( DB, 1 ), Hi = UBound( DB, 1 )
+
+	If Lo = 0 AndAlso Hi = -1 Then
+
+		WhereToAdd = 0
+		
+		Return -1
+		
+	End If
+
+	While Hi >= Lo
+
+		Dim As Long Md = ( Lo + Hi + 1 ) \ 2
+
+		Dim As Long Result = StrCmp( Request, DB( Md ).Label )
+
+		Select Case Result
+
+		Case 0
+
+			Return Md
+
+		Case Is > 0
+
+			Lo = Md + 1
+
+		Case Else
+
+			Hi = Md - 1
+
+		End Select
+
+	Wend
+
+	WhereToAdd = Lo
+
+	Return -1
+
+End Function
+
+Function SEQ_Database_Query( DB() As SEQ_Database, Request As string ) As SEQ_Database
+
+	Var iIndex = SEQ_Binary_Find( DB(), Request )
+
+	If iIndex >= 0 Then Return DB( iIndex ) Else Return Bogus
+
+End Function
+
+Function SEQ_Database_Set( DB() As SEQ_Database, sName As string, sValue As string ) As Long
+
+	Dim As Long uNewPos = any
+
+	Var iIndex = SEQ_Binary_Find( DB(), sName, uNewPos )    
+
+	If iIndex >= 0 Then 'replace If found
+
+		DB( iIndex ).Value = sValue
+
+		Return iIndex
+
+	End If
+
+	SEQ_Inc_Capacity( DB(), 1 )
+
+	Dim As Long Lo = LBound( DB, 1 ), Hi = UBound( DB, 1 )
+
+	If uNewPos <> ( Hi + 1 ) Then
+
+		MemMove( @DB( uNewPos + 1 ), @DB( uNewPos ), ( ( Hi - uNewPos ) - 1 ) *SizeOf( DB( 0 ) ) )
+
+		MemSet( @DB( uNewPos ), 0, SizeOf( DB( 0 ) ) )
+
+	End If
+
+	With DB( uNewPos )
+
+		.Iterator = -1
+
+		.Label = sName
+
+		.Value = sValue
+
+	End With
+
+	Return uNewPos    
+
+End Function
+
+Function SEQ_Database_Delete( DB() As SEQ_Database, sName As string ) As Long    
+
+	Var iIndex = SEQ_Binary_Find( DB(), sName )
+	
+	If iIndex < 0 Then Return iIndex 'failed
+
+	With DB( iIndex )
+
+		'clean strings before delete!!
+
+		.Label = ""
+		.Value = ""
+
+	End With
+
+	Var Lo = LBound( DB ), Hi = UBound( DB )
+
+	MemMove( @DB( iIndex ), @DB( iIndex + 1 ), ( ( Hi - iIndex ) ) *SizeOf( DB( 0 ) ) )
+
+	MemSet( @DB( Hi ), 0, SizeOf( DB( 0 ) ) )
+
+	Lo = LBound( DB, 1 )
+
+	Hi = UBound( DB, 1 )
+
+	SEQ_Inc_Capacity( DB(), -1 )
+ 
+	Return iIndex
+
+End Function
+
+#IfDef __SEQ22_Demo__
+
+	#Include Once "./SEQ22/SEQ22 Demo.bas"
+
+	#Include Once "./TPlus22/TPlus22 Func Support.bas"
+
+#EndIf
+
+Function DB_Query_Int( DB() As SEQ_Database, Request As String = "" ) As Long
+
+	Return ValInt( SEQ_Database_Query( DB(), Request ).Value )
+
+End Function
