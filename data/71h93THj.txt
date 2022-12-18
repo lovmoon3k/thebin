@@ -1,0 +1,97 @@
+use std::env;
+use std::io::{self, prelude::*, BufReader};
+use std::fs::File;
+use std::collections::HashMap;
+
+use point3d::point3d::Point3D;
+
+#[derive(Eq,PartialEq)]
+enum Voxel {
+    Lava,
+    Air,
+}
+
+fn neighbors(pt: &Point3D) -> Vec<Point3D> {
+    vec![
+        Point3D { x: pt.x+1, y: pt.y  , z: pt.z   },
+        Point3D { x: pt.x-1, y: pt.y  , z: pt.z   },
+        Point3D { x: pt.x  , y: pt.y+1, z: pt.z   },
+        Point3D { x: pt.x  , y: pt.y-1, z: pt.z   },
+        Point3D { x: pt.x  , y: pt.y  , z: pt.z+1 },
+        Point3D { x: pt.x  , y: pt.y  , z: pt.z-1 },
+    ]
+}
+
+fn coords_voxel(s: &str) -> (Point3D,Voxel) {
+    let coords: Vec<_> = s.split(",").collect();
+    let (x,y,z) = (coords[0].parse().unwrap(), coords[1].parse().unwrap(), coords[2].parse().unwrap());
+    (Point3D { x: x, y: y, z: z }, Voxel::Lava)
+}
+
+fn flood_fill(pt: &Point3D, map: &mut HashMap<Point3D,Voxel>, xrange: (i64,i64), yrange: (i64,i64), zrange: (i64,i64)) {
+    let (xmin,xmax) = xrange;
+    let (ymin,ymax) = yrange;
+    let (zmin,zmax) = zrange;
+    if pt.x == xmin || pt.x == xmax || pt.y == ymin || pt.y == ymax || pt.z == zmin || pt.z == zmax { return }
+    match &map.get(&pt) {
+        Some(Voxel::Lava) | Some(Voxel::Air) => return,
+        _ => &map.insert(*pt,Voxel::Air),
+    };
+    flood_fill(&Point3D { x: pt.x + 1, y: pt.y    , z: pt.z    }, map, xrange, yrange, zrange);
+    flood_fill(&Point3D { x: pt.x - 1, y: pt.y    , z: pt.z    }, map, xrange, yrange, zrange);
+    flood_fill(&Point3D { x: pt.x    , y: pt.y + 1, z: pt.z    }, map, xrange, yrange, zrange);
+    flood_fill(&Point3D { x: pt.x    , y: pt.y - 1, z: pt.z    }, map, xrange, yrange, zrange);
+    flood_fill(&Point3D { x: pt.x    , y: pt.y    , z: pt.z + 1}, map, xrange, yrange, zrange);
+    flood_fill(&Point3D { x: pt.x    , y: pt.y    , z: pt.z - 1}, map, xrange, yrange, zrange);
+}
+
+fn solve(input: &str) -> io::Result<()> {
+    let file = File::open(input).expect("Input file not found.");
+    let reader = BufReader::new(file);
+
+    // Input
+    let input: Vec<String> = match reader.lines().collect() {
+        Err(err) => panic!("Unknown error reading input: {}", err),
+        Ok(result) => result,
+    };
+
+    // Build map
+    let mut voxels: HashMap<Point3D,Voxel> = input.iter().map(|s| coords_voxel(s)).collect();
+
+    // Part 1
+    let part1 = &voxels.len()*6 
+              - &voxels.iter().map(|(pt,_)| {
+                    neighbors(&pt).iter().map(|n| match &voxels.get(&n) {
+                        Some(_) => 1, None => 0,
+                    }).sum::<usize>()
+              }).sum::<usize>();
+    println!("Part 1: {part1}"); // 3610
+
+    // Determine maximum extents
+    let (xmin,xmax) = (&voxels.keys().map(|pt| pt.x).min().unwrap() - 2, &voxels.keys().map(|pt| pt.x).max().unwrap() + 2);
+    let (ymin,ymax) = (&voxels.keys().map(|pt| pt.y).min().unwrap() - 2, &voxels.keys().map(|pt| pt.y).max().unwrap() + 2);
+    let (zmin,zmax) = (&voxels.keys().map(|pt| pt.z).min().unwrap() - 2, &voxels.keys().map(|pt| pt.z).max().unwrap() + 2);
+
+    // Flood the outer area with air
+    flood_fill(&Point3D { x: xmin+1, y: ymin+1, z: zmin+1 },&mut voxels, (xmin,xmax), (ymin,ymax), (zmin,zmax));
+
+    // Calculate surface area
+    let part2 = &voxels
+        .iter()
+        .filter(|(_,v)| **v == Voxel::Lava)
+        .map(|(pt,_)| {
+            neighbors(&pt).iter().map(|n| match &voxels.get(&n) {
+                Some(Voxel::Air) => 1, _ => 0,
+            }).sum::<usize>()
+        }).sum::<usize>();
+    println!("Part 2: {part2}"); // 2082
+
+
+    Ok(())
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    let filename = &args[1];
+    solve(&filename).unwrap();
+}
