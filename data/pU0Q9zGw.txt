@@ -1,0 +1,58 @@
+#include <iostream>
+
+
+class TestConfig {
+public:
+    constexpr static uint32_t ITERATIONS = 5;
+    constexpr static size_t CACHE_SIZE_BYTE = 11 * 1024 * 1024;
+    constexpr static size_t OFFSET_BYTE = 16 * 1024 * 1024;
+    constexpr static size_t TESTER_ARRAY_SIZE = 200000000;
+};
+
+class Tester {
+public:
+    static void runTest(uint32_t minFragments, uint32_t maxFragments) {
+        auto array = new uint32_t[TestConfig::TESTER_ARRAY_SIZE];
+        for (uint32_t i = minFragments; i < maxFragments; ++i) {
+            initArray(array, i, TestConfig::OFFSET_BYTE / sizeof(uint32_t), TestConfig::CACHE_SIZE_BYTE / i);
+            std::cout << "Fragments: " << i << " "
+                      << " Ticks: " << run(array) / (TestConfig::ITERATIONS * TestConfig::TESTER_ARRAY_SIZE) << std::endl;
+        }
+        delete[] array;
+    }
+
+private:
+    static inline uint64_t rdtsc() {
+        unsigned int lo, hi;
+        asm volatile("rdtsc\n"
+                     : "=a"(lo), "=d"(hi)::"memory");
+        return ((uint64_t) hi << 32) | lo;
+    }
+
+    static void initArray(uint32_t *array, uint32_t fragments, size_t offset, size_t size) {
+        for (size_t i = 0; i < size; ++i) {
+            for (size_t j = 0; j <= fragments; ++j) {
+                array[i + ((j - 1) % fragments) * offset] = i + (j % fragments) * offset;
+            }
+        }
+    }
+
+    static uint64_t run(uint32_t *array) {
+        volatile uint64_t t1 = 0;
+        volatile uint64_t t2 = 0;
+        volatile uint32_t k = 0;
+
+        t1 = rdtsc();
+        for (size_t i = 0; i < TestConfig::ITERATIONS * TestConfig::TESTER_ARRAY_SIZE; ++i) {
+            k = array[k];
+        }
+        t2 = rdtsc();
+
+        return t2 - t1;
+    }
+};
+
+int main() {
+    Tester::runTest(1, 33);
+    return 0;
+}
