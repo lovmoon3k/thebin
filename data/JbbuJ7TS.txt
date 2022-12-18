@@ -1,0 +1,108 @@
+    // Due to no product match - there is a problem, we have to attempt to match to bottles in db. This 
+    // must be done in steps:
+    //   1. Find possible matches
+    //   2. Attempt to find full match (new product name in tokens must contain ALL tokens in DB bottle)
+    //
+    // If such match is found, we can't be sure it is certain, therefore so such product must be 
+    // hand-checked
+
+    // Tokenize input
+    $tokens = explode(' ', $record->name);
+
+    // Filter out volume and alcohol volume
+    $tokens = array_filter($tokens, static function ($element) {
+        if (strlen(trim($element)) < 1)
+        {
+            return false;
+        }
+
+        if (strpos($element, "%") !== false && 
+            (strpos($element, "0") !== false || 
+            strpos($element, "1") !== false || 
+            strpos($element, "2") !== false || 
+            strpos($element, "3") !== false || 
+            strpos($element, "4") !== false || 
+            strpos($element, "5") !== false || 
+            strpos($element, "6") !== false || 
+            strpos($element, "7") !== false || 
+            strpos($element, "8") !== false || 
+            strpos($element, "9") !== false))
+        {
+            return false;
+        }
+
+        if ((strpos($element, "l") !== false || strpos($element, "m")) &&
+            (strpos($element, "0") !== false || 
+            strpos($element, "1") !== false || 
+            strpos($element, "2") !== false || 
+            strpos($element, "3") !== false || 
+            strpos($element, "4") !== false || 
+            strpos($element, "5") !== false || 
+            strpos($element, "6") !== false || 
+            strpos($element, "7") !== false || 
+            strpos($element, "8") !== false || 
+            strpos($element, "9") !== false))
+        {
+            return false;
+        }
+
+        return true;
+    });
+
+    // Sort by length decreasing
+    usort($tokens, function($a, $b)
+    {
+        return strlen($b) - strlen($a);
+    });
+
+    // Loop through tokens
+    for ($j = 0; $j < count($tokens); $j++)
+    {
+        // For each try to find ALL candidate bottle records, from longest name
+        $query = "SELECT * FROM bottle WHERE LOWER(name) LIKE LOWER('" . $db->EscapeString($tokens[$j]) . "')";
+        if (isset($record->size))
+        {
+            $query .= " AND size = '" . $db->EscapeString($size) . "'";
+        }
+        $query .= " ORDER BY name DESC ";
+
+        $result = $db->Query($query);
+        if ($result == false)
+        {
+            continue;
+        }
+        else
+        {
+            // In case of such records, attempt to do insensitive tokenized compare of record name against candidate name,
+            // this requires record name to have all tokens candidate name has (but can have more - like L.E., 45%, etc.)
+            $numRows = $db->GetRowsCount($result);
+
+            for ($k = 0; $k < $numRows; $k++)
+            {
+                $row = $db->GetRow($result, $k);
+
+                $candidateId = $row['id'];
+                $candidateName = $row['name'];
+
+                if (StringUtil::InsensitiveTokenizedCompare($candidateName, $record->name) == true)
+                {
+                    // We have a match, store bottle and break out
+                    $bottleId = $candidateId;
+                    break;
+                }
+            }
+        }
+
+        // In case of any match, break the loop
+        if ($bottleId > 0)
+        {
+            break;
+        }
+    }
+
+    // In case we don't find any match, create a new bottle
+    if ($bottleId == 0 && $record->auction == 0)
+    {
+        $bottle->bottler_id = 0;
+        $bottleId = $bottle->Create();
+    }

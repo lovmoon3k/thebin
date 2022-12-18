@@ -1,0 +1,100 @@
+#!/usr/local/bin/gst -q
+
+Integer extend [
+    " Does number % N, but returns residue on interval of 1 to N, not 0 to N-1. "
+    %% modulus [ ^self - 1 \\ modulus + 1 ]
+]
+
+Object subclass: MoveStream [
+    | buff idx |
+
+    dirs := Dictionary from: {$> -> (1 @ 0). $< -> (-1 @ 0)}.
+
+    MoveStream class >> new: input [ ^super new init: input ]
+
+    init: input  [ buff := input. idx := 0. ^self ]
+    next         [ ^dirs at: (buff at: (idx := (idx + 1) %% buff size)) ]
+]
+
+Object subclass: BlockStream [
+    | idx |
+    blocks := {{0@0. 1@0. 2@0. 3@0}.
+               {1@0. 0@1. 1@1. 2@1. 1@2}.
+               {0@0. 1@0. 2@0. 2@1. 2@2}.
+               {0@0. 0@1. 0@2. 0@3}.
+               {0@0. 1@0. 0@1. 1@1}}.
+
+    BlockStream class >> new [ ^super new init ]
+
+    init  [ idx := 0. ^self ]
+
+    nextPos: pos [
+        idx := (idx + 1) %% blocks size.
+        ^(blocks at: idx) collect: [:sq | sq + pos].
+    ]
+]
+
+Object subclass: Shaft [
+    | grid maxHeight top |
+
+    Shaft class >> new: height [ ^super new init: height ]
+
+    init: height [
+        grid := Array new: (height * 7) withAll: $..
+        top := 0.
+        ^self
+    ]
+
+    top  [ ^top ]
+
+    at: pt  [ ^grid at: (pt y - 1) * 7 + pt x ]
+    at: pt put: chr [
+        top := top max: pt y.
+        ^grid at: (pt y - 1) * 7 + pt x put: chr
+    ]
+
+    printOn: aStream [
+        (top to: 1 by: -1) do: [:y |
+            aStream nextPut: $|.
+            (1 to: 7) do: [:x |
+                aStream nextPut: (self at: x @ y).
+            ].
+            aStream nextPut: $|; nl.
+        ].
+        aStream nextPutAll: '+-------+'; nl.
+    ]
+]
+
+"
+| Mainline
+"
+input  := MoveStream  new: stdin nextLine.
+blocks := BlockStream new.
+shaft  := Shaft new: 10000.
+
+2022 timesRepeat: [
+    dropped := true.
+
+    " Get next block "
+    block := blocks nextPos: 3 @ (shaft top + 4).
+
+    [ dropped ] whileTrue: [
+        " Try shifting byh move "
+        move := input next.
+        try := block collect: [:pt | pt + move].
+        (try conform: [:pt | (pt x between: 1 and: 7) and: [(shaft at: pt) = $.]]) ifTrue: [
+            block := try.
+        ].
+
+        " Try dropping down "
+        try := block collect: [:pt | pt + (0 @ -1)].
+        (dropped := try conform: [:pt | (pt y > 0) and: [(shaft at: pt) = $.]]) ifTrue: [
+            block := try.
+        ].
+    ].
+
+    " Place block "
+    block do: [:pt | shaft at: pt put: $#].
+].
+
+('Part 1: %1' % {shaft top}) displayNl.

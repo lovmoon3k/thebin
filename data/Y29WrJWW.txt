@@ -1,0 +1,150 @@
+#!/usr/local/bin/gst -q
+
+Integer extend [
+    " Does number % N, but returns residue on interval of 1 to N, not 0 to N-1. "
+    %% modulus [ ^self - 1 \\ modulus + 1 ]
+]
+
+Object subclass: MoveStream [
+    | buff idx |
+
+    dirs := Dictionary from: {$> -> (1 @ 0). $< -> (-1 @ 0)}.
+
+    MoveStream class >> new: input [ ^super new init: input ]
+
+    init: input  [ buff := input. idx := 0. ^self ]
+    index        [ ^idx ]
+    next         [ ^dirs at: (buff at: (idx := (idx + 1) %% buff size)) ]
+]
+
+Object subclass: BlockStream [
+    | idx |
+    blocks := {{0@0. 1@0. 2@0. 3@0}.
+               {1@0. 0@1. 1@1. 2@1. 1@2}.
+               {0@0. 1@0. 2@0. 2@1. 2@2}.
+               {0@0. 0@1. 0@2. 0@3}.
+               {0@0. 1@0. 0@1. 1@1}}.
+
+    BlockStream class >> new [ ^super new init ]
+
+    init    [ idx := 0. ^self ]
+    index   [ ^idx ]
+
+    nextPos: pos [
+        idx := (idx + 1) %% blocks size.
+        ^(blocks at: idx) collect: [:sq | sq + pos].
+    ]
+]
+
+Object subclass: Shaft [
+    | grid top height |
+
+    Shaft class >> new: max [ ^super new init: max ]
+
+    init: max [
+        grid   := Array new: max withAll: 0.
+        height := Array new: max.
+        top    := 0.
+        ^self
+    ]
+
+    top  [ ^top ]
+
+    recordHeight: rock [ ^height at: rock put: top ]
+    heightAt: rock     [ ^height at: rock          ]
+
+    at: pt [
+        ^(grid at: pt y) bitAnd: (1 bitShift: pt x).
+    ]
+
+    mark: pt [
+        top := top max: pt y.
+        ^grid at: pt y put: ((grid at: pt y) bitOr: (1 bitShift: pt x))
+    ]
+
+    hashString [
+        | ret mask row |
+        ret  := String new.
+
+        mask := 0.
+        row  := top.
+        [row > 0 and: [mask < 127]] whileTrue: [
+            | curr |
+            curr := grid at: row.
+            ret  := ret, curr asCharacter asString.
+            mask := mask bitOr: curr.
+            row  := row - 1.
+        ].
+        ^ret
+    ]
+
+    printOn: aStream [
+        (top to: 1 by: -1) do: [:y |
+            aStream nextPut: $|.
+            (0 to: 6) do: [:x |
+                aStream nextPut: ((self at: x @ y) ~= 0 ifTrue:  [$#]
+                                                        ifFalse: [$.]).
+            ].
+            aStream nextPut: $|; nl.
+        ].
+        aStream nextPutAll: '+-------+'; nl.
+    ]
+]
+
+"
+| Mainline
+"
+Eval [
+    num_rocks := 1_000_000_000_000.
+
+    input  := MoveStream  new: stdin nextLine.
+    blocks := BlockStream new.
+    shaft  := Shaft new: 1_000_000.  " Should repeat well before this "
+    hash   := Dictionary new.
+
+    rock := 0.
+    num_rocks timesRepeat: [         " again, should stop well before this "
+        dropped := true.
+
+        " Get next block "
+        rock  := rock + 1.
+        block := blocks nextPos: 2 @ (shaft top + 4).
+
+        [ dropped ] whileTrue: [
+            " Try shifting byh move "
+            move := input next.
+            try := block collect: [:pt | pt + move].
+            (try conform: [:pt | (pt x between: 0 and: 6) and: [(shaft at: pt) = 0]]) ifTrue: [
+                block := try.
+            ].
+
+            " Try dropping down "
+            try := block collect: [:pt | pt + (0 @ -1)].
+            (dropped := try conform: [:pt | (pt y > 0) and: [(shaft at: pt) = 0]]) ifTrue: [
+                block := try.
+            ].
+        ].
+
+        " Place block "
+        block do: [:pt | shaft mark: pt].
+        shaft recordHeight: rock.
+
+        " key is input&block pos, as well as top of shaft up until full width covered "
+        key := input index asString, ':', blocks index asString, ':', shaft hashString.
+        (hash includesKey: key) ifFalse: [
+            hash at: key put: {rock. shaft top}.
+        ] ifTrue: [
+            " Found loop: "
+            prev := hash at: key.
+
+            lenCycle    := rock - prev first.
+            heightDelta := shaft top - prev second.
+
+            numCycles := (num_rocks - rock) // lenCycle.
+            modCycle  := (num_rocks - rock) \\ lenCycle.
+
+            extra := (shaft heightAt: (prev first + modCycle)) - prev second.
+            ^('Part 2: %1' % {shaft top + (numCycles * heightDelta) + extra}) displayNl.
+        ]
+    ]
+]
