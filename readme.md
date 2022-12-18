@@ -1,11 +1,7 @@
-[**r45NKWZj**](/data/r45NKWZj.txt) (18/12/22 - 23:10)- 65834 bytes
+[**nQuuvsgj**](/data/nQuuvsgj.txt) (18/12/22 - 23:22)- 533 bytes
 
-[**r45NKWZj**](/data/r45NKWZj.txt) (18/12/22 - 23:10)- 65834 bytes
+[**nQuuvsgj**](/data/nQuuvsgj.txt) (18/12/22 - 23:22)- 533 bytes
 
-[**DW2qyUG4**](/data/DW2qyUG4.txt) (18/12/22 - 23:10)- 562 bytes
-
-[**DW2qyUG4**](/data/DW2qyUG4.txt) (18/12/22 - 23:10)- 562 bytes
-
-**Total Datas**: 596
+**Total Datas**: 597
 
 **Total Size**: 4.04 MB / 4.0 MB
