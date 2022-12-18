@@ -1,0 +1,66 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use List::AllUtils  qw(minmax pairwise all);
+
+my @dirs = ([1,0,0], [-1,0,0], [0,1,0], [0,-1,0], [0,0,1], [0,0,-1]);
+
+sub vec_sum ($$) {
+    my ($v, $w) = @_;
+    return ([pairwise {$a + $b} @$v, @$w]);
+}
+
+sub to_key ($) {
+    my $pos = shift;
+    return (join($;, @$pos));
+}
+
+sub get_surface {
+    my %seen;
+    my $surface = 0;
+
+    foreach my $cell (@_) {
+        $seen{ to_key $cell }++;
+        $surface += 6;
+
+        foreach my $d (@dirs) {
+            my $np = vec_sum( $cell, $d );
+            $surface -= 2 if (exists $seen{ to_key $np });
+        }
+    }
+
+    return ($surface);
+}
+
+my @cells = map { [m#(\d+)#g] } <>;
+print "Part 1: ", &get_surface( @cells ), "\n";
+
+my %droplet = map { to_key($_) => 1 } @cells;
+
+# Get bounding box:
+my ($min, $max) = vec_sum( [minmax map { @$_ } @cells], [-1,1] )->@*;
+
+# BFS the world outside the droplet (but inside the bounds)
+my @queue = ([$min, $min, $min]);
+my %encase;
+
+while (my $pos = shift @queue) {
+    next if ($encase{ to_key $pos }++);
+
+    foreach my $d (@dirs) {
+        my $np = vec_sum( $pos, $d );
+        next if ($droplet{ to_key $np });
+
+        if (all {$min <= $_ <= $max} @$np) {
+            push( @queue, $np );
+        }
+    }
+}
+
+# Get the full encasing surface, then minus the world facing side
+my $encase_surface = &get_surface( map { [split($;, $_)] } keys %encase );
+my $outer_surface  = 6 * (($max - $min + 1) ** 2);
+
+print "Part 2: ", $encase_surface - $outer_surface, "\n";
