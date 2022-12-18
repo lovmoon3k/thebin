@@ -1,0 +1,186 @@
+--1 Pickaxe, 2 Diamondpickaxe, turtle.turtl
+p=peripheral.wrap("left")
+s=peripheral.wrap("right")
+maxDmg=249
+whitelist="ic2:rubber_wood/10ic2:rubber_wood/9ic2:rubber_wood/8ic2:rubber_wood/7"
+--10=east
+--9=west
+--8=south
+--7=north
+blocks={}
+nesw={"north","east","south","west"}
+neswNum={}
+neswNum["north"]=1
+neswNum["east"]=2
+neswNum["south"]=3
+neswNum["west"]=4
+sapFace={}
+sapFace[7]="south"
+sapFace[8]="north"
+sapFace[9]="east"
+sapFace[10]="west"
+neiCoords={{x=1,y=0,z=0},{x=-1,y=0,z=0},{x=0,y=1,z=0},{x=0,y=-1,z=0},{x=0,y=0,z=1},{x=0,y=0,z=-1}}
+neswChart={north={north=0,east=1,south=2,west=3},east={north=3,east=0,south=1,west=2},south={north=2,east=3,south=0,west=1},west={north=1,east=2,south=3,west=0}}
+function fingerprint(block)
+    return block.name.."/"..block.metadata
+end
+
+function equip(slot)
+if turtle.getSelectedSlot()~=slot then
+    turtle.select(slot)
+end
+turtle.equipLeft()
+end
+
+function sDig()
+    while turtle.detectUp() do
+        turtle.digUp()
+    end
+    while turtle.detect() do
+        --p.swing()
+        turtle.dig()
+    end
+    while turtle.detectDown() do
+        turtle.digDown()
+    end
+end
+
+function sDigUp()
+    if turtle.getItemDetail(1) ~=nil then
+        if turtle.getItemDetail(1).damage < maxDmg and string.find(turtle.getItemDetail(1).name,"pickaxe") then
+            while turtle.detectUp() do
+                p.swing()
+            end
+        end
+    end
+end
+
+function getDistance(b)
+    return math.pow(posify(b.x)+posify(b.y)+posify(b.z),0.5)
+end
+
+function sort(a,b)
+    return getDistance(a)<getDistance(b)
+end
+
+function posify(val)
+    return math.sqrt(val*val)
+end
+
+function getFacing()
+    rotate={x=1,z=1}
+    blocks=s.scan()
+    facing=blocks[#blocks/2+0.5].state.facing
+    if facing=="south" then rotate.z=-1 end
+    if facing=="west" then rotate.x=-1 end
+    return rotate, facing
+end
+
+function getOres()
+    blocks=s.scan()
+    ores={}
+    for i=1,#blocks do
+        if string.find(whitelist,fingerprint(blocks[i]))~=nil then
+            table.insert(ores,blocks[i])
+        end
+    end
+    table.sort(ores,sort)
+    print(fingerprint(ores[1]))
+    return ores
+end
+
+function goToBlock(block)
+    path=""
+    r = getFacing()
+    if block.y~=0 then
+        if block.y>0 then
+            path=path..string.rep("ju",block.y)
+        end
+        if block.y<0 then
+            path=path..string.rep("gd",posify(block.y))
+        end
+    end
+    executeDrive(path)
+    sTurn(sapFace[block.meta])
+end
+
+function sTurn(val)
+    if val==1 or val=="right" then
+        turtle.turnRight()
+    end
+    if val==2 or val=="back" then
+        turtle.turnLeft()
+        turtle.turnLeft()
+    end
+    if val==3 or val=="left" then
+        turtle.turnLeft()
+    end
+    if val=="north" or val=="east" or val=="south" or val=="west" then
+        getFacing()
+        sTurn(neswChart[facing][val])
+    end
+end
+
+function executeDrive(path)
+    print(path)
+    for ip=1,#path do
+        lts=string.sub(path,ip,ip)
+        if lts=="f" then turtle.forward() end
+        if lts=="u" then turtle.up() end
+        if lts=="d" then turtle.down() end
+        if lts=="b" then sForward(-1) end
+        if lts=="r" then sTurn(1) end
+        if lts=="l" then sTurn(3) end
+        if lts=="n" then sTurn("north") end
+        if lts=="s" then sTurn("south") end
+        if lts=="e" then sTurn("east") end
+        if lts=="w" then sTurn("west") end
+        if lts=="k" then turtle.dig() end
+        if lts=="j" then turtle.digUp() end
+        if lts=="g" then turtle.digDown() end
+        if lts=="p" then
+            while turtle.placeDown()==false do
+                sleep(waitDelay)
+            end
+        end
+    end
+end
+
+function dump()
+    if turtle.getItemCount(16)>0 then
+        turtle.select(1)
+        turtle.placeUp()
+        for ic=2,16 do
+            turtle.select(ic)
+            turtle.dropUp()
+        end
+        turtle.select(1)
+        turtle.digDown()
+    end
+end
+
+function getNeighbors(block,blocks)
+    nei={}
+    for i=1,#blocks do
+        if blocks[i].name=="minecraft:air" then
+            if blocks[i].x==neiCoords[1].x and blocks[i].y==neiCoords[1].y and blocks[i].z==neiCoords[1].z or blocks[i].x==neiCoords[2].x and blocks[i].y==neiCoords[2].y and blocks[i].z==neiCoords[2].z or blocks[i].x==neiCoords[3].x and blocks[i].y==neiCoords[3].y and blocks[i].z==neiCoords[3].z or blocks[i].x==neiCoords[4].x and blocks[i].y==neiCoords[4].y and blocks[i].z==neiCoords[4].z or blocks[i].x==neiCoords[5].x and blocks[i].y==neiCoords[5].y and blocks[i].z==neiCoords[5].z or blocks[i].x==neiCoords[6].x and blocks[i].y==neiCoords[6].y and blocks[i].z==neiCoords[6].z then
+                table.insert(nei,blocks[i])
+            end
+        end
+        
+    end
+end
+
+function mineStuff()
+    while #getOres()>0 do
+        ores=getOres()
+        if #ores>0 then
+            goToBlock(ores[1])
+            s.use()
+        else
+            sleep(1)
+        end
+    end
+end
+--debug
+mineStuff()
