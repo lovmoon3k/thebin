@@ -1,0 +1,389 @@
+Main: 
+
+namespace Object_Sorter
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            if (args.Length == 0)
+            {
+                Console.WriteLine("Please pass the required parameters to the program.");
+                Console.WriteLine("If sorting vehicles, pass the path to the source file as the first parameter.");
+                Console.WriteLine("If restoring objects, pass the path to the save file as the first parameter and '/restore' as the second parameter.");
+            }
+            else if (args.Length == 1)
+            {
+                Console.WriteLine("Reading data from source file: " + args[0]);
+
+                // Read the data from the input file
+                string[] lines = File.ReadAllLines(args[0]);
+
+                // Create a list to store all the objects
+                List<object> objects = new List<object>();
+
+                // Iterate through the lines and create appropriate objects
+                foreach (string line in lines)
+                {
+                    string[] parts = line.Split(';');
+
+                    if (parts[0] == "motorcycle")
+                    {
+
+                        // Create a motorcycle object using the parts of the line
+                        Motorcycle motorcycle = new Motorcycle(parts[1], parts[2]);
+                        objects.Add(motorcycle);
+                    }
+                    else if (parts[0] == "truck")
+                    {
+                        // Create a truck object using the parts of the line
+                        Truck truck = new Truck(parts[1], int.Parse(parts[2]));
+                        objects.Add(truck);
+                    } 
+                    else if (parts[0] == "sportcar")
+                    {
+                        //create a sportcar object using the parts of the line
+                        Sportcar sportcar = new Sportcar(parts[1], Convert.ToBoolean(parts[2]));
+                    }
+                    else
+                    {
+                        Console.WriteLine("Unknown vehicle type: " + parts[0]);
+                    }
+                }
+
+                // Sort the list of objects or perform some other action with them
+                // You can use the LINQ OrderBy method to sort the list, for example:
+                // objects = objects.OrderBy(o => o.Make).ToList();
+            }
+            else if (args.Length == 2 && args[1] == "/restore")
+            {
+                Console.WriteLine("Restoring objects from save file: " + args[0]);
+                // Implement restore logic here
+            }
+            else
+            {
+                Console.WriteLine("Unknown parameter(s) passed to the program.");
+            }
+        }
+    }
+}
+
+Engine.cs: 
+
+namespace Object_Sorter
+{
+    public enum EngineType
+    {
+        Petrol,
+        Diesel,
+        Electro
+    }
+
+    public class Engine
+    {
+        public int EnginePower { get; set; }
+
+        // Property to hold the type of the engine
+        public EngineType EngineType { get; set; }
+
+        // Constructor to create an Engine object
+        public Engine(int enginePow, string engineType)
+        {
+            // Set the power of the engine
+            EnginePower = enginePow;
+
+            // Set the type of the engine using the provided string value
+            EngineType = (EngineType)Enum.Parse(typeof(EngineType), engineType);
+        }
+        public void PrintInfo()
+        {
+            Console.WriteLine("Engine information:");
+            Console.WriteLine($" - Engine power: {this.EnginePower}");
+            Console.WriteLine($" - Engine type: {this.EngineType}");
+        }
+    }
+
+    public interface IEngineSwappable
+    {
+        bool SwapEngine(Engine engine);
+    }
+  
+}
+
+Vehicle.cs: 
+
+namespace Object_Sorter
+{
+    public abstract class Vehicle : IEngineSwappable
+    {
+        protected bool IsEngineSwapAllowed { get; set; }
+
+        public Engine Engine { get; protected set; }
+
+        protected Vehicle(Engine engine)
+        {
+            Engine = engine;
+        }
+
+        public abstract bool SwapEngine(Engine engine);
+
+        protected void SetEngine(Engine engine)
+        {
+            if (!IsEngineSwapAllowed)
+            {
+                throw new EngineSwapForbiddenException();
+            }
+
+            Engine = engine;
+        }
+    }
+
+    
+}
+
+SingleEngineVehicle.cs: 
+
+namespace Object_Sorter
+{
+    public abstract class SingleEngineVehicle : Vehicle
+    {
+        public SingleEngineVehicle(Engine engine) : base(engine)
+        {
+        }
+
+        public override bool SwapEngine(Engine engine)
+        {
+            if (engine.EngineType != Engine.EngineType)
+            {
+                Console.WriteLine("Warning: Cannot swap engine because the new engine has a different type.");
+                return false;
+            }
+
+            IsEngineSwapAllowed = true;
+            SetEngine(engine);
+            IsEngineSwapAllowed = false;
+            Console.WriteLine("Engine successfully swapped.");
+            return true;
+        }
+    }
+}
+
+EngineSwapForbiddenException.cs:
+
+namespace Object_Sorter
+{
+    public class EngineSwapForbiddenException : Exception
+    {
+        public EngineSwapForbiddenException() : base("Engine swap is forbidden.")
+        {
+        }
+    }
+}
+
+DualEngineVehicle.cs:
+
+namespace Object_Sorter
+{
+    public abstract class DualEngineVehicle : Vehicle
+    {
+        public Engine EngineAdditional { get; protected set; }
+
+        public DualEngineVehicle(Engine engine, Engine engineAdditional) : base(engine)
+        {
+            if (engine.EngineType == engineAdditional.EngineType)
+            {
+                throw new DualEngineTypeException(engine.EngineType, engineAdditional.EngineType);
+            }
+
+            EngineAdditional = engineAdditional;
+        }
+
+
+        public override bool SwapEngine(Engine engine)
+        {
+            if (engine.EngineType == Engine.EngineType)
+            {
+                IsEngineSwapAllowed = true;
+                SetEngine(engine);
+                IsEngineSwapAllowed = false;
+                Console.WriteLine("Primary engine successfully swapped.");
+                return true;
+            }
+            else if (engine.EngineType == EngineAdditional.EngineType)
+            {
+                IsEngineSwapAllowed = true;
+                EngineAdditional = engine;
+                IsEngineSwapAllowed = false;
+                Console.WriteLine("Secondary engine successfully swapped.");
+                return true;
+            }
+            else
+            {
+                Console.WriteLine("Warning: Cannot swap engine because the new engine has a different type.");
+                return false;
+            }
+        }
+    }
+
+}
+
+DualEngineTypeException.cs:
+
+namespace Object_Sorter
+{
+    public class DualEngineTypeException : Exception
+    {
+        public DualEngineTypeException(EngineType engineType1, EngineType engineType2)
+        : base($"Both engines have the same type: {engineType1}.")
+        {
+        }
+    }
+}
+
+Motorcycle.cs:
+
+namespace Object_Sorter
+{
+    public class Motorcycle : SingleEngineVehicle
+    {
+        public string MainChassisName { get; set; }
+
+        public Motorcycle(Engine engine, string mainChassisName) : base(engine)
+        {
+            MainChassisName = mainChassisName;
+        }
+
+        public override string ToString()
+        {
+            return $"Main Chassis Name: {MainChassisName}\n" +
+                $"Engine type: {Engine.EngineType}\n" +
+                $"Engine power: {Engine.EnginePower}\n";
+
+        }
+    }
+}
+
+Truck.cs:
+
+namespace Object_Sorter
+{
+    public class Truck : SingleEngineVehicle
+    {
+        public int MaxLoad { get; set; }
+
+        public Truck(Engine engine, int maxLoad) : base(engine)
+        {
+            MaxLoad = maxLoad;
+        }
+
+        public override string ToString()
+        {
+            return $"Maximum Load: {MaxLoad}\n" +
+                $"Engine type: {Engine.EngineType}\n" +
+                $"Engine power: {Engine.EnginePower}\n";
+
+        }
+    }
+}
+
+Sportcar.cs:
+
+namespace Object_Sorter
+{
+    public class Sportcar : SingleEngineVehicle
+    {
+        public bool SerialProsuction { get; set; }
+
+        public Sportcar(Engine engine, bool serialProsuction) : base(engine)
+        {
+            SerialProsuction = serialProsuction;
+        }
+
+        public override string ToString()
+        {
+            return $"Serial Production: {SerialProsuction}\n" +
+                $"Engine type: {Engine.EngineType}\n" +
+                $"Engine power: {Engine.EnginePower}\n";
+        }
+    }
+}
+
+HybridVehicle.cs:
+
+namespace Object_Sorter
+{
+    public class HybridVehicle : DualEngineVehicle
+    {
+        public double OverallDistance { get; set; }
+
+        public HybridVehicle(Engine engine, Engine engineAdditional, double overallDistance)
+            : base(engine, engineAdditional)
+        {
+            OverallDistance = overallDistance;
+        }
+
+        public override string ToString()
+        {
+            return $"Overall Distance: {OverallDistance}\n" +
+                $"Engine type: {Engine.EngineType}\n" +
+                $"Engine power: {Engine.EnginePower}\n" +
+                $"Engine type (additional): {EngineAdditional.EngineType}\n" +
+                $"Engine power (additional): {EngineAdditional.EnginePower}";
+        }
+    }
+
+    
+}
+
+AmphibiaCar.cs:
+
+namespace Object_Sorter
+{
+    public class AmphibiaCar : DualEngineVehicle
+    {
+        public string FullModelName { get; set; }
+
+        public AmphibiaCar(Engine engine, Engine engineAdditional, string fullModelName, string errorMessage = "")
+            : base(engine, engineAdditional)
+        {
+            if (engine.EngineType != EngineType.Electro)
+            {
+                if (string.IsNullOrEmpty(errorMessage))
+                {
+                    errorMessage = $"Invalid main engine type: {engine.EngineType}. The main engine of an AmphibiaCar must be of type Electro.";
+                }
+
+                throw new AmphibiaCarMainEngineTypeException(errorMessage);
+            }
+
+            FullModelName = fullModelName;
+        }
+
+        public override string ToString()
+        {
+            return $"Full model name: {FullModelName}\n" +
+                $"Engine type: {Engine.EngineType}\n" +
+                $"Engine power: {Engine.EnginePower}\n" +
+                $"Engine type (additional): {EngineAdditional.EngineType}\n" +
+                $"Engine power (additional): {EngineAdditional.EnginePower}";
+        }
+    }
+}
+
+AmphibiaCarMainEngineException.cs: 
+
+namespace Object_Sorter
+{
+    public class AmphibiaCarMainEngineTypeException : Exception
+    {
+        public AmphibiaCarMainEngineTypeException(string errorMessage)
+            : base(errorMessage)
+        {
+        }
+    }
+}
+
+
+
+
+
