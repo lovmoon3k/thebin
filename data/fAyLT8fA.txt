@@ -1,0 +1,150 @@
+# Importing lib's
+import pyclesperanto_prototype as cle
+import numpy as np
+from skimage import io
+from skimage import io, img_as_float, img_as_ubyte
+from skimage.io import imread
+
+# Selecting GPU
+cle.select_device()
+### <Quadro P1000 on Platform: NVIDIA CUDA (1 refs)>
+
+
+cyllender = imread('data\por_10_18_1_v3.tif')
+
+# print out the spatial dimensions of the image
+print(cyllender.shape)
+### (450, 1024, 1024)
+
+
+# Pushing data into GPU
+cyll_cle = cle.push(img_as_ubyte(cyllender))
+
+
+
+# Function for img processing
+def process_image(image):
+    import time
+
+    start_time = time.time()
+    
+    # push image to GPU memory and show it
+    gpu_input = cle.push(image)
+    # print(gpu_input)
+    
+    # gaussian blur
+    sigma = 2.0
+    gpu_blurred = cle.gaussian_blur(gpu_input, sigma_x=sigma, sigma_y=sigma, sigma_z=sigma)
+
+    # detect maxima
+    gpu_detected_maxima = cle.detect_maxima_box(gpu_blurred)
+    
+    # threshold
+    threshold = 300.0
+    gpu_thresholded = cle.greater_constant(gpu_blurred, constant=threshold)
+
+    # mask
+    gpu_masked_spots = cle.mask(gpu_detected_maxima, gpu_thresholded)
+
+    # label spots
+    gpu_labelled_spots = cle.connected_components_labeling_box(gpu_masked_spots)
+    # show_labels(gpu_labelled_spots)
+    
+    number_of_spots = int(cle.maximum_of_all_pixels(gpu_labelled_spots))
+    print("Number of detected spots: " + str(number_of_spots))
+    
+    # label map closing
+    number_of_dilations = 10
+    flip = cle.create_labels_like(gpu_labelled_spots)
+    flop = cle.create_labels_like(gpu_labelled_spots)
+    flag = cle.create([1,1,1])
+    cle.copy(gpu_labelled_spots, flip)
+
+    for i in range (0, number_of_dilations) :
+        cle.onlyzero_overwrite_maximum_box(flip, flag, flop)
+        cle.onlyzero_overwrite_maximum_diamond(flop, flag, flip)
+
+    # erode labels
+    flap = cle.greater_constant(flip, constant=1)
+    number_of_erosions = 4
+    for i in range(0, number_of_erosions):
+        cle.erode_box(flap, flop)
+        cle.erode_box(flop, flap)
+
+    gpu_labels = cle.mask(flip, flap)
+    
+    # get result back from GPU as numpy array
+    result = cle.pull(gpu_labels).astype(np.uint16)
+        
+    print("Processing took " + str(time.time() - start_time) + " s")
+
+    return result
+
+
+# voxel size z,y,x
+calibration = [1, 1, 1]
+
+# convenience function for visualisation
+def show(image):
+    viewer.add_image(image, scale=calibration)
+    
+def show_labels(labels):
+    viewer.add_labels(labels, scale=calibration)
+    
+    
+# adapted from: https://github.com/tlambert03/napari-dask-example/blob/master/dask_napari.ipynb
+import dask
+import dask.array as da
+
+# create dask stack of lazy image readers
+lazy_process_image = dask.delayed(process_image)  # lazy reader
+lazy_arrays = [lazy_process_image(cyllender[n]) for n in range(0, cyllender.shape[0])]
+dask_arrays = [
+    da.from_delayed(lazy_array, shape=cyllender[0].shape, dtype=np.uint16)
+    for lazy_array in lazy_arrays
+]
+# Stack into one large dask.array
+dask_stack = da.stack(dask_arrays, axis=0)
+dask_stack
+
+
+# Testing segmentation func
+
+labels = cle.voronoi_otsu_labeling(cyll_cle, spot_sigma=3.5)
+labels
+
+
+
+
+Output exceeds the size limit. Open the full output data in a text editor
+---------------------------------------------------------------------------
+MemoryError                               Traceback (most recent call last)
+Cell In [4], line 1
+----> 1 labels = cle.voronoi_otsu_labeling(cyll_cle, spot_sigma=3.5)
+      2 labels
+
+File c:\Users\Admin\anaconda3\envs\For_CV\lib\site-packages\pyclesperanto_prototype\_tier0\_plugin_function.py:71, in plugin_function.<locals>.worker_function(*args, **kwargs)
+     68         bound.arguments[key] = output_creator(*bound.args[:len(sig2.parameters)])
+     70 # call the decorated function
+---> 71 return function(*bound.args, **bound.kwargs)
+
+File c:\Users\Admin\anaconda3\envs\For_CV\lib\site-packages\pyclesperanto_prototype\_tier9\_voronoi_otsu_labeling.py:58, in voronoi_otsu_labeling(source, label_image_destination, spot_sigma, outline_sigma)
+     55 from .._tier5 import masked_voronoi_labeling
+     57 temp = create(source)
+---> 58 gaussian_blur(source, temp, spot_sigma, spot_sigma, spot_sigma)
+     60 spots = create(source)
+     61 detect_maxima_box(temp, spots, 0, 0, 0)
+
+File c:\Users\Admin\anaconda3\envs\For_CV\lib\site-packages\pyclesperanto_prototype\_tier0\_plugin_function.py:71, in plugin_function.<locals>.worker_function(*args, **kwargs)
+     68         bound.arguments[key] = output_creator(*bound.args[:len(sig2.parameters)])
+     70 # call the decorated function
+---> 71 return function(*bound.args, **bound.kwargs)
+
+File c:\Users\Admin\anaconda3\envs\For_CV\lib\site-packages\pyclesperanto_prototype\_tier1\_gaussian_blur.py:43, in gaussian_blur(source, destination, sigma_x, sigma_y, sigma_z)
+     40 kernel_size_y = sigma_to_kernel_size(sigma_y)
+...
+--> 898     return self._enqueue(self, queue, global_size, local_size, *args, **kwargs)
+
+File <pyopencl invoker for 'gaussian_blur_separable_3d'>:8, in enqueue_knl_gaussian_blur_separable_3d(self, queue, global_size, local_size, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, global_offset, g_times_l, allow_empty_ndrange, wait_for)
+
+MemoryError: clEnqueueNDRangeKernel failed: MEM_OBJECT_ALLOCATION_FAILURE
