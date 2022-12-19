@@ -1,0 +1,69 @@
+#include<sys/types.h>
+#include<sys/stat.h>
+#include<sys/wait.h>
+#include<alloca.h>
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+#include<limits.h>
+#include<unistd.h>
+#include<dirent.h>
+
+
+int maxProcNum;
+int ProcCounter = 0;
+void ProcessFolder(char *curPath, char *findPath){
+    DIR *dp = opendir(curPath);
+    struct dirent *d;
+    struct stat buf;
+    char *filePath = alloca(strlen(curPath) + NAME_MAX + 2);
+
+    int FileCounter = 0;
+
+    d = readdir(dp);
+    while(d){
+        if(strcmp(".", d->d_name) != 0 && strcmp("..", d->d_name) != 0){
+            strcpy(filePath, curPath);
+            strcat(filePath, "/");
+            strcat(filePath, d->d_name);
+            if(d->d_type != DT_DIR){
+                if(strcmp(d->d_name,findPath) == 0){
+                    stat(filePath, &buf);
+                    printf("%s\n","\n///////////////////////////////////////////RESULT///////////////////////////////////////////////////\n");
+                    printf("Path = %s, Size = %ld, Date = %d,Access Rights = %o, id = %d\n", filePath, buf.st_size, buf.st_ctime, buf.st_mode, buf.st_ino);
+                    printf("%s\n","\n//////////////////////////////////////////////////////////////////////////////////////////////////////\n");
+                }
+                FileCounter++;
+            }
+            if(d->d_type == DT_DIR){
+                if (ProcCounter == maxProcNum){
+                    ProcCounter--;
+                    wait(NULL);
+                }
+                pid_t pid = fork();
+                ProcCounter++;
+                if (pid == 0) {
+                    ProcessFolder(filePath, findPath);
+                }else{
+                    wait(NULL);
+                }
+            }
+        }
+        d = readdir(dp);
+    }
+    stat(curPath,&buf);
+    printf("Path = %s, Size = %ld, FileCount = %d, ProcNumb = %d, PID = %d\n", curPath, buf.st_size, FileCounter, ProcCounter, getpid());
+    exit(0);
+}
+
+int main(__attribute__((unused)) int argc , char *argv[] ) {
+
+    maxProcNum = atol(argv[3]);
+
+    ProcessFolder(realpath(argv[1],NULL), argv[2]);
+
+    while (wait(NULL)) {}
+
+
+    return 0;
+}
