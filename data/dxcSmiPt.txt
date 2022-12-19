@@ -1,0 +1,123 @@
+#The one thing this doesn't include is correcting the stat-boosting badge mechanic, because aliasing that was more hassle than it was
+#worth. (especially seeing as it's never used) If you want to include that, see the Stat Boosts (optional) section in Instructions.
+
+class GameStats
+  alias oldinitialize initialize
+ 
+  def initialize
+    oldinitialize
+    @times_to_get_badges           = {}   # Set with set_time_to_badge(number) in Gym Leader events
+  end
+end
+
+class Player < Trainer
+  alias oldinitialize initialize
+ 
+  def initialize(name, trainer_type)
+    oldinitialize(name, trainer_type)
+    @badges                = []
+  end
+ 
+  # @return [Integer] the number of Gym Badges owned by the player
+  def badge_count
+    return @badges.length
+  end
+ 
+end
+
+
+def pbGiveBadge(badge)
+  badgename = badge.to_s.capitalize
+  raise "#{badgename} Badge has no graphic" if !pbResolveBitmap("Graphics/Pictures/Trainer Card/#{badgename}")
+  $player.badges.push(badge)
+end
+
+def pbHasBadge?(badge)
+  return $player.badges.include?(badge)
+end
+
+def pbCheckHiddenMoveBadge(badge = -1, showmsg = true)
+  if (badge.is_a?(Integer))
+    return true if badge < 0   # No badge requirement
+  end
+  return true if $DEBUG
+  if (badge.is_a?(Symbol)) ? $player.badges.include?(badge) : $player.badge_count >= badge
+    return true
+  end
+  msg = (badge.is_a?(Symbol)) ? _INTL("Sorry, a new Badge is required.") : _INTL("Sorry, more Badges are required.")
+  pbMessage(msg) if showmsg
+  return false
+end
+
+class PokemonTrainerCard_Scene
+  def pbDrawTrainerCardFront
+    overlay = @sprites["overlay"].bitmap
+    overlay.clear
+    baseColor   = Color.new(72, 72, 72)
+    shadowColor = Color.new(160, 160, 160)
+    totalsec = $stats.play_time.to_i
+    hour = totalsec / 60 / 60
+    min = totalsec / 60 % 60
+    time = (hour > 0) ? _INTL("{1}h {2}m", hour, min) : _INTL("{1}m", min)
+    $PokemonGlobal.startTime = pbGetTimeNow if !$PokemonGlobal.startTime
+    starttime = _INTL("{1} {2}, {3}",
+                      pbGetAbbrevMonthName($PokemonGlobal.startTime.mon),
+                      $PokemonGlobal.startTime.day,
+                      $PokemonGlobal.startTime.year)
+    textPositions = [
+      [_INTL("Name"), 34, 70, 0, baseColor, shadowColor],
+      [$player.name, 302, 70, 1, baseColor, shadowColor],
+      [_INTL("ID No."), 332, 70, 0, baseColor, shadowColor],
+      [sprintf("%05d", $player.public_ID), 468, 70, 1, baseColor, shadowColor],
+      [_INTL("Money"), 34, 118, 0, baseColor, shadowColor],
+      [_INTL("${1}", $player.money.to_s_formatted), 302, 118, 1, baseColor, shadowColor],
+      [_INTL("Pokédex"), 34, 166, 0, baseColor, shadowColor],
+      [sprintf("%d/%d", $player.pokedex.owned_count, $player.pokedex.seen_count), 302, 166, 1, baseColor, shadowColor],
+      [_INTL("Time"), 34, 214, 0, baseColor, shadowColor],
+      [time, 302, 214, 1, baseColor, shadowColor],
+      [_INTL("Started"), 34, 262, 0, baseColor, shadowColor],
+      [starttime, 302, 262, 1, baseColor, shadowColor]
+    ]
+    pbDrawTextPositions(overlay, textPositions)
+    x = 72
+    for i in 0...$player.badges.length
+      badge = $player.badges[i].to_s
+      @sprites["badge#{i}"] = IconSprite.new(x, 310, @viewport)
+      @sprites["badge#{i}"].setBitmap("Graphics/Pictures/Trainer Card/#{badge}")
+      x += 48
+    end
+    pbDrawImagePositions(overlay, imagePositions)
+  end
+
+end
+
+
+MenuHandlers.add(:debug_menu, :set_badges, {
+  "name"        => _INTL("Set Badges"),
+  "parent"      => :player_menu,
+  "description" => _INTL("Toggle possession of Gym Badges."),
+  "effect"      => proc {
+    badgecmd = 0
+    loop do
+      badgecmds = []
+      badgecmds.push(_INTL("Give individual Badge"))
+      badgecmds.push(_INTL("Remove all"))
+      badgecmd = pbShowCommands(nil, badgecmds, -1, badgecmd)
+      break if badgecmd < 0
+      case badgecmd
+      when 0   # Give specific badge
+        badge = pbMessageFreeText("Give which Badge?",_INTL(""),false,20)
+        badge = badge.upcase
+        if pbResolveBitmap("Graphics/Pictures/Trainer Card/#{badge}")
+          pbGiveBadge(badge.to_sym)
+          pbMessage(_INTL("Gave the {1} Badge.", badge.capitalize))
+        else
+          pbMessage(_INTL("{1} Badge does not exist.", badge.capitalize))
+        end
+      when 1   # Remove all
+        $player.badges = []
+          pbMessage(_INTL("Cleared all Badges."))
+      end
+    end
+  }
+})
