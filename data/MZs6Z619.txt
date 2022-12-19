@@ -1,0 +1,711 @@
+<template>
+  <form
+    :id="formId"
+    :class="[
+      'contact-form',
+      `contact-form--${formVariant}`,
+      { 'contact-form--select': isSelect },
+    ]"
+    @submit.prevent="onSubmit"
+  >
+    <div v-if="isSelect" class="contact-form__item contact-form__item--select">
+      <DgSelect
+        v-model="activeSelectTab"
+        :value="selectParams.options[0]"
+        :options="selectParams.options"
+        labelBy="title"
+        :optionHeight="36"
+        :label="selectParams.label"
+        :placeholder="lang !== 'ru' ? 'Select option' : 'Выберите тему'"
+      />
+    </div>
+    <component
+      :is="item.component"
+      v-for="item in formModded"
+      :id="item.id"
+      :key="item.id"
+      v-model.trim="$v.form[item.name].value.$model"
+      :class="['contact-form__item', `contact-form__item--${item.name}`]"
+      :label="item.label"
+      :type="item.type"
+      :error="validator(item.name)"
+      :mask="item.mask"
+      :name="item.name"
+      :placeholder="item.placeholder"
+    />
+    <recaptcha
+      v-if="isRenderCaptcha"
+      class="contact-form__item contact-form__item--recaptcha"
+      @success="useCaptcha"
+      @error="unusedCaptcha"
+      @expired="unusedCaptcha"
+    />
+    <div class="contact-form__item contact-form__item--privacy">
+      <DgCheckbox
+        v-if="isCheckbox"
+        v-model="isChecked"
+        name="check-policy"
+        labelFor="contact-form__privacy-checkbox"
+      />
+      <small
+        class="contact-form__privacy-policy"
+        v-html="$t('main.privacy_policy.submit')"
+      />
+    </div>
+    <div class="contact-form__item contact-form__item--action">
+      <DgButton
+        :id="`btn-${formId}`"
+        :variant="submitVariant"
+        :title="$t('main.general.form.send')"
+        type="submit"
+        :disabled="isButtonDisabled"
+      />
+    </div>
+  </form>
+</template>
+
+<script>
+  import {
+    email,
+    helpers,
+    maxLength,
+    minLength,
+    numeric,
+    required,
+  } from 'vuelidate/lib/validators';
+  import Notification from '~/components/main/components/Notification/Notification';
+  import {
+    DgButton,
+    DgCheckbox,
+    DgInput,
+    DgSelect,
+    DgTextarea,
+  } from '~/components/UI';
+  import { Declension } from '~/helpers/declension';
+
+  export default {
+    components: { DgButton, DgTextarea, DgInput, DgCheckbox, DgSelect },
+    props: {
+      /* sendFrom должен соответствовать странице откуда отправлен запрос */
+      sendFrom: {
+        type: String,
+        default: 'same_path',
+      },
+      formId: {
+        type: String,
+        default: 'same-form',
+      },
+      fields: {
+        type: Object,
+        default: () => {},
+      },
+      isCheckbox: {
+        type: Boolean,
+        default: true,
+      },
+      isSelect: {
+        type: Boolean,
+        default: false,
+      },
+      selectParams: {
+        type: [Object, Boolean],
+        default: false,
+      },
+      formVariant: {
+        type: String,
+        default: 'default',
+      },
+      submitVariant: {
+        type: String,
+        default: 'blue-space',
+      },
+      endPoint: {
+        type: String,
+        default: '/sameurl/path',
+      },
+    },
+    data() {
+      return {
+        lang: this.$i18n.locale,
+        form: {
+          name: {
+            index: 1,
+            id: 'main-form-name',
+            component: 'DgInput',
+            name: 'name',
+            label: this.$t('main.general.field.name'),
+            value: '',
+            type: 'text',
+            placeholder: '',
+            error: '',
+          },
+          tel: {
+            index: 2,
+            id: 'main-form-phone',
+            component: 'DgInput',
+            name: 'tel',
+            label: this.$t('main.general.field.phone'),
+            value: '',
+            type: 'tel',
+            placeholder: this.$t('main.question_form.placeholder.phone'),
+            error: '',
+          },
+          email: {
+            index: 3,
+            id: 'main-form-email',
+            component: 'DgInput',
+            name: 'email',
+            label: this.$t('main.question_form.mail'),
+            value: '',
+            type: 'email',
+            placeholder: '',
+            error: '',
+          },
+          textarea: {
+            index: 4,
+            id: 'main-form-textarea',
+            component: 'DgTextarea',
+            name: 'textarea',
+            label: this.$t('main.help.question.title'),
+            value: '',
+            type: 'text',
+            placeholder: '',
+            error: '',
+          },
+        },
+        formSuccessMessage: this.$t('l3.network.question_form.success.title'),
+        activeSelectTab: null,
+        isLoading: false,
+        formSubmitted: false,
+        isChecked: false,
+        isRenderCaptcha: false,
+        isUsedCaptcha: false,
+        isErrorCaptcha: false,
+      };
+    },
+    validations() {
+      const alpha = helpers.regex('alpha', /^[а-яА-Яa-zA-Z]*$/);
+      return {
+        form: {
+          name: {
+            value: {
+              required:
+                this.formModded.some((field) => field.name === 'name') === true
+                  ? required
+                  : false,
+              alpha,
+              minLength: minLength(2),
+              maxLength: maxLength(36),
+            },
+          },
+          tel: {
+            value: {
+              required:
+                this.formModded.some((field) => field.name === 'tel') === true
+                  ? required
+                  : false,
+              minLength: minLength(10),
+              maxLength: this.lang !== 'ru' && maxLength(28),
+              numeric,
+            },
+          },
+          email: {
+            value: {
+              required,
+              email,
+            },
+          },
+          textarea: {
+            value: {
+              required:
+                this.endPoint === '/sameurl/special-path'
+                  ? required
+                  : false,
+              maxLength: maxLength(512),
+            },
+          },
+        },
+      };
+    },
+    computed: {
+      formModded() {
+        const result = [];
+        const newForm = { ...this.form };
+
+        if (this.lang === 'ru') {
+          newForm.tel.mask = this.phoneMask;
+          newForm.tel.placeholder = '+7 (___) ___-__-__';
+        }
+        if (this.fields) {
+          Object.keys(this.fields).forEach((item) => {
+            if (!this.fields[item]) {
+              delete newForm[item];
+            }
+            if (newForm[item]) {
+              Object.assign(newForm[item], this.fields[item]);
+            }
+          });
+        }
+
+        Object.keys(newForm)
+          .sort((a, b) => newForm[a].index - newForm[b].index)
+          .forEach((item) => {
+            result.push(newForm[item]);
+          });
+        return result;
+      },
+      phoneMask() {
+        const val = this.form.tel.value[0];
+        const options = {
+          pattern: ['+### ## ### ## ##', '+### ### ### ### ###'],
+          masked: false,
+        };
+        if (val === '7' || val === '8') {
+          options.pattern = '+F (###) ###-##-##';
+          options.tokens = {
+            '#': { pattern: /\d/ },
+            'F': {
+              pattern: /(7|8)/,
+              transform: () => 7,
+            },
+          };
+        }
+        return options;
+      },
+      isButtonDisabled() {
+        let flag = this.$v.$invalid || this.isLoading;
+        if (!flag) {
+          if (this.isCheckbox && !this.isChecked) {
+            flag = true;
+          }
+          if (this.isSelect && !this.activeSelectTab) {
+            flag = true;
+          }
+          if (!this.isUsedCaptcha) {
+            flag = true;
+          }
+        }
+        return flag;
+      },
+      themeForm() {
+        let theme = this.sendFrom;
+        if (this.isSelect && this.selectParams.theme) {
+          theme = this.activeSelectTab.label;
+        }
+        return theme;
+      },
+    },
+    beforeDestroy() {
+      this.$recaptcha.destroy();
+    },
+    mounted() {
+      window.addEventListener('load', () => {
+        this.isRenderCaptcha = true;
+      });
+    },
+    methods: {
+      Declension,
+      showErrorMessage(message) {
+        if (message) {
+          switch (message) {
+            case 'required':
+              return this.$t('main.general.error.required_field');
+            case 'email':
+              return this.$t('main.general.error.invalid_email');
+            case 'numeric':
+              return this.$t('main.general.error.only_numbers');
+            case 'alpha':
+              return this.$t('main.general.error.only_letters');
+            case 'clear':
+              return '';
+            default:
+              return;
+          }
+        }
+        const declinePhrase = (number, minMaxWord) => {
+          const wordsArr = [
+            this.$t('main.general.error.character1'),
+            this.$t('main.general.error.character2'),
+            this.$t('main.general.error.character3'),
+          ];
+          const tailWord = Declension(number, wordsArr);
+          return `${minMaxWord} ${number} ${tailWord}`;
+        };
+        return { declinePhrase };
+      },
+      validator(field) {
+        // Сопоставляем аргумент с названием поля в validations()
+        const value = this.$v.form[field].value;
+        // Получаем ограничения в виде чисел
+        const [minNum, maxNum] = [
+          value.$params.minLength?.min,
+          value.$params.maxLength?.max,
+        ];
+        const [minWord, maxWord] = [
+          this.$t('main.general.error.min'),
+          this.$t('main.general.error.max'),
+        ];
+        /*
+         * Начинаем валидацию полей
+         * Порядок валидации строго соблюден
+         * (исключительно для правильной логики валидации)
+         */
+        switch (field) {
+          case 'name':
+            // Проверка на обязательное поле
+            if (value.$dirty && !value.required) {
+              return this.showErrorMessage('required');
+            }
+            // Проверка на буквы
+            if (value.$dirty && !value.alpha) {
+              return this.showErrorMessage('alpha');
+            }
+            // Проверка на минимальную длину поля
+            if (value.$dirty && !value.minLength) {
+              return this.showErrorMessage().declinePhrase(minNum, minWord);
+            }
+            // Проверка на максимальную длину поля
+            if (value.$dirty && !value.maxLength) {
+              return this.showErrorMessage().declinePhrase(maxNum, maxWord);
+            }
+            // Очищаем поле с ошибкой, если все правила соблюдены/исправлены
+            return this.showErrorMessage('clear');
+          case 'tel':
+            // Проверка на числовой тип данных в поле (на EN версии маски номера нет)
+            if (value.$dirty && !value.numeric) {
+              return this.showErrorMessage('numeric');
+            }
+            // Проверка на обязательное поле
+            if (value.$dirty && !value.required) {
+              return this.showErrorMessage('required');
+            }
+            // Проверка на минимальную длину поля
+            if (value.$dirty && !value.minLength) {
+              return this.showErrorMessage().declinePhrase(minNum, minWord);
+            }
+            // Проверка на максимальную длину поля (EN only)
+            if (value.$dirty && !value.maxLength) {
+              return this.showErrorMessage().declinePhrase(maxNum, maxWord);
+            }
+            // Очищаем поле с ошибкой, если все правила соблюдены/исправлены
+            return this.showErrorMessage('clear');
+          case 'email':
+            // Проверка на обязательное поле
+            if (value.$dirty && !value.required) {
+              return this.showErrorMessage('required');
+            }
+            // Проверка на валидную почту
+            if (value.$dirty && !value.email) {
+              return this.showErrorMessage('email');
+            }
+            // Очищаем поле с ошибкой, если все правила соблюдены/исправлены
+            return this.showErrorMessage('clear');
+          case 'textarea':
+            // Проверка на максимальную длину поля
+            if (value.$dirty && !value.maxLength) {
+              return this.showErrorMessage().declinePhrase(maxNum, maxWord);
+            }
+            // Проверка на обязательное поле
+            if (value.$dirty && !value.required) {
+              return this.showErrorMessage('required');
+            }
+            // Очищаем поле с ошибкой, если все правила соблюдены/исправлены
+            return this.showErrorMessage('clear');
+          default:
+            break;
+        }
+      },
+      async onSubmit() {
+        this.$v.$touch();
+        if (!this.$v.$invalid) {
+          try {
+            this.isLoading = true;
+            const token = await this.$recaptcha.getResponse();
+            await this.sendForm(token);
+            this.clearForm();
+          } catch (err) {
+            this.showToast().error(err);
+            await this.$recaptcha.reset();
+          } finally {
+            await this.$recaptcha.reset();
+            this.isLoading = false;
+          }
+        }
+      },
+      clearForm() {
+        Object.values(this.form).forEach(item => item.value = '');
+        this.$v.$reset();
+        if (this.isSelect) {
+          this.activeSelectTab = null;
+        }
+        if (this.isCheckbox) {
+          this.isChecked = false;
+        }
+      },
+      async buildForm(captchaToken) {
+        return {
+          theme: this.themeForm,
+          name: this.form.name.value,
+          phone: this.form.tel.value,
+          email: this.form.email.value,
+          message: this.form.textarea.value,
+          reCaptcha: await captchaToken,
+        };
+      },
+      async sendForm(captchaToken) {
+        const formData = await this.buildForm(captchaToken);
+        if (formData.reCaptcha.length) {
+          try {
+            this.formSubmitted = false;
+            const path = `${process.env.baseURL}${this.endPoint}`;
+            const withHeaders = {
+              headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            };
+            await this.$axios.$post(path, formData, withHeaders);
+            this.formSubmitted = true;
+            this.showToast().success(this.formSuccessMessage);
+          } catch (err) {
+            this.showToast().error(err);
+          }
+        }
+      },
+      showToast(pos = 'bottom-right') {
+        let content = {
+          component: Notification,
+        };
+        let cfg = {
+          position: pos,
+        };
+        const success = (text) => {
+          content = {
+            ...content,
+            props: {
+              message: text,
+            },
+          };
+          cfg = {
+            ...cfg,
+            type: 'success',
+          };
+          this.$toast(content, cfg);
+        };
+        const error = (err) => {
+          content = {
+            ...content,
+            props: {
+              message: err.toString(),
+            },
+          };
+          cfg = {
+            ...cfg,
+            type: 'error',
+          };
+          this.$toast(content, cfg);
+        };
+        return { success, error };
+      },
+      useCaptcha() {
+        this.isUsedCaptcha = true;
+      },
+      unusedCaptcha() {
+        this.isUsedCaptcha = false;
+      },
+    },
+  };
+</script>
+
+<style lang="scss">
+  // formVariant 'dark-space'
+  .contact-form--dark-space {
+    display: flex;
+    flex-direction: column;
+    row-gap: 20px;
+    padding: 35px 40px;
+    background-color: $white;
+    border-radius: 10px;
+    color: $black;
+
+    .contact-form__item {
+      width: 100%;
+
+      .ui-select__label,
+      .ui-textarea__label,
+      .ui-input__label {
+        font-weight: 600;
+        font-size: 14px;
+        line-height: 20px;
+        transition: all 0.3s;
+      }
+
+      .ui-select__label--open,
+      &.ui-textarea--focused .ui-textarea__label,
+      .ui-input__label--focused {
+        color: $blue-main;
+      }
+
+      .ui-input__content {
+        background-color: transparent;
+        border: 1px solid $greyblue-vivid-20;
+        border-radius: 5px;
+        box-shadow: none;
+
+        &--focused,
+        &:hover {
+          border-color: $blue-main;
+        }
+
+        input {
+          background-color: transparent;
+        }
+      }
+
+      .ui-textarea__input {
+        display: block;
+        height: 115px;
+        caret-color: $blue-main;
+
+        &:hover {
+          border-color: $blue-main;
+        }
+      }
+
+      &.ui-textarea--focused .ui-textarea {
+        &__input,
+        &__input:hover {
+          padding: 10px;
+          border: 1px solid $blue-main;
+          box-shadow: none;
+        }
+      }
+
+      .multiselect {
+        &__tags {
+          background-color: $white;
+          border: 1px solid $greyblue-vivid-20;
+          border-radius: 5px;
+          box-shadow: none !important;
+
+          &:hover {
+            border-color: $blue-main;
+            cursor: pointer;
+          }
+        }
+
+        &__single {
+          display: block;
+        }
+
+        &__placeholder {
+          display: block;
+          padding-top: 0;
+        }
+
+        &__content-wrapper {
+          border-radius: 5px;
+          filter: none;
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+        }
+      }
+
+      &--recaptcha {
+        width: auto;
+        align-self: center;
+      }
+
+      &--privacy {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        column-gap: 10px;
+
+        .ui-checkbox {
+          padding-bottom: 0;
+
+          &:hover {
+            cursor: pointer;
+          }
+
+          &__container {
+            margin-right: 0;
+          }
+        }
+
+        .contact-form__privacy-policy {
+          font-size: 10px;
+          line-height: 15px;
+
+          a {
+            color: $blue-main;
+          }
+        }
+      }
+
+      &--action {
+        .dg-button {
+          width: 100%;
+          max-width: 304px;
+          margin: 0 auto;
+          padding-right: 25px;
+          padding-left: 25px;
+        }
+      }
+    }
+
+    @include media-xs-min {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      row-gap: 25px;
+      padding-right: 50px;
+      padding-left: 50px;
+      .contact-form__item {
+        &--name,
+        &--tel,
+        &--email {
+          width: 30%;
+        }
+
+        &--privacy {
+          max-width: 240px;
+        }
+
+        &--action {
+          width: 163px;
+        }
+      }
+    }
+    @include media-md-min {
+      padding-top: 40px;
+      padding-bottom: 40px;
+      .contact-form__item {
+        &--name,
+        &--tel {
+          width: 47.4%;
+        }
+
+        &--email {
+          width: 100%;
+        }
+
+        &--privacy {
+          max-width: 210px;
+        }
+
+        &--action {
+          .dg-button {
+            padding-top: 5px;
+            padding-bottom: 5px;
+            font-size: 15px;
+          }
+        }
+      }
+    }
+    @media (min-width: 1401px) {
+      .contact-form__item {
+        &--privacy {
+          max-width: 240px;
+        }
+      }
+    }
+  }
+</style>
