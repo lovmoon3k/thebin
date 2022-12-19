@@ -1,0 +1,107 @@
+import re
+import math
+
+class Mineral:
+    def __init__(self, ore=0, clay=0, obsidian=0):
+        self.ore = ore
+        self.clay = clay
+        self.obsidian = obsidian
+    def __le__(self, other):
+        return self.ore <= other.ore and self.clay <= other.clay and self.obsidian <= other.obsidian
+    def __add__(self, other):
+        return Mineral(self.ore + other.ore, self.clay + other.clay, self.obsidian + other.obsidian)
+    def __sub__(self, other):
+        return Mineral(self.ore - other.ore, self.clay - other.clay, self.obsidian - other.obsidian)
+    def __eq__(self, other):
+        return self.ore == other.ore and self.clay == other.clay and self.obsidian == other.obsidian
+    def __hash__(self):
+        return hash((self.ore, self.clay, self.obsidian))
+    def __mul__(self, other):
+        return Mineral(self.ore * other, self.clay * other, self.obsidian * other)
+
+highest_time_so_far = 1
+
+def quality_level(idnum, orebot_cost, claybot_cost, obsidianbot_cost, geodebot_cost, start_time):
+    global highest_time_so_far
+    harvest_rate = Mineral(ore=1)
+    highest_time_so_far = 1
+    table = {}
+    def max_geodes(harvest_rate, stock, remaining_time):
+        global highest_time_so_far
+        if remaining_time <= 0:
+            return 0
+        if (harvest_rate, stock, remaining_time) in table:
+            return table[(harvest_rate, stock, remaining_time)]
+        geode_yields = []
+        # geodebot
+        if harvest_rate.obsidian > 0:
+            time_until_build = max(int(math.ceil((geodebot_cost.ore - stock.ore) / harvest_rate.ore)),
+                                   int(math.ceil((geodebot_cost.obsidian - stock.obsidian) / harvest_rate.obsidian)))
+            time_until_build = max(0, time_until_build)
+            if time_until_build <= (remaining_time-2):
+                geode_yields.append(remaining_time - (time_until_build+1) + max_geodes(harvest_rate, stock - geodebot_cost + harvest_rate*(time_until_build+1), remaining_time-(time_until_build+1)))
+        # obsidianbot
+        if harvest_rate.clay > 0:
+            time_until_build = max(int(math.ceil((obsidianbot_cost.ore - stock.ore) / harvest_rate.ore)),
+                                   int(math.ceil((obsidianbot_cost.clay - stock.clay) / harvest_rate.clay)))
+            time_until_build = max(0, time_until_build)
+            if time_until_build <= (remaining_time-4):
+                geode_yields.append(max_geodes(harvest_rate+Mineral(obsidian=1), stock - obsidianbot_cost + harvest_rate*(time_until_build+1), remaining_time-(time_until_build+1)))
+        # claybot
+        if harvest_rate.clay <= max(cost.clay for cost in (orebot_cost, claybot_cost, obsidianbot_cost, geodebot_cost)):
+            time_until_build = int(math.ceil((claybot_cost.ore - stock.ore) / harvest_rate.ore))
+            time_until_build = max(0, time_until_build)
+            if time_until_build <= (remaining_time - 6):
+                geode_yields.append(max_geodes(harvest_rate+Mineral(clay=1), stock - claybot_cost + harvest_rate*(time_until_build+1), remaining_time - (time_until_build+1)))
+        # orebot
+        if harvest_rate.ore <= max(cost.ore for cost in (orebot_cost, claybot_cost, obsidianbot_cost, geodebot_cost)):
+            time_until_build = int(math.ceil((orebot_cost.ore - stock.ore) / harvest_rate.ore))
+            time_until_build = max(0, time_until_build)
+            if time_until_build <= (remaining_time - 4):
+                geode_yields.append(max_geodes(harvest_rate+Mineral(ore=1), stock - orebot_cost + harvest_rate*(time_until_build+1), remaining_time - (time_until_build+1)))
+
+        best = max(geode_yields, default=0)
+        table[(harvest_rate, stock, remaining_time)] = best
+        # if remaining_time > highest_time_so_far:
+        #     print("time:", remaining_time)
+        #     highest_time_so_far = remaining_time
+        return best
+
+    return idnum * max_geodes(harvest_rate, Mineral(), start_time)
+
+# part 1
+total = 0
+pattern = r"Blueprint (\d+): Each ore robot costs (\d+) ore. Each clay robot costs (\d+) ore. Each obsidian robot costs (\d+) ore and (\d+) clay. Each geode robot costs (\d+) ore and (\d+) obsidian."
+with open('input', 'r') as f:
+    for line in f.readlines():
+        capture = re.search(pattern, line)
+        numbers = [int(x) for x in capture.groups()]
+        idnum = numbers[0]
+        orebot_cost = Mineral(ore=numbers[1])
+        claybot_cost = Mineral(ore=numbers[2])
+        obsidianbot_cost = Mineral(ore=numbers[3], clay=numbers[4])
+        geodebot_cost = Mineral(ore=numbers[5], obsidian=numbers[6])
+
+        qual = quality_level(idnum, orebot_cost, claybot_cost, obsidianbot_cost, geodebot_cost, 24)
+        # print(idnum, qual)
+        total += qual
+
+print("part 1:", total)
+
+# part 2
+total = 1
+pattern = r"Blueprint (\d+): Each ore robot costs (\d+) ore. Each clay robot costs (\d+) ore. Each obsidian robot costs (\d+) ore and (\d+) clay. Each geode robot costs (\d+) ore and (\d+) obsidian."
+with open('input', 'r') as f:
+    for line in f.readlines()[:3]:
+        capture = re.search(pattern, line)
+        numbers = [int(x) for x in capture.groups()]
+        orebot_cost = Mineral(ore=numbers[1])
+        claybot_cost = Mineral(ore=numbers[2])
+        obsidianbot_cost = Mineral(ore=numbers[3], clay=numbers[4])
+        geodebot_cost = Mineral(ore=numbers[5], obsidian=numbers[6])
+
+        qual = quality_level(1, orebot_cost, claybot_cost, obsidianbot_cost, geodebot_cost, 32)
+        # print(qual)
+        total *= qual
+
+print("part 2:", total)
