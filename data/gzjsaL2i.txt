@@ -1,0 +1,36 @@
+with temp as (
+SELECT msib.inventory_item_id, msib.organization_id, msib.SEGMENT1, SUBSTR(msib.description,1, instr(msib.description,'~')-1) description, 
+       count(GBH.ATTRIBUTE1) jumlah_batch, min(GBH.ATTRIBUTE1) keep(dense_rank first order by GBH.ACTUAL_START_DATE) BATCH_AWAL,
+       to_char(MIN(GBH.ACTUAL_START_DATE), 'DD-MM-RRRR') "mulai produksi batch awal", to_char(MIN(GBH.BATCH_CLOSE_DATE), 'DD-MM-RRRR') "selesai produksi batch awal",
+       max(GBH.ATTRIBUTE1) keep(dense_rank last order by GBH.ACTUAL_START_DATE) BATCH_AKHIR,
+       to_char(MAX(GBH.ACTUAL_START_DATE), 'DD-MM-RRRR') "mulai produksi batch akhir", to_char(MAX(GBH.BATCH_CLOSE_DATE), 'DD-MM-RRRR') "selesai produksi batch akhir"
+--       to_char(MAX(GBH.BATCH_CLOSE_DATE), 'DD-MM-RRRR')
+              
+FROM GME_BATCH_HEADER GBH, gme_material_details GMD, MTL_SYSTEM_ITEMS_B MSIB
+WHERE 1=1
+  AND GBH.BATCH_ID = GMD.BATCH_ID
+  AND GMD.INVENTORY_ITEM_ID = MSIB.INVENTORY_ITEM_ID
+  AND MSIB.ORGANIZATION_ID = GBH.ORGANIZATION_ID
+  AND GBH.ORGANIZATION_ID = 82
+  AND SUBSTR(MSIB.SEGMENT1,1,2) IN ('FG','BP')
+  AND GBH.BATCH_STATUS not in (-1,1)
+  AND to_char(GBH.ACTUAL_START_DATE,'RRRR') = '2022'
+--  AND GBH.ATTRIBUTE1 = '20126'
+--  AND MSIB.SEGMENT1 = 'XGTADIS225'
+GROUP BY msib.inventory_item_id, 
+         msib.SEGMENT1, 
+         SUBSTR(msib.description,1, instr(msib.description,'~')-1),
+         msib.organization_id
+ORDER BY MSIB.SEGMENT1
+)
+
+select t.*,
+       (select decode(mln.STATUS_ID,23,'Quarantine', 24, 'Released','Tidak Terdefinisi') 
+          from mtl_lot_numbers mln
+         where mln.INVENTORY_ITEM_ID = t.INVENTORY_ITEM_ID
+           and mln.ORGANIZATION_ID = t.ORGANIZATION_ID
+           and mln.LOT_NUMBER = t.BATCH_AKHIR
+       ) "STATUS BATCH AKHIR"
+  from temp t
+
+;
