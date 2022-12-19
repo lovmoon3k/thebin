@@ -1,0 +1,257 @@
+args = {...}
+
+InitialFuel = turtle.getFuelLevel()
+FuelLevel = nil
+InventoryFull = false
+FirstFuelPrint = true
+FuelSlot = 1
+TorchSlot = 2
+Inventory = {}
+turtle.select(3)
+rednet.open("left")
+
+-- checks and compares current fuel level with initial fuel level, prints information on screen
+function checkFuel()
+    FuelLevel = turtle.getFuelLevel()
+    local x = nil
+    local y = nil
+    local currentFuelLevel = "Current Fuel Level: " .. tostring(FuelLevel)
+    local fuelSpent =  "Fuel Spent: " .. tostring(InitialFuel - FuelLevel)
+    if not FirstFuelPrint then
+        x, y = term.getCursorPos()
+        term.setCursorPos(1, y - 2)
+    else
+        FirstFuelPrint = false
+    end
+    term.write(currentFuelLevel)
+    x, y = term.getCursorPos()
+    term.setCursorPos(1, y + 1)
+    term.write(fuelSpent)
+    x, y = term.getCursorPos()
+    term.setCursorPos(1, y + 1)
+end
+
+
+-- breaks three front blocks in succession
+-- return true if successful, false if not successful
+-- returns the progress done
+function strip3()
+    local clearedColumn = false
+    if blockFits("front") then
+        turtle.dig()
+        while blockFell("front") do
+            clearedColumn = true
+            if blockFits("front") then
+                turtle.dig()
+            else
+                x, y = term.getCursorPos()
+                term.setCursorPos(1, y + 1)
+                return false, 0
+            end
+        end
+        turtle.forward()
+    else
+        InventoryFull = true
+        return false, 0
+    end
+    if blockFits("up") and blockFits("down") then
+        if not clearedColumn then
+            turtle.digUp()
+        end
+        turtle.digDown()
+    else
+        InventoryFull = true
+        return false, 1
+    end
+    return true, 3
+end
+-- breaks a 3x3x1 block area in succession
+-- returns true if successful, false if unsuccsessful
+-- centers turtle if unsuccessful
+function mine3x3()
+    local stripSuccess, stripProgress = strip3()
+    if stripSuccess then
+        turtle.turnLeft()
+    else
+        return false
+    end
+    stripSuccess, stripProgress = strip3()
+    if stripSuccess then
+        turtle.back()
+        turtle.turnRight()
+        turtle.turnRight()
+    else
+        if stripProgress == 1 then
+            turtle.back()
+        end
+        turtle.turnRight()
+        return false
+    end
+    stripSuccess, stripProgress = strip3()
+    if stripSuccess then
+        turtle.back()
+        turtle.turnLeft()
+    else
+        if stripProgress == 1 then
+            turtle.back()
+        end
+        turtle.turnLeft()
+        return false
+    end
+    return true
+end
+
+function refuel(depth)
+    for i = 1, depth do
+        turtle.back()
+    end
+    turtle.select(1)
+    turtle.back()
+    turtle.down()
+    communicate("sendCoal")
+    while true do
+        if turtle.suck() then
+            communicate("receivedCoal")
+            break
+        end
+    end
+    turtle.forward()
+end
+
+function tunnel(length, depth)
+    checkFuel()
+    local fuelToBeSpent = (5 * length) + length
+    local succeded = true
+    if FuelLevel > fuelToBeSpent then
+        for i = 1, length do
+            if i % 5 == 0 then
+                turtle.turnRight()
+                turtle.select(TorchSlot)
+                turtle.place()
+                turtle.select(TorchSlot + 1)
+                turtle.turnLeft()
+            end
+            if not mine3x3() then
+                succeded = false
+                for j = 1, i do
+                    turtle.back()
+                end
+                if InventoryFull then
+                    turtle.back()
+                    communicate("receiveItems")
+                    for j = 3, 16 do
+                        turtle.select(j)
+                        turtle.dropDown()
+                    end
+                    for j = 1, i + 1 do
+                        turtle.forward()
+                    end
+                    tunnel(length - i, i)
+                end
+                break
+            end
+        end
+        if succeded then
+            for i = 1, length do
+                turtle.back()
+            end
+        end
+    else
+        refuel(depth)
+        print("Not Enough Fuel...")
+    end
+    
+end
+
+function branch(numBranches, branchLength)
+    for i = 1, numBranches do
+        tunnel(branchLength, 0)
+        checkFuel()
+        turtle.turnLeft()
+        for j = 1, 6 do
+            if turtle.detect() then
+                turtle.turnLeft()
+                turtle.forward()
+                turtle.turnRight()
+                tunnel(1, 0)
+                checkFuel()
+            end
+            turtle.forward()
+        end
+        turtle.turnRight()
+    end
+end
+
+function blockFell(direction)
+    local blockExists = nil
+    local blockItem = nil
+    local fell = false
+    if direction == "front" then
+        blockExists, blockItem = turtle.inspect()
+    elseif direction == "up" then
+        blockExists, blockItem = turtle.inspectUp()
+    elseif direction == "down" then
+        blockExists, blockItem = turtle.inspectDown()
+    end
+    if blockExists then
+        if blockItem["name"] == "minecraft:gravel" then
+            fell = true
+        elseif blockItem["name"] == "minecraft:sand" then
+            fell = true
+        elseif blockItem["name"] == "minecraft:red_sand" then
+            fell = true
+        end
+    end
+    return fell
+end
+
+function blockFits(direction)
+    local blockExists = nil
+    local blockItem = nil
+    local spaceAvailable = false
+    if direction == "front" then
+        blockExists, blockItem = turtle.inspect()
+    elseif direction == "up" then
+        blockExists, blockItem = turtle.inspectUp()
+    elseif direction == "down" then
+        blockExists, blockItem = turtle.inspectDown()
+    end
+
+    if blockExists then
+        if blockItem["name"] == "minecraft:diamond_ore" then
+            blockItem["name"] = "minecraft:diamond"
+        elseif blockItem["name"] == "minecraft:redstone_ore" then
+            blockItem["name"] = "minecraft:redstone"
+        elseif blockItem["name"] == "minecraft:lapis_ore" then
+            blockItem["name"] = "minecraft:lapis_lazuli"
+        elseif blockItem["name"] == "minecraft:coal_ore" then
+            blockItem["name"] = "minecraft:coal"
+        end
+        for i = 3, 16 do
+            if Inventory[i] == nil then
+                turtle.select(i)
+                Inventory[i] = blockItem
+                if Inventory[i]["count"] == nil then Inventory[i]["count"] = 0 end
+                Inventory[i]["count"] = Inventory[i]["count"] + 1
+                spaceAvailable = true
+                break
+            elseif blockItem["name"] == Inventory[i]["name"] and Inventory[i]["count"] < 64 then
+                turtle.select(i)
+                Inventory[i]["count"] = Inventory[i]["count"] + 1
+                spaceAvailable = true
+                break
+            end
+        end
+        turtle.select(TorchSlot + 1)
+    else
+        spaceAvailable = true
+    end
+    return spaceAvailable
+end
+
+function communicate(message)
+    rednet.broadcast(message, "Village Mine")
+end
+
+branch(args[1], args[2])
+checkFuel()
