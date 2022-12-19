@@ -1,0 +1,74 @@
+WITH 
+	preparedData as ( 
+		SELECT
+			p.userID,
+      p.productID,
+      pr.productValue,
+			paymentAmount,
+			paymentPeriod,
+			paymentDateTime,
+			DATE(paymentDateTime) as prepaidPeriodStart,
+			DATE_FORMAT((DATE_ADD(paymentDateTime, INTERVAL paymentPeriod MONTH)),'%Y-%m-01') as prepaidPeriodEnd,
+			/*EXTRACT(YEAR_MONTH FROM(DATE_ADD(paymentDateTime, INTERVAL paymentPeriod MONTH))) as prepaidPeriodEnd,*/
+			DATE(DATE_ADD(paymentDateTime, INTERVAL paymentPeriod MONTH)) as prepaidPeriodEndDay,
+			DATE_ADD(paymentDateTime, INTERVAL paymentPeriod MONTH) as prepaidPeriodEndDateTime
+		FROM
+			payments p
+
+    LEFT JOIN
+			products pr
+      
+      ON p.productID = pr.productID
+
+		LEFT JOIN	(
+			SELECT
+				userID,
+				MAX(paymentDateTime) lastPaymentDateTime
+			FROM
+				payments
+			
+			WHERE
+				paymentStatus = 1 
+				AND paymentPeriod IN (1,12)
+				AND userID IS NOT NULL
+			GROUP BY
+				userID
+			) lp
+			ON p.userID =lp.userID AND p.paymentDateTime = lp.lastPaymentDateTime
+  
+		WHERE
+			paymentStatus = 1 
+			AND paymentPeriod IN (1,12)
+			AND p.userID IS NOT NULL
+			AND lp.lastPaymentDateTime IS NOT NULL
+	),
+	calendar as (
+		SELECT 
+			DATE_FORMAT(paymentDateTime,'%Y-%m-01') as reportingYearMonth
+		FROM 
+			payments
+		GROUP BY 
+			reportingYearMonth
+	)
+
+  SELECT
+		reportingYearMonth,
+		COUNT(DISTINCT userID) churnedCustomers
+		
+	 FROM
+  	preparedData pd
+	
+	LEFT JOIN calendar cal
+		ON pd.prepaidPeriodEndDateTime > reportingYearMonth AND pd.prepaidPeriodEnd < DATE_ADD(cal.reportingYearMonth, INTERVAL 1 MONTH)
+		
+	GROUP BY
+		reportingYearMonth
+	
+	ORDER BY
+		reportingYearMonth DESC
+		
+
+		
+	
+
+	
