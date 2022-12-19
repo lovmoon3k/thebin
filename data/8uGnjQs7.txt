@@ -1,0 +1,246 @@
+#/bin/bash
+
+IS_UBUNTU=0
+IS_FEDORA=0
+
+GROUP_LOGIN="mectechnik"
+GROUP_SUDO="meclinuxsudo"
+GROUP_ADMIN="domain\ admins"
+
+HOME_REALM="/home/%D_%U"
+HOME_SSSD="/home/%d_%u"
+
+FILE_SUDO_LOCAL="local"
+FILE_SUDO_DOMAIN="domain"
+
+create_realmd_config()
+{
+  echo ""
+  echo "Creating realmd.conf"
+  cat << EOF > /etc/realmd.conf
+[users]
+default-home = $HOME_REALM
+
+[service]
+automatic-install = yes
+
+[mec.at]
+fully-qualified-names = no
+manage-system = no
+automatic-id-mapping = yes
+EOF
+}
+
+create_sssd_config()
+{
+  echo ""
+  echo "Creating sssd.conf"
+  cat << EOF > /etc/sssd/sssd.conf
+[sssd]
+domains = mec.at
+config_file_version = 2
+services = nss, pam
+
+[domain/mec.at]
+default_shell = /bin/bash
+krb5_store_password_if_offline = True
+cache_credentials = True
+krb5_realm = MEC.AT
+realmd_tags = manages-system joined-with-adcli
+id_provider = ad
+fallback_homedir = $HOME_SSSD
+ad_domain = mec.at
+use_fully_qualified_names = False
+ldap_id_mapping = True
+access_provider = ad
+EOF
+}
+
+join_realm()
+{
+  echo ""
+  echo "Joining Active Directory (user input needed)"
+  # Need to leave realm, because AD sometimes caches -> random errors
+  realm leave mec.at
+  realm join -v mec.at
+  
+  sleep 1
+
+  echo ""
+  echo "Setting realm permissions (All users allowed)"
+  realm permit -R mec.at -g "$GROUP_LOGIN"
+}
+
+create_sudo_files()
+{
+  echo ""
+  echo "Giving sudo to AD specific user and admins"
+  echo "sudo user (Enter for none):"
+  read username
+  if [[ ! $username = "" ]]; then
+    echo ""
+    echo "Adding user $username to sudo file"
+
+    rm -f  "/etc/sudoers.d/$FILE_SUDO_LOCAL"
+    echo "$username ALL=(ALL:ALL) ALL" >> "/etc/sudoers.d/$FILE_SUDO_LOCAL"
+  else
+    echo ""
+    echo "Skipping sudo user"
+  fi
+
+  rm -f "/etc/sudoers.d/$FILE_SUDO_DOMAIN"
+  echo "%$GROUP_ADMIN ALL=(ALL) ALL" >> "/etc/sudoers.d/$FILE_SUDO_DOMAIN"
+  echo "%$GROUP_SUDO ALL=(ALL) ALL" >> "/etc/sudoers.d/$FILE_SUDO_DOMAIN"
+}
+
+fedora_install_packages()
+{
+  echo ""
+  echo "Installing updates and needed packages."
+  dnf upgrade -y
+  dnf install -y realmd oddjob oddjob-mkhomedir sssd adcli samba-common-tools
+}
+
+ubuntu_install_packages()
+{
+  echo ""
+  echo "Installing updates and needed packages."
+  apt update -y
+  apt upgrade -y
+  apt install -y sssd-ad sssd-tools realmd adcli
+}
+
+fedora_update_pam()
+{
+  echo ""
+  echo "Updating pam"
+  authselect select sssd with-mkhomedir
+  systemctl enable --now oddjobd
+}
+
+ubuntu_update_pam()
+{
+  echo ""
+  echo "Updating pam"
+  pam-auth-update --enable mkhomedir
+}
+
+fedora_enable_autoupdate()
+{
+  echo ""
+  echo "Enabling DNF auto updates"
+  dnf install -y dnf-automatic
+  systemctl enable dnf-automatic-install.timer
+}
+
+ubuntu_enable_autoupdate()
+{
+  echo ""
+  echo "Enabling APT autoupdates"
+  apt install unattended-upgrades
+  sudo systemctl enable apt-daily.service
+  sudo systemctl enable apt-daily.timer
+
+  sudo systemctl enable apt-daily-upgrade.timer
+  sudo systemctl enable apt-daily-upgrade.service
+}
+
+ubuntu_install_intune()
+{
+  echo ""
+  echo "Installing Microsoft Intune"
+  UBUNTU_RELEASE=$(lsb_release --short --release)
+  
+  if [[ ! $UBUNTU_RELEASE = "20.04" ]] && [[ ! $UBUNTU_RELEASE = "22.04" ]]; then
+    echo ""
+    echo "ERROR: Ubuntu version 20.04 or 22.04 not found, skipping install of Microsoft Intune"
+  fi
+  
+  apt install -y curl gpg
+  curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg
+  install -o root -g root -m 644 microsoft.gpg /usr/share/keyrings/
+
+  if [[ $UBUNTU_RELEASE = "20.04" ]]; then
+    sh -c 'echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/20.04/prod focal main" > /etc/apt/sources.list.d/microsoft-ubuntu-focal-prod.list'
+  fi
+
+  if [[ $UBUNTU_RELEASE = "22.04" ]]; then
+    sh -c 'echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/22.04/prod jammy main" > /etc/apt/sources.list.d/microsoft-ubuntu-jammy-prod.list'
+  fi
+  
+  rm microsoft.gpg
+  
+  apt update
+  apt install -y intune-portal
+}
+
+if [[ ! "$EUID" = 0 ]]; then
+  echo "ERROR: this script needs root privilidges, run with sudo."
+  exit 1
+fi
+
+# Check for Ubuntu with apt and Fedora with dnf
+which apt > /dev/null 2> /dev/null && IS_UBUNTU=1
+which dnf > /dev/null 2> /dev/null && IS_FEDORA=1
+
+if [[ ! $IS_FEDORA ]] || [[ ! $IS_UBUNTU ]]; then
+  echo "ERROR: didn't found Fedora or Ubuntu"
+  exit 2
+fi
+
+if ! dig +short SRV _ldap._tcp.mec.at > /dev/null; then
+  echo "ERROR: Couldn't reach Active Directory mec.at";
+  exit 3
+fi
+
+echo ""
+echo "Setting Hostname"
+echo "Enter hostname:"
+read hostname
+hostnamectl hostname $hostname
+echo "Hostname was set to $(hostnamectl hostname)."
+echo ""
+
+if [[ $IS_FEDORA = 1 ]]; then
+  echo "Running configuration for Fedora."
+
+  fedora_install_packages
+
+  create_realmd_config
+  create_sssd_config
+
+  echo ""
+  echo "Updating Crypto Policies"
+  update-crypto-policies --set DEFAULT:AD-SUPPORT
+
+  join_realm
+  fedora_update_pam
+  create_sudo_files
+
+  fedora_enable_autoupdate
+
+  echo ""
+  echo "Finished Setup."
+
+  exit 0
+fi
+
+if [[ $IS_UBUNTU = 1 ]]; then
+  echo "Running configuration for Ubuntu."
+
+  ubuntu_install_packages
+  create_realmd_config
+  create_sssd_config
+
+  join_realm
+  ubuntu_update_pam
+  create_sudo_files
+
+  ubuntu_enable_autoupdate
+  ubuntu_install_intune
+
+  echo ""
+  echo "Finished Setup."
+
+  exit 0
+fi
