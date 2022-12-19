@@ -1,0 +1,36 @@
+from ortools.linear_solver import pywraplp
+import numpy as np
+
+A = np.random.rand(5, 5)
+S = [0, 1]
+S_bar = [2, 3, 4]
+nu = 0.55
+
+diff = np.linalg.inv(A[S_bar,:][:,S_bar] - nu * np.eye(3))
+prod = np.matmul(diff, A[S_bar,:][:,S])
+
+# The above is $prod = (A_{\bar{S}, \bar{S}} - \nu I_{|S|})^{-1} A_{\bar{S}, S}$
+
+solver = pywraplp.Solver.CreateSolver('GLOP')
+u_S_prog = np.array([solver.NumVar(0, solver.infinity(), "u_S_" + str(i)) for i in range(len(S))])
+z = np.array([solver.NumVar(0, solver.infinity(), 'z_' + str(i)) for i in range(len(S_bar))])
+
+rhs = -prod.dot(u_S_prog) # rhs of our to-be-formed minimum linear constraint
+for index, z_i in enumerate(z):
+    solver.Add(z_i <= rhs[index]) # Each component of z must be ≤ each component of rhs
+
+objective = solver.Objective()
+for z_i in z:
+    objective.SetCoefficient(z_i, 1)
+    
+objective.SetMaximization()
+status = solver.Solve()
+
+if status == pywraplp.Solver.OPTIMAL:
+    print('Objective value =', solver.Objective().Value())
+    print()
+    print('Problem solved in %f milliseconds' % solver.wall_time())
+    print('Problem solved in %d iterations' % solver.iterations())
+    print('Problem solved in %d branch-and-bound nodes' % solver.nodes())
+else:
+    print(f'The problem with status {status} does not have an optimal solution.')
