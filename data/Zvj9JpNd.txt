@@ -1,0 +1,86 @@
+select prop_date::date as prop_date, reg, dep, store
+   , s.supp
+   , s2.suppname
+     , sum (CASE WHEN PROP IS null and (ORD_LS IS not NULL or ORD_EM IS NOT NULL or ORD_RD IS NOT NULL or ORD_RM IS NOT null or ORD_CC IS NOT null) 
+            THEN QTY-coalesce(BBXD_LINES_QTY,0)-coalesce(rms_reject_items,0)    
+            ELSE 0 END) REP_ITEMS_RMS --Артикулы RMS
+
+     , sum (CASE when PROP is not null and (ORD_LS IS not NULL or ORD_EM IS NOT NULL or ORD_RD IS NOT NULL or ORD_RM IS NOT null or ORD_CC IS NOT null) 
+            THEN CHANGED_QTY-coalesce(rms_reject_items,0) 
+            ELSE 0 END) REP_ITEMS_WITH_CHANGES_IN_GOLD  --Артикулы с изменениями в GOLD
+
+     , sum (CASE when PROP is not null and (ORD_LS IS not NULL or ORD_EM IS NOT NULL or ORD_RD IS NOT NULL or ORD_RM IS NOT null or ORD_CC IS NOT null) 
+            THEN QTY - CHANGED_QTY 
+            -- - coalesce(rms_reject_items,0) 
+            -coalesce(BBXD_LINES_QTY,0) 
+            ELSE 0 END) REP_ITEMS_WO_CHANGES_IN_GOLD  --Артикулы без изменений в GOLD
+
+     , sum(CASE when (ORD_LS IS not NULL or ORD_EM IS NOT NULL or ORD_RD IS NOT NULL or ORD_RM IS NOT null or ORD_CC IS NOT null) 
+            then coalesce(ORD_PRICE,0)-coalesce(BBXD_AMOUNT,0 ) 
+            else 0 end ) ORD_AMOUNT -- Стоимость по заказам Используется? в ord_amount_money учтены отказы
+            
+     , sum(CASE when  (ORD_LS IS not NULL or ORD_EM IS NOT NULL or ORD_RD IS NOT NULL or ORD_RM IS NOT null or ORD_CC IS NOT null) 
+            then PROP_PRICE-coalesce(BBXD_AMOUNT,0) 
+            else 0 end)  PROP_AMOUNT --Стоимость по предложениям
+
+     , sum(CASE WHEN PROP IS null and (ORD_LS IS not NULL or ORD_EM IS NOT NULL or ORD_RD IS NOT NULL or ORD_RM IS NOT null or ORD_CC IS NOT null)  
+            THEN QTY-coalesce(BBXD_LINES_QTY,0) - coalesce(rms_reject_items,0) 
+            ELSE 0 END)
+            
+        + sum(CASE when PROP is not null and (ORD_LS IS not NULL or ORD_EM IS NOT NULL or ORD_RD IS NOT NULL or ORD_RM IS NOT null or ORD_CC IS NOT null)  
+                THEN CHANGED_QTY - coalesce(rms_reject_items,0) 
+                ELSE 0 END)
+                
+        + sum(CASE when PROP is not null and (ORD_LS IS not NULL or ORD_EM IS NOT NULL or ORD_RD IS NOT NULL or ORD_RM IS NOT null or ORD_CC IS NOT null)  
+                THEN QTY - CHANGED_QTY - 
+                --coalesce(rms_reject_items,0) 
+                -coalesce(BBXD_LINES_QTY,0) 
+                ELSE 0 END)  as total_cnt
+                
+    , target_dep
+    , target_reg
+    , target_store
+    , supplier_type
+    , sum(case WHEN PROP IS NULL OR (ORD_LS IS NULL AND ORD_EM IS NULL AND ORD_RD IS NULL AND ORD_RM IS NULL AND ORD_CC IS NOT null) THEN QTY - coalesce(rms_reject_items,0) - coalesce(BBXD_LINES_QTY,0) ELSE 0 
+        END) REP_ITEMS_RMS_MONEY -- Артикулы RMS (для образования полей REP_RMS_PERCENT, REP_GOLD_WITH_CHANGES_PERCENT и REP_GOLD_WO_CHANGES_PERCENT)
+  
+        , sum(CASE  WHEN PROP IS NOT NULL THEN CHANGED_QTY - coalesce(rms_reject_items,0) 
+        ELSE 0 END) REP_ITEMS_WITH_CHANGES_IN_GOLD_MONEY --Артикулы с изменениями в GOLD (для образования полей REP_RMS_PERCENT, REP_GOLD_WITH_CHANGES_PERCENT и REP_GOLD_WO_CHANGES_PERCENT)
+    
+        , sum(CASE when PROP IS NOT NULL AND (ORD_LS IS NOT NULL OR ORD_EM IS NOT NULL OR ORD_RD IS NOT NULL OR ORD_RM IS NOT null or ORD_CC IS NOT null) 
+            THEN QTY - CHANGED_QTY 
+            -- - coalesce(rms_reject_items,0) 
+            ELSE 0 END) REP_ITEMS_WO_CHANGES_IN_GOLD_MONEY --Артикулы без изменений в GOLD (для образования полей REP_RMS_PERCENT, REP_GOLD_WITH_CHANGES_PERCENT и REP_GOLD_WO_CHANGES_PERCENT)
+            
+    , sum(
+    (case when rms_reject_items=qty and prop is null then 0 else ORD_PRICE end)
+     - coalesce(BBXD_AMOUNT,0)) ORD_AMOUNT_MONEY
+    , sum(PROP_PRICE) PROP_AMOUNT_MONEY
+    , sum( case when  rms_reject_items=qty and prop is null then 0 else coalesce(POSITIVE_CORRECTION,0) end) REP_POSITIVE_CORRECTION_MONEY
+    , sum(coalesce(NEGATIVE_CORRECTION,0) - coalesce(rms_reject_qty,0)) REP_NEGATIVE_CORRECTION_MONEY
+    
+    , sum(CASE WHEN PROP IS NULL OR (ORD_LS IS NULL AND ORD_EM IS NULL AND ORD_RD IS NULL AND ORD_RM IS null and ORD_CC IS NOT null) 
+        THEN QTY-coalesce(BBXD_LINES_QTY,0)-coalesce(rms_reject_items,0) ELSE 0 END)
+        
+        + sum(CASE WHEN PROP IS NOT NULL 
+              THEN CHANGED_QTY-coalesce(rms_reject_items,0)
+              ELSE 0 END)
+              
+        + sum(CASE when PROP IS NOT NULL AND (ORD_LS IS NOT NULL OR ORD_EM IS NOT NULL OR ORD_RD IS NOT NULL OR ORD_RM IS NOT null or ORD_CC IS NOT null) 
+                THEN QTY - CHANGED_QTY
+                -- -coalesce(rms_reject_items,0)
+                ELSE 0 END)  as total_cnt_MONEY
+
+       , sum (case when (coalesce(ORD_PRICE,0)-coalesce(BBXD_AMOUNT,0)) = 0 
+                then 0
+                 else ( ( coalesce(ORD_PRICE,0)-coalesce(BBXD_AMOUNT,0)) - PROP_PRICE) / 
+       (CASE WHEN (coalesce(ORD_PRICE,0)-coalesce(BBXD_AMOUNT,0)) = 0 
+       THEN 0.00001 ELSE coalesce(ORD_PRICE,0)-coalesce(BBXD_AMOUNT,0) 
+       END) end ) as correction
+
+FROM replenishment_marts.v_gold_statistics s
+inner join
+(select supp, suppname, row_number () over (partition by supp order by suppname) supp_row
+FROM replenishment_marts.v_gold_statistics s ) s2 on s.supp = s2.supp and supp_row = 1
+where (ORD_LS IS not NULL or ORD_EM IS NOT NULL or ORD_RD IS NOT NULL or ORD_RM IS NOT null or ORD_CC IS NOT null)
+GROUP BY reg, dep, store, prop_date::date, s.supp, s2.suppname, target_dep, target_reg, target_store, supplier_type;
