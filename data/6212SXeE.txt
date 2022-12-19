@@ -1,0 +1,251 @@
+#include <bits/stdc++.h>
+
+using namespace std;
+
+namespace second_lab {
+
+    template<typename T>
+    struct Node {
+
+        string name;
+        T mark;
+
+        Node(string name): name(name) {}
+        Node(string name, T mark): name(name), mark(mark) {}
+
+    };
+
+    template<typename T>
+    struct graph {
+
+        graph(long long int node_count=0, T default_mark=nullptr) {
+            for (long long int i = 1; i <= node_count; ++i) {
+                node_index[to_string(i)] = i - 1;
+                nodes.push_back(Node<T>(to_string(i), default_mark));
+            }
+            graph_matrix.resize(node_count);
+        }
+
+        graph(vector<string> &names, T default_mark=nullptr) {
+            for (long long int i = 0; i < names.size(); ++i) {
+                node_index[names[i]] = i;
+                nodes.push_back(Node<T>(names[i], default_mark));
+            }
+            graph_matrix.resize(names.size());
+        }
+
+        graph(vector<pair<string, T> > &nodes) {
+            for (long long int i = 0; i < nodes.size(); ++i) {
+                node_index[nodes[i].first] = i;
+                nodes.push_back(Node<T>(nodes[i].first, nodes[i].second));
+            }
+            graph_matrix.resize(nodes.size());
+        }
+
+        graph(vector<vector<long long int>> matrix, T default_mark=nullptr) {
+            graph_matrix = matrix;
+            for (long long int i = 1; i <= matrix.size(); ++i) {
+                node_index[to_string(i)] = i - 1;
+                nodes.push_back(Node<T>(to_string(i), default_mark));
+            }
+        }
+
+        vector<vector<long long int> >& get_matrix() {
+            return graph_matrix;
+        }
+
+        vector<Node<T> >& get_nodes() {
+            return nodes;
+        }
+
+        Node<T>* get_node(string name) {
+            if (!node_index.contains(name))
+                return nullptr;
+            return nodes[node_index[name]];
+        }
+
+        Node<T>* first(string name) {
+            return next(std::move(name), -1);
+        }
+
+        Node<T>* vertex(string name, long long int in) {
+            return next(name, in - 1);
+        }
+
+        Node<T>* next(string name, long long int in) {
+            if (!node_index.contains(name))
+                return nullptr;
+            long long int index = node_index[name], tmp_index = -1;
+            for (long long int i = 0; i < graph_matrix[index].size(); ++i) {
+                if (graph_matrix[index][i] > 0) {
+                    if (in-- < 0) {
+                        tmp_index = i;
+                        break;
+                    }
+                }
+            }
+            if (tmp_index == -1)
+                return nullptr;
+            for (long long int i = 0; i < graph_matrix.size(); ++i) {
+                if (i == index)
+                    continue;
+                if (graph_matrix[i][tmp_index])
+                    return &nodes[i];
+            }
+            return nullptr;
+        }
+
+        void add_v(string name, T mark=nullptr) {
+            node_index[name] = nodes.size();
+            nodes.push_back(Node<T>(name, mark));
+            graph_matrix.push_back(*(new vector<long long int>((!graph_matrix.empty())? graph_matrix[0].size() : 0, 0)));
+        };
+
+        void add_e(string first, string second, long long int weight=1, bool is_oriented=false) {
+            for (auto& x : graph_matrix) {
+                x.push_back(0);
+            }
+            *(graph_matrix[node_index[first]].end() - 1) = weight;
+            *(graph_matrix[node_index[second]].end() - 1) = is_oriented? -weight : weight;
+        }
+
+        void del_v(string name) {
+            long long int index = node_index[name];
+            for (long long int i = 0; i < graph_matrix[index].size(); ++i)
+                if (graph_matrix[index][i]) {
+                    for (auto &x: graph_matrix)
+                        x.erase(x.begin() + i);
+                }
+            graph_matrix.erase(graph_matrix.begin() + index);
+            nodes.erase(nodes.begin() + index);
+            node_index.erase(name);
+        }
+
+        void del_e(string first, string second) {
+            long long int f = node_index[first], s = node_index[second], edge_index = -1;
+            for (int i = 0; i < graph_matrix[f].size(); ++i) {
+                if (graph_matrix[f][i] && graph_matrix[s][i]) {
+                    edge_index = i;
+                    break;
+                }
+            }
+            if (edge_index == -1)
+                return;
+            for (auto& x : graph_matrix)
+                x.erase(x.begin() + edge_index);
+        }
+
+        void edit_v(string node_name, T new_mark) {
+            nodes[node_index[node_name]].mark = new_mark;
+        }
+
+        void edit_e(string first, string second, long long int weight=1, bool is_oriented=false) {
+            long long int f = node_index[first], s = node_index[second], edge_index = -1;
+            for (int i = 0; i < graph_matrix[f].size(); ++i) {
+                if (graph_matrix[f][i] && graph_matrix[s][i]) {
+                    edge_index = i;
+                    break;
+                }
+            }
+            if (edge_index == -1)
+                return;
+            graph_matrix[f][edge_index] = weight;
+            graph_matrix[s][edge_index] = is_oriented? -weight : weight;
+        }
+
+    private:
+
+        unordered_map<string, long long int> node_index;
+        vector<Node<T>> nodes;
+        vector<vector<long long int>> graph_matrix;
+    };
+}
+// -- start second
+void dfs(second_lab::Node<int>* node, second_lab::graph<int>& g) {
+    int index = 0;
+    second_lab::Node<int>* v = g.vertex(node->name, 0);
+    while (v != nullptr) {
+        if (v->mark == INT16_MIN || v->mark > node->mark + 1) {
+            v->mark = node->mark + 1;
+            dfs(v, g);
+        }
+        v = g.vertex(node->name, ++index);
+    }
+}
+
+int get_diameter(second_lab::graph<int>& g) {
+    int mx = 0;
+    for (auto& x : g.get_nodes()) {
+        for (auto& y : g.get_nodes()) {
+            y.mark = INT16_MIN;
+        }
+        x.mark = 0;
+        dfs(&x, g);
+        for (auto& y : g.get_nodes())
+            mx = max(y.mark, mx);
+    }
+    return mx;
+}
+
+int main() {
+    int a;
+    cin >> a;
+    second_lab::graph<int> g(a, INT16_MIN);
+    second_lab::graph<int> g( // --- first
+            {{1, 0, 1, 0, 0, 0, 0},
+             {1, 1, 0, 0, 0, 0, 0},
+             {0, 1, 1, 1, 1, 0, 1},
+             {0, 0, 0, 1, 0, 1, 0},
+             {0, 0, 0, 0, 1, 1, 0},
+             {0, 0, 0, 0, 0, 0, 1}}, INT16_MIN);
+    second_lab::graph<int> g(
+            {
+                    {1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+                    {1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0},
+                    {0, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0},
+                    {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1},
+                    {0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0},
+                    {0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0},
+                    {0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0},
+                    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
+            }, INT16_MIN);
+    for (; ; ) {
+        int d;
+        string t1, t2;
+        cin >> d;
+        switch (d) {
+            case 0:
+                return 0;
+            case 1:
+                cin >> t1;
+                g.add_v(t1, INT16_MIN);
+                break;
+            case 2:
+                cin >> t1 >> t2;
+                g.add_e(t1, t2);
+                break;
+            case 3:
+                cin >> t1;
+                g.del_v(t1);
+                break;
+            case 4:
+                cin >> t1 >> t2;
+                g.del_e(t1, t2);
+                break;
+            case 5:
+                cout << get_diameter(g) << endl;
+                break;
+            case 6:
+                for (auto& x : g.get_matrix()) {
+                    for (auto& y : x)
+                        cout << y << ' ';
+                    cout << endl;
+                }
+                break;
+            case 7:
+                int t;
+                cin >> t1 >> t2 >> t;
+                g.edit_e(t1, t2, t);
+        }
+    }
+}
