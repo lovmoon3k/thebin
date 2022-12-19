@@ -1,0 +1,304 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Engine = ReplicatedStorage:WaitForChild("ACS_Engine")
+local Evt = Engine:WaitForChild("Eventos")
+local Mod = Engine:WaitForChild("Modulos")
+local GunModels = Engine:WaitForChild("GunModels")
+local GunModelClient = GunModels:WaitForChild("Client")
+local GunModelServer = GunModels:WaitForChild("Server")
+local GunModelHolster = GunModels:WaitForChild("Holster")
+local Utils = require(Mod:WaitForChild("Utilities"))
+local ServerConfig = require(Engine.ServerConfigs:WaitForChild("Config"))
+local TS = game:GetService("TweenService")
+local RagdollModule = require(Mod:WaitForChild("PlayerRagdoll"))
+
+local Players = game:GetService("Players")
+local ACS_Storage = workspace:WaitForChild("ACS_WorkSpace")
+local HttpService = game:GetService("HttpService")
+local ACS_0 = HttpService:GenerateGUID(true)
+
+local Debris = game:GetService("Debris")
+local BreakModule = require(Mod:WaitForChild("PartFractureModule"))
+
+local StancesTweenTable = {}
+local EvtStanceTweenTable = {}
+
+local ver = "ACS R15 Mod 1.2.3"
+print(ver .. " loading")
+
+
+Players.PlayerAdded:Connect(function(Player)
+	Player.CharacterAdded:connect(function(character)
+		local humanoid = character:FindFirstChild("Humanoid")
+		if humanoid then
+			humanoid.BreakJointsOnDeath = false
+			local con
+			con = humanoid.Died:connect(function()
+				if ServerConfig.EnableRagdoll then
+					RagdollModule(character)
+				end
+				con:Disconnect()
+			end)
+		end
+	end)
+end)
+
+local space = workspace.ACS_WorkSpace.Server
+
+space.ChildAdded:Connect(function(child)
+	if child:IsA("BasePart") then
+		local anchored
+		repeat
+			if child.Velocity.Magnitude < 0.01 then
+				if not anchored then
+					coroutine.wrap(function()
+						task.wait(1)
+						if child.Velocity.Magnitude < 0.01 and not anchored then
+							anchored = true
+						end
+					end)()
+				end
+				if anchored then
+					child.Anchored = true
+					child.Velocity = Vector3.new(0,0,0)
+					child.CanCollide = false
+				end
+			end
+			task.wait(0.1)
+		until anchored
+	end
+end)
+
+
+local RS = game:GetService("RunService")
+
+local Explosion = {"187137543"; "169628396"; "926264402"; "169628396"; "926264402"; "169628396"; "187137543";}
+
+
+
+
+local SilencerNames = {
+	"Supressor",
+	"Suppressor",
+	"Silencer",
+	"Silenciador",
+}
+
+function FindSilencer(model)
+	for _,name in pairs(SilencerNames) do
+		local found = model:FindFirstChild(name)
+		if found then
+			return found
+		end
+	end
+	return nil
+end
+
+
+
+
+
+
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+
+
+
+Evt.AcessId.OnServerEvent:Connect(function(player,id)
+	if player.UserId == id then
+		Evt.AcessId:FireClient(player,ACS_0)
+	else
+		player:kick(ServerConfig.KickMessage or "whoops, better luck next time")
+	end
+end)
+
+
+
+game.Players.PlayerAdded:connect(function(Player)	
+	Player.CharacterAppearanceLoaded:Connect(function(char)
+		local TTScript = Engine.Essential.TeamTag:Clone()
+		TTScript.Parent = Player.PlayerGui
+		TTScript.Disabled = false
+	end)
+end)
+
+function Weld(p0, p1, cf1, cf2)
+	local m = Instance.new("Motor6D")
+	m.Part0 = p0
+	m.Part1 = p1
+	m.Name = p0.Name
+	m.C0 = cf1 or p0.CFrame:inverse() * p1.CFrame
+	m.C1 = cf2 or CFrame.new()
+	m.Parent = p0
+	return m
+end
+
+function OnRecarregar(Player, Arma, VarDict)
+	local var = Arma.ACS_Modulo.Variaveis
+	for key, val in pairs(VarDict) do
+		if var:FindFirstChild(key) then
+			var[key].Value = val
+		end
+	end
+end
+
+Evt.Recarregar.OnServerEvent:Connect(OnRecarregar)
+
+Evt.Treino.OnServerEvent:Connect(function(Player, Vitima)
+
+	if Vitima.Parent:FindFirstChild("Saude") ~= nil then
+		local saude = Vitima.Parent.Saude
+		saude.Variaveis.HitCount.Value = saude.Variaveis.HitCount.Value + 1
+	end
+
+end)
+
+Evt.SVFlash.OnServerEvent:Connect(function(Player,Mode,Arma,Angle,Bright,Color,Range)
+	if ServerConfig.ReplicatedFlashlight then
+		Evt.SVFlash:FireAllClients(Player,Mode,Arma,Angle,Bright,Color,Range)
+	end
+end)
+
+Evt.SVLaser.OnServerEvent:Connect(function(Player,Position,Modo,Cor,Arma,IRmode)
+	if ServerConfig.ReplicatedLaser then
+		Evt.SVLaser:FireAllClients(Player,Position,Modo,Cor,Arma,IRmode)
+	end
+end)
+
+Evt.Breach.OnServerEvent:Connect(function(Player,Mode,BreachPlace,Pos,Norm,Hit)
+
+	if Mode == 1 then
+		Player.Character.Saude.Kit.BreachCharges.Value = Player.Character.Saude.Kit.BreachCharges.Value - 1
+		BreachPlace.Destroyed.Value = true
+		local C4 = Engine.FX.BreachCharge:Clone()
+
+		C4.Parent = BreachPlace.Destroyable
+		C4.Center.CFrame = CFrame.new(Pos, Pos + Norm) * CFrame.Angles(math.rad(-90),math.rad(0),math.rad(0))
+		C4.Center.Place:Play()
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Parent = C4
+		weld.Part0 = BreachPlace.Destroyable.Charge
+		weld.Part1 = C4.Center
+
+		task.wait(1)
+		C4.Center.Beep:Play()
+		task.wait(4)
+		C4.Center.Beep.Playing = false
+		C4.Charge:Destroy()
+		local Exp = Instance.new("Explosion")
+		Exp.BlastPressure = 0
+		Exp.BlastRadius = 0
+		Exp.DestroyJointRadiusPercent = 0
+		Exp.Position = C4.Center.Position
+		Exp.Parent = workspace
+
+		local S = Instance.new("Sound")
+		S.EmitterSize = 50
+		S.MaxDistance = 1500
+		S.SoundId = "rbxassetid://".. Explosion[math.random(1, 7)]
+		S.PlaybackSpeed = math.random(30,55)/40
+		S.Volume = 2
+		S.Parent = Exp
+		S.PlayOnRemove = true
+		S:Destroy()
+
+		Debris:AddItem(BreachPlace.Destroyable,0)
+	elseif Mode == 2 then
+
+		Player.Character.Saude.Kit.BreachCharges.Value = Player.Character.Saude.Kit.BreachCharges.Value - 1
+		BreachPlace.Destroyed.Value = true
+		local C4 = Engine.FX.BreachCharge:Clone()
+
+		C4.Parent = BreachPlace
+		C4.Center.CFrame = CFrame.new(Pos, Pos + Norm) * CFrame.Angles(math.rad(-90),math.rad(0),math.rad(0))
+		C4.Center.Place:Play()
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Parent = C4
+		weld.Part0 = BreachPlace.Door.Door
+		weld.Part1 = C4.Center
+
+		task.wait(1)
+		C4.Center.Beep:Play()
+		task.wait(4)
+		C4.Center.Beep.Playing = false
+		C4.Charge:Destroy()
+		local Exp = Instance.new("Explosion")
+		Exp.BlastPressure = 0
+		Exp.BlastRadius = 0
+		Exp.DestroyJointRadiusPercent = 0
+		Exp.Position = C4.Center.Position
+		Exp.Parent = workspace
+
+		local S = Instance.new("Sound")
+		S.EmitterSize = 50
+		S.MaxDistance = 1500
+		S.SoundId = "rbxassetid://".. Explosion[math.random(1, 7)]
+		S.PlaybackSpeed = math.random(30,55)/40
+		S.Volume = 2
+		S.Parent = Exp
+		S.PlayOnRemove = true
+		S:Destroy()
+
+		Debris:AddItem(BreachPlace,0)
+
+	elseif Mode == 3 then
+
+		Player.Character.Saude.Kit.Fortifications.Value = Player.Character.Saude.Kit.Fortifications.Value - 1
+		BreachPlace.Fortified.Value = true
+		local C4 = Instance.new('Part')
+
+		C4.Parent = BreachPlace.Destroyable
+		C4.Size =  Vector3.new(Hit.Size.X + .05,Hit.Size.Y + .05,Hit.Size.Z + 0.5) 
+		C4.Material = Enum.Material.DiamondPlate
+		C4.Anchored = true
+		C4.CFrame = Hit.CFrame
+
+		local S = Engine.FX.FortFX:Clone()
+		S.PlaybackSpeed = math.random(30,55)/40
+		S.Volume = 1
+		S.Parent = C4
+		S.PlayOnRemove = true
+		S:Destroy()
+
+	end
+end)
+
+--Start Blizzard Compat Functions----
+Evt.BlizzardCompat.HeliHit.OnServerEvent:Connect(function(Player, Heli, dg, damage, Id)
+	if Id ~= ACS_0.."__"..Player.UserId then
+		if ServerConfig.KickOnFailedSanityCheck then
+			Player:kick(ServerConfig.KickMessage or "no jimmy, you can't make all blizzard helicopters go boom")
+		end
+		return
+	end
+	if 0 < dg.Value then
+		if dg.Value > damage then
+			dg.Value = dg.Value - damage
+		else
+			dg.Value = 0
+		end
+	end
+end)
+
+--End Blizzard Compat Functions----
+
+
+
+--Start Striker Compat Functions----
+Evt.StrikerCompat.TankHit.OnServerEvent:Connect(function(Player, Tank, dg, damage, Id)
+	if Id ~= ACS_0.."__"..Player.UserId then
+		if ServerConfig.KickOnFailedSanityCheck then
+			Player:kick(ServerConfig.KickMessage or "no jimmy, you can't make all striker tanks go boom")
+		end
+		return
+	end
+	if 0 < dg.Value then
+		if dg.Value > damage then
+			dg.Value = dg.Value - damage
+		else
+			dg.Value = 0
+		end
+	end
+end)
