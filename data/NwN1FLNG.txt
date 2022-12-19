@@ -1,0 +1,130 @@
+---@diagnostic disable: undefined-global, undefined-field
+require "move"
+require "sanify"
+
+local fuelLocation = ZipCoords(36, 70, 8)
+local logChestLocation = ZipCoords(36, 70, 14)
+local dumpLocation = ZipCoords(34, 71, 12)
+local treeLocation = ZipCoords(38, 69, 15)
+
+function dropLogs()
+  Move:location(gps.locate(), logChestLocation, true)
+  for i = 1, 16 do
+    turtle.select(i)
+    local data = turtle.getItemDetail()
+    if data ~= nil then
+      if data.name == "minecraft:oak_log" then
+        turtle.dropDown()
+      end
+    end
+  end
+end
+
+function dropShit()
+  Move:location(gps.locate(), dumpLocation, true)
+
+  local foundSaplings = false
+  for i = 1, 16 do
+    turtle.select(i)
+    local data = turtle.getItemDetail()
+
+    if data ~= nil and data.name ~= "minecraft:oak_log" then
+      if data.name == "minecraft:oak_sapling" then
+        if foundSaplings then
+          turtle.dropDown()
+          foundSaplings = true
+        end
+      else
+        turtle.dropDown()
+      end
+    end
+  end
+end
+
+function refuel(currentLocation)
+  if CheckInventoryFull() then
+    dropLogs()
+    dropShit()
+  end
+  Move:location(currentLocation, fuelLocation, true)
+
+  turtle.suckDown(64)
+
+  for i = 1, 16 do
+    turtle.select(i)
+    local data = turtle.getItemDetail()
+    if data ~= nil then
+      if data.name == "minecraft:charcoal" then
+        turtle.refuel()
+      end
+    end
+  end
+
+  Move:location(fuelLocation, currentLocation, true)
+end
+
+function placeSapling()
+  for i = 1, 16 do
+    turtle.select(i)
+    local data = turtle.getItemDetail()
+    if data ~= nil then
+      if data.name == "minecraft:oak_sapling" then
+        turtle.place()
+        return true
+      end
+    end
+  end
+  return false
+end
+
+function checkTree(side, continue)
+  Move:turnLeft(math.pow(-1, side))
+
+  local block = turtle.inspect()
+  if block.name == "minecraft:oak_log" then
+    turtle.dig()
+    Move:forward(1, safe)
+    local i = 0
+    repeat
+      block = turtle.inspectUp()
+      if block ~= nil and block.name == "minecraft:oak_log" then
+        turtle.dig()
+        turtle.digUp()
+        i = i + 1
+      end
+    until block == nil or block.name ~= "minecraft:oak_log"
+    Move:down(i, safe)
+    Move:down(1, safe)
+    Move:turnRight(2 * math.pow(-1, side))
+    Move:forward(1, safe)
+    Move:turnLeft(2 * math.pow(-1, side))
+    placeSapling()
+  end
+
+  Move:turnRight(math.pow(-1, side))
+
+  if continue then
+    checkTree((side + 1) % 2, not continue)
+  end
+end
+
+while true do
+  local fuel = turtle.getFuelLevel()
+  if fuel < 100 then
+    refuel(gps.locate())
+  end
+
+  if CheckInventoryFull() then
+    dropLogs()
+    dropShit()
+  end
+
+  Move:location(gps.locate(), treeLocation, true)
+
+  Move:turnLeft()
+  block = turtle.inspect()
+
+  checkTree(0, true)
+
+  os.sleep(600)
+end
