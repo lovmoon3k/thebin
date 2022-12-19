@@ -1,0 +1,146 @@
+/// Produce some machines that produce resources in a horrible network :-)
+/// 1) Find best results for a long list.
+/// 2) Now for a short list over a longer time.
+///
+/// Part 1, typical solution for second line
+/// [0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 1, 2, 3, 2, 3, 2, 3, 3, 3] -> 12
+
+import 'package:collection/collection.dart';
+import 'package:more/more.dart';
+
+var ore = 0, clay = 1, obsidian = 2, geode = 3;
+
+class Blueprint {
+  int number;
+  List<List<int>> costs = [[], [], [], []];
+  Blueprint(this.number, this.costs);
+}
+
+class State {
+  int time;
+  List<int> robots = [1, 0, 0, 0];
+  List<int> stocks = [0, 0, 0, 0];
+  State(this.time);
+  State.copyFrom(State other)
+      : time = other.time,
+        robots = other.robots.toList(),
+        stocks = other.stocks.toList();
+
+  canBuildRobot(int r, Blueprint bp) {
+    for (var i in 0.to(4)) {
+      if (stocks[i] < bp.costs[r][i]) return false;
+    }
+    return true;
+  }
+
+  buildRobot(int r, Blueprint bp) {
+    robots[r] += 1;
+    for (var i in 0.to(4)) {
+      stocks[i] -= bp.costs[r][i];
+    }
+  }
+
+  @override
+  int get hashCode => time.hashCode ^ robots.hashCode ^ stocks.hashCode;
+  // int get hashCode => Object.hash(time, robots, stocks);
+
+  @override
+  bool operator ==(Object other) =>
+      (other is State) &&
+      time == other.time &&
+      0.to(robots.length).every((e) => robots[e] == other.robots[e]) &&
+      0.to(robots.length).every((e) => stocks[e] == other.stocks[e]);
+}
+
+var debug = false;
+Blueprint read(String line) {
+  var reD = RegExp(r'\d+');
+  var ms = reD.allMatches(line).map((m) => int.parse(m[0]!)).toList();
+  return Blueprint(ms[0], [
+    [ms[1], 0, 0, 0],
+    [ms[2], 0, 0, 0],
+    [ms[3], ms[4], 0, 0],
+    [ms[5], 0, ms[6], 0]
+  ]);
+}
+
+List<int> sums(List<int> a, List<int> b) =>
+    [0, 1, 2, 3].map((e) => a[e] + b[e]).toList();
+int getMaxGeodes(Blueprint bp, int timeLimit) {
+  var best = 0;
+  var q = QueueList.from([State(timeLimit)]);
+  var seen = <int>{};
+  while (q.isNotEmpty) {
+    var curr = q.removeFirst();
+    if (seen.contains(curr.hashCode)) {
+      continue;
+    }
+    seen.add(curr.hashCode);
+    if (curr.time == 0) {
+      if (curr.stocks[geode] > best) {
+        best = curr.stocks[geode];
+      }
+      continue;
+    }
+    var nextState = State.copyFrom(curr)
+      ..time -= 1
+      ..stocks = sums(curr.stocks, curr.robots);
+
+    // What should we build next?
+
+    //Always build geode
+    var buildGeode = curr.canBuildRobot(geode, bp);
+    if (buildGeode) {
+      q.add(State.copyFrom(nextState)..buildRobot(geode, bp));
+    }
+
+    // Geode >>> Obs, plus don't need too many
+    var buildObs = !buildGeode &&
+        curr.robots[obsidian] < bp.costs[geode][obsidian] &&
+        curr.canBuildRobot(obsidian, bp);
+    if (buildObs) {
+      q.add(State.copyFrom(nextState)..buildRobot(obsidian, bp));
+    }
+
+    // Only build clay if we need it to feed obsidians
+    var buildClay = !buildGeode &&
+        !buildObs &&
+        curr.robots[clay] < bp.costs[obsidian][clay] &&
+        curr.canBuildRobot(clay, bp);
+    if (buildClay) {
+      q.add(State.copyFrom(nextState)..buildRobot(clay, bp));
+    }
+
+    // Only build clay if we need it to feed any of the others
+    var buildOre = !buildGeode &&
+        !buildObs &&
+        (curr.robots[ore] < bp.costs[geode][ore] ||
+            curr.robots[ore] < bp.costs[obsidian][ore] ||
+            curr.robots[ore] < bp.costs[clay][ore]) &&
+        curr.canBuildRobot(ore, bp);
+    if (buildOre) {
+      q.add(State.copyFrom(nextState)..buildRobot(ore, bp));
+    }
+
+    // Dunno about these numbers...
+    var canIdle = !buildGeode &&
+        (curr.stocks[ore] < 2 * bp.costs[geode][ore] ||
+            curr.stocks[ore] < 2 * bp.costs[obsidian][ore] ||
+            curr.stocks[ore] < 2 * bp.costs[clay][ore]) &&
+        curr.stocks[clay] < 3 * bp.costs[obsidian][clay];
+    if (canIdle) {
+      q.add(nextState);
+    }
+  }
+  print('best for ${bp.number} = $best');
+  return best;
+}
+
+part1(List<String> lines) =>
+    lines.map(read).map((e) => getMaxGeodes(e, 24) * e.number).sum;
+
+part2(List<String> lines) => lines
+    .take(3)
+    .map(read)
+    .map((e) => getMaxGeodes(e, 32))
+    .reduce((s, t) => s * t);
