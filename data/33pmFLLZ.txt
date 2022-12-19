@@ -1,0 +1,219 @@
+#include <stdio.h>
+
+
+struct Blueprint
+{
+    int id{ 0 };
+    int oreForO{ 0 };
+    int oreForC{ 0 };
+    int oreForB{ 0 };
+    int clayForB{ 0 };
+    int oreForG{ 0 };
+    int obsForG{ 0 };
+};
+
+
+struct Pile
+{
+    int oreCnt{ 0 };
+    int clayCnt{ 0 };
+    int obsCnt{ 0 };
+    int geoCnt{ 0 };
+
+    int robotOreCnt{ 0 };
+    int robotClayCnt{ 0 };
+    int robotObsCnt{ 0 };
+    int robotGeoCnt{ 0 };
+};
+
+
+// proto
+void calcRecursive(int days, char to, Pile pile);
+
+
+#define TIMEMIN 32
+Blueprint globalBlueprint;
+int globalMax = 0;
+
+
+int doWork()
+{
+    Pile pile;
+    pile.robotOreCnt = 1;
+    globalMax = 0;
+
+    calcRecursive(TIMEMIN, 'o', pile);   // you can't make oBsidian and Geoid types of robots
+    calcRecursive(TIMEMIN, 'c', pile);
+
+    printf("%d max: %d\n", globalBlueprint.id, globalMax);
+    return globalMax;
+}
+
+
+
+int calcDist(Pile & pile, char c)
+{
+    int res = 0xFFFF;
+    switch (c)
+    {
+    case 'o': 
+    {   // divide and round to upper
+        res = (globalBlueprint.oreForO - pile.oreCnt + pile.robotOreCnt - 1) / pile.robotOreCnt; res = res > 0 ? res : 0;
+        break;
+    }
+    case 'c':
+    {
+        res = (globalBlueprint.oreForC - pile.oreCnt + pile.robotOreCnt - 1) / pile.robotOreCnt; res = res > 0 ? res : 0;
+        break;
+    }
+    case 'b':
+    {
+        if (!pile.robotClayCnt)
+            return res;
+        int res1 = (globalBlueprint.oreForB - pile.oreCnt + pile.robotOreCnt - 1) / pile.robotOreCnt; res1 = res1 > 0 ? res1 : 0;
+        int res2 = (globalBlueprint.clayForB - pile.clayCnt + pile.robotClayCnt - 1) / pile.robotClayCnt; res2 = res2 > 0 ? res2 : 0;
+        res = res1 > res2 ? res1 : res2;
+        break;
+    }
+    case 'g':
+    {
+        if (!pile.robotObsCnt)
+            return res;
+        int res1 = (globalBlueprint.oreForG - pile.oreCnt + pile.robotOreCnt - 1) / pile.robotOreCnt; res1 = res1 > 0 ? res1 : 0;
+        int res2 = (globalBlueprint.obsForG - pile.obsCnt + pile.robotObsCnt - 1) / pile.robotObsCnt; res2 = res2 > 0 ? res2 : 0;
+        res = res1 > res2 ? res1 : res2;
+    }
+    }
+    return res;
+}
+
+
+void calcRecursive(int minutesLeft, char to, Pile pile)
+{
+    if (minutesLeft <= 0)
+    {
+        // the end
+        if (globalMax <= pile.geoCnt)
+            globalMax = pile.geoCnt;
+
+        return;
+    }
+
+    int dist = calcDist(pile, to);
+    if (dist > minutesLeft - 1)
+    {
+        // the end
+        if (dist != 0xFFFF)
+        {
+            pile.oreCnt += pile.robotOreCnt * minutesLeft;
+            pile.clayCnt += pile.robotClayCnt * minutesLeft;
+            pile.obsCnt += pile.robotObsCnt * minutesLeft;
+            pile.geoCnt += pile.robotGeoCnt * minutesLeft;
+        }
+
+        if (globalMax <= pile.geoCnt)
+            globalMax = pile.geoCnt;
+
+        return;
+    }
+
+    // yeilding 
+    pile.oreCnt += pile.robotOreCnt * dist;
+    pile.clayCnt += pile.robotClayCnt * dist;
+    pile.obsCnt += pile.robotObsCnt * dist;
+    pile.geoCnt += pile.robotGeoCnt * dist;
+
+    minutesLeft -= dist;
+
+    // time to build robot
+    switch (to)
+    {
+    case 'o': 
+        pile.oreCnt -= globalBlueprint.oreForO;
+        break;
+    case 'c': 
+        pile.oreCnt -= globalBlueprint.oreForC;
+        break;
+    case 'b': 
+        pile.oreCnt -= globalBlueprint.oreForB;
+        pile.clayCnt -= globalBlueprint.clayForB;
+        break;
+    case 'g': 
+        pile.oreCnt -= globalBlueprint.oreForG;
+        pile.obsCnt -= globalBlueprint.obsForG;
+        break;
+    }
+
+    // while creating robot
+    pile.oreCnt += pile.robotOreCnt;
+    pile.clayCnt += pile.robotClayCnt;
+    pile.obsCnt += pile.robotObsCnt;
+    pile.geoCnt += pile.robotGeoCnt;
+
+    switch (to)
+    {
+    case 'o':
+        pile.robotOreCnt++;
+        break;
+    case 'c':
+        pile.robotClayCnt++;
+        break;
+    case 'b':
+        pile.robotObsCnt++;
+        break;
+    case 'g':
+        pile.robotGeoCnt++;
+        break;
+    }
+
+    minutesLeft -= 1;
+
+    // what to do next?
+    if ((pile.obsCnt >= globalBlueprint.obsForG) && (pile.oreCnt >= globalBlueprint.oreForG))
+    {
+        calcRecursive(minutesLeft, 'g', pile);
+    }
+    else if ((pile.clayCnt >= globalBlueprint.clayForB) && (pile.oreCnt >= globalBlueprint.oreForB))
+    {
+        calcRecursive(minutesLeft, 'b', pile);
+    }
+    else
+    {
+        calcRecursive(minutesLeft, 'o', pile);
+        calcRecursive(minutesLeft, 'c', pile);
+        calcRecursive(minutesLeft, 'b', pile);
+        calcRecursive(minutesLeft, 'g', pile);
+    }
+}
+
+
+int main()
+{
+    FILE* f = NULL;
+    fopen_s(&f, "input.txt", "r");
+
+    int score = 1;
+
+    for(int i = 0; i < 3; i++)
+    {
+        char buf[1024] = { 0 };
+        fgets(buf, 1023, f);
+        int res = sscanf_s(buf, "Blueprint %d: Each ore robot costs %d ore. Each clay robot costs %d ore. Each obsidian robot costs %d ore and %d clay. Each geode robot costs %d ore and %d obsidian.",
+            &globalBlueprint.id,
+            &globalBlueprint.oreForO,
+            &globalBlueprint.oreForC,
+            &globalBlueprint.oreForB,
+            &globalBlueprint.clayForB,
+            &globalBlueprint.oreForG,
+            &globalBlueprint.obsForG);
+
+        if (res == 7)
+        {
+            score = score * doWork();
+        }
+    }
+    fclose(f);
+    
+    printf("Score: %d\n", score);
+    return 0;
+}
