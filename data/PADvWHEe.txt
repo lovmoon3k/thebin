@@ -1,0 +1,654 @@
+<template>
+  <Modal
+    class="quiz"
+    :class="`quiz-${type}`"
+    :adaptive="true"
+    :name="name"
+    height="auto"
+    :scrollable="true"
+    @before-open="actionBeforeOpenQuiz"
+    @before-close="actionBeforeCloseQuiz"
+  >
+    <!--  Modal container START  -->
+    <div class="quiz-wrapper">
+      <!--   Modal Header START   -->
+      <div class="quiz__header">
+        <div class="quiz__header-left subtitle_secondary">
+          {{ $t('main.quiz.popup.title') }}
+        </div>
+        <inline-svg
+          :src="require(`~/assets/images/${styleType.closeIcon}`)"
+          class="quiz__header-right"
+          @click="hideQuizModal"
+        />
+      </div>
+      <!--   Modal Header END   -->
+      <!--  Modal Content START    -->
+      <div class="quiz__body">
+        <!--   Блок картинки из вопроса квиза START   -->
+        <div v-if="image && !result" class="quiz__body-image">
+          <figure>
+            <img
+              :src="require(`~/assets/images/pages/main/quiz/${image}`)"
+              alt="image"
+            />
+          </figure>
+        </div>
+        <!--   Блок картинки из вопроса квиза END   -->
+        <!--    Блок тела квиза START    -->
+        <div class="quiz__body-container">
+          <!--    Блок вопросов квиза START      -->
+          <div v-if="currentStep && !result" class="quiz__variants">
+            <p class="text text_large text_large--bold">
+              {{ currentStep.question }}
+            </p>
+            <div
+              v-for="item in currentStep.answers"
+              :key="item.label"
+              class="quiz__radio-wrapper"
+              @click="setActiveTab(item)"
+            >
+              <DgRadio
+                class="quiz__radio"
+                :value="item.value"
+                :name="item.value"
+                :isActive="item.isActive"
+                :label="item.label"
+                :option="item.value"
+              />
+            </div>
+          </div>
+          <!--    Блок вопросов квиза END      -->
+          <!--    Блок результата квиза START     -->
+          <div v-if="result" class="quiz__result">
+            <p
+              class="text text_large text_large--bold quiz__result-text"
+              v-html="service"
+            />
+            <QuizCard
+              :title="result.title"
+              :description="result.desc"
+              :value="resultImage"
+              :path="result.path"
+              :cardType="type"
+            />
+          </div>
+          <!--    Блок результата квиза END      -->
+        </div>
+        <!--    Блок тела квиза END    -->
+      </div>
+      <!--   Modal Content END   -->
+      <!--   Modal Footer START   -->
+      <div v-if="!result" class="quiz__footer">
+        <div class="quiz__footer-left">
+          <DgButton
+            :variant="styleType.button_cancel.variant"
+            size="small"
+            :title="$t('main.quiz.popup.form.cancel')"
+            @click="hideQuizModal"
+          />
+        </div>
+        <div class="quiz__footer-right">
+          <DgButton
+            v-if="prevsSteps.length"
+            class="quiz__btn-back"
+            :variant="styleType.button_prev.variant"
+            size="small"
+            :title="$t('main.general.form.back')"
+            :hasIcon="styleType.button_prev.hasIcon"
+            @click="prevStep"
+          />
+          <DgButton
+            :disabled="!Object.keys(selectedTab).length"
+            class="quiz__btn-next"
+            :variant="styleType.button_next.variant"
+            size="small"
+            :title="$t('main.general.form.next')"
+            :hasIcon="styleType.button_next.hasIcon"
+            @click="nextStep"
+          />
+        </div>
+      </div>
+      <!--   Modal Footer END   -->
+    </div>
+    <!--  Modal container END  -->
+  </Modal>
+</template>
+
+<script>
+  import { DgButton } from '~/components/UI';
+  import DgRadio from '~/components/UI/DgRadio';
+  import QuizCard from '~/components/main/components/Cards/QuizCard';
+
+  export default {
+    components: { QuizCard, DgButton, DgRadio },
+    props: {
+      name: {
+        type: String,
+        required: true,
+      },
+      isImages: {
+        type: Boolean,
+        default: true,
+      },
+      type: {
+        type: String,
+        default: 'default',
+      },
+    },
+    data() {
+      const hosting = {
+        title: this.$t('main.solutions.hosting.title'),
+        desc: this.$t('main.solutions.hosting.detail'),
+        phraseKey: 'hosting',
+        path: '/store/hosting',
+      };
+      const network = {
+        title: this.$t('main.solutions.network.title'),
+        desc: this.$t('main.solutions.network.detail'),
+        phraseKey: 'network',
+        path: '/store/network-protection',
+      };
+      const protection = {
+        title: this.$t('main.solutions.protection.title'),
+        desc: this.$t('main.solutions.protection.detail'),
+        phraseKey: 'protection',
+        path: '/store/web',
+      };
+      const vds = {
+        title: this.$t('main.solutions.vds.title'),
+        desc: this.$t('main.solutions.vds.detail'),
+        phraseKey: 'vds',
+        path: '/store/vds',
+      };
+      const server = {
+        title: this.$t('main.solutions.server.title'),
+        desc: this.$t('main.solutions.server.detail'),
+        phraseKey: 'server',
+        path: '/store/server',
+      };
+      const projectStep = {
+        question: this.$t('main.quiz.project.title'),
+        image: 'projectStep.jpg',
+        answers: [
+          {
+            label: this.$t('main.quiz.project.landing'),
+            isActive: false,
+            value: 'landing',
+            next: null,
+            result: hosting,
+          },
+          {
+            label: this.$t('main.quiz.project.promo'),
+            isActive: false,
+            value: 'promo',
+            next: null,
+            result: hosting,
+          },
+          {
+            label: this.$t('main.quiz.project.ecommerce'),
+            isActive: false,
+            value: 'ecommerce',
+            next: null,
+            result: vds,
+          },
+          {
+            label: this.$t('main.quiz.project.media'),
+            isActive: false,
+            value: 'media',
+            next: null,
+            result: vds,
+          },
+          {
+            label: this.$t('main.quiz.project.high_load'),
+            isActive: false,
+            value: 'high-load',
+            next: null,
+            result: server,
+          },
+        ],
+      };
+      const migrateStep = {
+        question: this.$t('main.quiz.migrate.title'),
+        image: 'migrateStep.jpg',
+        answers: [
+          {
+            label: this.$t('main.quiz.migrate.yes'),
+            isActive: false,
+            value: 'yes',
+            next: projectStep,
+          },
+          {
+            label: this.$t('main.quiz.migrate.no'),
+            isActive: false,
+            value: 'no',
+            next: null,
+            result: protection,
+          },
+        ],
+      };
+      const otherStep = {
+        question: this.$t('main.quiz.project.title'),
+        image: 'projectStep.jpg',
+        answers: [
+          {
+            label: this.$t('main.quiz.project.server'),
+            value: 'server',
+            isActive: false,
+            next: null,
+            result: server,
+          },
+          {
+            label: this.$t('main.quiz.project.medium_load'),
+            value: 'medium-load',
+            isActive: false,
+            next: null,
+            result: vds,
+          },
+          {
+            label: this.$t('main.quiz.project.high_load'),
+            value: 'high-load',
+            isActive: false,
+            next: null,
+            result: server,
+          },
+        ],
+      };
+      const initStep = {
+        question: this.$t('main.quiz.prot_object.title'),
+        image: 'initStep.jpg',
+        answers: [
+          {
+            label: this.$t('main.quiz.prot_object.site'),
+            value: 'site',
+            isActive: false,
+            next: migrateStep,
+          },
+          {
+            label: this.$t('main.quiz.prot_object.network'),
+            value: 'network',
+            isActive: false,
+            next: null,
+            result: network,
+          },
+          {
+            label: this.$t('main.quiz.project.other'),
+            value: 'other',
+            isActive: false,
+            next: otherStep,
+          },
+        ],
+      };
+      const quizStyleType = {
+        default: {
+          closeIcon: 'pages/main/modal/times.svg',
+          button_cancel: { variant: 'outline' },
+          button_prev: { variant: 'ghost', hasIcon: false },
+          button_next: { variant: 'primary', hasIcon: false },
+        },
+        secondary: {
+          closeIcon: 'general-icons/icon-times.svg',
+          button_cancel: { variant: 'blue-space--outline' },
+          button_prev: { variant: 'outline', hasIcon: true },
+          button_next: { variant: 'blue-space', hasIcon: true },
+        },
+      };
+      return {
+        initStep,
+        prevsSteps: [],
+        selectedTab: {},
+        currentStep: {},
+        result: null,
+        quizStyleType,
+      };
+    },
+    computed: {
+      service() {
+        if (this.result) {
+          return this.$t('main.quiz.perfect_service', {
+            service: this.result.title,
+          });
+        }
+        return '';
+      },
+      image() {
+        return this.isImages ? this.currentStep.image : this.isImages;
+      },
+      styleType() {
+        return this.quizStyleType[this.type];
+      },
+      resultImage() {
+        let img = this.result.phraseKey;
+        if (this.type === 'secondary') img = `${img}-space`;
+        return img;
+      },
+    },
+    methods: {
+      showQuizModal() {
+        this.$modal.show(this.name);
+      },
+      hideQuizModal() {
+        this.$modal.hide(this.name);
+      },
+      setStep() {
+        const custom = (step) => {
+          this.currentStep = step;
+        };
+        const first = () => {
+          this.currentStep = this.initStep;
+        };
+        return { custom, first };
+      },
+      resetQuiz() {
+        const steps = () => {
+          const all = () => {
+            [this.prevsSteps, this.currentStep] = [[], {}];
+          };
+          const current = () => {
+            this.currentStep = {};
+          };
+          const prevs = () => {
+            this.prevsSteps = [];
+          };
+          return { all, current, prevs };
+        };
+        const selectedTab = () => {
+          const all = () => {
+            this.selectedTab.isActive = false;
+            this.selectedTab = {};
+          };
+          const status = () => {
+            this.selectedTab.isActive = false;
+          };
+          const tab = () => {
+            this.selectedTab = {};
+          };
+          return { status, tab, all };
+        };
+        const result = () => {
+          this.result = null;
+        };
+        const answerStatus = () => {
+          if (this.currentStep) {
+            // eslint-disable-next-line
+            this.currentStep.answers.forEach(answer => answer.isActive = false);
+          }
+        };
+        return { steps, selectedTab, result, answerStatus };
+      },
+      nextStep() {
+        if ('result' in this.selectedTab) {
+          return this.quizFinish();
+        }
+        const nextStep = this.selectedTab.next;
+        this.prevsSteps.push(this.currentStep);
+        this.setStep().custom(nextStep);
+        this.resetQuiz().selectedTab().all();
+      },
+      prevStep() {
+        const prevStep = this.prevsSteps.pop();
+        this.resetQuiz().answerStatus();
+        this.resetQuiz().selectedTab().all();
+        this.setStep().custom(prevStep);
+      },
+      actionBeforeOpenQuiz() {
+        if (!this.result && this.prevsSteps.length === 0) {
+          return this.setStep().first();
+        }
+        if (this.result) {
+          return this.quizStart();
+        }
+      },
+      actionBeforeCloseQuiz() {
+        if (this.result) {
+          this.quizStart();
+        }
+      },
+      quizStart() {
+        this.resetQuiz().result();
+        this.resetQuiz().steps().all();
+        this.setStep().first();
+      },
+      quizFinish() {
+        this.result = this.selectedTab.result;
+        this.resetQuiz().steps().all();
+        this.resetQuiz().selectedTab().all();
+      },
+      isActiveTab(activeTab) {
+        this.currentStep.answers.forEach((tab) => {
+          const copy = tab;
+          copy.isActive = activeTab === copy.value;
+          return copy;
+        });
+      },
+      setActiveTab(tab) {
+        this.selectedTab = tab;
+        this.isActiveTab(tab.value);
+      },
+    },
+  };
+</script>
+
+<style lang="scss">
+  .quiz {
+    &-wrapper {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    &__header,
+    &__footer {
+      padding: 22px 30px;
+      flex: 0 0 auto;
+    }
+
+    &__header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+
+      &-right {
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+      }
+    }
+
+    &__body {
+      flex: 1 0 auto;
+
+      &-image {
+        background: #253443;
+
+        img {
+          width: 100%;
+        }
+      }
+    }
+
+    &__variants,
+    &__result {
+      padding: 30px;
+    }
+
+    &__variants {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 20px 0;
+    }
+
+    &__result {
+      &-text {
+        margin-bottom: 20px;
+      }
+    }
+
+    &__footer {
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px solid #ebeced;
+      @media (max-width: 1100px) {
+        padding: 22px 30px 70px !important;
+      }
+
+      button {
+        padding: 5px 15px;
+      }
+
+      &-right {
+        display: flex;
+        gap: 0 16px;
+
+        .quiz__btn-back {
+          color: #253443;
+        }
+        .quiz__btn-next svg {
+          fill: $white;
+        }
+      }
+    }
+
+    &__radio {
+      &.ui-radio {
+        // У компонента DgRadio почему-то есть паддинг внизу
+        padding-bottom: unset !important;
+
+        &--active {
+          // Переопределяем стили у компонента DgRadio
+          .ui-radio__input {
+            border: 5px solid #316aff;
+          }
+        }
+      }
+
+      &-wrapper {
+        cursor: pointer;
+        width: 100%;
+        background: #f7f7f7;
+        border-radius: 5px;
+        padding: 10px;
+      }
+    }
+  }
+  .quiz-secondary {
+    .vm--modal {
+      max-width: 330px;
+      margin: 0 auto;
+      border: 1px solid $grey-very-pale-7;
+      border-radius: 10px;
+      left: 0 !important;
+    }
+    .quiz {
+      &__header {
+        padding: 20px;
+        border-bottom: 1px solid $grey-very-pale-7;
+        &-left {
+          font-size: 17px;
+          line-height: 20px;
+          font-weight: 600;
+        }
+        &-right path {
+          transition: all 0.3s;
+        }
+        &-right:hover path {
+          fill: $grey-strong-61;
+        }
+      }
+      &__variants {
+        height: calc(100vh - 134px);
+        overflow-y: auto;
+        padding: 20px;
+        row-gap: 15px;
+        .text {
+          font-weight: 500;
+          font-size: 15px;
+          line-height: 32px;
+        }
+        .quiz__radio label {
+          line-height: 20px;
+          color: $grey-very-dark-80;
+        }
+      }
+      &__result {
+        padding: 20px;
+        .text {
+          margin-bottom: 15px;
+          font-size: 15px;
+          line-height: 22px;
+          font-weight: 500;
+          text-align: left;
+        }
+      }
+      &__footer {
+        padding: 15px 20px !important;
+        &-right {
+          .quiz__btn-back {
+            flex-direction: row-reverse;
+            color: $blue-main;
+            .dg-button__icon {
+              transform: scale(-1, 1);
+            }
+            svg path {
+              fill: $blue-main;
+            }
+          }
+          .dg-button {
+            font-size: 0;
+            .dg-button__icon {
+              width: 20px;
+              height: 20px;
+              margin-left: 0;
+            }
+          }
+        }
+      }
+      &__header,
+      &__body,
+      &__footer {
+        background-color: $white;
+      }
+    }
+
+    @media (min-width: 577px) {
+      .vm--modal {
+        max-width: 445px;
+      }
+      .quiz {
+        &__header,
+        &__variants,
+        &__result {
+          padding: 30px;
+        }
+        &__footer {
+          padding-right: 30px !important;
+          padding-left: 30px !important;
+        }
+      }
+    }
+    @include media-xs-min {
+      .quiz__footer-right {
+        .dg-button {
+          gap: 6px;
+          font-size: 15px;
+        }
+      }
+    }
+    @media screen and (max-device-height: 567px) {
+      .vm--modal {
+        max-width: 360px;
+      }
+    }
+    @media screen and (min-device-height: 568px) {
+      .quiz__variants {
+        height: calc(75vh - 134px);
+      }
+    }
+    @media screen and (min-device-height: 768px) {
+      .quiz__variants {
+        height: 437px;
+      }
+    }
+  }
+</style>
