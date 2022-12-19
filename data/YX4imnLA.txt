@@ -1,0 +1,202 @@
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/sendfile.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+sig_atomic_t need_to_exit = 0;
+sig_atomic_t have_request = 0;
+
+void handle_sigterm(int signal)
+{
+    need_to_exit = 1;
+    if (!have_request) {
+        _exit(0);
+    }
+}
+
+void handle_sigint(int signal)
+{
+    need_to_exit = 1;
+    if (!have_request) {
+        _exit(0);
+    }
+}
+
+void define_sig(struct sigaction* my_sig, void* handle_sig, int signum)
+{
+    my_sig->sa_handler = handle_sig;
+    my_sig->sa_flags = SA_RESTART;
+    sigaction(signum, my_sig, NULL);
+}
+
+void addToEnd(char* str1, char* str2)
+{
+    size_t str1_sz = strlen(str1);
+    size_t str2_sz = strlen(str2);
+    size_t i = 0;
+    for (; i < str2_sz; ++i) {
+        str1[str1_sz + i] = str2[i];
+    }
+    str1[str1_sz + i] = '\0';
+}
+
+//создание сервера
+const char* localhost = "127.0.0.1";
+
+int initialize_server(
+    struct sockaddr_in* serv_addr,
+    const char* serv_adr,
+    char* port_num)
+{
+    memset(serv_addr, 0, sizeof(serv_addr));
+    serv_addr->sin_family = AF_INET;
+    serv_addr->sin_addr.s_addr = inet_addr(serv_adr);
+    if (serv_addr->sin_addr.s_addr == -1) {
+        return -1;
+    }
+    serv_addr->sin_port = htons(atoi(port_num));
+    return 0;
+}
+
+//для работы с 1 клиентом
+void work_with_client(int connection_fd, char* catalog_path)
+{
+    const int buf_size = 4096;
+    //читаем запрос от клиента
+    char request[buf_size];
+    int request_size = read(connection_fd, request, sizeof(request));
+    if (request_size < 15) {
+        perror("incorrect_request");
+        return;
+    }
+
+    //ищем и создаем имя файла
+    int catalog_path_len = strlen(catalog_path) + 1;
+    char file_name[buf_size + catalog_path_len];
+    addToEnd(file_name, catalog_path);
+    addToEnd(file_name, "/");
+    int ind = 0;
+
+    while (request[4 + ind] != ' ') {
+        file_name[catalog_path_len + ind] = request[4 + ind];
+        ind++;
+    }
+    file_name[catalog_path_len + ind] = '\0';
+
+    //узнаем, существует ли
+    if (access(file_name, F_OK) != 0) {
+        dprintf(
+            connection_fd,
+            "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+        return;
+    }
+    //а вдруг существует, но читать нельзя
+    else if (access(file_name, R_OK) != 0) {
+        dprintf(
+            connection_fd,
+            "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+        return;
+    }
+    //значит существует и читаем
+    //узнаем, кто этот файл по жизни
+    int file_fd = open(file_name, O_RDONLY);
+    struct stat file_stat;
+    int is_file_ok = lstat(file_name, &file_stat);
+
+    if (file_fd != -1 && is_file_ok != -1) {
+        dprintf(
+            connection_fd,
+            "HTTP/1.1 200 OK\r\nContent-Length: %ld\r\n\r\n",
+            file_stat.st_size);
+
+        sendfile(connection_fd, file_fd, 0, file_stat.st_size);
+    }
+}
+
+//организация работы с клиентами
+int process_clients(int socket_fd, char* catalog_path)
+{
+    while (!need_to_exit) {
+        struct sockaddr_in client;
+        socklen_t client_size = sizeof(struct sockaddr_in);
+        int connection_fd =
+            accept(socket_fd, (struct sockaddr*)&client, &client_size);
+
+        if (connection_fd == -1) {
+            perror("connection_fail");
+            return 1;
+        }
+        have_request = 1;
+        work_with_client(connection_fd, catalog_path);
+
+        shutdown(connection_fd, SHUT_RDWR);
+        close(connection_fd);
+        have_request = 0;
+    }
+}
+
+//функция работы сервера
+int server_function(char* port_num, char* catalog_path)
+{
+    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (socket_fd == -1) {
+        perror("create_socket_fail");
+        return 1;
+    }
+
+    //инициализируем сокет
+    struct sockaddr_in serv;
+    int is_all_successful = initialize_server(&serv, localhost, port_num);
+    if (is_all_successful == -1) {
+        perror("initialize_server_fail");
+        return 1;
+    }
+
+    //привязываем дескриптор и сокет
+    is_all_successful = bind(socket_fd, (struct sockaddr*)&serv, sizeof(serv));
+    if (is_all_successful == -1) {
+        perror("bind_server_fail");
+        return 1;
+    }
+
+    //создаем очередь
+    is_all_successful = listen(socket_fd, SOMAXCONN);
+    if (is_all_successful == -1) {
+        perror("listen_fail");
+        return 1;
+    }
+
+    //работа с клиентами
+    if (process_clients(socket_fd, catalog_path)) {
+        return 1;
+    }
+
+    //закрываем сокет
+    shutdown(socket_fd, SHUT_RDWR);
+    close(socket_fd);
+
+    return 0;
+}
+////////////////////
+
+int main(int argc, char** argv)
+{
+    //переопределяем действие сигналов
+    struct sigaction my_sigterm;
+    define_sig(&my_sigterm, handle_sigterm, SIGTERM);
+
+    struct sigaction my_sigint;
+    define_sig(&my_sigint, handle_sigint, SIGINT);
+
+    //запускаем сервер и работаем с клиентом
+    server_function(argv[1], argv[2]);
+
+    return 0;
+}
