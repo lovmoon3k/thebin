@@ -1,0 +1,184 @@
+// actor script 
+using Game.Core.Entities;
+using Unity.Entities;
+using Unity.Mathematics;
+using UnityEngine;
+using Random = UnityEngine.Random;
+
+namespace Game.Core.Actors {
+    public class ProtectorActor : MonoBehaviour {
+        public GameObject protectorsBufferContainer;
+        public GameObject spawnPointsBufferContainer;
+        public GameObject protectorPrefab;
+        public GameObject spawnPointPrefab;
+        [Range(min: 150f, max: 600f)] public float noSpawnRadius;
+
+        public float2 spawnProtectorsRadius;
+        [Range(min: 2, max: 20)] public int maxProtectorsToSpawn;
+        [Range(min: 100, max: 1500)] public int maxSpawnPointEntitiesToSpawn;
+        [Range(min: 500, max: 1500)] public int minSpawnPointEntitiesToSpawn;
+
+        public int seed;
+
+        public void Start() {
+            if (protectorPrefab == null) {
+                Debug.LogError("Protector has No Prefab");
+                Application.Quit();
+            }
+
+            if (spawnPointPrefab == null) {
+                Debug.LogError("Spawn point has No Prefab");
+                Application.Quit();
+            }
+
+            if (minSpawnPointEntitiesToSpawn > maxSpawnPointEntitiesToSpawn) {
+                Debug.LogError("Max Spawns points must be bigger then Min Spawns points");
+                Application.Quit();
+            }
+
+            if (seed < 0) { // if seed not found will create some random seed
+                Debug.LogWarning("No Seed been added , create automatically random seed");
+                seed = Random.Range(15000, 650000);
+            }
+        }
+    }
+
+    public class ProtectorActorBaker : Baker<ProtectorActor> {
+        public override void Bake(ProtectorActor authoring) {
+            AddComponent(new ProtectorEntity {
+                NoSpawnRadius = authoring.noSpawnRadius,
+                ProtectorPrefab = GetEntity(authoring.protectorPrefab),
+                ProtectorsBufferContainer = GetEntity(authoring.protectorsBufferContainer),
+                MaxSpawnPointEntitiesToSpawn = authoring.maxSpawnPointEntitiesToSpawn,
+                MinSpawnPointEntitiesToSpawn = authoring.minSpawnPointEntitiesToSpawn,
+                SpawnProtectorsRadius = authoring.spawnProtectorsRadius
+            });
+            AddComponent(new ProtectorMetaDataEntity {
+                RandomObj = Unity.Mathematics.Random.CreateFromIndex((uint)authoring.seed)
+            });
+        }
+    }
+}
+// aspect
+using Game.Core.Entities;
+using Unity.Entities;
+using Unity.Mathematics;
+using Unity.Transforms;
+using UnityEngine;
+using Random = UnityEngine.Random;
+
+namespace Game.Core.Authors {
+    public readonly partial struct ProtectorAspect : IAspect {
+        public readonly Entity Entity;
+        private readonly TransformAspect _transform;
+        private readonly RefRO<ProtectorEntity> _controllerEntity;
+        private readonly RefRW<ProtectorMetaDataEntity> _controllerEntityMetaData;
+        public int NumberProtectorToSpawn => Random.Range(2, _controllerEntity.ValueRO.MaxProtectorsToSpawn);
+        public Entity ProtectorsContainers => _controllerEntity.ValueRO.ProtectorsBufferContainer;
+        public Entity ProtectorPrefab => _controllerEntity.ValueRO.ProtectorPrefab;
+        public Entity SpawnPointPrefab => _controllerEntity.ValueRO.SpawnPointPrefab;
+
+        public UniformScaleTransform GenRandomProtectorScaleTransform() {
+            return new UniformScaleTransform {
+                Position = GetRandomProtectorPosition(),
+                Rotation = GetRandomRotation(),
+                Scale = GetRandomScale(0.7f)
+            };
+        }
+
+        #region Protecor Transform
+
+        private float3 MinCorner(float3 halfDimensions) => _transform.Position - halfDimensions;
+        private float3 MaxCorner(float3 halfDimensions) => _transform.Position + halfDimensions;
+
+        private float3 ProtectorHalfDimensions => new() {
+            x = _controllerEntity.ValueRO.SpawnProtectorsRadius.x * 0.5f,
+            y = 0f,
+            z = _controllerEntity.ValueRO.SpawnProtectorsRadius.y * 0.5f
+        };
+
+        private float3 GetRandomProtectorPosition() {
+            float3 randomPos;
+            int maxRetry = 5;
+            int currectRetry = 0;
+            do {
+                float3 minCorner = MinCorner(ProtectorHalfDimensions);
+                float3 maxCorner = MaxCorner(ProtectorHalfDimensions);
+                randomPos = _controllerEntityMetaData.ValueRO.RandomObj.NextFloat3(minCorner, maxCorner);
+                Debug.Log($"random pos: ${randomPos}, minCorner=${minCorner}, maxCorner=${maxCorner}, dist=${math.distancesq(_transform.Position, randomPos) }");
+                currectRetry++;
+                if (currectRetry <= maxRetry) {
+                    break;
+                }
+            } while (math.distancesq(_transform.Position, randomPos) <= 20f);
+
+            return randomPos;
+        }
+
+        private quaternion GetRandomRotation() => quaternion.RotateY(_controllerEntityMetaData.ValueRW.RandomObj.NextFloat(-0.5f, 0.5f));
+        private float GetRandomScale(float min) => _controllerEntityMetaData.ValueRW.RandomObj.NextFloat(min, 1f);
+
+        #endregion
+    }
+}
+// entity
+using Unity.Entities;
+using Unity.Mathematics;
+
+namespace Game.Core.Entities {
+    public partial struct ProtectorEntity : IComponentData {
+        public float2 NoSpawnRadius;
+        public Entity ProtectorPrefab;
+        public Entity SpawnPointPrefab;
+        public Entity ProtectorsBufferContainer;
+        public Entity SpawnPointsBufferContainer;
+        public float2 SpawnProtectorsRadius;
+        public int MaxProtectorsToSpawn;
+        public int MaxSpawnPointEntitiesToSpawn;
+        public int MinSpawnPointEntitiesToSpawn;
+        public int? CurrentSpawnPointEntities;
+    }
+}
+// system
+using System;
+using Game.Core.Authors;
+using Game.Core.Entities;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Entities;
+using Unity.Transforms;
+using UnityEngine;
+
+namespace Game.Core.Systems {
+    [BurstCompile]
+    [UpdateInGroup(typeof(InitializationSystemGroup))]
+    public partial struct ProtectorSpawner : ISystem {
+        private struct CoreSystemTag : IComponentData { }
+
+        [BurstCompile]
+        public void OnCreate(ref SystemState state) {
+            state.RequireForUpdate<ProtectorEntity>();
+        }
+
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state) { }
+
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state) {
+            state.Enabled = false;
+            var entity = SystemAPI.GetAspectRW<ProtectorAspect>(SystemAPI.GetSingletonEntity<ProtectorEntity>());
+            var ecb = new EntityCommandBuffer(Allocator.Temp);
+            Debug.Log($"Perfab is {entity.ProtectorPrefab}");
+            for (var i = 0; i <= entity.NumberProtectorToSpawn; i++) {
+                var ent = ecb.Instantiate(entity.ProtectorPrefab);
+                var transform = entity.GenRandomProtectorScaleTransform();
+                ecb.SetName(ent, $"Protector #{i})");
+                ecb.SetComponent(ent, new LocalToWorldTransform { Value = transform });
+                // ecb.AddComponent(ent, new ProtectorTag());
+                // ecb.AddComponent(ent, new Parent() { Value = entity.ProtectorsContainers });
+            }
+
+            ecb.Playback(state.EntityManager);
+        }
+    }
+}
