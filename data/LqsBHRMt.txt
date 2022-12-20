@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+
+# https://github.com/python-telegram-bot/python-telegram-bot
+# pip install python-telegram-bot --pre
+# pip install python-telegram-bot[rate-limiter]
+
+import logging
+import sqlite3
+from pathlib import Path
+
+import telegram
+from telegram.ext import AIORateLimiter, ApplicationBuilder, MessageHandler, filters
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+aps_logger = logging.getLogger("apscheduler")
+aps_logger.setLevel(logging.WARNING)
+
+
+async def post(update, context):
+    global update_id
+    update_id = update.update_id + 1
+
+    if post := update.channel_post:
+        for entity in post.entities:
+            if entity.type == "url":
+                url = post.text[entity.offset : entity.offset + entity.length]
+                if url in links:
+                    try:
+                        url = f"https://t.me/c/{abs(post.sender_chat.id + 1000000000000)}/{links[url]}"
+                        try:
+                            await post.edit_text(f"Link wurde bereits gepostet.\n{url}")
+                        except telegram.error.TimedOut:
+                            continue
+
+                    except telegram.error.BadRequest:
+                        # print("Konnte Post nicht löschen")
+                        continue
+
+                    # print(
+                    #     "Link ist gelöscht worden, da dieser schon einmal gepostet worden ist."
+                    # )
+                else:
+                    # print(url)
+                    links[url] = post.id
+                    # print("Füge Link zur DB hinzu")
+                    with db:
+                        cur.execute(
+                            "INSERT INTO urls VALUES (:url, :cid);",
+                            {"url": url, "cid": post.id},
+                        )
+
+
+if __name__ == "__main__":
+    TOKEN = Path.home().joinpath(".local/telegram_token").read_text().strip()
+    db = sqlite3.connect(Path.home().joinpath(".local/telegram_urls"))
+    cur = db.cursor()
+    with db:
+        cur.execute("CREATE TABLE IF NOT EXISTS urls (url string, id integer);")
+
+    update_id = None
+    links = {}
+
+    for url, cid in cur.execute("SELECT * FROM urls;"):
+        links[url] = cid
+        print(url, "->", cid)
+
+    application = (
+        ApplicationBuilder().token(TOKEN).rate_limiter(AIORateLimiter()).build()
+    )
+
+    msg_handler = MessageHandler(filters.TEXT, post)
+    application.add_handler(msg_handler)
+    application.run_polling()
