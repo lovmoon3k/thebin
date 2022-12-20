@@ -1,0 +1,214 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x3f, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
+
+#define RESET_SW 5
+#define RELAY_1  8   // Output relays
+#define RELAY_2  9
+#define RELAY_3  10
+#define RELAY_4  11
+#define VSENSE_1 A0  // Voltage dividers from modules
+#define VSENSE_2 A1
+#define VSENSE_3 A2
+#define VSENSE_4 A3
+
+
+
+float V_PowerSupply = 4.55; // Voltage from USB power supply. Adjust to match voltmeter
+float V_Cutoff      = 6.0;  // Cutoff voltage
+
+const int R1              = 82000;
+const int R2              = 39000;
+const int VoltageDivision = (R2/(R1+R2));
+
+int Module_1_Raw = 0;    // Analog reading for Module 1 voltage
+int Module_2_Raw = 0;
+int Module_3_Raw = 0;
+int Module_4_Raw = 0;
+
+float V_Module_1    = 0.0; // Calculated voltage for Module 1
+float V_Module_2    = 0.0;
+float V_Module_3    = 0.0;
+float V_Module_4    = 0.0;
+
+byte Relay_1_Active  = 0;  // Is the relay for Module 1 enabled?
+byte Relay_2_Active  = 0;
+byte Relay_3_Active  = 0;
+byte Relay_4_Active  = 0;
+
+byte Cutoff_1        = 0;  // Has Module 1 dropped to the cutoff voltage?
+byte Cutoff_2        = 0;
+byte Cutoff_3        = 0;
+byte Cutoff_4        = 0;
+
+byte Countdown       = 5;
+
+
+
+void setup() {
+  lcd.begin(20,4)
+  pinMode(RELAY_1, OUTPUT);
+  pinMode(RELAY_2, OUTPUT);
+  pinMode(RELAY_3, OUTPUT);
+  pinMode(RELAY_4, OUTPUT);
+  pinMode(VSENSE_1, INPUT);
+  pinMode(VSENSE_2, INPUT);
+  pinMode(VSENSE_3, INPUT);
+  pinMode(VSENSE_4, INPUT);
+  pinMode(RESET_SW, INPUT_PULLUP);
+
+  digitalWrite(RELAY_1, LOW);  // Disable relays by default
+  digitalWrite(RELAY_2, LOW);  
+  digitalWrite(RELAY_3, LOW);  
+  digitalWrite(RELAY_4, LOW);  
+}
+
+void loop() {
+
+// Read analog voltage values  
+  Module_1_Raw = analogRead(VSENSE_1);
+  Module_2_Raw = analogRead(VSENSE_2);
+  Module_3_Raw = analogRead(VSENSE_3);
+  Module_4_Raw = analogRead(VSENSE_4);
+
+
+
+  
+// Convert to actual voltage
+  V_Module_1 = (((Module_1_Raw * V_PowerSupply) / 1024) / VoltageDivision);
+  V_Module_2 = (((Module_2_Raw * V_PowerSupply) / 1024) / VoltageDivision);
+  V_Module_3 = (((Module_3_Raw * V_PowerSupply) / 1024) / VoltageDivision);
+  V_Module_4 = (((Module_4_Raw * V_PowerSupply) / 1024) / VoltageDivision);
+
+
+
+
+// If the input voltage is above V_Cutoff, enable the given relay.  
+// Cutoff_x is used to prevent the relay from cycling as the module bounces between +/- 0.01v
+  if((V_Module_1 >= V_Cutoff) and (Cutoff_1 == 0))
+  {
+    digitalWrite(RELAY_1, HIGH);
+    Relay_1_Active = 1;
+  }
+  
+  if((V_Module_2 >= V_Cutoff) and (Cutoff_2 == 0))
+  {
+    digitalWrite(RELAY_2, HIGH);
+    Relay_2_Active = 1;
+  }
+  
+  if((V_Module_3 >= V_Cutoff) and (Cutoff_3 == 0))
+  {
+    digitalWrite(RELAY_3, HIGH);
+    Relay_3_Active = 1;
+  }
+  
+  if((V_Module_4 >= V_Cutoff) and (Cutoff_4 == 0))
+  {
+    digitalWrite(RELAY_4, HIGH);
+    Relay_4_Active = 1;
+  }
+
+
+
+
+// If input voltage is below V_Cutoff, disable the given relay.  
+  if(V_Module_1 < V_Cutoff)
+  {
+    digitalWrite(RELAY_1, LOW);
+    Relay_1_Active = 0;
+    Cutoff_1       = 1;
+  }
+
+  if(V_Module_2 < V_Cutoff)
+  {
+    digitalWrite(RELAY_2, LOW);
+    Relay_2_Active = 0;
+    Cutoff_2       = 1;
+  }
+
+  if(V_Module_3 < V_Cutoff)
+  {
+    digitalWrite(RELAY_3, LOW);
+    Relay_3_Active = 0;
+    Cutoff_3       = 1;
+  }
+
+  if(V_Module_4 < V_Cutoff)
+  {
+    digitalWrite(RELAY_4, LOW);
+    Relay_4_Active = 0;
+    Cutoff_4       = 1;
+  }
+
+  
+
+// Print status to LCD  
+  lcd.setCursor(0,0);         // 01234567890123456789
+  lcd.print(V_Module_1);      // 7.77v | R:1 | C/O:0
+  lcd.print("v | R:");        // Relay reset in 5s
+  lcd.print(Relay_1_Active);  // Release button to
+  lcd.print(" | C/O:");
+  lcd.print(Cutoff_1);
+
+  lcd.setCursor(0,1);   
+  lcd.print(V_Module_2);
+  lcd.print("v | R:");
+  lcd.print(Relay_2_Active);
+  lcd.print(" | C/O:");
+  lcd.print(Cutoff_2);
+  
+  lcd.setCursor(0,2);     
+  lcd.print(V_Module_3);
+  lcd.print("v | R:");
+  lcd.print(Relay_3_Active);
+  lcd.print(" | C/O:");
+  lcd.print(Cutoff_3);
+  
+  lcd.setCursor(0,3); 
+  lcd.print(V_Module_4);
+  lcd.print("v | R:");
+  lcd.print(Relay_4_Active);
+  lcd.print(" | C/O:");
+  lcd.print(Cutoff_4);
+
+
+
+// Sense if Reset switch is pressed
+  if(digitalRead(RESET_SW) == LOW)
+  {
+    
+    lcd.clear;
+    lcd.setCursor(0,0);
+    while(Countdown > 0)
+    {
+      lcd.print("Cutoff Reset in ");
+      lcd.print(Countdown);
+      lcd.print("s");
+      lcd.setCursor(0,1);
+      lcd.print("-  --  --  --  --  -");
+      lcd.setCursor(0,2);
+      lcd.print("Release to Cancel");
+      if(digitalRead(RESET_SW) == HIGH)
+      {
+        lcd.setCursor(0,2);
+        lcd.print("     Cancelled      ")
+      }
+      delay(1000);
+      Countdown--;
+    }
+    if(digitalRead(RESET_SW) == LOW)
+    {
+      lcd.clear;
+      lcd.setCursor(0,0);
+      lcd.print("Resetting...");
+      delay(1000);
+      Cutoff_1 = 0;
+      Cutoff_2 = 0;
+      Cutoff_3 = 0;
+      Cutoff_4 = 0;
+    }
+  }
+
+delay(200);
+}
