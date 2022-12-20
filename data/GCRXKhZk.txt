@@ -1,0 +1,55 @@
+# Set-ExecutionPolicy Bypass -Scope Process
+
+$SrcPicsFolder = "C:\Users\jads\Documents\My Games\FINAL FANTASY XIV - A Realm Reborn\screenshots"
+$DestFolderRoot = "D:\some\place\Pictures\FFXIV"
+
+$Normal_Pic_Name_Regex= "^ffxiv_(?'datestr'\d{8}_\d{6}_\d{3}).png"
+#$Normal_Pic_Name_Regex= "^ffxiv_\d{8}_\d{6}_\d{3}.png$"
+#$Normal_Pic_Name_Regex= "^ffxiv_(?'ddmmyyyy'\d{8})_(?'hhmmss'\d{6})_(?'ms'\d{3}).png$"
+
+$Output_Date_Format = "yyyy-MM-dd_HH-mm-ss_fff"
+
+
+$Pics = Get-ChildItem -File -Path $SrcPicsFolder
+foreach ($Pic in $Pics) {
+    $Pic_Name = $Pic.Name
+
+    if ($Pic_Name -match $Normal_Pic_Name_Regex)
+    {
+        $Pic_Date = [datetime]::ParseExact($Matches.datestr, "ddMMyyyy_HHmmss_fff", $null)
+        $Pic_Name_New = $Pic_Name.Replace($Matches.datestr, $Pic_Date.ToString($Output_Date_Format))
+
+        Write-Output "| Match - Rename & Move | Name: $Pic_Name | New Name: $Pic_Name_New |"
+
+    } elseif ($Pic_Name -match "^ffxiv_(?'datestr'\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_\d{3}).png$") {
+        $Pic_Date = [datetime]::ParseExact($Matches.datestr, "yyyy-MM-dd_HH-mm-ss_fff", $null)
+        $Pic_Name_New = $Pic_Name.Replace($Matches.datestr, $Pic_Date.ToString($Output_Date_Format))
+
+        Write-Output "| Match default format - Rename & Move | Name: $Pic_Name | New Name: $Pic_Name_New |"
+    } else {
+        Write-Output "| Error | Name: $Pic_Name | Skip |"
+        continue
+        # TODO Process a few more possible format like the "ffxiv_2022-09-05_002354_755.png" one I had somehow
+    }
+
+    $Subfolder_Year = $Pic_Date.ToString("yyyy")
+    $Subfolder_Month_Nb = $Pic_Date.ToString("MM")
+    $Subfolder_Month = [cultureinfo]::InvariantCulture.DateTimeFormat.GetMonthName($Pic_Date.Month)
+    $Subfolder_Day = $Pic_Date.ToString("dd")
+
+    $DstPath = "$DestFolderRoot\$Subfolder_Year\$Subfolder_Month_Nb-$Subfolder_Month"
+    $DstPathFull = "$DstPath\$Pic_Name_New"
+
+    if(!(Test-Path -Path $DstPath)){
+        Write-Output "| New Directory | Path: $DstPath |"
+        New-Item -ItemType directory -Path $DstPath
+    }
+
+    if(Test-Path -Path $DstPathFull) {
+        Write-Output "| Error | File already exist ! |"
+    } else {
+        Move-Item $Pic.FullName -Destination $DstPathFull
+    }
+}
+
+exit 0

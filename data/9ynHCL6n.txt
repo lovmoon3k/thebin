@@ -1,0 +1,50 @@
+<#
+Outputs files depending on difference between video/audio duration in files.
+
+<= 1 second - FFBatch queue file
+>  1 second - CSV with filename, durations, difference
+
+.\ffprobe-dur.ps1 <path>
+
+Requires: ffprobe in path
+
+Tested on: Win 10, PS 7.3.1
+#>
+
+param(
+  [string]$path
+)
+
+function Get-FriendlySize {
+  param($Bytes)
+  $sizes='Bytes,KB,MB,GB,TB,PB,EB,ZB' -split ','
+  for ($i=0; ($Bytes -ge 1kb) -and ($i -lt $sizes.Count); $i++) {
+    $Bytes/=1kb
+  }
+  $N=2; if($i -eq 0) {$N=0}
+  "{0:N$($N)} {1}" -f $Bytes, $sizes[$i]
+}
+
+$files = (Get-ChildItem "$($path)/*" -Include *.mp4)
+
+"Filename,Video,Audio,Difference" | Out-File "$($path)\ffprobe.csv" -Force
+# Change the ffmpeg below if you want something else
+# currently: -c:a copy -c:v av1_qsv -preset slow -global_quality 22 -vf `"fps=fps=30`" -bf 0 -g 300
+# for re-encode to AV1 30FPS ICQ 22 Preset Slow, audio copy using QSV
+"-c:a copy -c:v av1_qsv -preset slow -global_quality 22 -vf `"fps=fps=30`" -bf 0 -g 300`nmkv`nUnchecked`n (AV1H22)`n.\AV1" | Out-File "$($path)\queue.ffq" -Force
+
+foreach ($file in $files) {
+  $json = (ffprobe -v quiet -print_format json -show_format -select_streams v -show_streams "$($file)")
+  $name = ($json | ConvertFrom-Json).format.filename
+  $vdur = ($json | ConvertFrom-Json).streams.duration
+  $size = ($json | ConvertFrom-Json).format.size
+  $json = (ffprobe -v quiet -print_format json -select_streams a -show_streams "$($file)")
+  $adur = ($json | ConvertFrom-Json).streams.duration
+  $diff = [Math]::Abs($vdur - $adur)
+  if ($diff -gt 1) {
+    "$(Split-Path $name -Leaf),$($vdur),$($adur),$($diff)" | Out-File "$($path)\ffprobe.csv" -Append
+  } else {
+    "$($file) --0 $(([System.IO.Path]::GetExtension("$($file)")).Substring(1)) --1 $('{0:hh\:mm\:ss}' -f ([timespan]::fromseconds($vdur))) --2 $(Get-FriendlySize $size) --3 Queued" | `
+      Out-File "$($path)\queue.ffq" -Append
+  }
+}
