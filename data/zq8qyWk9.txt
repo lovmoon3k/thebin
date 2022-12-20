@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+from ev3dev.ev3 import LargeMotor
+from ev3dev2.power import PowerSupply
+import time
+import os
+import shutil
+import math
+
+# Класс для получения данных о заряде батареи
+volts = PowerSupply()
+# Класс для взаимодействия с двигателем
+motorA = LargeMotor('outA')
+
+# Создаем папочку для данных
+if os.path.exists('/home/robot/data_3'):
+    shutil.rmtree('/home/robot/data_3')
+
+os.makedirs('/home/robot/data_3')
+
+try:
+    Um = volts.measured_volts
+    error = 0
+
+    #to reset
+    A = 2
+    phi = 0
+
+    for freq in range (1, 21):
+        start_time = time.time()
+        motorA.position = 0
+        start_pos = motorA.position
+        while(time.time() - start_time < 5):
+
+            t = time.time() - start_time
+            U = A * math.sin(freq * t + phi) / Um * 100                          #U = 2 * sin(wt) - полученное уравнение
+
+            motorA.run_direct(duty_cycle_sp=U)
+
+            # В течение 10 секунд записываем в файл данные в формате: <time,angle,speed,error>
+            with open('data_3/'+str(freq)+'_omega', "a") as f:
+                print(str(time.time() - start_time) + ',' + str(motorA.position - start_pos) + ',' + str(motorA.speed) + ',' + str(error))
+                f.write(str(time.time() - start_time) + ',' + str(motorA.position - start_pos) + ',' + str(motorA.speed) + ',' + str(error) + '\n')
+
+        motorA.run_direct(duty_cycle_sp=0)
+        time.sleep(1)
+
+except Exception as e:
+    raise e
+
+finally:
+  # Останавливаем мотор в случае ошибок в коде
+    motorA.stop(stop_action='brake')
