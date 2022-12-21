@@ -1,0 +1,67 @@
+#include <queue> // for std::queue
+#include <mutex> // for std::mutex and std::lock_guard
+#include <condition_variable> // for std::condition_variable
+
+// SafeQueue is a template class that can hold items of any type T
+template <typename T>
+class SafeQueue
+{
+public:
+    // default constructor
+    SafeQueue() = default;
+
+    // destructor
+    ~SafeQueue() = default;
+
+    // delete copy and move constructors and assignments
+    SafeQueue(const SafeQueue&) = delete;
+    SafeQueue& operator=(const SafeQueue&) = delete;
+    SafeQueue(SafeQueue&&) = delete;
+    SafeQueue& operator=(SafeQueue&&) = delete;
+
+    // push an item onto the back of the queue
+    void push(T item)
+    {
+        // lock the mutex before accessing the queue
+        std::lock_guard<std::mutex> lock(mutex_);
+        queue_.push(std::move(item)); // add the item to the queue
+        cond_.notify_one(); // notify any waiting threads that the queue is no longer empty
+    }
+
+    // pop an item from the front of the queue
+    T pop()
+    {
+        // lock the mutex and get a unique lock
+        std::unique_lock<std::mutex> lock(mutex_);
+        // wait until the queue is not empty
+        cond_.wait(lock, [this] { return !queue_.empty(); });
+        // move the front item from the queue and store it in a local variable
+        T item = std::move(queue_.front());
+        queue_.pop(); // remove the front item from the queue
+        return item; // return the popped item
+    }
+
+    // check if the queue is empty
+    bool empty() const
+    {
+        // lock the mutex before accessing the queue
+        std::lock_guard<std::mutex> lock(mutex_);
+        return queue_.empty();
+    }
+
+    // get the number of items in the queue
+    size_t size() const
+    {
+        // lock the mutex before accessing the queue
+        std::lock_guard<std::mutex> lock(mutex_);
+        return queue_.size();
+    }
+
+private:
+    // the underlying std::queue object
+    std::queue<T> queue_;
+    // the mutex used to protect access to the queue
+    mutable std::mutex mutex_;
+    // the condition variable used to notify waiting threads when the queue is no longer empty
+    std::condition_variable cond_;
+};
