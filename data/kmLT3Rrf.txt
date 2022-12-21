@@ -1,0 +1,998 @@
+#include <iostream>
+
+#include <utility>
+#include <cassert>
+#include <cstdint>
+
+
+struct StrategyTypes {
+private:
+    struct CopyTag {
+    };
+    struct MoveTag {
+    };
+
+public:
+    using copy = CopyTag;
+    using move = MoveTag;
+};
+
+enum class Color { RED, BLACK };
+
+template<class TValue>
+struct Node {
+    using value_type = TValue;
+    using node_pointer = Node *;
+
+    node_pointer parent;
+    node_pointer left;
+    node_pointer right;
+
+    value_type key;
+
+    bool is_nil;
+    Color color;
+
+    static node_pointer createHead() {
+        auto new_node = reinterpret_cast<node_pointer>(new uint8_t[sizeof(Node)]);
+
+        new_node->parent = new_node;
+        new_node->left = new_node;
+        new_node->right = new_node;
+
+        new_node->is_nil = true;
+        new_node->color = Color::BLACK;
+        return new_node;
+    }
+
+    template<class... Args>
+    static node_pointer createNode(node_pointer head, Args &&... args) {
+        auto new_node = reinterpret_cast<node_pointer>(new uint8_t[sizeof(Node)]);
+
+        std::construct_at(std::addressof(new_node->key), std::forward<Args>(args)...);
+        new_node->parent = head;
+        new_node->left = head;
+        new_node->right = head;
+
+        new_node->is_nil = false;
+        new_node->color = Color::RED;
+
+        return new_node;
+    }
+
+    static void destroyHead(node_pointer node) {
+        delete[] reinterpret_cast<uint8_t *>(node);
+    }
+
+    static void destroyNode(node_pointer node) {
+        std::destroy_at(std::addressof(node->key));
+        destroyHead(node);
+    }
+};
+
+enum TreeChild {
+    RIGHT, LEFT
+};
+
+template<class NodePtr>
+struct TreeNodePosition {
+    NodePtr parent_;
+    TreeChild child_;
+};
+
+template<class NodePtr>
+struct FindResult {
+    TreeNodePosition<NodePtr> position_;
+    NodePtr bound_;
+};
+
+template<class Tree>
+class TreeVal {
+public:
+    using node_type = typename Tree::node_type;
+    using pointer = typename Tree::node_pointer;
+    using const_pointer = typename Tree::node_const_pointer;
+    using size_type = typename Tree::size_type;
+
+public:
+    pointer head_;
+    size_type size_;
+
+    TreeVal() : head_(), size_(0) {}
+
+    static pointer min(pointer node) noexcept {
+        while (!node->left->is_nil) {
+            node = node->left;
+        }
+        return node;
+    }
+
+    static pointer max(pointer node) noexcept {
+        while (!node->right->is_nil) {
+            node = node->right;
+        }
+        return node;
+    }
+
+    static const_pointer min(const_pointer node) noexcept {
+        while (!node->left->is_nil) {
+            node = node->left;
+        }
+        return node;
+    }
+
+    static const_pointer max(const_pointer node) noexcept {
+        while (!node->right->is_nil) {
+            node = node->right;
+        }
+        return node;
+    }
+
+    void leftRotate(pointer node) noexcept {
+        pointer new_root = node->right;
+        node->right = new_root->left;
+
+        if (!new_root->left->is_nil) {
+            new_root->left->parent = node;
+        }
+        new_root->parent = node->parent;
+
+        if (node == head_->parent) {
+            head_->parent = new_root;
+        } else if (node == node->parent->left) {
+            node->parent->left = new_root;
+        } else {
+            node->parent->right = new_root;
+        }
+
+        new_root->left = node;
+        node->parent = new_root;
+    }
+
+    void rightRotate(pointer node) noexcept {
+        pointer new_root = node->left;
+        node->left = new_root->right;
+
+        if (!new_root->right->is_nil) {
+            new_root->right->parent = node;
+        }
+        new_root->parent = node->parent;
+
+        if (node == head_->parent) {
+            head_->parent = new_root;
+        } else if (node == node->parent->left) {
+            node->parent->left = new_root;
+        } else {
+            node->parent->right = new_root;
+        }
+
+        new_root->right = node;
+        node->parent = new_root;
+    }
+
+    pointer insertNode(const TreeNodePosition<pointer> position, pointer new_node) noexcept {
+        size_++;
+        new_node->parent = position.parent_;
+        if (position.parent_ == head_) {
+            head_->parent = new_node;
+            head_->left = new_node;
+            head_->right = new_node;
+            new_node->color = Color::BLACK;
+            return new_node;
+        }
+
+        if (position.child_ == LEFT) {
+            position.parent_->left = new_node;
+            if (position.parent_ == head_->left) {
+                head_->left = new_node;
+            }
+        } else {
+            position.parent_->right = new_node;
+            if (position.parent_ == head_->right) {
+                head_->right = new_node;
+            }
+        }
+
+        pointer current_node = new_node;
+        while (current_node->parent->color ==Color:: RED) {
+            if (current_node->parent == current_node->parent->parent->left) {
+                pointer parent_sibling = current_node->parent->parent->right;
+                if (parent_sibling->color == Color::RED) {
+                    current_node->parent->color = Color::BLACK;
+                    parent_sibling->color = Color::BLACK;
+                    current_node->parent->parent->color =Color:: RED;
+                    current_node = current_node->parent->parent;
+                } else {
+                    if (current_node == current_node->parent->right) {
+                        current_node = current_node->parent;
+                        leftRotate(current_node);
+                    }
+
+                    current_node->parent->color = Color::BLACK;
+                    current_node->parent->parent->color = Color::RED;
+                    rightRotate(current_node->parent->parent);
+                }
+            } else {
+                pointer parent_sibling = current_node->parent->parent->left;
+                if (parent_sibling->color == Color::RED) {
+                    current_node->parent->color = Color::BLACK;
+                    parent_sibling->color = Color::BLACK;
+                    current_node->parent->parent->color = Color::RED;
+                    current_node = current_node->parent->parent;
+                } else {
+                    if (current_node == current_node->parent->left) {
+                        current_node = current_node->parent;
+                        rightRotate(current_node);
+                    }
+
+                    current_node->parent->color = Color::BLACK;
+                    current_node->parent->parent->color = Color::RED;
+                    leftRotate(current_node->parent->parent);
+                }
+            }
+        }
+
+        head_->parent->color = Color::BLACK;
+        return new_node;
+    }
+
+    pointer extract(pointer node) {
+        pointer erased_node = node;
+        pointer fix_node;
+        pointer fix_node_parent;
+        if (node->left->is_nil) {
+            fix_node = node->right;
+        } else if (node->right->is_nil) {
+            fix_node = node->left;
+        } else {
+            node = min(node->right);
+            fix_node = node->right;
+        }
+
+        if (node == erased_node) {
+            fix_node_parent = erased_node->parent;
+            if (!fix_node->is_nil) {
+                fix_node->parent = fix_node_parent;
+            }
+            if (head_->parent == erased_node) {
+                head_->parent = fix_node;
+            } else if (fix_node_parent->left == erased_node) {
+                fix_node_parent->left = fix_node;
+            } else {
+                fix_node_parent->right = fix_node;
+            }
+
+            if (head_->right == erased_node) {
+                if (fix_node->is_nil) {
+                    head_->right = fix_node_parent;
+                } else {
+                    head_->right = max(fix_node);
+                }
+            } else if (head_->left == erased_node) {
+                if (fix_node->is_nil) {
+                    head_->left = fix_node_parent;
+                } else {
+                    head_->left = min(fix_node);
+                }
+            }
+        } else {
+            erased_node->left->parent = node;
+            node->left = erased_node->left;
+            if (node == erased_node->right) {
+                fix_node_parent = node;
+            } else {
+                fix_node_parent = node->parent;
+                if (!fix_node->is_nil) {
+                    fix_node->parent = fix_node_parent;
+                }
+
+                fix_node_parent->left = fix_node;
+                node->right = erased_node->right;
+                erased_node->right->parent = node;
+            }
+
+            if (head_->parent == erased_node) {
+                head_->parent = node;
+            } else if (erased_node->parent->left == erased_node) {
+                erased_node->parent->left = node;
+            } else {
+                erased_node->parent->right = node;
+            }
+
+            node->parent = erased_node->parent;
+            std::swap(node->color, erased_node->color);
+        }
+
+        if (erased_node->color == Color::BLACK) {
+            while (fix_node != head_->parent && fix_node->color == Color::BLACK) {
+                if (fix_node == fix_node_parent->left) {
+                    pointer brother = fix_node_parent->right;
+                    if (brother->color == Color::RED) {
+                        brother->color = Color::BLACK;
+                        fix_node_parent->color = Color::RED;
+                        leftRotate(fix_node_parent);
+                        brother = fix_node_parent->right;
+                    }
+
+                    if (brother->is_nil) {
+                        fix_node = fix_node_parent;
+                    } else if (brother->left->color == Color::BLACK && brother->right->color == Color::BLACK) {
+                        brother->color = Color::RED;
+                        fix_node = fix_node_parent;
+                    } else {
+                        if (brother->right->color == Color::BLACK) {
+                            brother->left->color = Color::BLACK;
+                            brother->color = Color::RED;
+                            rightRotate(brother);
+                            brother = fix_node_parent->right;
+                        }
+
+                        brother->color = fix_node_parent->color;
+                        fix_node_parent->color = Color::BLACK;
+                        brother->right->color = Color::BLACK;
+                        leftRotate(fix_node_parent);
+                        break;
+                    }
+                } else {
+                    pointer brother = fix_node_parent->left;
+                    if (brother->color == Color::RED) {
+                        brother->color = Color::BLACK;
+                        fix_node_parent->color = Color::RED;
+                        rightRotate(fix_node_parent);
+                        brother = fix_node_parent->left;
+                    }
+
+                    if (brother->is_nil) {
+                        fix_node = fix_node_parent;
+                    } else if (brother->left->color == Color::BLACK && brother->right->color == Color::BLACK) {
+                        brother->color = Color::RED;
+                        fix_node = fix_node_parent;
+                    } else {
+                        if (brother->left->color == Color::BLACK) {
+                            brother->right->color = Color::BLACK;
+                            brother->color = Color::RED;
+                            leftRotate(brother);
+                            brother = fix_node_parent->left;
+                        }
+
+                        brother->color = fix_node_parent->color;
+                        fix_node_parent->color = Color::BLACK;
+                        brother->right->color = Color::BLACK;
+                        rightRotate(fix_node_parent);
+                        break;
+                    }
+                }
+                fix_node_parent = fix_node->parent;
+            }
+            fix_node->color = Color::BLACK;
+        }
+
+        if (size_ > 0) {
+            size_--;
+        }
+
+        return erased_node;
+    }
+
+    void clearNodes(pointer root_node) {
+        while (!root_node->is_nil) {
+            clearNodes(root_node->right);
+            pointer new_root_node = root_node->left;
+            node_type::destroy_node(root_node);
+            root_node = new_root_node;
+        }
+    }
+
+    void clearNodes() {
+        clearNodes(head_->parent);
+        head_->parent = head_;
+        head_->left = head_;
+        head_->right = head_;
+        size_ = 0;
+    }
+
+    void clearHead() {
+        clearNodes(head_->parent);
+        node_type::destroy_head(head_);
+        size_ = 0;
+    }
+
+    void swap(TreeVal &other) {
+        std::swap(head_, other.head_);
+        std::swap(size_, other.size_);
+    }
+};
+
+template<class TNode>
+class TreeNodeWrapper {
+    using node_type = TNode;
+    using pointer = node_type *;
+    using const_pointer = const node_type *;
+
+private:
+    pointer pointer_;
+
+public:
+    template<class ...Args>
+    explicit TreeNodeWrapper(pointer head, Args &&...args) {
+        pointer_ = node_type::create_node(head, std::forward<Args>(args)...);
+    }
+
+    TreeNodeWrapper(const TreeNodeWrapper &other) = delete;
+
+    ~TreeNodeWrapper() {
+        if (pointer_ != nullptr) {
+            node_type::destroy_node(pointer_);
+        }
+    }
+
+    pointer ptr() noexcept {
+        return pointer_;
+    }
+
+    const_pointer ptr() const noexcept {
+        return pointer_;
+    }
+
+    TreeNodeWrapper &operator=(const TreeNodeWrapper &other) = delete;
+
+    pointer release() noexcept {
+        pointer released_pointer = pointer_;
+        pointer_ = nullptr;
+        return released_pointer;
+    }
+};
+
+template<class TreeVal>
+class TreeValWrapper {
+    using node_type = typename TreeVal::node_type;
+    TreeVal *tree_val_;
+
+public:
+    explicit TreeValWrapper(TreeVal *tree_val)
+            : tree_val_(tree_val) {
+        tree_val->head_ = node_type::create_head();
+    }
+
+    TreeValWrapper(const TreeValWrapper &other) = delete;
+
+    ~TreeValWrapper() {
+        if (tree_val_ != nullptr) {
+            tree_val_->clearHead();
+        }
+    }
+
+    TreeValWrapper &operator=(const TreeValWrapper &other) = delete;
+
+    void release() noexcept {
+        tree_val_ = nullptr;
+    }
+};
+
+template<class Traits>
+class Tree {
+    template<class Item>
+    class TreeIterator;
+
+public:
+    using node_type = Node<typename Traits::value_type>;
+
+    using node_pointer = node_type *;
+    using node_const_pointer = const node_type *;
+    using node_reference = node_type &;
+    using node_const_reference = const node_type &;
+
+private:
+    using traits_type = Traits;
+    using tree_val_type = TreeVal<Tree>;
+
+public:
+    using key_compare = typename traits_type::key_compare;
+    using key_type = typename traits_type::key_type;
+    using value_type = typename traits_type::value_type;
+    using size_type = size_t;
+    using difference_type = ptrdiff_t;
+    using reference = value_type &;
+    using const_reference = const value_type &;
+    using pointer = value_type *;
+    using const_pointer = const value_type *;
+
+    using iterator = TreeIterator<value_type>;
+    using const_iterator = TreeIterator<const value_type>;
+
+private:
+    key_compare compare_;
+    tree_val_type tree_;
+
+private:
+    bool lowerBoundDuplicate(node_pointer bound, const key_type &key) const {
+        return !bound->is_nil && !compare_(key, traits_type::select_key(bound->key));
+    }
+
+    node_pointer internalFind(const key_type &key) const {
+        FindResult<node_pointer> result = findLowerBound(key);
+        if (lowerBoundDuplicate(result.bound_, key)) {
+            return result.bound_;
+        }
+        return tree_.head_;
+    }
+
+    FindResult<node_pointer> findUpperBound(const key_type &key) const {
+        FindResult<node_pointer> result{{tree_.head_->parent, TreeChild::RIGHT}, tree_.head_};
+        node_pointer try_node = result.position_.parent_;
+        while (!try_node->is_nil) {
+            result.position_.parent_ = try_node;
+            if (compare_(key, traits_type::select_key(try_node->key))) {
+                result.position_.child_ = TreeChild::LEFT;
+                result.bound_ = try_node;
+                try_node = try_node->left;
+            } else {
+                result.position_.child_ = TreeChild::RIGHT;
+                try_node = try_node->right;
+            }
+        }
+        return result;
+    }
+
+    FindResult<node_pointer> findLowerBound(const key_type &key) const {
+        FindResult<node_pointer> result{{tree_.head_->parent, TreeChild::RIGHT}, tree_.head_};
+        node_pointer try_node = result.position_.parent_;
+        while (!try_node->is_nil) {
+            result.position_.parent_ = try_node;
+            if (compare_(traits_type::select_key(try_node->key), key)) {
+                result.position_.child_ = TreeChild::RIGHT;
+                try_node = try_node->right;
+            } else {
+                result.position_.child_ = TreeChild::LEFT;
+                result.bound_ = try_node;
+                try_node = try_node->left;
+            }
+        }
+        return result;
+    }
+
+    std::pair<node_pointer, node_pointer> internalEqualRange(const key_type &key) const {
+        node_pointer parent_node = tree_.head_->parent;
+        node_pointer lower_node = tree_.head_;
+        node_pointer upper_node = tree_.head_;
+
+        while (!parent_node->is_nil) {
+            const key_type &node_key = traits_type::select_key(parent_node->key);
+            if (compare_(node_key, key)) {
+                parent_node = parent_node->right;
+            } else {
+                if (upper_node->is_nil && compare_(key, node_key)) {
+                    upper_node = parent_node;
+                }
+
+                lower_node = parent_node;
+                parent_node = parent_node->left;
+            }
+        }
+
+        if (upper_node->is_nil) {
+            parent_node = tree_.head_->parent;
+        } else {
+            parent_node = upper_node->left;
+        }
+
+        while (!parent_node->is_nil) {
+            const key_type &node_key = traits_type::select_key(parent_node->key);
+            if (compare_(key, node_key)) {
+                upper_node = parent_node;
+                parent_node = parent_node->left;
+            } else {
+                parent_node = parent_node->right;
+            }
+        }
+
+        return std::make_pair(lower_node, upper_node);
+    }
+
+    template<class Tag>
+    void copy(const Tree &other, Tag tag) {
+        tree_.head_->parent = copyNodes(other.head_->parent, tree_.head_, tag);
+        tree_.head_ = other.size_;
+        if (!tree_.head_->parent->is_nil) {
+            tree_.head_->left = tree_val_type::min(tree_.head_->parent);
+            tree_.head_->right = tree_val_type::max(tree_.head_->parent);
+        } else {
+            tree_.head_->left = tree_.head_;
+            tree_.head_->right = tree_.head_;
+        }
+    }
+
+    node_pointer copyOrMoveNode(node_pointer other_node, StrategyTypes::copy) const {
+        return node_type::createNode(tree_.head_, other_node->key);
+    }
+
+    node_pointer copyOrMoveNode(node_pointer other_node, StrategyTypes::move) const {
+        if constexpr (std::is_same<key_type, value_type>::value) {
+            return node_type::createNode(tree_.head_, std::move(other_node->key));
+        } else {
+            return node_type::createNode(tree_.head_,
+                                         std::move(const_cast<key_type &>(other_node->key.first)),
+                                         std::move(other_node->key.second));
+        }
+    }
+
+    template<class Tag>
+    node_pointer copyNodes(node_pointer from_node, node_pointer to_node, Tag tag) {
+        if (from_node->is_nil) {
+            return tree_.head_;
+        }
+        node_pointer copied_node = copyOrMoveNode(from_node, tag);
+        copied_node->parent = to_node;
+        copied_node->color = from_node->color;
+
+        try {
+            copied_node->left = copyNodes(from_node->left, copied_node, tag);
+            copied_node->right = copyNodes(from_node->right, copied_node, tag);
+        } catch (...) {
+            tree_.clearNodes(copied_node);
+            throw;
+        }
+        return copied_node;
+    }
+
+    template<class ...Args>
+    std::pair<node_pointer, bool> internalEmplace(Args &&...args) {
+        TreeNodeWrapper node_wrapper(tree_.head_, std::forward<Args>(args)...);
+        node_pointer new_node = node_wrapper.ptr();
+
+        const key_type &key = traits_type::select_key(new_node->key);
+        FindResult<node_pointer> result = findLowerBound(key);
+
+        if (lowerBoundDuplicate(result.bound_, key)) {
+            return std::make_pair(result.bound_, false);
+        }
+        new_node = node_wrapper.release();
+        return std::make_pair(tree_.insertNode(result.position_, new_node), true);
+    }
+
+    node_pointer internalErase(const_iterator where) {
+        const_iterator successor(where);
+        ++successor;
+        node_pointer erased = tree_.extract(where.node_);
+        node_type::destroyNode(erased);
+        return successor.node_;
+    }
+
+    node_pointer internalErase(iterator where) {
+        iterator successor(where);
+        ++successor;
+        node_pointer erased = tree_.extract(where.node_);
+        node_type::destroyNode(erased);
+        return successor.node_;
+    }
+
+    node_pointer internalErase(const_iterator begin, const_iterator end) {
+        if (begin == cbegin() && end == cend()) {
+            clear();
+            return tree_.head_;
+        }
+        while (begin != end) {
+            internalErase(begin++);
+        }
+        return end.node_;
+    }
+
+public:
+    explicit Tree(const key_compare &compare = key_compare{})
+            : tree_(), compare_(compare) {
+        tree_.head_ = node_type::createHead();
+    }
+
+    Tree(const Tree &other)
+            : tree_(),
+              compare_(other.compare_) {
+        TreeValWrapper tree_val_temp(&tree_);
+        copy(other, StrategyTypes::copy{});
+        tree_val_temp.release();
+    }
+
+    Tree(Tree &&other) noexcept
+            : tree_(),
+              compare_(other.compare_) {
+        tree_.head_ = node_type::createHead();
+        tree_.swap(other.tree_);
+    }
+
+    template<class Iter>
+    Tree(Iter begin, Iter end)
+            : tree_(), compare_() {
+        insert(begin, end);
+    }
+
+    template<class Iter>
+    Tree(Iter begin, Iter end, const key_compare &compare)
+            : tree_(), compare_(compare) {
+        insert(begin, end);
+    }
+
+    Tree(std::initializer_list<value_type> list)
+            : tree_(), compare_() {
+        insert(list.begin(), list.end());
+    }
+
+    ~Tree() {
+        tree_.clearHead();
+    }
+
+    Tree &operator=(const Tree &other) {
+        if (this != *other) {
+            clear();
+            compare_ = other.compare_;
+            copy(other, StrategyTypes::copy{});
+        }
+        return *this;
+    }
+
+    Tree &operator=(Tree &&other)
+    noexcept(std::is_nothrow_move_assignable<traits_type>::value) {
+        if (this != *other) {
+            clear();
+            compare_ = std::move(other.compare_);
+            tree_.swap(other.tree_);
+        }
+        return *this;
+    }
+
+    void swap(Tree &other) noexcept(std::is_nothrow_swappable<key_compare>::value) {
+        if (this != &other) {
+            tree_.swap(other.tree_);
+            std::swap(compare_, other.compare_);
+        }
+    }
+
+    template<class... Args>
+    std::pair<iterator, bool> emplace(Args &&... args) {
+        auto result = internalEmplace(std::forward<Args>(args)...);
+        return std::make_pair(iterator(result.first), result.second);
+    }
+
+    std::pair<iterator, bool> insert(const value_type &value) {
+        auto result = internalEmplace(value);
+        return std::make_pair(iterator(result.first), result.second);
+    }
+
+    std::pair<iterator, bool> insert(value_type &&value) {
+        auto result = internalEmplace(std::move(value));
+        return std::make_pair(iterator(result.first), result.second);
+    }
+
+    template<class Iterator>
+    void insert(Iterator begin, Iterator end) {
+        for (auto it = begin; it != end; ++it) {
+            internalEmplace(*it);
+        }
+    }
+
+    void insert(std::initializer_list<value_type> list) {
+        insert(list.begin(), list.end());
+    }
+
+    iterator erase(iterator where) {
+        return iterator(internalErase(where));
+    }
+
+    iterator erase(const_iterator where) {
+        return iterator(internalErase(where));
+    }
+
+    iterator erase(const_iterator begin, const_iterator end) {
+        return iterator(internalErase(begin, end));
+    }
+
+    size_type erase(const key_type &key) {
+        auto where = internalEqualRange(key);
+        const_iterator begin(where.first);
+        const_iterator end(where.second);
+        size_type count = std::distance(begin, end);
+        internalErase(begin, end);
+        return count;
+    }
+
+    iterator find(const key_type &key) {
+        return iterator(internalFind(key));
+    }
+
+    const_iterator find(const key_type &key) const {
+        return const_iterator(internalFind(key));
+    }
+
+    bool contains(const key_type &key) const {
+        return lowerBoundDuplicate(findLowerBound(key).bound_, key);
+    }
+
+    size_type count(const key_type &key) const {
+        return lowerBoundDuplicate(findLowerBound(key).bound_, key);
+    }
+
+    iterator lowerBound(const key_type &key) {
+        return iterator(findLowerBound(key).bound_);
+    }
+
+    const_iterator lowerBound(const key_type &key) const {
+        return const_iterator(findLowerBound(key).bound_);
+    }
+
+    iterator upperBound(const key_type &key) {
+        return iterator(findUpperBound(key.bound_));
+    }
+
+    const_iterator upperBound(const key_type &key) const {
+        return const_iterator(findUpperBound(key).bound_);
+    }
+
+    std::pair<iterator, iterator> equalRange(const key_type &key) {
+        auto result = internalEqualRange(key);
+        return std::make_pair(iterator(result.first), iterator(result.second));
+    }
+
+    std::pair<const_iterator, const_iterator> equalRange(const key_type &key) const {
+        auto result = internalEqualRange(key);
+        return std::make_pair(const_iterator(result.first), const_iterator(result.second));
+    }
+
+    iterator begin() {
+        return iterator(tree_.head_->left);
+    }
+
+    iterator end() {
+        return iterator(tree_.head_);
+    }
+
+    const_iterator begin() const {
+        return const_iterator(tree_.head_->left);
+    }
+
+    const_iterator end() const {
+        return const_iterator(tree_.head_);
+    }
+
+    const_iterator cbegin() {
+        return const_iterator(tree_.head_->left);
+    }
+
+    const_iterator cend() {
+        return const_iterator(tree_.head_);
+    }
+
+    key_compare keyComp() const {
+        return compare_;
+    }
+
+    void clear() noexcept {
+        tree_.clearNodes();
+    }
+
+    bool empty() const noexcept {
+        return tree_.size_ == 0;
+    }
+
+    size_type size() const noexcept {
+        return tree_.size_;
+    }
+
+private:
+    template<class Item>
+    class TreeIterator {
+        friend class tree;
+
+    public:
+        using iterator_category = std::bidirectional_iterator_tag;
+        using value_type = Item;
+        using difference_type = std::ptrdiff_t;
+        using reference = value_type &;
+        using pointer = value_type *;
+
+    private:
+        using node_pointer = typename Tree::node_pointer;
+
+    private:
+        node_pointer node_;
+
+    public:
+        TreeIterator() noexcept
+                : node_(nullptr) {}
+
+        explicit TreeIterator(node_pointer node) noexcept
+                : node_(node) {}
+
+        TreeIterator(const TreeIterator &other) noexcept
+                : node_(other.node_) {}
+
+        TreeIterator &operator=(const TreeIterator &other) noexcept {
+            node_ = other.node_;
+        }
+
+        bool operator==(const TreeIterator &other) const noexcept {
+            return node_ == other.node_;
+        }
+
+        bool operator!=(const TreeIterator &other) const noexcept {
+            return node_ != other.node_;
+        }
+
+        reference operator*() const noexcept {
+            return const_cast<reference>(node_->key);
+        }
+
+        pointer operator->() const noexcept {
+            return const_cast<pointer>(&node_->key);
+        }
+
+        TreeIterator &operator++() noexcept {
+            if (node_->right->is_nil) {
+                node_pointer node;
+                while (!(node = node_->parent)->is_nil && node_ == node->right) {
+                    node_ = node;
+                }
+                node_ = node;
+            } else {
+                node_ = tree_val_type::min(node_->right);
+            }
+            return *this;
+        }
+
+        TreeIterator operator++(int) noexcept {
+            TreeIterator iter_copy = *this;
+            ++*this;
+            return iter_copy;
+        }
+
+        TreeIterator &operator--() noexcept {
+            if (node_->is_nil) {
+                node_ = node_->right;
+            } else if (node_->left->is_nil) {
+                node_pointer node;
+                while (!(node = node_->parent)->is_nil && node_ == node->left) {
+                    node_ = node;
+                }
+                if (!node_->is_nil) {
+                    node_ = node;
+                }
+            } else {
+                node_ = tree_val_type::max(node_->left);
+            }
+            return *this;
+        }
+
+        TreeIterator operator--(int) noexcept {
+            TreeIterator iter_copy = *this;
+            --*this;
+            return iter_copy;
+        }
+    };
+};
+
+template<class TKey, class TValue, class KeyCompare>
+class map_traits {
+public:
+    using key_type = TKey;
+    using value_type = std::pair<const TKey, TValue>;
+    using key_compare = KeyCompare;
+
+    template<class TFirst, class TSecond>
+    static const TFirst &select_key(const std::pair<TFirst, TSecond> &pair) {
+        return pair.first;
+    }
+};
+
+template<class TKey, class KeyCompare>
+class set_traits {
+public:
+    using key_type = TKey;
+    using value_type = TKey;
+    using key_compare = KeyCompare;
+
+    static const value_type &select_key(const value_type &value) {
+        return value;
+    }
+};
+
+int main() {
+    std::cout << "Hello, World!" << std::endl;
+    return 0;
+}
