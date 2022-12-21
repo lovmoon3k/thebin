@@ -1,0 +1,69 @@
+import os
+import sys
+from xml.etree.ElementTree import ElementTree
+from typing import Generator
+from collections import defaultdict
+
+XML_DIR = "./test"  # path to folder with xmls
+OUTPUT_PATH = "./bonetags.txt"
+CONFLICTS_PATH = "./conflicts.txt"
+
+
+def walk_dir_xml(dir: str) -> Generator[ElementTree, None, None]:
+    """Produce a generator of all .xml files as ET.ElementTree in a directory"""
+    files = os.listdir(dir)
+    for filename in files:
+        f = os.path.join(dir, filename)
+        # checking if it is a file
+        if os.path.isfile(f) and os.path.splitext(filename)[1] == ".xml":
+            doc = ElementTree()
+            doc.parse(f)
+
+            yield os.path.basename(f), doc
+
+
+def print_status(i, n):
+    j = (i + 1) / n
+    sys.stdout.write('\r')
+    # the exact output you're looking for:
+    sys.stdout.write("[%-20s] %d%%" % ('='*int(20*j), 100*j))
+    sys.stdout.flush()
+
+
+with open(OUTPUT_PATH, "w") as f, open(CONFLICTS_PATH, "w") as f2:
+    num_files = len(os.listdir(XML_DIR))
+
+    print(f"\nTesting {XML_DIR}... ({num_files} file(s))\n")
+
+    bone_tags = {}
+
+    num_conflicts = 0
+    num_files = len(os.listdir(XML_DIR))
+    current_file = 0
+
+    for filename, doc in walk_dir_xml(XML_DIR):
+        bones = doc.find(".//Bones")
+        for item in bones:
+            bone_name = item.find("Name").text
+            bone_tag = item.find("Tag").get("value")
+
+            if bone_name in bone_tags and bone_tags[bone_name] != bone_tag:
+                f2.write(
+                    f"Bone tag conflict in '{filename}' for bone '{bone_name}': {bone_tag} != {bone_tags[bone_name]}\n")
+                num_conflicts += 1
+
+                continue
+
+            bone_tags[bone_name] = bone_tag
+
+        print_status(current_file, num_files)
+        current_file += 1
+
+    f.write("BONE_TAGS = {\n")
+    for name, tag in bone_tags.items():
+        f.write(f"    {name} = {tag},\n")
+    f.write("}")
+
+    print("\nBone tag dump complete!")
+    if num_conflicts:
+        print(f"{num_conflicts} conflicts were found!")
