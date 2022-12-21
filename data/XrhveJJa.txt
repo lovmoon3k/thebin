@@ -1,0 +1,122 @@
+/// Build a tree
+/// 1) And visit it.
+/// 2) And fix the answer.
+///
+
+import 'package:more/more.dart';
+
+buildList(List<String> lines, {key = 1}) =>
+    lines.map((e) => (int.parse(e) * key).toInt()).indexed().toList();
+
+class Node {
+  num? value;
+  Node? parent;
+  String name;
+  bool isLeaf = false;
+  List<Node> children = [];
+  List<String> childrenString = [];
+  String op = '';
+  Node(this.name);
+
+  buildTree(Map<String, Node> ns) {
+    for (var c in childrenString) {
+      var n = ns[c]!;
+      n.parent = this;
+      children.add(n);
+      n.buildTree(ns);
+    }
+  }
+
+  num get buildAnswer {
+    if (isLeaf) return value!;
+    if (value != null) return value!;
+    if (op == '+') {
+      value = children.first.buildAnswer + children.last.buildAnswer;
+    } else if (op == '-') {
+      value = children.first.buildAnswer - children.last.buildAnswer;
+    } else if (op == '*') {
+      value = children.first.buildAnswer * children.last.buildAnswer;
+    } else {
+      value = children.first.buildAnswer / children.last.buildAnswer;
+    }
+    return value!;
+  }
+
+  markDirty() {
+    value = null;
+    if (name == 'root') return;
+    parent!.markDirty();
+  }
+
+  pathToRoot({List<Node> path = const []}) =>
+      (name == 'root') ? path : parent!.pathToRoot(path: [this, ...path]);
+
+  correct(List<Node> path, {num correctVal = 0}) {
+    if (name == 'humn') {
+      value = correctVal;
+      return value;
+    }
+    var pn = path.removeAt(0);
+    var on = children.first == pn ? children.last : children.first;
+    if (op == '+') {
+      correctVal = correctVal - on.value!;
+    } else if (op == '*') {
+      correctVal = correctVal / on.value!;
+    } else if (op == '-') {
+      if (pn == children.first) {
+        correctVal = correctVal + on.value!;
+      } else {
+        correctVal = on.value! - correctVal;
+      }
+    } else if (op == '/') {
+      if (pn == children.first) {
+        correctVal = (correctVal * on.value!);
+      } else {
+        correctVal = correctVal / on.value!;
+      }
+    }
+    return pn.correct(path, correctVal: correctVal);
+  }
+
+  @override
+  int get hashCode => name.hashCode; //!!!
+
+  @override
+  bool operator ==(Object other) => other is Node && other.name == name;
+}
+
+MapEntry<String, Node> fromString(String l) {
+  var ps = l.split(': ');
+  var n = Node(ps.first);
+  if (ps.last.contains(' ')) {
+    var ts = ps.last.split(' ');
+    n.childrenString
+      ..add(ts.first)
+      ..add(ts.last);
+    n.op = ts[1];
+  } else {
+    n.value = int.parse(ps.last);
+    n.isLeaf = true;
+  }
+  return MapEntry(n.name, n);
+}
+
+part1(List<String> lines) {
+  var ns = Map<String, Node>.fromEntries(lines.map((e) => fromString(e)));
+  return (ns['root']!..buildTree(ns)).buildAnswer;
+}
+
+part2(List<String> lines) {
+  var ns = Map<String, Node>.fromEntries(lines.map((e) => fromString(e)));
+  var root = ns['root']!
+    ..op = '-' // Make the root work out the needed top level answer
+    ..buildTree(ns);
+
+  var humn = ns['humn']!
+    ..children = []
+    ..isLeaf = true
+    ..markDirty()
+    ..value = 0;
+
+  return (root..buildAnswer).correct(humn.pathToRoot());
+}
