@@ -1,0 +1,314 @@
+#include <iostream>
+#include <string>
+#include <vector>
+#include <algorithm>
+#include <map>
+#include <Windows.h>
+#include <cfloat>
+
+using namespace std;
+
+struct Node { // структура, представляющая собой узел бинарного дерева
+    string str;
+    double frequency; // частота появления str в исходной строке
+    Node* left = nullptr, * right = nullptr; // потомки узла
+
+    Node(pair<char, double> pair) {
+        string str(1, pair.first);
+        this->str = str;
+        this->frequency = pair.second;
+    }
+
+    Node(string& str, double frequency) {
+        this->str = str;
+        this->frequency = frequency;
+    }
+};
+
+// таблица вероятностей
+struct FrequencyTable {
+    // массив символов и их вероятностей
+    vector<pair<char, double>> frequencies;
+
+    // получение вероятности заданного символа
+    double getFrequency(char c) {
+        int index = getFrequencyIndex(c);
+        return (index == -1) ? NULL : frequencies.at(index).second;
+    }
+
+    // получение индекса символа в таблице
+    int getFrequencyIndex(char c) {
+        for (int i = 0; i < frequencies.size(); i++) {
+            if (frequencies.at(i).first == c) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // добавление новой пары в таблицу
+    void push(pair<char, double> pair) {
+        frequencies.push_back(pair);
+    }
+
+    // прибавление единицы к количеству появлений символа
+    void incrementRepeat(char c) {
+        int index = getFrequencyIndex(c);
+        frequencies.at(index).second++;
+    }
+
+    // преобразовать количество появлений символов в вероятности
+    void convertRepeatsToFrequency(int length) {
+        for (int i = 0; i < frequencies.size(); i++) {
+            frequencies.at(i).second /= length;
+        }
+    }
+
+    // сортировка таблицы по убыванию
+    void sortFrequencies() {
+        sort(frequencies.begin(), frequencies.end(),
+            [=](pair<char, double>& a, pair<char, double>& b) {
+                return a.second > b.second;
+            }
+        );
+    }
+
+    // получение строки из символов исходной строки без повторов
+    string getUniqueCharsString() {
+        string result;
+        for (auto const& pair : frequencies) {
+            result += pair.first;
+        }
+        return result;
+    }
+
+    // получение длины таблицы
+    int length() {
+        return frequencies.size();
+    }
+
+    // получение вероятности по индексу записи
+    pair<char, double> getFreqByIndex(int index) {
+        return frequencies.at(index);
+    }
+};
+
+// дерево для формирования кодов, используемых для сжатия
+class EncodingTree {
+private:
+    string original; // исходная строка
+    Node* root = nullptr; // указатель на корень дерева
+    FrequencyTable frequencies; // таблица вероятностей символов
+    map<char, string> encodingTable; // таблица кодов для сжатия
+
+    // построение дерева для метода Шеннона-Фано
+    void buildTreeSF() {
+        string unique = frequencies.getUniqueCharsString();
+        root = new Node(unique, 1);
+        splitNode(root); // делим каждый узел примерно пополам
+    }
+
+    // построение дерева для метода Хаффмана
+    void buildTreeHuffman() {
+        vector<Node*> nodes;
+        int length = frequencies.getUniqueCharsString().length();
+        for (int i = 0; i < length; i++) {
+            nodes.push_back(new Node(frequencies.getFreqByIndex(i))); //конвертируем все вероятности в узлы дерева
+        }
+        while (nodes.size() > 1) { // пока есть хотя бы 2 узла
+            Node* left, * right;
+            int index = getMinNodeIndex(
+                nodes); // ищем, сохраняем и удаляем из вектора 2 наименьших по вероятности узла(left и right)
+            left = nodes.at(index);
+            nodes.erase(nodes.begin() + index);
+            index = getMinNodeIndex(nodes);
+            right = nodes.at(index);
+            nodes.erase(nodes.begin() + index);
+            string concat = left->str + right->str;
+            Node* parent = new Node(concat, left->frequency +
+                right->frequency); // создаём новый узел, представляющий собой сумму двух наименьших
+            parent->left = left; // назначаем ему потомками наименьшие узлы
+            parent->right = right;
+            nodes.push_back(parent); // добавляем узел в вектор
+        }
+        root = nodes.at(0); // когда остаётся один узел, он становится корнем дерева
+    }
+
+    // получение минимального узла из вектора узлов
+    int getMinNodeIndex(vector<Node*> v) {
+        double minimum = DBL_MAX;
+        int index = 0;
+        for (int i = 0; i < v.size(); i++) {
+            if (v.at(i)->frequency < minimum) {
+                minimum = v.at(i)->frequency;
+                index = i;
+            }
+        }
+        return index;
+    }
+
+    // деление узла примерно пополам (для Шеннона-Фано)
+    void splitNode(Node* node) {
+        if (node->str.length() <= 1) { // если узел пустой или из 1 символа, делить не нужно
+            return;
+        }
+        int mid = findMiddle(node->str); // ищем индекс для деления
+        // части строк до и после середины
+        string leftSubstr = node->str.substr(0, mid + 1),
+            rightSubstr = node->str.substr(mid + 1);
+        // создание половин и назначение их в качестве потомков
+        node->left = new Node(leftSubstr, sumFrequencies(leftSubstr));
+        node->right = new Node(rightSubstr, sumFrequencies(rightSubstr));
+        // рекурсивное деление половин
+        splitNode(node->left);
+        splitNode(node->right);
+    }
+
+    // поиск индекса половины для деления узла примерно пополам
+    int findMiddle(string& str) {
+        int mid = 0;
+        //сумма вероятностей до середины, после середины и их минимальная разница
+        double beforeSum = 0,
+            afterSum = sumFrequencies(str),
+            minDiff = DBL_MAX;
+
+        for (int i = 0; i < str.length(); i++) {
+            beforeSum += frequencies.getFrequency(str.at(i)); // меняем суммы до и после текущей середины
+            afterSum -= frequencies.getFrequency(str.at(i));
+            if (abs(beforeSum - afterSum) < minDiff) { // если разница меньше текущей минимальной
+                // сохраняем индекс и новый минимум
+                mid = i;
+                minDiff = abs(beforeSum - afterSum);
+            }
+        }
+        return mid;
+    }
+
+    // сумма вероятностей всех символов строки
+    double sumFrequencies(string& str) {
+        double result = 0;
+        for (int i = 0; i < str.length(); i++) {
+            result += frequencies.getFrequency(str.at(i));
+        }
+        return result;
+    }
+
+    // рекурсивный вывод ветки дерева в консоль
+    void printBranch(Node* node, int tabOffset) {
+        if (!node) return;
+        for (int i = 0; i < tabOffset; i++) {
+            cout << "\t";
+        }
+        cout << node->str << '(' << node->frequency << ')';
+        if (node->str.length() == 1) {
+            cout << " Код символа: " << encodingTable[node->str.at(0)];
+        }
+        cout << endl;
+        printBranch(node->left, tabOffset + 1);
+        printBranch(node->right, tabOffset + 1);
+    }
+
+    // подсчёт вероятностей символов
+    void calculateFrequencies() {
+        for (int i = 0; i < original.length(); i++) {
+            if (frequencies.getFrequencyIndex(original.at(i)) == -1) { // если символа в таблице ещё нет, добавляем его
+                frequencies.push(make_pair(original.at(i), 0));
+            }
+            frequencies.incrementRepeat(original.at(i)); // прибавляем единицу
+        }
+        frequencies.convertRepeatsToFrequency(original.length()); // конвертируем кол - во повторов в вероятности
+        frequencies.sortFrequencies(); // сортировка по убыванию
+    }
+
+    // построение таблицы кодов
+    void buildEncodingTable(Node* node, string code) {
+        if (!node) return;
+        if (node->str.length() == 1) { // если строка узла состоит из одного символа
+            encodingTable.insert(make_pair(node->str.at(0), code)); // добавляем в таблицу кодов код этого символа
+            return;
+        }
+        // иначе рекурсивно проходимся по левому и правому поддереву
+        buildEncodingTable(node->left, code + "0");
+        buildEncodingTable(node->right, code + "1");
+    }
+
+    // закодировать строку используя таблицу кодов
+    string encode() {
+        string result = "";
+        for (int i = 0; i < original.length(); i++) {
+            result += encodingTable[original.at(i)];
+        }
+        return result;
+    }
+
+public:
+    EncodingTree(string& original) {
+        this->original = original;
+        calculateFrequencies();
+    }
+
+    void printTree() {
+        if (!root) return;
+        printBranch(root, 0);
+    }
+
+    string encodeHuffman() {
+        buildTreeHuffman();
+        buildEncodingTable(root, "");
+        return encode();
+    }
+
+    string encodeShannonFano() {
+        buildTreeSF();
+        buildEncodingTable(root, "");
+        return encode();
+    }
+
+    // декодирование строки
+    string decode(string encoded) {
+        string decoded = "", currentPattern = "";
+        for (int i = 0; i < encoded.length(); i++) {
+            currentPattern += encoded.at(i); // посимвольно наращиваем текущий код символа
+            char decodedChar = decodeChar(currentPattern); // пытаемся раскодировать
+            if (decodedChar !=
+                '\0') { // если раскодировано успешно, прибавляем к результату раскодированный символ и обнуляем текущий код
+                decoded += decodedChar;
+                currentPattern = "";
+            }
+        }
+        return decoded;
+    }
+
+    // расшифровка символа
+    char decodeChar(string& encoded) {
+        for (auto pair : encodingTable) {
+            if (pair.second == encoded) {
+                return pair.first;
+            }
+        }
+        return '\0'; // если расшифровка не удалась, возвращаем \0
+    }
+};
+
+int main() {
+    setlocale(LC_ALL, "Russian");
+    SetConsoleOutputCP(1251);
+    string input = "Тише, мыши, кот на крыше, А котята ещё выше. Кот пошёл за молоком, А котята кувырком.";
+    cout << "Метод Шеннона-Фано" << endl;
+    cout << "Строка для кодирования: " << input << endl;
+    EncodingTree tree(input);
+    string encoded = tree.encodeShannonFano();
+    cout << "Закодированная строка: " << endl << encoded << endl;
+    cout << encoded.length() << endl;
+    cout << "Результат декодирования: " << tree.decode(encoded) << endl << endl;
+    tree.printTree();
+    cout << endl << "Метод Хаффмана" << endl;
+    input = "Кудлинков Николай Сергеевич";
+    cout << "Строка для кодирования: " << input << endl;
+    EncodingTree tree2(input);
+    encoded = tree2.encodeHuffman();
+    cout << "Закодированная строка : " << endl << encoded << endl;
+    cout << encoded.length() << endl;
+    cout << "Результат декодирования: " << tree2.decode(encoded) << endl;
+    tree2.printTree();
+}
