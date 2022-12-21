@@ -1,0 +1,121 @@
+#include <sys/wait.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <string.h>
+#include <fcntl.h>
+#include <time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <errno.h>
+
+pthread_t* thread_arr;
+int max_thread_number;
+int curr_thread_num;
+char dest[100];
+
+char* get_full_path(char* dir_path, char* file_name) {
+    int length = strlen(dir_path) + strlen(file_name)+2;
+    char* full_path = (char*)malloc(sizeof(char)*length);
+    strcpy(full_path, dir_path);
+    full_path[strlen(dir_path)] = '/';
+    strcpy(full_path + strlen(dir_path) + 1, file_name);
+    return full_path;
+}
+
+int is_not_recursion(struct dirent* entry) {
+    return strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0;
+}
+
+void add_dirname_to_arr(char* directory,char*** dir_arr, size_t *size) {
+    *dir_arr = realloc(*dir_arr,(*size)*sizeof(char*));
+    (*dir_arr)[(*size) - 1] = directory;
+}
+
+void find_directories(char* curr_dir_name, char*** dir_arr, size_t* size) {
+    DIR* dir = opendir(curr_dir_name);
+    if (dir != NULL) {
+        struct dirent* f;
+        while ((f = readdir(dir))!=NULL){
+            if (f->d_type == DT_DIR && is_not_recursion(f)) {
+                char* full_path = get_full_path(curr_dir_name, f->d_name);
+                (*size)++;
+                add_dirname_to_arr(full_path, dir_arr, size);
+                find_directories(full_path, dir_arr, size);
+                }
+            }
+        closedir(dir);
+    }
+}
+
+void search_in_dir(void *args) {
+    char* path = (char*) args;
+    int file_count = 0;
+    DIR* dir = opendir(path);
+    if (dir != NULL) {
+        struct dirent* f;
+        while ((f = readdir(dir))!=NULL) {
+            char* full_path = get_full_path(path, f->d_name); 
+            if (is_not_recursion(f)) {
+                if (strcmp(f->d_name, dest) == 0)
+                {
+                    struct stat info;
+                    stat(full_path, &info);
+                    struct tm *timeinfo;
+                    timeinfo = localtime(&info.st_mtime);
+                    printf("%d %lo %s\n    %ld\n    %o\n    %ld\n    %s\n", curr_thread_num,  pthread_self(), full_path, info.st_size, info.st_mode % 512, info.st_ino, asctime(timeinfo));
+                }
+                else
+                {
+                    printf("%d %lo %s\n", curr_thread_num,  pthread_self(), full_path);
+                }
+                file_count++;
+            }
+            free(full_path);
+        }
+        closedir(dir);
+        printf("  %d - %s\n", file_count, path);
+    }
+    curr_thread_num--;
+}
+
+void find_file(char** dir_arr, size_t size) {
+    int index = 0;
+    while (index < size) {
+        if (curr_thread_num >= max_thread_number) {
+            pthread_join(thread_arr[curr_thread_num - 1], NULL);
+        }
+        pthread_create(&thread_arr[curr_thread_num], NULL, (void*)search_in_dir, dir_arr[index]);
+        index++;
+        curr_thread_num++;
+    }
+}
+
+void wait_for_child() {
+    for(int i = 0; i < curr_thread_num; i++){
+        pthread_join(thread_arr[i], NULL);
+    }
+    free(thread_arr);
+}
+
+int main(int argc, char **argv) {
+    if (argc != 4) {
+        printf("Wrong number of arguments!\n");
+        return -1;
+    }
+    size_t size = 1;
+    char** dir_arr = (char**)malloc(sizeof(*dir_arr));
+
+    strcpy(dest, argv[2]);
+    dir_arr[0] = argv[1];
+    max_thread_number = atoi(argv[3]);
+
+    thread_arr = (pthread_t*)malloc(sizeof(pthread_t*) * max_thread_number);
+    find_directories(dir_arr[0], &dir_arr, &size);
+    find_file(dir_arr,size);
+    wait_for_child();
+    return 0;
+}
+
