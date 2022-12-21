@@ -1,0 +1,106 @@
+#!/usr/local/bin/gst -q
+
+Collection extend [
+    apply: method  [ ^self collect: [:x | x perform: method] ]
+]
+
+Object subclass: RingNode [
+    | value next prev |
+    RingNode class >> new: val [ ^super new init: val ]
+
+    init: val [
+        value := val.
+        ^prev := next := self
+    ]
+
+    insertAfter: node [
+        next := node next.
+        prev := node.
+        node next prev: self.
+        node next: self.
+        ^self
+    ]
+
+    removeSelf [
+        next prev: self prev.
+        prev next: self next.
+        ^self
+    ]
+
+    at: dist [
+        | curr step count |
+        (dist = 0) ifTrue: [ ^self ].
+
+        curr := self.
+        step := (dist > 0) ifTrue: [#next] ifFalse: [#false].
+
+        count := dist abs.
+        [count > 0] whileTrue: [
+            curr  := curr perform: step.
+            count := count - 1.
+        ].
+        ^curr
+    ]
+
+    prev        [ ^prev ]
+    prev: node  [ ^prev := node ]
+    next        [ ^next ]
+    next: node  [ ^next := node ]
+    value       [ ^value ]
+]
+
+Object subclass: Ring [
+    | head order zero size |
+    Ring class >> from: anArray [ ^super new init: anArray ]
+
+    init: arr [
+        size  := arr size.
+        order := OrderedCollection new.
+        head  := order add: (RingNode new: arr first).
+
+        arr allButFirst do: [ :val |
+            head := order add: ((RingNode new: val) insertAfter: head).
+            (val = 0) ifTrue: [ zero := head ].
+        ].
+        ^self
+    ]
+
+    order   [ ^order ]
+    zero    [ ^zero  ]
+    size    [ ^size  ]
+
+    printOn: aStream [
+        | curr |
+        curr := head.
+        [
+            aStream nextPutAll: ('%1, ' % {curr value}).
+            (curr := curr next) ~= head
+        ] whileTrue.
+    ]
+]
+
+"
+| Mainline
+"
+input := (stdin lines contents apply: #asNumber).
+ring  := Ring from: input.
+
+ring order do: [ :curr |
+    dist := (curr value) \\ (ring size - 1).
+
+    (dist ~= 0) ifTrue: [
+        dest := curr removeSelf.
+        dest := dest at: dist.
+        curr insertAfter: ((dist > 0) ifTrue:  [dest]
+                                      ifFalse: [dest prev]).
+    ]
+].
+
+part1 := 0.
+curr  := ring zero.
+3 timesRepeat: [
+    curr  := curr at: 1000.
+    part1 := part1 + curr value.
+].
+
+('Part 1: %1' % {part1}) displayNl.

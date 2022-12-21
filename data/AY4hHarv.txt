@@ -1,0 +1,109 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <assert.h>
+
+#define  MAX_NUM        10000
+#define  DECRYPT_KEY    811589153
+
+typedef struct node_def {
+    int64_t             value;
+    struct node_def *   next;
+    struct node_def *   prev;
+} node_def;
+
+// Insert item into ring after dest, return ptr to it
+node_def * insert_node( node_def *item, node_def *dest ) {
+    item->next = dest->next;
+    item->prev = dest;
+    dest->next->prev = item;
+    dest->next = item;
+    return (item);
+}
+
+// Remove item from ring, return ptr to it
+node_def * remove_node( node_def *item ) {
+    item->next->prev = item->prev;
+    item->prev->next = item->next;
+    return (item);
+}
+
+// Used for creating ring... allocates nodes adds them after prev
+node_def * create_node( node_def *prev, int64_t val ) {
+    node_def *new = malloc( sizeof( node_def ) );
+    assert( new != NULL );
+
+    new->value = val;
+    if (prev != NULL) {
+        insert_node( new, prev );
+    } else {
+        new->next = new;
+        new->prev = new;
+    }
+
+    return (new);
+}
+
+// Print out the ring, up to max_len items
+void print_ring( node_def *start, int max_len ) {
+    node_def *curr = start;
+
+    int i = 0;
+    do {
+        printf( "%ld, ", curr->value );
+        curr = curr->next;
+    } while (curr != start && ++i < max_len);
+
+    if (curr != start) {
+        printf( "..." );
+    }
+    printf( "\n" );
+}
+
+int main() {
+    node_def *  order[ MAX_NUM ];
+    node_def *  ring = NULL;
+    node_def *  zero = NULL;
+    int         len  = 0;
+    int64_t     num;
+
+    // Read in ring (get pointer to zero node)
+    while (scanf( "%ld", &num ) == 1) {
+        num *= DECRYPT_KEY;
+        order[len++] = ring = create_node( ring, num );
+        if (num == 0) {
+            zero = ring;
+        }
+    }
+
+    // Mix the list
+    for (int t = 0; t < 10; t++) {
+        for (int i = 0; i < len; i++) {
+            node_def *curr = order[i];
+
+            const int dist = curr->value % (len - 1);
+            if (dist) {
+                node_def *dest = (dist > 0) ? remove_node( curr )
+                                            : remove_node( curr )->prev;
+
+                for (int j = 0; j < abs(dist); j++) {
+                    dest = (dist > 0) ? dest->next : dest->prev;
+                }
+
+                insert_node( curr, dest );
+            }
+        }
+    }
+
+    // Get result
+    node_def *curr = zero;
+    int64_t   sum  = 0;
+    for (int i = 0; i <= 3000; i++, curr = curr->next) {
+        if (i % 1000 == 0) {
+            sum += curr->value;
+            printf( "%4d: %ld\n", i, curr->value );
+        }
+    }
+
+    printf( "Part 2: %ld\n", sum );
+}
