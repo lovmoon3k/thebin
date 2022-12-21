@@ -1,0 +1,44 @@
+def day21(s, *, part2=False):  # Topological ordering for single-pass assignments.
+  dependencies, ops, assigned = {}, {}, {}
+  for line in s.splitlines():
+    dst, rest = line.split(': ')
+    if rest.isdigit():
+      assigned[dst] = int(rest)
+    else:
+      field0, op, field1 = rest.split()
+      dependencies[dst] = [field0, field1]
+      ops[dst] = op
+
+  if part2:
+    del assigned['humn']
+    ops['root'] = '='
+
+  # Assign nodes whose children are assigned.
+  import graphlib  # pylint: disable=import-error # Python 3.9.
+  for dst in graphlib.TopologicalSorter(dependencies).static_order():
+    if dep := dependencies.get(dst, None):
+      if dep[0] in assigned and dep[1] in assigned:
+        a, b, op = assigned[dep[0]], assigned[dep[1]], ops[dst]
+        assigned[dst] = (a + b if op == '+' else a - b if op == '-' else
+                         a * b if op == '*' else a // b)  # if op == '/'
+
+  if not part2:
+    return assigned['root']
+
+  # Trace a path from the root down, deriving the value of each unassigned node.
+  dst = 'root'
+  while dst != 'humn':
+    dep, op = dependencies[dst], ops[dst]
+    if dep[0] in assigned:
+      a = assigned[dep[0]]
+      value: int
+      value = (value - a if op == '+' else a - value if op == '-' else
+               value // a if op == '*' else a // value if op == '/' else a)
+      dst = dep[1]
+    else:
+      b = assigned[dep[1]]
+      value = (value - b if op == '+' else value + b if op == '-' else
+               value // b if op == '*' else value * b if op == '/' else b)
+      dst = dep[0]
+
+  return value
