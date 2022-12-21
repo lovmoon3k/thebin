@@ -1,0 +1,74 @@
+def calculate_user_interests(date, depth, spark):
+    
+    input_p = input_paths(date, depth)
+    print(f'input_p: {input_p}')
+    
+    ##### tag_top #####
+    df = spark.read \
+    .option('basePath','hdfs://rc1a-dataproc-m-dg5lgqqm7jju58f9.mdb.yandexcloud.net:8020/user/larisfdz/data/events') \
+    .parquet(*input_p)
+    #считаем количетсо тэгов на каждого пользователя
+    all_users = df.where('event_type="message" and event.message_channel_to is not null') \
+                     .select(['event.message_from', F.explode(F.col('event.tags')) \
+                              .alias('tag')]).groupBy(F.col('message_from').alias('user_id'), F.col('tag')) \
+                                                       .count().orderBy(F.col('count'))
+    #по каждому пользователю ранжируем количество тэгов по убыванию
+    window = Window().partitionBy('user_id').orderBy(F.desc('count'), F.desc('tag'))
+    all_users_w = all_users.withColumn("row_number", F.row_number().over(window))
+    all_users_w.orderBy(F.desc('user_id'), F.desc('tag')).show(10)
+    all_users_3 = all_users_w.filter(F.col('row_number')<=3)
+    #в сводную таблицу ставит столбцы, соответствующие рангу
+    tag_top = all_users_3.groupBy(F.col('user_id')).pivot('row_number').agg(F.first('tag')) \
+    .withColumnRenamed('1', 'tag_top_1').withColumnRenamed('2', 'tag_top_2').withColumnRenamed('3', 'tag_top_3')
+    
+    ##### reaction_tag_tops #####
+    reactions = spark.read \
+    .option('basePath','hdfs://rc1a-dataproc-m-dg5lgqqm7jju58f9.mdb.yandexcloud.net:8020/user/larisfdz/data/events') \
+    .parquet(*input_p).where("event_type='reaction'")
+    print(f'lines in reaction: {reactions.count()}')
+    
+    all_message_tags = spark \
+    .read \
+    .parquet('hdfs://rc1a-dataproc-m-dg5lgqqm7jju58f9.mdb.yandexcloud.net:8020/user/larisfdz/data/events')\
+    .where("event_type='message' and event.message_channel_to is not null")\
+    .select(F.col("event.message_id").alias("message_id"),
+            F.col("event.message_from").alias("user_id"),
+            F.explode(F.col("event.tags")).alias("tag")
+           )
+    print(f'all_message_tags: {all_message_tags.count()}')
+    
+    reaction_tags = reactions\
+    .select(F.col("event.reaction_from").alias("user_id"),
+            F.col("event.message_id").alias("message_id"),
+            F.col("event.reaction_type").alias("reaction_type")
+           ).join(all_message_tags.select("message_id", "tag"), "message_id")
+    reaction_tops = reaction_tags\
+    .groupBy("user_id", "tag", "reaction_type")\
+    .agg(F.count("*").alias("tag_count"))\
+    .withColumn("rank", F.row_number().over(Window.partitionBy("user_id", "reaction_type")\
+                                            .orderBy(F.desc("tag_count"), F.desc("tag"))))\
+    .where("rank <= 3")\
+    .groupBy("user_id", "reaction_type")\
+    .pivot("rank", [1, 2, 3])\
+    .agg(F.first("tag"))\
+    .cache()
+    
+    like_tops = reaction_tops\
+    .where("reaction_type = 'like'")\
+    .drop("reaction_type")\
+    .withColumnRenamed("1", "like_tag_top_1")\
+    .withColumnRenamed("2", "like_tag_top_2")\
+    .withColumnRenamed("3", "like_tag_top_3")
+    
+    dislike_tops = reaction_tops\
+    .where("reaction_type = 'dislike'")\
+    .drop("reaction_type")\
+    .withColumnRenamed("1", "dislike_tag_top_1")\
+    .withColumnRenamed("2", "dislike_tag_top_2")\
+    .withColumnRenamed("3", "dislike_tag_top_3")
+    
+    reaction_tag_tops = like_tops\
+    .join(dislike_tops, "user_id", "full_outer")
+    
+    result = reaction_tag_tops.join(tag_top, "user_id", "left")
+    return result
