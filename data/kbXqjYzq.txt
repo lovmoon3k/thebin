@@ -1,0 +1,30 @@
+import pulp
+import numpy as np
+import scipy.sparse
+ 
+A = scipy.sparse.random(100, 100, density=0.1).todense()
+indices = list(range(100))
+S = np.random.permutation(indices)[:10]
+S_bar = np.array(list(set(indices) - set(S)))
+nu = 0.55
+
+# Zero out rows of seed nodes
+A[S[:, None], S] = 0
+A[S[:, None], S_bar] = 0
+
+# $prod = (A_{\bar{S}, \bar{S}} - \nu I_{|S|})^{-1} A_{\bar{S}, S}$
+diff = np.linalg.inv(A[S_bar,:][:,S_bar] - nu * np.eye(len(S_bar)))
+prod = np.matmul(diff, A[S_bar,:][:,S])
+
+solver = pl.getSolver('GLPK_CMD')
+prob = pulp.LpProblem('objective', pulp.LpMaximize)
+
+# Both variables range from 0 to infinity.
+u_S_prog = np.array([pl.LpVariable("u_S_" + str(i), 0) for i in range(len(S))])
+z = np.array([pl.LpVariable('z_' + str(i), 0) for i in range(len(S_bar))])
+
+prob += u_S_prog
+prob += sum(x for x in z)
+
+status = prob.solve(solver)
+print(prob.objective.value)
