@@ -1,0 +1,172 @@
+local PLUGIN = PLUGIN
+
+PLUGIN.name = "Heads Test"
+PLUGIN.author = "SleepyMode"
+PLUGIN.description = ""
+
+--[[
+runlua_sv ixHeads = ix.plugin.list["headstest"]
+runlua_sv _player = ix.util.FindPlayer("sdf")
+runlua_sv ixHeads:SetPlayerHead(_player, "models/tnb/techcom/female_28.mdl")
+]]
+
+ix.char.RegisterVar("head", {
+	field = "head",
+	fieldType = ix.type.string,
+	default = ""
+})
+
+if (SERVER) then
+	-- Server code
+
+	function PLUGIN:SetPlayerHead(client, head)
+		client:GetCharacter():SetHead(head)
+		if (head != "") then
+			local boneID = client:LookupBone("ValveBiped.Bip01_Head1")
+			print("FUCKYOU", boneID, "FUCKYOU")
+			client:ManipulateBoneScale(boneID, Vector(0, 0, 0))
+			print(client:GetManipulateBoneScale(boneID))
+		end
+
+		print("AA")
+		print(client:GetCharacter():GetHead())
+	end
+
+	function PLUGIN:ClearPlayerHead(client)
+		client:GetCharacter():SetHead("")
+	end
+else
+	-- Client code
+	net.Receive("ixCharacterVarChanged", function()
+		local id = net.ReadUInt(32)
+		local character = ix.char.loaded[id]
+
+		if (character) then
+			local key = net.ReadString()
+			local value = net.ReadType()
+
+			character.vars[key] = value
+			hook.Run("CharacterVariableChanged", character, key, value)
+		end
+	end)
+
+	function PLUGIN:CreateFakePlayerHead(client, head)
+		print("a")
+		if (client.ixHead) then
+			print("aa")
+			client.ixHead:Remove()
+			client.ixFakeModel:Remove()
+		end
+
+		client.RenderOverride = function()
+		end
+
+		client.ixFakeModel = ClientsideModel(client:GetModel(), RENDERGROUP_TRANSLUCENT)
+		client.ixFakeModel:AddEffects(EF_BONEMERGE)
+		client.ixFakeModel:PhysicsInit(SOLID_NONE)
+		client.ixFakeModel:SetMoveType(MOVETYPE_NONE)
+		client.ixFakeModel:SetParent(client)
+		client.ixFakeModel.RenderOverride = function(ent)
+			--render.SetBlend(0)
+			--render.ModelMaterialOverride(temp_mat)
+			ent:ManipulateBoneScale(ent:LookupBone("ValveBiped.Bip01_Head1"), Vector(0, 0, 0))
+			ent:DrawModel()
+			--render.SetBlend(1)
+			--render.ModelMaterialOverride()
+		end
+
+		client.ixHead = ClientsideModel(head, RENDERGROUP_TRANSLUCENT)
+		client.ixHead:AddEffects(EF_BONEMERGE)
+		client.ixHead:PhysicsInit(SOLID_NONE)
+		client.ixHead:SetMoveType(MOVETYPE_NONE)
+		client.ixHead:SetParent(client)
+		client.ixHead.RenderOverride = function(ent)
+			--render.SetBlend(0)
+			--render.ModelMaterialOverride(temp_mat)
+			ent:DrawModel()
+			--render.SetBlend(1)
+			--render.ModelMaterialOverride()
+		end
+		print(client.ixHead)
+	end
+
+	local temp_mat = Material( "models/error/new light1" )
+
+	function PLUGIN:CharacterVariableChanged(character, key, value)
+		print("OOO")
+		if (key != "head") then
+			print(character, key, value)
+			return
+		end
+
+		print(":)")
+		local client = character:GetPlayer()
+		self:CreateFakePlayerHead(client, value)
+	end
+end
+
+--[[function PLUGIN:GetPlayerHeadBone(client)
+	local boneID = client:LookupBone("ValveBiped.Bip01_Head1")
+	if (!boneID) then
+		ErrorNoHalt("[HeadsTest] Failed to get player's head bone.")
+	end
+
+	return boneID
+end
+
+function PLUGIN:HidePlayerHead(client)
+	local boneID = self:GetPlayerHeadBone(client)
+	client:ManipulateBoneScale(boneID, Vector(0, 0, 0))
+end
+
+function PLUGIN:ShowPlayerHead(client)
+	local boneID = self:GetPlayerHeadBone(client)
+	client:ManipulateBoneScale(boneID, Vector(1, 1, 1))
+end
+
+function PLUGIN:SpawnFakeHead(client, headModel)
+	local boneID = self:GetPlayerHeadBone(client)
+	local boneMatrix = client:GetBoneMatrix(boneID)
+	local bonePos = boneMatrix:GetTranslation()
+	local boneAng = boneMatrix:GetAngles()
+
+	if (IsValid(client.ixHead)) then
+		client.ixHead:Remove()
+	end
+
+	--bonePos:Sub(client:GetPos())
+	local eyesAttachID = client:LookupAttachment("eyes")
+	local eyesAttach = client:GetAttachment(eyesAttachID)
+	local eyesPos = eyesAttach.Pos
+	local eyesAng = eyesAttach.Ang
+
+	client.ixHead = ents.Create("prop_physics_multiplayer")
+	client.ixHead:SetModel(headModel)
+	client.ixHead:SetPos(eyesPos)
+	client.ixHead:SetAngles(eyesAng)
+	client.ixHead:SetCollisionGroup(COLLISION_GROUP_WORLD)
+	client.ixHead:SetMoveType(MOVETYPE_NONE)
+	client.ixHead:SetParent(client, eyesAttachID)
+	client.ixHead:AddEffects(bit.bor(EF_BONEMERGE, EF_FOLLOWBONE, EF_PARENT_ANIMATES))
+	client.ixHead:DrawShadow(false)
+	client.ixHead:SetSolid(SOLID_NONE)
+	client.ixHead:Spawn()
+
+	--fakeHead:SetPredictable(true)
+end
+
+function PLUGIN:Think()
+	for _, client in ipairs(player.GetAll()) do
+		if (client.ixHead) then
+			local boneID = self:GetPlayerHeadBone(client)
+			local boneMatrix = client:GetBoneMatrix(boneID)
+			local bonePos = boneMatrix:GetTranslation()
+			local boneAng = boneMatrix:GetAngles()
+			debugoverlay.ScreenText(15, 15, tostring(bonePos))
+			debugoverlay.ScreenText(15, 25, tostring(boneAng))
+			client.ixHead:SetPos(bonePos)
+			client.ixHead:SetAngles(boneAng)
+		end
+	end
+end
+]]
