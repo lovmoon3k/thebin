@@ -1,0 +1,71 @@
+WITH 
+	preparedData as ( 
+		SELECT
+			p.userID,
+      p.productID,
+      pr.productValue,
+			paymentAmount,
+			paymentPeriod,
+			paymentDateTime,
+			DATE_TRUNC(DATETIME(paymentDateTime), MONTH) as prepaidPeriodStart,
+      DATE_TRUNC(DATE_ADD(DATETIME(paymentDateTime), INTERVAL paymentPeriod MONTH), MONTH) as prepaidPeriodEnd,
+      DATE_TRUNC(DATE_ADD(DATETIME(paymentDateTime), INTERVAL paymentPeriod MONTH), DAY) as prepaidPeriodEndDay,
+			DATE_ADD(DATETIME(paymentDateTime), INTERVAL paymentPeriod MONTH) as prepaidPeriodEndDateTime
+		FROM
+			`uptimerobot-001.ur.payments` p
+
+    LEFT JOIN
+    `uptimerobot-001.ur.products` pr
+      
+      ON p.productID = pr.productID
+
+		LEFT JOIN	(
+			SELECT
+				userID,
+				MAX(paymentDateTime) lastPaymentDateTime
+			FROM
+				`uptimerobot-001.ur.payments`
+			
+			WHERE
+				paymentStatus = 1 
+				AND paymentPeriod IN (1,12)
+				AND userID IS NOT NULL
+			GROUP BY
+				userID
+			) lp
+			ON p.userID =lp.userID AND p.paymentDateTime = lp.lastPaymentDateTime
+  
+		WHERE
+			paymentStatus = 1 
+			AND paymentPeriod IN (1,12)
+			AND p.userID IS NOT NULL
+			AND lp.lastPaymentDateTime IS NOT NULL
+	),
+	calendar as (
+		SELECT 
+		DATE_TRUNC(DATETIME(paymentDateTime), DAY) as reportingYearMonthDay
+		FROM `uptimerobot-001.ur.payments`
+		GROUP BY 
+			reportingYearMonthDay
+	)
+
+  SELECT
+		FORMAT_DATETIME('%Y-%V', reportingYearMonthDay) as reportingYearMonthWeek,
+		COUNT(DISTINCT userID) churnedCustomers
+
+  FROM
+  	preparedData pd
+	
+	LEFT JOIN calendar cal
+		ON pd.prepaidPeriodEndDateTime > reportingYearMonthDay AND pd.prepaidPeriodEndDay < DATE_ADD(cal.reportingYearMonthDay, INTERVAL 1 DAY)
+	
+	WHERE
+	reportingYearMonthDay IS NOT NULL
+
+	GROUP BY
+		reportingYearMonthWeek
+	
+	ORDER BY
+		reportingYearMonthWeek DESC
+
+	
