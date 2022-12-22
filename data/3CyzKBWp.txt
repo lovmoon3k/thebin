@@ -1,0 +1,117 @@
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdlib.h>
+#define SZ_JUD_MAX 30
+#define SZ_LINE_MAX 300
+#define SIZE_UAT 50
+#define CHUNK 128
+#define SEP " ,"
+
+typedef enum {
+  INTRA, EXTRA
+} ProdType;
+
+typedef struct {
+  uint32_t id;
+  uint32_t code;
+  char county[SZ_JUD_MAX + 3], uat[SIZE_UAT + 1];
+  ProdType prodType;
+  uint32_t nrImmobile;
+  float area, areaUAT;
+  uint32_t nrAps;
+} Cadaster;
+
+Cadaster procLine(char s[]) {
+  Cadaster cadaster = {};
+  char *p = NULL;
+  
+  p = strtok(s, SEP);//id
+  cadaster.id = strtoll(p, NULL, 10);
+  
+  p = strtok(NULL, SEP);//code
+  cadaster.code = strtoll(p, NULL, 10);
+  
+  p = strtok(NULL, SEP);//county
+  strcpy(cadaster.county, p);
+
+  p = strtok(NULL, SEP);//uat
+  strcpy(cadaster.uat, p);
+
+  p = strtok(NULL, SEP);//type
+  if (!strcmp(p, "extravilan")) {
+    cadaster.prodType = EXTRA;
+  } else {
+    cadaster.prodType = INTRA;
+  }
+
+  p = strtok(NULL, SEP);//nri
+  cadaster.nrImmobile = strtoll(p, NULL, 10);
+
+  p = strtok(NULL, SEP);//area
+  cadaster.area = strtof(p, NULL);
+
+  p = strtok(NULL, SEP);//areauat
+  cadaster.areaUAT = strtof(p, NULL);
+
+  p = strtok(NULL, SEP);//nraps
+  cadaster.nrAps = strtof(p, NULL);
+
+  return cadaster;
+}
+
+void printCadaster(const Cadaster *const cadaster) {
+  printf("{ %u %u %s %s ", cadaster->id, cadaster->code, cadaster->county, cadaster->uat);
+  if (cadaster->prodType == INTRA) {
+    printf("intravilan ");
+  } else {
+    printf("extravilan ");
+  }
+  printf("%d %g %g %u}\n", cadaster->nrImmobile, cadaster->area, cadaster->areaUAT, cadaster->nrAps);
+}
+
+Cadaster *populateArr(int *n, FILE *f) {
+  static char s[SZ_LINE_MAX + 1];
+  Cadaster *arrCad = NULL;
+  int index = 0, currSize = 0;
+  while (fgets(s, SZ_LINE_MAX, f) != NULL) {
+    Cadaster cadaster = procLine(s);
+    if (index == currSize) {
+      currSize += CHUNK;
+      arrCad = (Cadaster*)realloc(arrCad, sizeof(Cadaster) * currSize);
+    }
+    arrCad[index++] = cadaster;//*/
+  }
+  *n = index;
+  return arrCad;
+}
+
+int main(int argc, char **argv) {
+
+  if (argc < 2) {
+    fprintf(stderr, "one more arg needed!\n");
+    exit(-1);
+  }
+  
+  FILE *f = fopen(argv[1], "r");
+  if (f == NULL) {
+    perror("");
+    exit(-1);
+  }
+
+  Cadaster *arrCad = NULL;
+  int n;
+  
+  arrCad = populateArr(&n, f);
+
+  for (int i = 0; i < n; i++) {
+    printCadaster(arrCad + i);
+  }
+  
+  const int closeRes = fclose(f);
+  if (closeRes == EOF) {
+    fprintf(stderr, "error while closing!\n");
+  }
+  free(arrCad);
+  return 0;
+}
