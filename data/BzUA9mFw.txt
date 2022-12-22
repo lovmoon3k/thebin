@@ -1,0 +1,130 @@
+#!/usr/local/bin/gst -q
+
+Object subclass: Monkey [
+    | name op args value |
+
+    Monkey class >> new: name with: exp [
+        ^super new init: name with: exp
+    ]
+
+    init: nameString with: expString [
+        | exp |
+        name := nameString.
+        exp  := expString substrings.
+
+        (exp size = 1) ifTrue: [
+            value := exp first asNumber.
+        ] ifFalse: [
+            op   := exp second.
+            args := {exp first. exp third}.
+        ].
+        ^self
+    ]
+
+    isSolved    [ ^value notNil ]
+    value: num  [ ^value := num ]
+    value       [ ^value ]
+
+    hasExp      [ ^op notNil    ]
+    op          [ ^op           ]
+    args        [ ^args         ]
+
+    printOn: aStream [
+        aStream nextPutAll: ('Monkey: %1 ' % {value}).
+        (self hasExp) ifTrue: [
+            aStream nextPutAll: ('(%1 %2 %3)' % {args first. op. args second})
+        ].
+    ]
+]
+
+Dictionary subclass: MonkeyDictionary [
+    <shape: #pointer>
+
+    clear [self do: [:monk | (monk hasExp) ifTrue: [monk value: nil]]]
+
+    " Part 1: little recursive solving of the expression tree "
+    solve: monkName [
+        | monk args |
+        monk := self at: monkName.
+        (monk isSolved) ifTrue: [
+            ^monk value
+        ] ifFalse: [
+            args := monk args collect: [:arg | self solve: arg].
+            ^monk value: (args first perform: monk op asSymbol
+                                        with: args second).
+        ]
+    ]
+
+    " Part 2: Like above, but leaves humn as a variable "
+    getExpString: monkName [
+        | monk args |
+        monk := self at: monkName.
+        (monkName = 'humn') ifTrue: [ ^monkName ].
+        (monk isSolved)     ifTrue: [ ^monk value ].
+
+        args := monk args collect: [:arg | self getExpString: arg].
+
+        (args conform: [:a | a isNumber]) ifTrue: [
+            ^args first perform: monk op asSymbol with: args second.
+        ].
+        ^'(', args first asString, monk op, args second asString, ')'
+    ]
+]
+
+"
+| Mainline
+"
+monkeys := MonkeyDictionary new.
+
+stdin linesDo: [ :line |
+    parts := line tokenize: ': '.
+    monkeys at: parts first put: (Monkey new: parts first with: parts second).
+].
+
+('Part 1: %1' % {monkeys solve: 'root'}) displayNl.
+monkeys clear.
+
+" Get the two halves of root to equal: One is a number, the other
+  an expression with the humn variable "
+exp := nil.
+num := nil.
+(monkeys at: 'root') args do: [:targ |
+    res := (monkeys getExpString: targ).
+    (res isNumber) ifTrue: [
+        num := res.
+    ] ifFalse: [
+        exp := res.
+    ]
+].
+
+('Number to balance: %1' % {num}) displayNl.
+('Expression: %1' % {exp}) displayNl.
+
+" Build block from expression for sampling/testing "
+block := Behavior evaluate: ('[:humn | ', exp, ']').
+
+" Two sample points will allow us to interpolate: "
+atZero := block value: 0.
+('Result at humn = 0: %1' % {atZero}) displayNl.
+
+atOne  := block value: 1.
+('Result at humn = 1: %1' % {atOne}) displayNl.
+('Difference: %1' % {diff := atOne - atZero}) displayNl.
+
+('Interpolation: %1' % {part2 := (num - atZero) / diff}) displayNl.
+
+" If our interpolation isn't an integer then something went wrong "
+(part2 denominator = 1) ifTrue: [
+    part2 := part2 numerator.
+    '>> Good!  Is an integer!' displayNl.
+
+    " DOuble check: "
+    verify := block value: part2.
+    (verify = num) ifTrue: [
+        ('Part 2: %1' % {part2}) displayNl.
+    ] ifFalse: [
+        'Did not verify!' displayNl.
+    ]
+] ifFalse: [
+    '>> Problem! Interpolation not an integer!' displayNl.
+]
