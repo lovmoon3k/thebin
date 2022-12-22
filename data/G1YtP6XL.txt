@@ -1,0 +1,74 @@
+import network
+import time
+import machine
+import urequests
+import gc
+import _thread
+
+ssid = "ssid"
+password = "password"
+
+gc.enable()
+
+#Connect to WLAN
+wlan = network.WLAN(network.STA_IF)
+
+def connect():
+    global wlan
+    wlan.active(True)
+    wlan.connect(ssid, password)
+    while wlan.isconnected() == False:
+        print('Waiting for connection...')
+        time.sleep(1)
+    print(wlan.ifconfig())
+
+connect()
+
+error = False
+inCall = None
+message = ""
+serverURL = "http://192.168.1.4:8585"
+
+def checkStatus():
+    global inCall
+    global message
+    global error
+
+    while True:
+        try:
+            error = False
+            response = urequests.get(serverURL)
+
+            if response.status_code != 200:
+                message = (f"Error {response.status_code}", 0)
+                error = True
+                response.close()
+                gc.collect()
+                time.sleep(1)
+                continue
+            
+            # data: {"incall": "True/False", "time": "0/1s/5s/10s"}
+            data = response.json()
+            inCall = data["inCall"]
+            message = data["time"]
+
+            response.close()
+            gc.collect()
+            time.sleep(1)
+        except Exception as err:
+            error = True
+            print(f"Exception: {err}")
+
+statusThread = _thread.start_new_thread(checkStatus, ())
+
+while True:
+    #response = urequests.get(serverURL)
+    print(f"WiFi-status: {wlan.status()}")
+    print(f"Error: {error}")
+    #print(response.json()["inCall"])
+    #print(response.json()["time"])
+    print(f"inCall: {inCall}")
+    print(f"message: {message}\n")
+    #response.close()
+    gc.collect()
+    time.sleep(1)
