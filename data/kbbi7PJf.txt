@@ -1,0 +1,139 @@
+
+import Data.Map
+import Data.Char (ord)
+
+-- SYNTAX --
+type Var = String
+type PName = String
+
+data Expr = IntExpr Int
+          | VarExpr Var
+          | PlusExpr Expr Expr
+          | MinusExpr Expr Expr
+          | TimesExpr Expr Expr
+
+data Inst = SkipInst
+          | AssInst Var Expr
+          | SeqInst Inst Inst
+          | IfgeInst Expr Inst Inst
+          | DeclProcInst PName Var Inst
+          | ThenProcInst PName PName PName
+          | CallInst PName Expr
+
+-- AUXILIARY DOMAINS --
+
+type Loc = Int
+type VEnv = Map Var Loc 
+type Store = Map Loc Int
+data PEnv = PEnv (Map PName PROC)
+type PROC = (Store -> Int) -> (PEnv, Store) -> (PEnv, Store)
+type EXPR = VEnv -> Store -> Int
+type INST = VEnv -> (PEnv, Store) -> (PEnv, Store)
+
+--auxiliary functions
+
+newloc :: Store -> Loc
+newloc store = if (Data.Map.null store) 
+           then 0 
+           else fst(findMax store) + 1
+
+hash :: String -> Int
+hash s = Prelude.foldl (\acc c -> (acc * 31 + ord c) `mod` 100003) 0 s
+
+getVarLoc :: String -> Map String Int -> Loc
+getVarLoc k m = if (Data.Map.member k m) 
+                     then m ! k 
+                     else hash k
+
+getLocFromStore :: Loc -> Map Loc Int -> Int
+getLocFromStore l store = if (Data.Map.member l store) 
+                     then store ! l
+                     else 0
+
+-- SEMANTIC FUNCTIONS --
+
+semE :: Expr -> EXPR
+semE (IntExpr n) venv store = n
+semE (VarExpr v) venv store = getLocFromStore (getVarLoc v venv) store
+semE (PlusExpr e1 e2) venv store = (semE e1 venv store) + (semE e2 venv store)
+semE (MinusExpr e1 e2) venv store = (semE e1 venv store) - (semE e2 venv store)
+semE (TimesExpr e1 e2) venv store = (semE e1 venv store) * (semE e2 venv store)
+
+semI :: Inst -> INST
+semI SkipInst venv (penv,store) = 
+       (penv,store)
+semI (AssInst v e) venv (penv,store) = 
+       (penv, Data.Map.insert (getVarLoc v venv) (semE e venv store) store)
+semI (SeqInst i1 i2) venv (penv,store) = 
+       semI i2 venv (semI i1 venv (penv,store))
+semI (IfgeInst e i1 i2) venv (penv,store) = if (semE e venv store) >= 0 
+                                    then semI i1 venv (penv,store)
+                                    else semI i2 venv (penv,store)
+semI (DeclProcInst procname argname body) venv (PEnv penv,store) = 
+       (PEnv (Data.Map.insert procname procedure penv), store)
+       where
+              procedure :: PROC
+              procedure exp (penv',store) = semI body venv' (penv',store')
+                     where
+                            locforarg = newloc store
+                            venv' = Data.Map.insert argname locforarg venv
+                            store' = Data.Map.insert locforarg (exp store) store
+semI (ThenProcInst p1 p2 p3) venv (PEnv penv,store) =
+       (penv', store)
+       where
+              penv' = PEnv (Data.Map.insert p1 procedure penv)
+              procedure :: PROC
+              procedure exp (penvdyn,sarg) = (penv ! p2) exp ((penv ! p1) exp (penvdyn,sarg))
+semI (CallInst procname exp) venv (PEnv penv,store) = 
+       (penv ! procname) (semE exp venv) (PEnv penv,store)
+
+-- EXAMPLE --
+
+-- x := 14;
+-- y := 8;
+-- P := proc (x){
+-- 	R := proc (z){
+-- 		y := y + x;
+-- 	};
+-- 	call R(0);
+-- 	if y >= 0 then
+-- 		call P(x)
+-- 	else
+-- 		skip
+-- };
+-- P := P then P;
+-- call P(y - x);
+-- call R(0)
+
+procRBody :: Inst
+procRBody = AssInst "y" (PlusExpr (VarExpr "y") (VarExpr "x"))
+
+procPBody :: Inst
+procPBody = SeqInst
+              (SeqInst (DeclProcInst "R" "z" procRBody) (CallInst "R" (IntExpr 0)))
+              (IfgeInst (VarExpr "y") (CallInst "P" (VarExpr "x")) SkipInst)
+
+
+program :: Inst
+program = SeqInst 
+              (
+                     SeqInst
+                            (SeqInst (AssInst "x" (IntExpr 14)) (AssInst "y" (IntExpr 8)))
+                            (SeqInst (DeclProcInst "P" "x" procPBody) (ThenProcInst "P" "P" "P"))
+              )
+              (
+                     SeqInst
+                            (CallInst "P" (MinusExpr (VarExpr "y") (VarExpr "x")))
+                            (CallInst "R" (IntExpr 0))
+              )
+
+finalPEnv :: PEnv
+finalStore :: Store
+(finalPEnv, finalStore) = semI program empty (PEnv empty, empty)
+
+-- OUTPUT --
+finalVariables :: Map String Int
+finalVariables = Data.Map.insert "x" (getLocFromStore (getVarLoc "x" empty) finalStore) 
+                     (Data.Map.insert "y" (getLocFromStore (getVarLoc "y" empty) finalStore) empty)
+
+-- Expected finalVariables: fromList [("x",14),("y",-58)] (correct)
