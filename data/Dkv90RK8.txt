@@ -1,0 +1,231 @@
+WITH newSubs as (
+
+/*New Subsscriptions*/
+SELECT
+	DATE(paymentDateTime) firstSubsPaymentDate,
+  COUNT(DISTINCT userID) firstSubscriptionUsersCount_G4,
+	ROUND(SUM(paymentAmount)) firstSubscriptionRevenue,
+	ROUND(SUM(paymentAmount/paymentPeriod)) firstSubscriptionMRR
+
+FROM
+  payments
+
+WHERE 
+  paymentNewUpgradeRenewal = 1
+  AND paymentPeriod IN (1,12)
+	AND paymentStatus = 1 
+  AND userID IS NOT NULL
+
+GROUP BY
+	firstSubsPaymentDate
+	
+
+ORDER BY 
+	firstSubsPaymentDate DESC),
+	
+newSigunps as (
+		SELECT
+			DATE(userRegisterDateTime) registerDate,
+			count(DISTINCT userID) newSigunUpsVerified_G2
+		
+		FROM
+			users
+		
+		WHERE
+			userStatus = 1
+			AND userID IS NOT NULL
+		
+		GROUP BY
+			registerDate
+	),
+	
+	upgradedSubs as (
+	/*Upgraded Subsscriptions*/
+
+SELECT
+	DATE(paymentDateTime) upgradedSubsPaymentDate,
+  COUNT(DISTINCT userID) upgradedSubscriptionUsersCount,
+	ROUND(SUM(paymentAmount)) upgradedSubscriptionRevenue,
+	ROUND(SUM(paymentAmount/paymentPeriod)) upgradedSubscriptionMRR
+
+FROM
+  payments
+
+WHERE 
+  paymentNewUpgradeRenewal = 2
+  AND paymentPeriod IN (1,12)
+	AND paymentStatus = 1 
+  AND userID IS NOT NULL
+
+GROUP BY
+	upgradedSubsPaymentDate
+	
+
+ORDER BY 
+	upgradedSubsPaymentDate DESC
+	),
+	
+	renewedSubs as (
+	/*Renewed Subsscriptions*/
+
+SELECT
+	DATE(paymentDateTime) renewedSubsPaymentDate,
+  COUNT(DISTINCT userID) renewedSubscriptionUsersCount,
+	ROUND(SUM(paymentAmount)) renewedSubscriptionRevenue,
+	ROUND(SUM(paymentAmount/paymentPeriod)) renewedSubscriptionMRR
+
+FROM
+  payments
+
+WHERE 
+  paymentNewUpgradeRenewal = 3
+  AND paymentPeriod IN (1,12)
+	AND paymentStatus = 1 
+  AND userID IS NOT NULL
+
+GROUP BY
+	renewedSubsPaymentDate
+	
+
+ORDER BY 
+	renewedSubsPaymentDate DESC
+	),
+	
+	canceledSubs AS (
+		SELECT
+			DATE(cancelled) cancellDate,
+			count(userID) canceledSubsCount
+
+		FROM
+			subscriptions
+
+		GROUP BY
+			cancellDate
+
+		ORDER BY
+			cancellDate DESC),
+			
+	
+	subusersCreated as 
+	(SELECT
+		DATE(created) subuserCreatedDate,
+		COUNT(userID) subusersCreatedCount
+
+	FROM
+		organization_members
+		
+	GROUP BY
+			subuserCreatedDate
+	ORDER BY
+		subuserCreatedDate DESC),
+		
+	usersFirstAddonPayment as (
+
+/*First users payment for add on*/
+SELECT
+	userID,
+	MIN(DATE(paymentDateTime)) firstSubuserPaymentDate
+FROM
+	payments
+
+WHERE 
+
+  paymentType = 3
+	AND productID = 2
+	AND paymentDateTime > '2022-12-11'
+
+GROUP BY
+	userID
+
+ORDER BY
+  firstSubuserPaymentDate DESC),
+
+firstAddonPayment as (
+	/*Count of users with first payment for sub user by date*/
+	SELECT
+		firstSubuserPaymentDate,
+		count(DISTINCT userID) firstSubuserPaymentUsersCount_G8
+	
+	FROM
+		usersFirstAddonPayment
+	
+	GROUP BY
+		firstSubuserPaymentDate
+	
+	ORDER BY
+		firstSubuserPaymentDate DESC),
+
+addOnCreatedDaily as (
+
+/*Daily Number of additional subusers bought*/
+SELECT
+	DATE(created) as createdDate,
+	SUM(`limit`) as addOnsCreatedSUM
+FROM
+	subscription_addons
+
+GROUP BY
+	createdDate
+
+ORDER BY 
+	createdDate DESC)
+
+
+SELECT
+	registerDate as date,
+	newSigunUpsVerified_G2,
+	firstSubscriptionUsersCount_G4,
+	(firstSubscriptionUsersCount_G4/newSigunUpsVerified_G2) as crG2toG4,
+	firstSubscriptionRevenue,
+	firstSubscriptionMRR,
+	upgradedSubscriptionUsersCount,
+	upgradedSubscriptionRevenue,
+	upgradedSubscriptionMRR,
+	renewedSubscriptionUsersCount,
+	renewedSubscriptionRevenue,
+	renewedSubscriptionMRR,
+	canceledSubsCount,
+	subusersCreatedCount,
+	addOnsCreatedSUM
+	
+	
+	
+FROM
+	newSigunps
+
+LEFT JOIN
+	newSubs 
+
+ON newSigunps.registerDate = newSubs.firstSubsPaymentDate
+
+LEFT JOIN
+	upgradedSubs
+
+ON newSigunps.registerDate = upgradedSubs.upgradedSubsPaymentDate
+
+LEFT JOIN
+	renewedSubs
+
+ON newSigunps.registerDate = renewedSubs.renewedSubsPaymentDate
+
+LEFT JOIN
+	canceledSubs
+
+ON
+	newSigunps.registerDate = canceledSubs.cancellDate
+	
+LEFT JOIN
+	subusersCreated
+	
+ON 
+	newSigunps.registerDate = subusersCreated.subuserCreatedDate
+	
+LEFT JOIN
+	addOnCreatedDaily
+
+ON 
+	newSigunps.registerDate = addOnCreatedDaily.createdDate
+
+ORDER BY
+	date DESC
+	
