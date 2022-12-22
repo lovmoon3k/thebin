@@ -1,9 +1,5 @@
-[**piWQdp78**](/data/piWQdp78.txt) (22/12/22 - 17:12)- 91453 bytes
+[**9huafzws**](/data/9huafzws.txt) (22/12/22 - 17:24)- 158 bytes
 
-[**kDJFmBG4**](/data/kDJFmBG4.txt) (22/12/22 - 17:12)- 4190 bytes
-
-[**kDJFmBG4**](/data/kDJFmBG4.txt) (22/12/22 - 17:12)- 4190 bytes
-
-**Total Datas**: 1215
+**Total Datas**: 1216
 
 **Total Size**: 7.53 MB / 7.5 MB
