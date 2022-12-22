@@ -1,0 +1,349 @@
+#include "2022_utils.h"
+using namespace std;
+
+namespace {
+  struct V {
+    int x, y;
+  };
+
+  auto part1() {
+    auto inx = load_strings("2022/2022_day22_input.txt");
+
+    vector<string> g(inx.begin(), inx.begin() + 12);
+    int instr_start = 13;
+
+    // Real problem.
+    if (inx.size() > 30) {
+      instr_start = 201;
+      g.assign(inx.begin(), inx.begin() + 200);
+    }
+    auto g2 = g;
+
+    // Make all lines same length.
+    int max_length = 0;
+    for (auto& s : g) {
+      max_length = max(max_length, (int)s.size());
+    }
+    for (auto& s : g) {
+      s.resize(max_length, ' ');
+    }
+
+    auto next = [&](V p, int facing, char search, int max = 999999) {
+      p.y = p.y % g.size();
+      p.x = p.x % g[p.y].size();
+      while (g[p.y][p.x] != search && max-- > 0) {
+        if (g[p.y][p.x] != ' ') {
+          g2[p.y][p.x] = ">v<^"[facing];
+        }
+
+        switch (facing) {
+        case 0: ++p.x; break;
+        case 1: ++p.y; break;
+        case 2: --p.x; break;
+        case 3: --p.y; break;
+        };
+
+        p.y = (p.y + g.size()) % g.size();
+        p.x = (p.x + g[p.y].size()) % g[p.y].size();
+        if (g[p.y][p.x] == ' ') ++max;
+      }
+      return p;
+    };
+
+    // facing = 0 east, 1 south, 2 west, 3 north
+    int facing = 0;
+    V p = next({0, 0}, facing, '.');
+
+    for (int i = instr_start; i < inx.size(); ++i) {
+      string& instr = inx[i];
+      int amount = 0;
+      if (sscanf_s(instr.c_str(), "%d", &amount)) {
+        p = next(p, facing, '#', amount);
+
+        if (g[p.y][p.x] == '#') {
+          p = next(p, (facing + 2) % 4, '.', 1); // go back to last space.
+        }
+      }
+      else if (instr == "L") {
+        facing = (facing + 3) % 4;
+      }
+      else if (instr == "R") {
+        facing = (facing + 1) % 4;
+      }
+    }
+
+    return (1000 * (p.y + 1)) + (4 * (p.x + 1)) + facing;
+  }
+
+  auto part2() {
+    auto inx = load_strings("2022/2022_day22_input.txt");
+
+    int instr_start = 201;
+    vector<string> grid(inx.begin(), inx.begin() + 200);
+    auto visualization_grid = grid;
+
+    // Make all input lines same length to make indexing easier.
+    int max_length = 0;
+    for (auto& s : grid) {
+      max_length = max(max_length, (int)s.size());
+    }
+    for (auto& s : grid) {
+      s.resize(max_length, ' ');
+    }
+
+    struct Edge {
+      int min_x = -1;
+      int max_x = -1;
+      int min_y = -1;
+      int max_y = -1;
+      function<V(V)> warp;
+      int new_facing = -1;
+    };
+
+    vector<vector<Edge>> edges = {
+      // Right-facing edges.
+      {
+        // R0 (-> R2)
+        {
+          .min_x = 149,
+          .max_x = 149,
+          .min_y = 0,
+          .max_y = 49,
+          .warp = [](V p) { return V{ 99, 149 - p.y }; },
+          .new_facing = 2,
+        },
+        // R1 (-> D1)
+        {
+          .min_x = 99,
+          .max_x = 99,
+          .min_y = 50,
+          .max_y = 99,
+          .warp = [](V p) { return V{ p.y + 50, 49 }; },
+          .new_facing = 3,
+        },
+        // R2 (-> R0)
+        {
+          .min_x = 99,
+          .max_x = 99,
+          .min_y = 100,
+          .max_y = 149,
+          .warp = [](V p) { return V{ 149, 149 - p.y }; },
+          .new_facing = 2,
+        },
+        // R3 (-> D2)
+        {
+          .min_x = 49,
+          .max_x = 49,
+          .min_y = 150,
+          .max_y = 199,
+          .warp = [](V p) { return V{ p.y - 100, 149 }; },
+          .new_facing = 3,
+        },
+      },
+      // Down-facing edges
+      {
+        // D1 (-> R1)
+        {
+          .min_x = 100,
+          .max_x = 149,
+          .min_y = 49,
+          .max_y = 49,
+          .warp = [](V p) { return V{ 99, p.x - 50 }; },
+          .new_facing = 2,
+        },
+        // D2 (-> R3)
+        {
+          .min_x = 50,
+          .max_x = 99,
+          .min_y = 149,
+          .max_y = 149,
+          .warp = [](V p) { return V{ 49, p.x + 100 }; },
+          .new_facing = 2,
+        },
+        // D3 (-> U3)
+        {
+          .min_x = 0,
+          .max_x = 49,
+          .min_y = 199,
+          .max_y = 199,
+          .warp = [](V p) { return V{ p.x + 100, 0 }; },
+          .new_facing = 1,
+        },
+      },
+      // Left-facing edges.
+      {
+        // L1 (-> L3)
+        {
+          .min_x = 50,
+          .max_x = 50,
+          .min_y = 0,
+          .max_y = 49,
+          .warp = [](V p) { return V{ 0, 149 - p.y }; },
+          .new_facing = 0,
+        },
+        // L2 (-> U1)
+        {
+          .min_x = 50,
+          .max_x = 50,
+          .min_y = 50,
+          .max_y = 99,
+          .warp = [](V p) { return V{ p.y - 50, 100 }; },
+          .new_facing = 1,
+        },
+        // L3 (-> L1)
+        {
+          .min_x = 0,
+          .max_x = 0,
+          .min_y = 100,
+          .max_y = 149,
+          .warp = [](V p) { return V{ 50, 149 - p.y }; },
+          .new_facing = 0,
+        },
+        // L4 (-> U2)
+        {
+          .min_x = 0,
+          .max_x = 0,
+          .min_y = 150,
+          .max_y = 199,
+          .warp = [](V p) { return V{ p.y - 100, 0 }; },
+          .new_facing = 1,
+        },
+      },
+      // Up-facing edges
+      {
+        // U1 (-> L2)
+        {
+          .min_x = 0,
+          .max_x = 49,
+          .min_y = 100,
+          .max_y = 100,
+          .warp = [](V p) { return V{ 50, p.x + 50 }; },
+          .new_facing = 0,
+        },
+        // U2 (-> L4)
+        {
+          .min_x = 50,
+          .max_x = 99,
+          .min_y = 0,
+          .max_y = 0,
+          .warp = [](V p) { return V{ 0, p.x + 100 }; },
+          .new_facing = 0,
+        },
+        // U3 (-> D3)
+        {
+          .min_x = 100,
+          .max_x = 149,
+          .min_y = 0,
+          .max_y = 0,
+          .warp = [](V p) { return V{ p.x + 50, 49 }; },
+          .new_facing = 3,
+        },
+      }
+    };
+
+    auto next = [&](V p, int& facing, char search, int max) {
+      p.y = p.y % grid.size();
+      p.x = p.x % grid[p.y].size();
+      while (grid[p.y][p.x] != search && max-- > 0) {
+        if (grid[p.y][p.x] != ' ') {
+          visualization_grid[p.y][p.x] = ">v<^"[facing];
+        }
+
+        // Test going over and edge.
+        bool over_edge = false;
+        for (Edge& edge : edges[facing]) {
+          if (p.x >= edge.min_x && p.x <= edge.max_x
+            && p.y >= edge.min_y && p.y <= edge.max_y) {
+            p = edge.warp(p);
+            facing = edge.new_facing;
+            over_edge = true;
+            break;
+          }
+        }
+
+        // Regular movement.
+        if (!over_edge) {
+          switch (facing) {
+          case 0: ++p.x; break;
+          case 1: ++p.y; break;
+          case 2: --p.x; break;
+          case 3: --p.y; break;
+          };
+        }
+
+        p.y = (p.y + grid.size()) % grid.size();
+        p.x = (p.x + grid[p.y].size()) % grid[p.y].size();
+        if (grid[p.y][p.x] == ' ') ++max;
+      }
+      return V{ p.x, p.y };
+    };
+
+    // facing: 0 east, 1 south, 2 west, 3 north
+    int facing = 0;
+    V p = next({ 0, 0 }, facing, '.', 9999);
+
+    int i_max = inx.size();
+    for (int i = instr_start; i < i_max; ++i) {
+      string& instr = inx[i];
+      int amount = 0;
+      if (sscanf_s(instr.c_str(), "%d", &amount)) {
+        p = next(p, facing, '#', amount);
+
+        // If we hit a wall turn back, move a square, then turn again.
+        if (grid[p.y][p.x] == '#') {
+          facing = (facing + 2) % 4;
+          p = next(p, facing, '.', 1);
+          facing = (facing + 2) % 4;
+        }
+      }
+      else if (instr == "L") {
+        facing = (facing + 3) % 4;
+      }
+      else if (instr == "R") {
+        facing = (facing + 1) % 4;
+      }
+    }
+
+/*
+    struct Annotation {
+      char c;
+      int x;
+      int y;
+      int facing;
+    };
+    vector<Annotation> an = {
+      { 'R', 75, 2, 0 },
+      { 'L', 75, 4, 2 },
+      { 'D', 6, 25, 1 },
+      { 'U', 8, 25, 3 },
+      { '1', 75, 60, 0 },
+      { '2', 75, 62, 2 },
+      { '3', 64, 70, 1 },
+      { '4', 66, 70, 3 },
+    };
+
+    for (auto& a : an) {
+      V p{ a.x, a.y };
+      visualization_grid[p.y][p.x] = a.c;
+      for (int i = 0; i < 1000; ++i) {
+        p = next(p, a.facing, '-', 1);
+        visualization_grid[p.y][p.x] = a.c;
+      }
+    }
+
+    printf("\n");
+    for (auto& s : visualization_grid) {
+      printf("%s\n", s.c_str());
+    }
+*/
+
+    return (1000 * (p.y + 1)) + (4 * (p.x + 1)) + facing;
+  }
+}
+
+namespace y2022 {
+  void day22() {
+    cout << "part 1: " << part1() << "\n";
+    cout << "part 2: " << part2() << "\n";
+  }
+}
