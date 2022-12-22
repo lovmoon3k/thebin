@@ -1,0 +1,180 @@
+// @author Nikita Merzlyakov
+
+#include <stdio.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/ipc.h> // ftok()
+#include <sys/sem.h> // semget(), semctl(), semop()
+#include <time.h>
+#include <stdio.h>
+#include <time.h>
+#include <stdint.h>
+#include <sys/msg.h> // msgget(), msgrcv(), msgsnd()
+#include <stdio.h> // printf(), perror()
+#include <unistd.h> // sleep()
+
+static enum catState {
+    playing = 0,
+    wait4pat = 1,
+    patting = 2
+} catStateVar;
+
+struct mesg_buffer {
+    long mesg_type;
+    uint8_t cat_id;
+    uint8_t cat_state;
+} message;
+
+void msg_queue_create(const char *pathname, int proj_id, int mode) 
+{
+    key_t key = ftok(pathname, proj_id);
+    int msgid = msgget(key, 0666 | IPC_CREAT);
+}
+
+int msgq_open(const char *pathname, int proj_id)
+{
+	key_t key = ftok(pathname, proj_id);
+	return msgget(key, 0);
+}
+
+int send_msg(int msg_id, int cat_id, int cat_state) 
+{
+    struct mesg_buffer msg;
+    msg.mesg_type = 1;
+    msg.cat_id = (uint8_t) cat_id;
+    msg.cat_state = (uint8_t) cat_state;
+    msgsnd(msg_id, &msg, sizeof(msg), 0);
+    return 0;
+}
+
+int recv_msg(int msg_id) 
+{
+    struct mesg_buffer msg;
+    int n = msgrcv(msg_id, &msg, sizeof(msg), 1, 0);
+    if (n == -1)
+    {
+        perror("msgrcv");
+    }
+    else if (n > 0)
+    {
+        int cat_nb = msg.cat_id;
+        int cat_state = msg.cat_state;
+        
+        switch (cat_state)
+        {
+        case playing:
+            printf("Cat #%d is playing\n", cat_nb);
+            break;
+        case wait4pat:
+            printf("Cat #%d is waiting for pat\n", cat_nb);
+            break;
+        case patting:
+            printf("Cat #%d is patting\n", cat_nb);
+            break;
+        default:
+            break;
+        }        
+    }
+    return 0;
+}
+
+void sem_create(const char *pathname, int proj_id, int mode)
+{
+    key_t key = ftok(pathname, proj_id);
+    int semid = semget(key, 5, IPC_CREAT | mode);
+    unsigned short values[] = {1, 1, 1, 1, 1};
+    semctl(semid, 0, SETALL, values);
+}
+
+int sem_open(const char *pathname, int proj_id)
+{
+	key_t key = ftok(pathname, proj_id);
+	return semget(key, 0, 0);
+}
+
+int get_table_idx_left(int idx)
+{
+    return idx;
+}
+
+int get_table_idx_right(int idx)
+{
+    return (idx + 1) % 5;
+}
+
+void lock(int semid, int person_idx)
+{
+    struct sembuf ops[] =
+        {
+            {.sem_num = get_table_idx_left(person_idx - 1), .sem_op = -1},
+            {.sem_num = get_table_idx_right(person_idx - 1), .sem_op = -1}};
+    semop(semid, ops, 2);
+}
+
+void unlock(int semid, int person_idx)
+{
+    struct sembuf ops[] =
+        {
+            {.sem_num = get_table_idx_left(person_idx - 1), .sem_op = 1},
+            {.sem_num = get_table_idx_right(person_idx - 1), .sem_op = 1}};
+    semop(semid, ops, 2);
+}
+
+int main(int argc, char** argv)
+{
+    int i;
+    sem_create("semkey", 1, 0600);
+    msg_queue_create("msgqkey", 1, 0600);
+
+    for (i = 0; i < 5; i++)
+    {
+        pid_t pid = fork();
+        if (pid == 0)
+        {
+            int my_id = i + 1;
+            srand(my_id);
+            int curr_sem = sem_open("semkey", 1);
+            int msg_id = msgq_open("msgqkey", 1);
+
+
+            for (int year = 0; year < 1; year++) {
+                int play_time = (rand() % (10 + 1));
+                send_msg(msg_id, my_id, playing);
+
+                // playing
+                clock_t start = clock();
+                for (;;)
+                {
+                    clock_t stop = clock();
+                    if ((stop - start) / CLOCKS_PER_SEC >= play_time)
+                    {
+                        break;
+                    }
+                }
+                // end playing
+
+                send_msg(msg_id, my_id, wait4pat);
+                // patting
+                lock(curr_sem, my_id);
+
+                send_msg(msg_id, my_id, patting);
+                int patting_time = (rand() % (10 + 1));
+                sleep(patting_time);
+
+                unlock(curr_sem, my_id);
+                // end patting
+            }
+
+            return 0;
+        }
+    }
+
+    int msg_id = msgq_open("msgqkey", 1);
+
+    while (1) {
+        recv_msg(msg_id);
+    }
+
+    return 0;
+}
