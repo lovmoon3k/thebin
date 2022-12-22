@@ -1,0 +1,254 @@
+#include "2022_utils.h"
+
+#include <unordered_set>
+
+using namespace std;
+
+namespace {
+  struct Valve {
+    string name;
+    int flow = 0;
+    vector<Valve*> edges;
+  };
+
+  struct State {
+    Valve* v;
+    unordered_set<Valve*> visited;
+    unordered_set<Valve*> opened;
+    int total_flow = 0;
+    int time = 0;
+  };
+
+  auto part1() {
+    auto in = load_strings("2022/2022_day16_input.txt");
+
+    // names and flow
+    vector<Valve> v;
+    for (auto& s : in) {
+      int flow;
+      char name[16];
+      sscanf_s(s.c_str(), "Valve %s has flow rate = %d",
+        name, 16, &flow);
+      v.push_back({ .name = name, .flow = flow, });
+    }
+
+    // edges
+    for (int i = 0; i < v.size(); ++i) {
+      auto& valve = v[i];
+      auto edges = split(in[i], " valves ");
+      if (edges.size() == 1) {
+        edges = split(in[i], " valve ");
+      }
+      string edges_str = edges[1];
+      for (string e : split(edges_str, ", ")) {
+        for (auto& v2 : v) {
+          if (v2.name == e) {
+            valve.edges.push_back(&v2);
+            break;
+          }
+        }
+      }
+    }
+
+    // Store the top scores for this minute, and stop exploring
+    // new ideas if we don't look competitive.
+    map<int, vector<int>> best_flows_per_minute;
+    const int keep_top_per_minute = 100;
+
+    deque<State> q;
+    q.push_back({ &v[0] });
+
+    int max_flow = 0;
+    while (!q.empty()) {
+      State state = q.front();
+      q.pop_front();
+
+      // Add all pressure from opened valves.
+      for (Valve* v : state.opened) {
+        state.total_flow += v->flow;
+      }
+
+      state.visited.insert(state.v);
+      state.time += 1;
+      if (state.time == 30) {
+        max_flow = max(state.total_flow, max_flow);
+        continue;
+      }
+
+      // Abandon further exploration if it's not looking good.
+      vector<int>& best_flows = best_flows_per_minute[state.time];
+      auto it = upper_bound(best_flows.rbegin(), best_flows.rend(), state.total_flow).base();
+      if (best_flows.size() >= keep_top_per_minute && it == best_flows.end()) {
+        continue;
+      }
+      best_flows.insert(it, state.total_flow);
+      best_flows.resize(min(keep_top_per_minute, (int)best_flows.size()));
+
+      // Move.
+      bool did_something = false;
+      {
+        for (Valve* next : state.v->edges) {
+          if (!state.visited.contains(next)) {
+            auto s_next = state;
+            s_next.v = next;
+            q.push_back(s_next);
+            did_something = true;
+          }
+        }
+      }
+
+      // Open valve.
+      if (!state.opened.contains(state.v) && state.v->flow > 0) {
+        auto s_next = state;
+        s_next.opened.insert(state.v);
+        s_next.visited.clear();
+        q.push_back(s_next);
+        did_something = true;
+      }
+
+      // Do nothing, waste time.
+      if (!did_something) {
+        q.push_back(state);
+      }
+    }
+
+    return max_flow;
+  }
+
+  struct State2 {
+    Valve* v1;
+    Valve* v2; // elephant location.
+    unordered_set<Valve*> visited1, visited2;
+    unordered_set<Valve*> opened;
+    int total_flow = 0;
+    int time = 0;
+  };
+
+  auto part2() {
+    auto in = load_strings("2022/2022_day16_input.txt");
+
+    // names and flow
+    vector<Valve> v;
+    for (auto& s : in) {
+      int flow;
+      char name[16];
+      sscanf_s(s.c_str(), "Valve %s has flow rate = %d",
+        name, 16, &flow);
+      v.push_back({ .name = name, .flow = flow, });
+    }
+
+    // edges
+    for (int i = 0; i < v.size(); ++i) {
+      auto& valve = v[i];
+      auto edges = split(in[i], " valves ");
+      if (edges.size() == 1) {
+        edges = split(in[i], " valve ");
+      }
+      string edges_str = edges[1];
+      for (string e : split(edges_str, ", ")) {
+        for (auto& v2 : v) {
+          if (v2.name == e) {
+            valve.edges.push_back(&v2);
+            break;
+          }
+        }
+      }
+    }
+
+    // Store the top scores for this minute, and stop exploring
+    // new ideas if we don't look competitive.
+    map<int, vector<int>> best_flows_per_minute;
+    const int keep_top_per_minute = 100;
+
+    deque<State2> q;
+    q.push_back(State2{
+      .v1 = &v[0],
+      .v2 = &v[0], });
+
+    int max_flow = 0;
+    while (!q.empty()) {
+      State2 state = q.front();
+      q.pop_front();
+
+      // Add all pressure from opened valves.
+      for (Valve* v : state.opened) {
+        state.total_flow += v->flow;
+      }
+
+      state.visited1.insert(state.v1);
+      state.visited2.insert(state.v2);
+      state.time += 1;
+      if (state.time == 26) {
+        max_flow = max(state.total_flow, max_flow);
+        continue;
+      }
+
+      // Abandon further exploration if it's not looking good.
+      vector<int>& best_flows = best_flows_per_minute[state.time];
+      auto it = upper_bound(best_flows.rbegin(), best_flows.rend(), state.total_flow).base();
+      if (best_flows.size() >= keep_top_per_minute && it == best_flows.end()) {
+        continue;
+      }
+      best_flows.insert(it, state.total_flow);
+      best_flows.resize(min(keep_top_per_minute, (int)best_flows.size()));
+
+      // Move.
+      vector<State2> new_states;
+      bool did_something = false;
+
+      for (Valve* next : state.v1->edges) {
+        if (!state.visited1.contains(next)) {
+          auto s_next = state;
+          s_next.v1 = next;
+          new_states.push_back(s_next);
+          did_something = true;
+        }
+      }
+
+      // Open valve.
+      if (!state.opened.contains(state.v1) && state.v1->flow > 0) {
+        auto s_next = state;
+        s_next.opened.insert(state.v1);
+        s_next.visited1.clear();
+        new_states.push_back(s_next);
+        did_something = true;
+      }
+
+      // Elephant also does something.
+      for (State2& state : new_states) {
+        // Move
+        for (Valve* next : state.v2->edges) {
+          if (!state.visited2.contains(next)) {
+            auto s_next = state;
+            s_next.v2 = next;
+            q.push_back(s_next);
+            did_something = true;
+          }
+        }
+
+        // Open valve.
+        if (!state.opened.contains(state.v2) && state.v2->flow > 0) {
+          auto s_next = state;
+          s_next.opened.insert(state.v2);
+          s_next.visited2.clear();
+          q.push_back(s_next);
+          did_something = true;
+        }
+      }
+
+      // Do nothing, waste time.
+      if (!did_something) {
+        q.push_back(state);
+      }
+    }
+
+    return max_flow;
+  }
+}
+
+namespace y2022 {
+  void day16() {
+    cout << "part 1: " << part1() << "\n";
+    cout << "part 2: " << part2() << "\n";
+  }
+}
