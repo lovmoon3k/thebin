@@ -1,0 +1,156 @@
+#include <bits/stdc++.h>
+#define int long long
+
+using namespace std;
+const int inf = 555;
+using ld = long double;
+const ld EPS = 0.000000001;
+
+struct point {
+  ld x, y;
+  point() = default;
+  point(ld x, ld y) {
+    this->x = x;
+    this->y = y;
+  }
+};
+
+bool operator == (point a, point b) {
+  return abs(a.x - b.x) < EPS && abs(a.y - b.y) < EPS;
+}
+
+struct vect {
+  ld x, y;
+};
+
+struct ship {
+  point x;
+  vect v;
+};
+
+ld dist(point A, point B) {
+  return sqrt((A.x - B.x) * (A.x - B.x) + (A.y - B.y) * (A.y - B.y));
+}
+
+struct circle {
+  point x;
+  bool can = true;
+  circle(point A, point B, point C) {
+    ld a = B.x - A.x;
+    ld b = B.y - A.y;
+    ld c = C.x - A.x;
+    ld d = C.y - A.y;
+    ld e = a * (A.x + B.x) + b * (A.y + B.y);
+    ld f = c * (A.x + C.x) + d * (A.y + C.y);
+    ld g = 2 * (a * (C.y - B.y) - b * (C.x - B.x));
+    if (abs(g) < EPS) {
+      can = false;
+      return;
+    }
+    x.x = (d * e - b * f) / g;
+    x.y = (a * f - c * e) / g;
+  }
+};
+
+pair<int, point> f(vector<ship> sh, ld t, ld R) {
+  for (auto& i : sh) {
+    i.x.x += i.v.x * t;
+    i.x.y += i.v.y * t;
+  }
+  if (sh.size() == 1) {
+    return {1, sh[0].x};
+  }
+  if (sh.size() == 2) {
+    point c((sh[0].x.x + sh[1].x.x) / 2, (sh[0].x.y + sh[1].x.y) / 2);
+    if (dist(c, sh[0].x) > R) {
+      return {0, {}};
+    } else {
+      return {1, c};
+    }
+  }
+  point A = sh[0].x;
+  point B = sh[1].x;
+  for (int i = 0; i < sh.size(); i++)
+    for (int j = i + 1; j < sh.size(); j++)
+      if (dist(A, B) < dist(sh[i].x, sh[j].x)) {
+        A = sh[i].x;
+        B = sh[j].x;
+      }
+  for (auto& [C, v] : sh) {
+    if (C == A || C == B)
+      continue;
+    circle c(A, B, C);
+    if (!c.can) {
+      c.x = {(A.x + C.x) / 2, (A.y + C.y) / 2};
+    }
+    bool ch = true;
+    for (int i = 0; i < sh.size(); i++)
+      if (dist(sh[i].x, c.x) > R)
+        ch = false;
+    if (ch) {
+      return {true, c.x};
+    }
+  }
+  return {false, point()};
+}
+
+tuple<bool, int, point> check(vector<ship>& sh, ld R) {
+  ld l = 0, r = 1e6, eps = 0.00000001;
+  while (l + eps < r) {
+    ld m1 = l + (r - l) / 3;
+    ld m2 = r - (r - l) / 3;
+    if (f(sh, m1, R).first > f(sh, m2, R).first)
+      l = m1;
+    else
+      r = m2;
+  }
+  for (int i = floor(l); i <= ceil(r); i++)
+    if (f(sh, i, R).first)
+      return make_tuple(1, i, f(sh, i, R).second);
+  return make_tuple(0, -1, point());
+}
+
+signed main() {
+  ios::sync_with_stdio(false);
+  cin.tie(0);
+#ifdef LOCAL
+  freopen("input", "r", stdin);
+#endif
+  cout << fixed << setprecision(8);
+  int n, r;
+  cin >> n >> r;
+  vector<ship> sh(n);
+  for (int i = 0; i < n; i++) {
+    cin >> sh[i].x.x >> sh[i].x.y >>
+      sh[i].v.x >> sh[i].v.y;
+  }
+  vector<int> dp(1 << n, inf);
+  vector<int> pr(1 << n);
+  dp[0] = 0;
+  pr[0] = -1;
+  for (int mask = 1; mask < (1 << n); mask++) {
+    for (int sub = mask; sub > 0; sub = (sub - 1) & mask) {
+      int relax;
+      relax = dp[mask ^ sub] + 1;
+      vector<ship> a;
+      for (int i = 0; i < n; i++)
+        if ((sub >> i) & 1)
+          a.push_back(sh[i]);
+      if (get<0>(check(a, r)) && relax < dp[mask]) {
+        dp[mask] = relax;
+        pr[mask] = sub;
+      }
+    }
+  }
+  cout << dp[(1 << n) - 1] << '\n';
+  int mask = (1 << n) - 1;
+  while (mask != 0) {
+    vector<ship> cur;
+    for (int i = 0; i < n; i++)
+      if ((pr[mask] >> i) & 1)
+        cur.push_back(sh[i]);
+    auto ch = check(cur, r);
+    cout << get<1>(ch) << ' ' << get<2>(ch).x << ' ' << get<2>(ch).y << '\n';
+    mask ^= pr[mask];
+  }
+}
