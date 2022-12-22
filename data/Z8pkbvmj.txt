@@ -1,0 +1,127 @@
+<?php
+/*
+ * @package		PHP HTTP Firewall
+ * @author		DSTAT | @DDoS_Filter
+ * @copyright	https://www.copyright.gov/dmca/
+ * @file		/firewall.php
+ * @version		2.0
+ * @site		http://ddosfilter.net
+ * @comment		Public release of firewall.php from http://ddosfilter.net/
+
+*********************************************************************************
+SETUP: (Based on stock apache2 install on ubuntu)
+1.
+In the terminal command line of your server type:
+crontab -e
+(If prompted to choose a text editor choose nano.)
+
+2.
+Paste these 2 lines (lines 22 and 23) into the crontab and save: (Change directory to match your setup.)
+*/// Don't Include the first 2 // when you copy and paste!
+
+// */1 * * * * > /var/www/html/firewall/connections.txt
+// 0 */1 * * * > /var/www/html/firewall/blacklist.txt
+
+/*
+3.
+Press Ctrl + o
+Press Enter
+Press Ctrl + x
+
+4.
+Run this command in terminal:
+mkdir /var/www/html/firewall/ && > /var/www/html/firewall/connections.txt && > /var/www/html/firewall/blacklist.txt && chmod 646 /var/www/html/firewall/connections.txt && chmod 646 /var/www/html/firewall/blacklist.txt
+
+5.
+Run this command in terminal:
+nano /var/www/html/firewall/firewall.php
+
+6.
+*Paste this entire document into the terminal window.*
+
+7.
+Press Ctrl + o
+Press Enter
+Press Ctrl + x
+
+OR:
+Manually add firewall.php to the /var/www/html/firewall/ directory.
+
+Done!
+
+8.
+To protect a .php page with firewall.php add this code to the top of your php pages:
+require '/var/www/html/firewall/firewall.php';
+ 
+**********************************************************************************/
+
+
+$l7path = '/var/www/html/firewall/';		// Full path to firewall files.
+$title = 'IP Blocked By @DDoS_Filter';		// Page title when displaying firewall.php.
+$iplimit = 30;								// SETS MAX REQUESTS PER MINUTE LIMIT.
+$ualimit = 40;								// SETS MAX TIMES A USERAGENT CAN BE USED IN A MINUTE.
+$enable_protection = true;					// Disables all protection.
+
+if (isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+	$CFrequest = true;
+	$ip = $_SERVER['HTTP_CF_CONNECTING_IP'];
+} else {
+	$CFrequest = false;
+	$ip = $_SERVER['REMOTE_ADDR'];
+}
+
+if ($enable_protection === true) {
+	
+	// Spam filters
+	$spam = false;
+	if (isset($_SERVER['HTTP_USER_AGENT']) && strlen($_SERVER['HTTP_USER_AGENT']) > 32) {
+		$ua = substr($_SERVER['HTTP_USER_AGENT'],0,150);
+		if (
+			(array_key_exists('HTTP_X_FORWARDED_FOR', $_SERVER))	// Block Most HTTP Proxies
+			// || strpos($ua, 'WordPress') !== false				// Block WordPress
+			// || strlen($_SERVER['QUERY_STRING']) > 40				// Block Large QUERY_STRING. Example: file.php?id=lsdlfjsdfjdsklfklsd&user=lskjflsdjfjskfsjlflskjdj...
+			// || strlen($_SERVER['REQUEST_URI']) > 50				// Block Large REQUEST_URI. Example: /a/b/c/d/e/f/g/h/islkfsljfd/example.php?id=lsdlfjsdfjdsklfklsd...
+		)
+		{
+			die('Request Detected As Spam And Was Blocked');
+		}
+	} else {
+		die('Request Detected As Spam And Was Blocked');
+	}
+	// Spam filters
+
+	if (($blacklist = fopen($l7path.'blacklist.txt', 'r')) !== false) { // Blacklist
+		while (!feof($blacklist)) {
+			$bip = fgets($blacklist); // Read IP
+			if (strlen($ip."\n") == strlen($bip)) { // Check IPs lengths
+				if (strpos($bip, $ip) !== false) { // Check if IP is blacklisted
+					fclose($blacklist);
+					die('<html><head><title>'.$title.'</title></head><body><center><h1>Your IP is temporarily blacklisted.</h1></center></body></html>');
+				}
+			}
+		}
+		fclose($blacklist);
+		$blacklist = ''; // Free up resources
+	} else { 
+		die('Error: Unable to process request. (blacklist file error');
+	}
+
+	file_put_contents($l7path.'connections.txt',$ip.' '.$ua."\n", FILE_APPEND | LOCK_EX); // Add IP to temp connections list
+	$tempconns = file_get_contents($l7path.'connections.txt') or die('Error: Unable to process request. (conns file error)'); // Read temp IP file
+
+	$ipcount = substr_count($tempconns,$ip); // Count IPs requests
+	if ($ipcount == $iplimit) {
+		$spam = true;
+	} else {
+		$uacount = substr_count($tempconns,$ua); // Count Useragents requests
+		if ($uacount >= $ualimit) {
+			$spam = true;
+		}
+	}
+	$tempconns = ''; // Free up resources
+
+	if ($spam === true) { // Conditions for blacklisting connections
+		file_put_contents($l7path.'blacklist.txt',$ip."\n", FILE_APPEND); // Add IP to blacklist
+		die('<html><head><title>'.$title.'</title></head><body><center><h1>Your IP ('.$ip.') has been temporarily blacklisted. Please try again later.</h1></center></body></html>');
+	}
+}
