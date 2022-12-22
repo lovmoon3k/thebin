@@ -1,0 +1,258 @@
+/// Navigate your way around a grid.
+/// 1) Following instructions.
+/// 2) But first, wrap it round a cube.
+///
+import 'dart:math';
+import 'package:more/more.dart';
+
+var headings = [Point(1, 0), Point(0, 1), Point(-1, 0), Point(0, -1)];
+var arrows = ['>', 'v', '<', '^'];
+var reLorR = RegExp(r'L|R');
+
+part1(List<String> ls) {
+  var lines = ls.toList();
+  var dirs = lines.removeLast();
+  lines.removeLast();
+  var width = lines.map((e) => e.length).max();
+  var height = lines.length;
+  var pos = Point(lines[0].indexOf('.'), 0);
+  var heading = 0;
+  var grid = lines.map((e) => e.padRight(width).split('')).toList();
+  while (dirs.isNotEmpty) {
+    // print(pos);
+    var step = 0;
+    var turn = '';
+    var ix = dirs.indexOf(reLorR);
+    if (ix == 0) {
+      turn = dirs.substring(0, 1);
+      dirs = dirs.substring(1);
+      // print('turn $turn');
+      heading = (heading + ((turn == 'R') ? 1 : -1)) % headings.length;
+      continue;
+    } else {
+      if (ix == -1) {
+        step = int.parse(dirs);
+        dirs = '';
+      } else {
+        step = int.parse(dirs.substring(0, ix));
+        dirs = dirs.substring(ix);
+      }
+      // print('step $step');
+    }
+    //go forward `step`
+    while (step > 0) {
+      var np = pos + headings[heading];
+      np = Point(np.x % width, np.y % height);
+      while (grid[np.y][np.x] == ' ') {
+        np = np + headings[heading];
+        np = Point(np.x % width, np.y % height);
+      }
+
+      if (grid[np.y][np.x] == '#') {
+        break;
+      }
+      grid[pos.y][pos.x] = arrows[heading];
+      pos = np;
+      step -= 1;
+    }
+  }
+  return 1000 * (pos.y + 1) + 4 * (pos.x + 1) + heading;
+}
+
+/// OKAY
+
+/// Our ideal cube is laid out like this:
+///
+///     T
+/// W - S - E - N
+///     B
+///
+/// transforms shows what you will see in each direction from the cube as
+/// laid out above.
+/// NOTE !!!! 0 = N, 1 = E...
+/// SO 'S':0 shows that North of S is a T in the same orientation.
+
+var transforms = {
+  'S': {
+    0: Transform('T', 0),
+    1: Transform('E', 0),
+    2: Transform('B', 0),
+    3: Transform('W', 0),
+  },
+  'E': {
+    0: Transform('T', 1),
+    1: Transform('N', 0),
+    2: Transform('B', 3),
+    3: Transform('S', 0),
+  },
+  'N': {
+    0: Transform('T', 2),
+    1: Transform('W', 0),
+    2: Transform('B', 2),
+    3: Transform('E', 0),
+  },
+  'W': {
+    0: Transform('T', 3),
+    1: Transform('S', 0),
+    2: Transform('B', 1),
+    3: Transform('N', 0),
+  },
+  'B': {
+    0: Transform('S', 0),
+    1: Transform('E', 1),
+    2: Transform('N', 2),
+    3: Transform('W', 3),
+  },
+  'T': {
+    0: Transform('N', 2),
+    1: Transform('E', 3),
+    2: Transform('S', 0),
+    3: Transform('W', 1),
+  },
+};
+
+class Face {
+  String name;
+  int orientation;
+  Point<int> origin;
+  Face(this.name, this.orientation, this.origin);
+  @override
+  int get hashCode => name.hashCode;
+
+  @override
+  bool operator ==(Object other) => other is Face && other.name == name;
+}
+
+class Transform {
+  String name;
+  int rotation;
+  Transform(this.name, this.rotation);
+}
+
+part2(List<String> lines) {
+  // redefined as URLD because I can't work with 0 = East :-)
+  var headings = [Point(0, -1), Point(1, 0), Point(0, 1), Point(-1, 0)];
+  var arrows = ['^', '>', 'v', '<'];
+  var reLorR = RegExp(r'L|R');
+
+  var navigationRules = lines.removeLast();
+  lines.removeLast();
+  var width = lines.map((e) => e.length).max();
+  var height = lines.length;
+  var grid = lines.map((e) => e.padRight(width).split('')).toList();
+
+  // I think this must be true....
+  var faceSize = (width > height) ? width ~/ 4 : width ~/ 3;
+
+  var x = [grid.first.indexOf('.'), grid.first.indexOf('#')].min();
+  Map<String, Face> faces = buildFaces(x, faceSize, width, height, grid);
+
+  //Now have list of all the faces in `faces` with the origin and required tranforms
+
+  var face = faces['T']!;
+  var pos = Point(x, 0);
+  var heading = 1;
+
+  while (navigationRules.isNotEmpty) {
+    // print(pos);
+    var step = 0;
+    var turn = '';
+    var ix = navigationRules.indexOf(reLorR);
+    if (ix == 0) {
+      turn = navigationRules.substring(0, 1);
+      navigationRules = navigationRules.substring(1);
+      // print('turn $turn');
+      heading = (heading + ((turn == 'R') ? 1 : -1)) % headings.length;
+      continue;
+    } else {
+      if (ix == -1) {
+        step = int.parse(navigationRules);
+        navigationRules = '';
+      } else {
+        step = int.parse(navigationRules.substring(0, ix));
+        navigationRules = navigationRules.substring(ix);
+      }
+      // print('step $step');
+    }
+    //go forward `step`
+    while (step > 0) {
+      var np = pos + headings[heading];
+
+      if (np.x < face.origin.x ||
+          np.x >= face.origin.x + faceSize ||
+          np.y < face.origin.y ||
+          np.y >= face.origin.y + faceSize) {
+        //moving to other face -- recalibrate!!!
+
+        var tf = transforms[face.name]![(heading - face.orientation) % 4]!;
+
+        //NOW FACTOR IN ACTUAL ORIENTATION
+        var nf = faces[tf.name]!;
+        // Base case -- the point relative to the old face
+        var tnp = Point(np.x % faceSize, np.y % faceSize);
+        var relOrient = (nf.orientation - face.orientation - tf.rotation) % 4;
+        var theading = (heading + relOrient) % 4;
+        if (relOrient == 0) {
+          // Same orientation, so nothing to do
+        } else if (relOrient == 1) {
+          tnp = Point(faceSize - 1 - tnp.y, tnp.x);
+        } else if (relOrient == 2) {
+          tnp = Point(faceSize - 1 - tnp.x, faceSize - 1 - tnp.y);
+        } else if (relOrient == 3) {
+          tnp = Point(tnp.y, faceSize - 1 - tnp.x);
+        }
+        // now index it relative to the new face.
+        tnp = tnp + nf.origin;
+        // is it about to hit a '#'? Stop on this face instead and break.
+        if (grid[tnp.y][tnp.x] == '#') break;
+
+        //Otherwise move on.
+        face = faces[tf.name]!;
+        np = tnp;
+        heading = theading;
+      }
+
+      if (grid[np.y][np.x] == '#') break;
+
+      // Just a normal move.
+      grid[pos.y][pos.x] = arrows[heading];
+      pos = np;
+      step -= 1;
+    }
+    //grid[pos.y][pos.x] = '*';
+    //grid.forEach((e) => print(e.join()));
+  }
+
+  // change the sum
+  return 1000 * (pos.y + 1) + 4 * (pos.x + 1) + ((heading - 1) % 4);
+}
+
+// READ THE ACTUAL GRID
+// find a face. call it `T`. push its neighbours into a queue with their
+// directions and transforms
+Map<String, Face> buildFaces(
+    int x, int faceSize, int width, int height, List<List<String>> grid) {
+  var queue = [Face('T', 0, Point(x, 0))];
+  var faces = <String, Face>{};
+  var dirs = [Point(0, -1), Point(1, 0), Point(0, 1), Point(-1, 0)];
+  while (queue.isNotEmpty) {
+    var face = queue.removeAt(0);
+    if (faces.keys.contains(face.name)) continue;
+    faces[face.name] = face;
+    for (var n in [1, 2, 3]) {
+      // right, down, left
+      var d = face.origin + dirs[n] * faceSize;
+      if (d.x < 0 || d.x + faceSize > width || d.y + faceSize > height) {
+        continue;
+      }
+      if (grid[d.y][d.x] != ' ') {
+        var nextFace = transforms[face.name]![(n - face.orientation) % 4]!;
+        var nextName = nextFace.name;
+        var nextOrient = (nextFace.rotation + face.orientation) % 4;
+        var nextOrigin = d;
+        queue.add(Face(nextName, nextOrient, nextOrigin));
+      }
+    }
+  }
+  return faces;
+}
