@@ -1,0 +1,68 @@
+#include<stdio.h>
+#include<ctype.h>
+#include<string.h>
+#include<stdlib.h>
+
+char S[50][100],res[100];
+int top=-1;
+
+void push(char *c)
+{
+	strcpy(S[++top],c);
+}
+
+void pop()
+{
+	strcpy(res,S[top--]);
+}
+void clear(char *c)
+{
+	int i,j=strlen(c);
+	for(i=0; i<j;i++)
+	{
+		c[i]='\0';
+	}
+}
+
+int main()
+{
+	char exp[100],temp[100],b1[]="(",b2[]=")",op1[100],op2[100];
+	char ptr[100];
+	clear(ptr);
+	int i;
+	puts("enter sting 1:");
+	gets(exp);
+	strrev(exp);
+	
+	int j=strlen(exp);
+	
+	for(i=0; i<j;i++)
+	{
+		if(isalnum(exp[i]))
+		{
+			temp[0]=exp[i];
+			push(temp);
+		}
+		else
+		{
+			pop();strcpy(op2,res);
+			pop();strcpy(op1,res);
+			temp[0]=exp[i];
+			strcat(ptr,b2);
+			strcat(ptr,op1);
+			strcat(ptr,temp);
+			strcat(ptr,op2);
+			strcat(ptr,b1);
+			
+			push(ptr);
+			clear(ptr);
+		}
+	}
+	pop();
+	puts("the converted infix is :");
+	strrev(res);
+	puts(res);
+
+
+	return 0;
+}
