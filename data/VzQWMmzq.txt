@@ -1,0 +1,242 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <set>
+#include <map>
+#include <array>
+
+int main() {
+  std::ifstream input("input.txt");
+
+  using Position = std::array<int, 2>;
+
+  std::set<Position> elves;
+
+  auto print_elves = [&elves]() {
+    int min_x = INT_MAX;
+    int max_x = INT_MIN;
+
+    int min_y = INT_MAX;
+    int max_y = INT_MIN;
+
+    for (auto& elf : elves) {
+      int x = elf[0];
+      int y = elf[1];
+
+      if (x < min_x) { min_x = x; }
+      if (x > max_x) { max_x = x; }
+
+      if (y < min_y) { min_y = y; }
+      if (y > max_y) { max_y = y; }
+    }
+
+    for (int y = min_y; y <= max_y; y++) {
+      for (int x = min_x; x <= max_x; x++) {
+        if (!elves.contains({ x, y })) {
+          std::cout << '.';
+        }
+        else {
+          std::cout << '#';
+        }
+      }
+      std::cout << std::endl;
+    }
+    std::cout << std::endl;
+  };
+
+  std::string line;
+  int y = 0;
+  while (std::getline(input, line)) {
+    int x = 0;
+    for (auto& c : line) {
+      if (c == '#') {
+        elves.insert({ x, y });
+      }
+      x++;
+    }
+    y++;
+  }
+  //print_elves();
+
+  // Proposing moves
+
+  constexpr uint8_t NORTH = 0;
+  constexpr uint8_t SOUTH = 1;
+  constexpr uint8_t WEST = 2;
+  constexpr uint8_t EAST = 3;
+  uint8_t first_direction = 0;
+  auto proposed_step = [&elves, &first_direction](const Position& elf) {
+    int x = elf[0];
+    int y = elf[1];
+
+    bool should_move = false;
+    for (int dx = -1; dx <= 1; dx++) {
+      for (int dy = -1; dy <= 1; dy++) {
+        if (dx == dy && dy == 0) { continue; }
+        if (elves.contains({ x + dx, y + dy })) {
+          should_move = true;
+          break;
+        }
+      }
+    }
+    if (!should_move) {
+      return Position({ x, y });
+    }
+
+    for (uint8_t i = 0; i < 4; i++) {
+      switch ((first_direction + i) % 4) {
+      case NORTH:
+        if (!elves.contains({ x + 1, y - 1 })
+          && !elves.contains({ x - 1, y - 1 })
+          && !elves.contains({ x, y - 1 })) {
+          return Position({ x, y - 1 });
+        }
+        else {
+          break;
+        }
+      case SOUTH:
+        if (!elves.contains({ x + 1, y + 1 })
+          && !elves.contains({ x - 1, y + 1 })
+          && !elves.contains({ x, y + 1 })) {
+          return Position({ x, y + 1 });
+        }
+        else {
+          break;
+        }
+      case WEST:
+        if (!elves.contains({ x - 1, y - 1 })
+          && !elves.contains({ x - 1, y + 1 })
+          && !elves.contains({ x - 1, y })) {
+          return Position({ x - 1, y });
+        }
+        else {
+          break;
+        }
+      case EAST:
+        if (!elves.contains({ x + 1, y - 1 })
+          && !elves.contains({ x + 1, y + 1 })
+          && !elves.contains({ x + 1, y })) {
+          return Position({ x + 1, y });
+        }
+        else {
+          break;
+        }
+      }
+    }
+    return Position({ x, y });
+  };
+
+  // Map associating each elf with their proposed destination
+  std::map<Position, Position> proposed_moves;
+
+  // Stores counts for how many elves have the position as a destination
+  std::map<Position, int> destination_counts;
+
+  for (size_t i = 0; i < 10; i++) {
+    proposed_moves.clear();
+    destination_counts.clear();
+
+    // Propose moves
+    for (auto& elf : elves) {
+      auto proposed_move = proposed_step(elf);
+      proposed_moves[elf] = proposed_move;
+      if (destination_counts.contains(proposed_move)) {
+        destination_counts[proposed_move]++;
+      }
+      else {
+        destination_counts[proposed_move] = 1;
+      }
+    }
+
+    std::set<Position> new_elves;
+
+    // Make moves
+    for (auto& elf : elves) {
+      auto& proposed_move = proposed_moves[elf];
+      if (destination_counts[proposed_move] == 1) {
+        new_elves.insert(proposed_move);
+      }
+      else {
+        new_elves.insert(elf);
+      }
+    }
+
+    elves = new_elves;
+
+    first_direction = (first_direction + 1) % 4;
+  }
+
+  int min_x = INT_MAX;
+  int max_x = INT_MIN;
+
+  int min_y = INT_MAX;
+  int max_y = INT_MIN;
+
+  for (auto& elf : elves) {
+    int x = elf[0];
+    int y = elf[1];
+
+    if (x < min_x) { min_x = x; }
+    if (x > max_x) { max_x = x; }
+
+    if (y < min_y) { min_y = y; }
+    if (y > max_y) { max_y = y; }
+  }
+
+  int empty_ground_count = 0;
+  for (int y = min_y; y <= max_y; y++) {
+    for (int x = min_x; x <= max_x; x++) {
+      if (!elves.contains({ x, y })) {
+        empty_ground_count++;
+      }
+      else {
+      }
+    }
+  }
+
+  std::cout << "Part 1: " << empty_ground_count << std::endl;
+
+  size_t i;
+  for (i = 10; i < INT_MAX; i++) {
+    proposed_moves.clear();
+    destination_counts.clear();
+
+    // Propose moves
+    for (auto& elf : elves) {
+      auto proposed_move = proposed_step(elf);
+      proposed_moves[elf] = proposed_move;
+      if (destination_counts.contains(proposed_move)) {
+        destination_counts[proposed_move]++;
+      }
+      else {
+        destination_counts[proposed_move] = 1;
+      }
+    }
+
+    std::set<Position> new_elves;
+
+    bool elves_moved = false;
+    // Make moves
+    for (auto& elf : elves) {
+      auto& proposed_move = proposed_moves[elf];
+      if (destination_counts[proposed_move] == 1) {
+        new_elves.insert(proposed_move);
+        if (proposed_move != elf) { elves_moved = true; }
+      }
+      else {
+        new_elves.insert(elf);
+      }
+    }
+
+    elves = new_elves;
+
+    if (!elves_moved) {
+      break;
+    }
+
+    first_direction = (first_direction + 1) % 4;
+  }
+
+  std::cout << "Part 2: " << i+1 << std::endl;
+}
