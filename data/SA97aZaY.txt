@@ -1,0 +1,147 @@
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
+
+{-# LANGUAGE DeriveFunctor         #-}
+{-# LANGUAGE InstanceSigs          #-}
+{-# LANGUAGE LambdaCase            #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeOperators         #-}
+
+module Adjunctions where
+
+import           Control.Comonad (Comonad (duplicate, extract))
+import           Control.Monad   (ap)
+
+----------------------
+-- ADJOINT FUNCTORS --
+--      f -| g      --
+----------------------
+
+class (Functor f, Functor g) => Adjunction f g where
+  unit :: a -> g (f a)
+  unit = leftAdjunct id
+
+  counit :: f (g b) -> b
+  counit = rightAdjunct id
+
+-- Hom(f a, b) ≃ Hom(a, g b)
+
+  leftAdjunct :: (f a -> b) -> a -> g b
+  leftAdjunct func = fmap func . unit
+
+  rightAdjunct :: (a -> g b) -> f a -> b
+  rightAdjunct func = counit . fmap func
+
+  {-# MINIMAL unit, counit | leftAdjunct, rightAdjunct #-}
+
+-----------------------
+-- PRODUCT and ARROW --
+-----------------------
+
+--                   Env     Reader
+--                   Writer  Traced
+instance Adjunction ((,) x) ((->) x) where
+  unit :: a -> x -> (x, a)
+  unit a = \x -> (x, a)
+
+  counit :: (x, x -> b) -> b
+  counit (x, f) = f x
+
+-------------------
+-- VOID and UNIT --
+-------------------
+
+data Void1 p deriving Functor
+
+data Unit1 p = Unit1 deriving Functor
+
+instance Adjunction Void1 Unit1 where
+  unit :: a -> Unit1 (Void1 a)
+  unit _ = Unit1
+
+  counit :: Void1 (Unit1 b) -> b
+  counit = \case {}
+
+---------------------
+-- SUM and PRODUCT --
+---------------------
+
+data (f |+| g) a = Left1 (f a) | Right1 (g a) deriving Functor
+
+data (f |*| g) a = f a :*: g a deriving Functor
+
+instance (Adjunction f g, Adjunction f' g') => Adjunction (f |+| f') (g |*| g') where
+  unit :: a -> (g |*| g') ((f |+| f') a)
+  unit x = leftAdjunct Left1 x :*: leftAdjunct Right1 x
+
+  counit :: (f |+| f') ((g |*| g') b) -> b
+  counit = \case
+    Left1 fp   -> rightAdjunct (\(gb :*: _) -> gb) fp
+    Right1 f'p -> rightAdjunct (\(_ :*: g'b) -> g'b) f'p
+
+---------------------------
+-- IDENTITY and IDENTITY --
+---------------------------
+
+newtype IdentityT f a = IdentityT { runIdentityT :: f a } deriving Functor
+
+instance Adjunction f g => Adjunction (IdentityT f) (IdentityT g) where
+  unit :: a -> IdentityT g (IdentityT f a)
+  unit = IdentityT . leftAdjunct IdentityT
+
+  counit :: IdentityT f (IdentityT g b) -> b
+  counit = rightAdjunct runIdentityT . runIdentityT
+
+---------------------------------
+-- COMPOSITION and COMPOSITION --
+---------------------------------
+
+newtype (g |.| f) a = Comp { runComp :: g (f a) } deriving Functor
+
+instance (Adjunction f g, Adjunction f' g') => Adjunction (f' |.| f) (g |.| g') where
+  unit :: a -> (g |.| g') ((f' |.| f) a)
+  unit = Comp . leftAdjunct (leftAdjunct Comp)
+
+  counit :: (f' |.| f) ((g |.| g') a) -> a
+  counit = rightAdjunct (rightAdjunct runComp) . runComp
+
+---------------------
+-- FREE and COFREE --
+---------------------
+
+data Free f a = Pure a | Free (f (Free f a)) deriving Functor
+
+data Cofree f a = a :< f (Cofree f a) deriving Functor
+
+instance Adjunction f g => Adjunction (Free f) (Cofree g) where
+  unit :: a -> Cofree g (Free f a)
+  unit x = Pure x :< leftAdjunct (\funit -> leftAdjunct (\free -> Free (free <$ funit)) x) ()
+
+  counit :: Free f (Cofree g a) -> a
+  counit = error "IT'S A NIGHTMARE"
+
+--------------------------------------------------------------------------------------
+-- If f -| g, then we CAN instantiate Monad for (g |.| f) and Comonad for (f |.| g) --
+--------------------------------------------------------------------------------------
+
+instance Adjunction f g => Monad (g |.| f) where
+  return :: a -> (g |.| f) a
+  return = Comp . unit
+
+  (>>=) :: (g |.| f) a -> (a -> (g |.| f) b) -> (g |.| f) b
+  c >>= f = joinComp $ fmap f c
+    where
+      joinComp :: (g |.| f) ((g |.| f) a) -> (g |.| f) a
+      joinComp (Comp gfcgfa) = Comp $ fmap (counit . fmap runComp) gfcgfa
+
+instance Adjunction f g => Comonad (f |.| g) where
+  extract :: (f |.| g) a -> a
+  extract = counit . runComp
+
+  duplicate :: (f |.| g) a -> (f |.| g) ((f |.| g) a)
+  duplicate (Comp fga) = Comp $ fmap (fmap Comp . unit) fga
+
+instance (Adjunction f g) => Applicative (g |.| f) where
+  pure = return
+
+  (<*>) = ap
