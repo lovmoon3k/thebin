@@ -1,0 +1,143 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use List::AllUtils      qw(firstidx pairwise);
+
+$/ = '';    # read in paragraph mode
+
+# definition of vetor sum
+sub vec_sum ($$) { my ($v, $w) = @_; return ([pairwise {$a + $b} @$v, @$w]) }
+
+# directions in widdershins order from facing East
+my @dirs = ([0,1], [1,0], [0,-1], [-1,0]);
+
+# Slurp input, break up command list
+my @input = map { [split "\n"] } <>;
+my @cmds  = ($input[1][0] =~ m#(\d+|[LR])#g);
+
+# ASSUME: Net has a specific layout, top line is 3 faces wide
+my @grid = $input[0]->@*;
+my $size = length($input[0][0]) / 3;
+
+# Assumed Layout:
+#    .WB
+#    .R.
+#    GY.
+#    O..
+my %sides = ( 'white'  => [0,1], 'blue'  => [0,2], 'red'    => [1,1],
+              'yellow' => [2,1], 'green' => [2,0], 'orange' => [3,0] );
+
+# Magnify by size to get the net coord of upper left
+%sides = map { $_ => [map {$_ * $size} $sides{$_}->@*] } keys %sides;
+
+# Grab the cube face data out of the grid (and convert to list).
+# Add sentinels to right and bottom edges.
+my %cube;
+foreach my $side (keys %sides) {
+    my @p = $sides{$side}->@*;
+    $cube{$side} = [ map {
+                        [split( //, substr($grid[$_], $p[1], $size) . '*' )]
+                     } ($p[0] .. $p[0] + $size - 1)
+                   ];
+    push( $cube{$side}->@*, [split(//, '*' x ($size + 1))] );
+}
+
+# Table for wrapping around the cube:
+# Array index is starting dir, facing is resulting dir on target side.
+my %wrap;
+$wrap{white}[0]  = { side => 'blue',   facing => 0 };
+$wrap{white}[1]  = { side => 'red',    facing => 1 };
+$wrap{white}[2]  = { side => 'green',  facing => 0 };
+$wrap{white}[3]  = { side => 'orange', facing => 0 };
+
+$wrap{red}[0]    = { side => 'blue',   facing => 3 };
+$wrap{red}[1]    = { side => 'yellow', facing => 1 };
+$wrap{red}[2]    = { side => 'green',  facing => 1 };
+$wrap{red}[3]    = { side => 'white',  facing => 3 };
+
+$wrap{blue}[0]   = { side => 'yellow', facing => 2 };
+$wrap{blue}[1]   = { side => 'red',    facing => 2 };
+$wrap{blue}[2]   = { side => 'white',  facing => 2 };
+$wrap{blue}[3]   = { side => 'orange', facing => 3 };
+
+$wrap{yellow}[0] = { side => 'blue',   facing => 2 };
+$wrap{yellow}[1] = { side => 'orange', facing => 2 };
+$wrap{yellow}[2] = { side => 'green',  facing => 2 };
+$wrap{yellow}[3] = { side => 'red',    facing => 3 };
+
+$wrap{orange}[0] = { side => 'yellow', facing => 3 };
+$wrap{orange}[1] = { side => 'blue',   facing => 1 };
+$wrap{orange}[2] = { side => 'white',  facing => 1 };
+$wrap{orange}[3] = { side => 'green',  facing => 3 };
+
+$wrap{green}[0]  = { side => 'yellow', facing => 0 };
+$wrap{green}[1]  = { side => 'orange', facing => 1 };
+$wrap{green}[2]  = { side => 'white',  facing => 0 };
+$wrap{green}[3]  = { side => 'red',    facing => 0 };
+
+# Returns the (side, dir, pos) resulting plus a boolean if we hit a wall.
+sub wrap_side {
+    my ($side, $dir, $pos) = @_;
+
+    my $new_side = $wrap{$side}[$dir]{side};
+    my $new_dir  = $wrap{$side}[$dir]{facing};
+
+    # Only one coord value is important, the other is either -1 or $side
+    # Because of dir order, parity tells us which of y or x we want.
+    my $idx = $pos->[$dir % 2];
+
+    # When going between 0 and 2 facing, the edge flips
+    if ($dir % 2 == 0 && $new_dir % 2 == 0 && $dir != $new_dir) {
+        $idx = $size - $idx - 1;
+    }
+
+    # $new_pos similarly has one coord as 0 or $size-1, the other
+    # being set to the index value about based on the direction parity.
+    my $new_pos = ($new_dir <= 1) ? [0,0] : [$size-1,$size-1];
+    $new_pos->[$new_dir % 2] = $idx;
+
+    # Check if wrapping immediately hit a wall, back out, and report
+    if ($cube{$new_side}[$new_pos->[0]][$new_pos->[1]] eq '#') {
+        return ($side, $dir, $pos, 1);
+    } else {
+        return ($wrap{$side}[$dir]{side}, $new_dir, $new_pos, 0);
+    }
+}
+
+#
+# Mainline
+#
+my $side = 'white';
+my $pos  = [0, firstidx {$_ eq '.'} $cube{$side}[0]->@*];
+my $face = 0;
+
+foreach my $cmd (@cmds) {
+    if ($cmd eq 'R') {
+        $face = ($face + 1) % 4;
+    } elsif ($cmd eq 'L') {
+        $face = ($face + 3) % 4;
+    } else {
+        # Step cmd number of times
+        for (my $i = 0; $i < $cmd; $i++) {
+            my $next = vec_sum( $pos, $dirs[$face] );
+
+            if ($cube{$side}[$next->[0]][$next->[1]] eq '.') {      # good, step
+                $pos = $next;
+            } elsif ($cube{$side}[$next->[0]][$next->[1]] eq '#') { # wall, stop
+                last;
+            } else {  # we hit a '*' sentinel
+                my $wall;
+                ($side, $face, $next, $wall) = &wrap_side( $side, $face, $pos );
+                last if ($wall);    # wall, don't set and stop moving
+                $pos = $next;       # good, step ahead
+            }
+        }
+    }
+}
+
+print "Side: $side, facing: $face, pos: ($pos->[0], $pos->[1])\n";
+
+my $net = vec_sum( $sides{$side}, $pos );
+print "Part 2: ", 1000 * ($net->[0] + 1) + 4 * ($net->[1] + 1) + $face, "\n";
