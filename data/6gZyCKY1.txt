@@ -1,0 +1,159 @@
+@ECHO OFF
+SETLOCAL ENABLEEXTENSIONS ENABLEDELAYEDEXPANSION
+COLOR 0A
+TITLE OPTMIZE MKV OR MP4 VIDEOS USING GEFORCE CUDA HEVC
+
+:-----------------------------------------------------------------------------
+
+REM BY: SlyFox1186
+REM PASTEBIN: https://pastebin.com/u/slyfox1186
+REM GitHub: https://github.com/slyfox1186
+
+REM NEED A PROGRAMMER? YOU FOUND A GOOD ONE! CONTACT ME ON GITHUB!
+
+:-----------------------------------------------------------------------------
+
+REM PURPOSE
+
+REM THIS SCRIPT WILL RECURSIVELY SEARCH FOR MKV OR MP4 VIDEOS IN THE CURRENT SCRIPTS
+REM DIRECTORY AND CREATE A CONVERTED ROUGHLY HALF-SIZE VERSION OF THE ORIGINAL IN X265 10-BIT (HEVC).
+
+REM ADDITIONAL NOTES
+
+REM THE ORIGINAL VIDEO SHOULD NOT BE OVERWRITTEN. SO FAR, THIS IS AS CLOSE
+REM TO INDISTINGUISHABLE QUALITY AS I HAVE BEEN ABLE TO GET USING AN AUTOMATED LOOP
+REM SCRIPT SO ENJOY MY EFFORTS!
+
+REM CONVERT METHOD
+
+REM THE SCRIPT UTILIZES GEFORCE VIDEO CARDS THAT ARE VERSION TURING AND HIGHER BY USING
+REM HARDWARE ACCELERATION (CUDA) TO SPEED UP THE ENCODING PROCESS.
+
+REM INSTRUCTIONS
+
+REM YOU MUST POINT THE FF VARIABLE BELOW TO THE FULL PATH OR YOUR OWN FFMPEG.EXE
+REM FILE IF IT IS NOT ALREADY INSIDE YOUR WINDOWS ENVIRONMENT AND IF IT IS THEN
+REM REPLACE %FF% BELOW WITH ffmpeg.exe
+
+REM IMPORTANT
+
+REM I HIGHLY RECOMMEND YOU USE THIS GITHUB REPO TO COMPILE ALL OF THE EXE FILES NEEDED
+REM FOR THIS SCRIPT TO RUN. https://github.com/m-ab-s/media-autobuild_suite
+
+REM I ASSUME NO RISK AND PROVIDE THIS AS-IS WHICH MEANS 
+REM YOU SHOULD RUN TESTS BEFORE YOU USE THIS ON ANY DATA YOU VALUE.
+
+REM FINAL COMMENT
+
+REM GOOD LUCK AND GIVE ME A THUMBS UP IF YOU LIKE THIS! IT KEEPS ME MOTIVATED TO POST
+REM MY FAVORITE PERSONAL SCRIPTS ON HERE!
+
+:-----------------------------------------------------------------------------
+
+REM CHANGE THE WORKING DIRECTORY TO THE SCRIPTS, REOPEN CMD MAXIMIZED, AND SET THE WINDOW TITLE
+PUSHD "%~dp0"
+IF NOT "%1"=="MAX" START /MAX CMD /D /C %0 MAX & GOTO :EOF
+FOR /F "TOKENS=*" %%A IN ("%CD%") DO TITLE %%~nxA
+
+:-----------------------------------------------------------------------------
+
+REM SET MANUAL VARIABLES HERE
+REM YOU MUST POINT THE BELOW FF VAR TO YOUR OWN FFMPEG.EXE FILE
+SET FF="C:\PATH\TO\YOUR\ffmpeg.exe"
+
+:-----------------------------------------------------------------------------
+
+:NEXT
+REM STORES THE CURRENT VIDEO WIDTH, ASPECT RATIO, PROFILE, BIT RATE, AND TOTAL DURATION IN VARIABLES
+REM FOR USE LATER IN THE FFMPEG COMMAND LINE.
+
+FOR /R %%G IN (*.mkv, *.mp4) DO (
+    REM GET THE ORIGINAL VIDEO'S SCREEN WIDTH AND THE INPUT VIDEO'S AVERAGE BITRATE AND BUFSIZE
+    CLS
+    FOR /F "TOKENS=*" %%A IN ('ffprobe.exe -hide_banner -v error -select_streams v:0 -show_entries stream^=width -of csv^=s^=x:p^=0 -pretty "%%G"') DO SET VW=%%A
+    FOR /F "TOKENS=*" %%A IN ('ffprobe.exe -hide_banner -v error -select_streams v:0 -show_entries stream^=display_aspect_ratio -of default^=nk^=1:nw^=1 -pretty "%%G"') DO SET AR=%%A
+    FOR /F "TOKENS=1" %%A IN ('ffprobe.exe -hide_banner -v error -select_streams v:0 -show_entries stream^=profile -of default^=nk^=1:nw^=1 -pretty "%%G"') DO SET PROFILE=%%A
+    FOR /F "TOKENS=1" %%A IN ('ffprobe.exe -hide_banner -v error -show_entries format^=bit_rate -of default^=nk^=1:nw^=1 -pretty "%%G"') DO SET MR=%%A
+    FOR /F "TOKENS=1" %%A IN ('ffprobe.exe -v error -show_entries format^=duration -of default^=noprint_wrappers^=1:nokey^=1 "%%G"') DO SET LENGTH=%%A
+
+    REM REMOVES ALL TRAILING DECIMALS FROM THE LENGTH VARIABLE TO GET THE TOTAL MINUTES
+    REM I HAD TO MAKE TWO VARS IN CASE THE VIDEO IS OVER A CERTAIN LENGTH LONG...
+	REM SO USE ONE AND IGNORE THE OTHERS... UNFORTUNATE LIMIT OF BATCH CODE
+    SET LN1=!LENGTH:~0,4!
+    SET LN2=!LENGTH:~0,5!
+    SET /A "LN3=LN1/60"
+    SET /A "LN4=LN2/60"
+
+    REM GETS THE INPUT VIDEO'S MAX DATARATE AND APPLIES LOGIC TO DETERMINE BITRATE, BUFSIZE, AND MAXRATE VARIABLES
+    SET MR1=!MR:~0,4!
+    SET /A "BR1=MR/2"
+    SET /A "BR=BR1*1000"
+    SET /A "MR=MR1*1000"
+    SET /A "BF=MR/3"
+
+    REM TEST IF THE DECIMAL IS 0.51 OR HIGHER THEN ADD NUMBERS TO THE VARAIABLE MAXRATE BASED ON LOGIC
+	REM AGAIN A LIMIT OF BATCH CODE OTHERWISE, I WOULD WRITE THIS DIFFERENTLY... HOWEVER, IT SEEMS TO WORK WELL.
+    SET _MR=!MR:~2,4!
+
+    REM IF THE MAXRATE DECIMAL PLACE IS 0.51 OR HIGHER ADD 3 TO MAXRATE ELSE ADD 2
+    IF "!_MR!" GEQ "51" (SET /A "MR=MR+2") ELSE (SET /A "MR=MR+1")
+
+    REM ECHO THE STORED VARIABLES THAT CONTAIN THE VIDEO'S STATS
+    CLS
+    ECHO ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+    ECHO=
+    ECHO FILE NAME:    %%G
+    ECHO=
+    ECHO LENGTH:       !LN3! MINUTES ^(SHORT VIDEOS^)
+    ECHO LENGTH:       !LN4! MINUTES ^(LONG VIDEOS^)
+    ECHO=
+    ECHO VIDEO WIDTH:  !VW!
+    ECHO=
+    ECHO ASPECT RATIO: !AR!
+    ECHO=
+    ECHO BITRATE:      !BR!k
+    ECHO BUFSIZE:      !BF!k
+    ECHO MAXRATE:      !MR!k
+    ECHO=
+    ECHO PROFILE:      !PROFILE!
+    ECHO=
+    ECHO ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+    ECHO=
+    PAUSE
+
+    REM RUN FFMPEG
+    %FF% ^
+    -y ^
+    -threads 0 ^
+    -fflags "+igndts +nofillin" ^
+    -hide_banner ^
+    -hwaccel_output_format cuda ^
+    -i "%%G" ^
+    -fps_mode vfr ^
+    -movflags +faststart ^
+    -c:v hevc_nvenc ^
+    -preset:v p7 ^
+    -tune:v hq ^
+    -pix_fmt:v p010le ^
+    -rc:v vbr ^
+    -b:v !BR!k ^
+    -bufsize:v !BF!k ^
+    -maxrate:v !MR!k ^
+    -bf:v 3 ^
+    -b_ref_mode:v middle ^
+    -qmin:v 0 ^
+    -qmax:v 99 ^
+    -temporal-aq:v 1 ^
+    -rc-lookahead:v 24 ^
+    -i_qfactor:v 0.75 ^
+    -b_qfactor:v 1.1 ^
+    -c:a libfdk_aac ^
+    -qmin:a 1 ^
+    -qmax:a 4 ^
+    "%%~dpnG (x265)%%~xG"
+)
+
+ECHO=
+ECHO THE SCRIPT HAS FINISHED... SEE ABOVE FOR OUTPUT DETAILS
+ECHO=
+PAUSE
