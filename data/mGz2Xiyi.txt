@@ -1,0 +1,91 @@
+	// PrestoPlayer
+
+	if ( typeof wp != 'undefined' && typeof wp.hooks != 'undefined' ) {
+
+		wp.hooks.addAction( 'presto.playerReady', 'wp-fusion-media-tools', (player) => {
+
+			var container = $( player.elements.container.getRootNode().host || player.elements.container ).closest('figure');
+
+			var playerType = container.attr('data-player_type');
+
+			if ( typeof playerType == 'undefined' ) {
+				return; // If WP Fusion isn't set on this player
+			}
+
+			player.wpfData = getPlayerData( container );
+
+			if (typeof player.wpfData.wpf_tags_start != 'undefined') {
+
+				// Started playing
+
+				var startDone = false;
+
+				player.on( 'playing', event => {
+
+					const player = event.detail.plyr;
+
+					if (startDone == false) {
+
+						startDone = true;
+						applyTags(player.wpfData.wpf_tags_start);
+
+					}
+				});
+
+			}
+
+			// Completed
+
+			var completeDone = false;
+
+			player.on( 'timeupdate', event => {
+
+				const player = event.detail.plyr;
+
+				if ( typeof player.wpfData.wpf_tags_complete != 'undefined' ) {
+
+					if ( player.currentTime / player.duration >= 0.95 && completeDone == false) {
+
+						// 95% complete
+
+						completeDone = true;
+						applyTags(player.wpfData.wpf_tags_complete);
+
+					}
+
+				}
+
+				if ( typeof player.wpfData.timecodeTags != 'undefined' ) {
+
+					$.each(player.wpfData.timecodeTags, function(timecode, tags) {
+						
+						if ( timecode.endsWith('%') ) {
+
+							// Percentage based tracking
+	
+							var percent = parseInt( timecode.replace('%', '') );
+							percent = percent / 100;
+	
+							 if( ( player.currentTime / player.duration ) >= percent ) {
+								applyTags(tags);
+								delete player.wpfData.timecodeTags[timecode];
+							 }
+	
+						} else {
+
+							if( player.currentTime >= timecode ) {
+
+								applyTags(tags);
+								delete player.wpfData.timecodeTags[timecode];
+
+							}
+						}
+
+					});
+
+				}
+
+			});
+
+		});
+	}
