@@ -1,0 +1,129 @@
+/// Move some elves around according to odd rules
+/// 1) See how much they spread out after 10 moves.
+/// 2) How long does it take for them to all get stuck?
+
+import 'package:more/more.dart';
+
+class Index {
+  final int r;
+  final int c;
+
+  const Index(this.r, this.c);
+
+  @override
+  String toString() => 'Index($r, $c)';
+
+  @override
+  bool operator ==(Object other) =>
+      other is Index && r == other.r && c == other.c;
+
+  @override
+  int get hashCode => Object.hash(r.hashCode, c.hashCode);
+
+  Index operator +(Index other) => Index(r + other.r, c + other.c);
+  Index operator -(Index other) => Index(r - other.r, c - other.c);
+  Index operator *(int n) => Index(r * n, c * n);
+}
+
+class Elf {
+  String firstLook = 'N';
+  //String plannedMove = '';
+  Index? nextPos;
+  Index pos;
+  Elf(this.pos);
+}
+
+const n8 = [
+  Index(-1, -1),
+  Index(-1, 0),
+  Index(-1, 1),
+  Index(0, -1),
+  Index(0, 1),
+  Index(1, -1),
+  Index(1, 0),
+  Index(1, 1)
+];
+const headings = {
+  'NW': Index(-1, -1),
+  'N': Index(-1, 0),
+  'NE': Index(-1, 1),
+  'W': Index(0, -1),
+  'E': Index(0, 1),
+  'SW': Index(1, -1),
+  'S': Index(1, 0),
+  'SE': Index(1, 1)
+};
+
+var rules = {
+  'N': ['N', 'NE', 'NW'],
+  'S': ['S', 'SE', 'SW'],
+  'W': ['W', 'NW', 'SW'],
+  'E': ['E', 'NE', 'SE'],
+};
+var looks = ['N', 'S', 'W', 'E'];
+var elves = <Elf>[];
+
+part1(List<String> lines) {
+  buildElves(lines);
+
+  var dir = 0;
+  for (var _ in 0.to(10)) {
+    moveElves(dir);
+    dir = (dir + 1) % 4;
+  }
+  var rmin = elves.map((e) => e.pos.r).min();
+  var rmax = elves.map((e) => e.pos.r).max();
+  var cmin = elves.map((e) => e.pos.c).min();
+  var cmax = elves.map((e) => e.pos.c).max();
+  return (1 + rmax - rmin) * (1 + cmax - cmin) - elves.length;
+}
+
+part2(List<String> lines) {
+  buildElves(lines);
+  var round = 0;
+  var dir = 0;
+  while (true) {
+    round += 1;
+    if (!moveElves(dir)) return round;
+    dir = (dir + 1) % 4;
+  }
+}
+
+void buildElves(List<String> lines) {
+  elves = [];
+  for (var y in 0.to(lines.length)) {
+    elves.addAll(lines[y]
+        .split('')
+        .indexed()
+        .where((e) => e.value == '#')
+        .map((e) => Elf(Index(y, e.index))));
+  }
+}
+
+bool moveElves(int dir) {
+  var filled = elves.map((e) => e.pos).toSet();
+  var plannedMoves = <Index>{};
+  var bannedMoves = <Index>{};
+  for (var elf in elves) {
+    elf.nextPos = null;
+    if (!n8.map((e) => e + elf.pos).any((e) => filled.contains(e))) continue;
+    for (var offset in 0.to(4)) {
+      var look = looks[(dir + offset) % 4];
+      if (rules[look]!
+          .map((e) => elf.pos + headings[e]!)
+          .any((ix) => filled.contains(ix))) continue;
+      var np = elf.pos + headings[look]!;
+      elf.nextPos = np;
+      ((plannedMoves.contains(np)) ? bannedMoves : plannedMoves).add(np);
+      break;
+    }
+  }
+
+  var moves = 0;
+  for (var elf in elves) {
+    if (elf.nextPos == null || bannedMoves.contains(elf.nextPos)) continue;
+    moves += 1;
+    elf.pos = elf.nextPos!;
+  }
+  return moves != 0;
+}
