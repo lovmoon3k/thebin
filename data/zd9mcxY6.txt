@@ -1,0 +1,310 @@
+local startX, startY, startZ, startDir = 0, 0, 0, "north"
+local currX, currY, currZ, currDir = startX, startY, startZ, startDir
+ 
+-- Initialize the unmined table
+unmined = {}
+for x = -26, 26 do
+  unmined[x] = {}
+  for y = 0, 4 do
+    unmined[x][y] = {}
+    for z = -26, 26 do
+      unmined[x][y][z] = true
+    end
+  end
+end
+ 
+function move(dir, calledByReturnHome)
+  -- If the function was not called by returnHome, check if there is an item in slot 16
+  if not calledByReturnHome and turtle.getItemCount(16) > 0 then
+    -- If there is, run the returnHome function
+    returnHome(true)
+  end
+  if dir == "up" or dir == "down" then
+    -- Check if we are at y0 and trying to move down, or at y4 and trying to move up
+    if (currY == 0 and dir == "down") or (currY == 4 and dir == "up") then
+      -- Do not move in the specified direction if we are at y0 and trying to move down, or at y4 and trying to move up
+      return
+    end
+    if dir == "up" then
+      if turtle.detectUp() then
+        turtle.digUp()
+        turtle.up()
+        updatePosition(dir)
+      else
+        turtle.up()
+        updatePosition(dir)
+      end
+    elseif dir == "down" then
+      if turtle.detectDown() then
+        turtle.digDown()
+        turtle.down()
+        updatePosition(dir)
+      else
+        turtle.down()
+        updatePosition(dir)
+      end
+    end
+  else
+    if turtle.detect() then
+      turtle.dig()
+      if dir == "forward" then
+        turtle.forward()
+        updatePosition(dir)
+      else
+        turtle.back()
+        updatePosition(dir)
+      end
+    else
+      if dir == "forward" then
+        turtle.forward()
+        updatePosition(dir)
+      else
+        turtle.back()
+        updatePosition(dir)
+      end
+    end
+  end
+  -- Check if we are at the outer bounds of the unmined table on the x or z axis
+  if currX == -25 or currX == 25 or currZ == -25 or currZ == 25 then
+    -- If we are, move to the unmined block closest to 0, 0, 0
+    moveToUnmined()
+  end
+end
+ 
+ 
+ 
+ 
+function updatePosition(dir)
+  if dir == "up" then
+    currY = currY + 1
+  elseif dir == "down" then
+    currY = currY - 1
+  elseif dir == "forward" then
+    if currDir == "north" then
+      currZ = currZ - 1
+    elseif currDir == "east" then
+      currX = currX + 1
+    elseif currDir == "south" then
+      currZ = currZ + 1
+    elseif currDir == "west" then
+      currX = currX - 1
+    end
+  elseif dir == "back" then
+    if currDir == "north" then
+      currZ = currZ + 1
+    elseif currDir == "east" then
+      currX = currX - 1
+    elseif currDir == "south" then
+      currZ = currZ - 1
+    elseif currDir == "west" then
+      currX = currX + 1
+    end
+  end
+
+  -- Mark the block as mined
+  unmined[currX][currY][currZ] = false
+end
+
+ 
+function returnHome()
+  local atHome = false
+  while not atHome do
+      if currX > startX then
+      turnTo("west")
+      move("forward", true)
+	sleep(0.5)
+    elseif currX < startX then
+      turnTo("east")
+      move("forward", true)
+	sleep(0.5)
+    elseif currY > startY then
+      move("down", true)
+	sleep(0.5)
+    elseif currY < startY then
+      move("up", true)
+	sleep(0.5)
+    elseif currZ > startZ then
+      turnTo("south")
+      move("forward", true)
+	sleep(0.5)
+    elseif currZ < startZ then
+      turnTo("north")
+      move("forward", true)
+	sleep(0.5)
+    else
+      atHome = true
+    end
+  end
+end
+ 
+ 
+ 
+function turnTo(dir)
+  if currDir == "north" then
+    if dir == "east" then
+      turn("right")
+    elseif dir == "south" then
+      turn("left")
+      turn("left")
+    elseif dir == "west" then
+      turn("left")
+    end
+  elseif currDir == "east" then
+    if dir == "south" then
+      turn("right")
+    elseif dir == "west" then
+      turn("left")
+      turn("left")
+    elseif dir == "north" then
+      turn("left")
+    end
+  elseif currDir == "south" then
+    if dir == "west" then
+      turn("right")
+    elseif dir == "north" then
+      turn("left")
+      turn("left")
+    elseif dir == "east" then
+      turn("left")
+    end
+  elseif currDir == "west" then
+    if dir == "north" then
+      turn("right")
+    elseif dir == "east" then
+      turn("left")
+      turn("left")
+    elseif dir == "south" then
+      turn("left")
+    end
+  end
+ 
+currDir = dir
+end
+ 
+function turn(dir)
+  if dir == "left" then
+    turtle.turnLeft()
+  else
+    turtle.turnRight()
+  end
+  if currDir == "north" then
+    currDir = (dir == "left") and "west" or "east"
+  elseif currDir == "east" then
+    currDir = (dir == "left") and "north" or "south"
+  elseif currDir == "south" then
+    currDir = (dir == "left") and "east" or "west"
+  elseif currDir == "west" then
+    currDir = (dir == "left") and "south" or "north"
+  end
+end
+ 
+function refuel()
+  for i = 1, 16 do
+    turtle.select(i)
+    if turtle.refuel(1) then
+      return
+    end
+  end
+  returnHome()
+  turtle.suckUp()
+  refuel()
+end
+ 
+function mine()
+  local blocksMined = 0
+  local consecutiveNoBlocks = 0
+  while blocksMined < 256 do
+    if turtle.getFuelLevel() < 1000 then
+      returnHome()
+      refuel()
+    end
+    if turtle.getItemCount(16) > 0 then
+      returnHome()
+        for i = 1, 16 do
+          turtle.select(i)
+          turtle.dropDown()
+          turtle.select(1)
+        end
+    end
+    if currY > 4 then
+      move("down")
+    elseif currY < 0 then
+      move("up")
+    elseif math.random(1,5) == 1 then
+      turn(math.random(1,2) == 1 and "left" or "right")
+    elseif math.random(1,20) == 1 then
+      if math.random(1,2) == 1 then
+        move("up")
+      else
+        move("down")
+      end
+    else
+      local moved = false
+      for i = 1, 10 do
+        if turtle.detect() then
+          move("forward")
+          blocksMined = blocksMined + 1
+          consecutiveNoBlocks = 0
+          moved = true
+          break
+        else
+          move("forward")
+          consecutiveNoBlocks = consecutiveNoBlocks + 1
+          if consecutiveNoBlocks >= 10 then
+            moveToUnmined()
+            consecutiveNoBlocks = 0
+            break
+          end
+        end
+      end
+      if not moved then
+        consecutiveNoBlocks = 0
+      end
+    end
+  end
+  returnHome()
+end
+
+ 
+function moveToUnmined()
+  local nearestDistance = math.huge
+  local nearestX, nearestY, nearestZ = 0, 0, 0
+  for x = -25, 25 do
+    for y = 0, 4 do
+      for z = -25, 25 do
+        if unmined[x][y][z] then
+          local distance = math.abs(0 - x) + math.abs(0 - y) + math.abs(0 - z)
+          if distance < nearestDistance then
+            nearestDistance = distance
+            nearestX = x
+            nearestY = y
+            nearestZ = z
+          end
+        end
+      end
+    end
+  end
+  
+  print("Target destination: (" .. nearestX .. ", " .. nearestY .. ", " .. nearestZ .. ")")
+  print("Current coords: (" .. currX .. ", " .. currY .. ", " .. currZ .. ")")
+  -- Determine the direction to move in
+  local moveDir = ""
+  if nearestX > currX then
+    moveDir = "east"
+  elseif nearestX < currX then
+    moveDir = "west"
+  elseif nearestZ > currZ then
+    moveDir = "north"
+  else
+    moveDir = "south"
+  end
+ sleep(0.5)
+  turnTo(moveDir)
+sleep(0.5)
+  move("forward")
+sleep(0.5)
+end
+
+ 
+ 
+mine()
