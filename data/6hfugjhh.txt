@@ -1,0 +1,176 @@
+diff --git a/aCis_gameserver/config/en/rus_acis.properties b/aCis_gameserver/config/en/rus_acis.properties
+index f09715d..717ff7d 100644
+--- a/aCis_gameserver/config/en/rus_acis.properties
++++ b/aCis_gameserver/config/en/rus_acis.properties
+@@ -5,6 +5,14 @@
+ InfinitySS = False
+ InfinityArrows = False
+ 
++#=============================================================
++#                    Banking(Goldbar/Adena)
++#=============================================================
++BankingEnabled = true
++BankingGoldbar_Id = 3470
++BankingGoldbarCount = 1
++BankingAdenaCount = 500000000
++
+ # Enable/disable custom period settings.
+ OlyUseCustomPeriodSettings = False
+ 
+diff --git a/aCis_gameserver/config/rus_acis.properties b/aCis_gameserver/config/rus_acis.properties
+index e7aee2c..84547c3 100644
+--- a/aCis_gameserver/config/rus_acis.properties
++++ b/aCis_gameserver/config/rus_acis.properties
+@@ -5,6 +5,14 @@
+ InfinitySS = False
+ InfinityArrows = False
+ 
++#=============================================================
++#                    Banking(Goldbar/Adena)
++#=============================================================
++BankingEnabled = true
++BankingGoldbar_Id = 3470
++BankingGoldbarCount = 1
++BankingAdenaCount = 500000000
++
+ # Включить/выключить пользовательские настройки периода.
+ OlyUseCustomPeriodSettings = False
+ 
+diff --git a/aCis_gameserver/java/net/sf/l2j/Config.java b/aCis_gameserver/java/net/sf/l2j/Config.java
+index aef57b0..0c96628 100644
+--- a/aCis_gameserver/java/net/sf/l2j/Config.java
++++ b/aCis_gameserver/java/net/sf/l2j/Config.java
+@@ -49,6 +49,13 @@
+ 	public static final String SERVER_FILE = "./config/server.properties";
+ 	public static final String SIEGE_FILE = "./config/siege.properties";
+ 	
++	
++    /** Bank system golg bar */
++    public static boolean BANKING_SYSTEM_ENABLED;
++    public static int BANKING_SYSTEM_GOLDBAR_ID;
++    public static int BANKING_SYSTEM_GOLDBARS;
++    public static int BANKING_SYSTEM_ADENA;
++
+ 	// --------------------------------------------------
+ 	// Clans settings
+ 	// --------------------------------------------------
+@@ -2566,6 +2573,11 @@
+ 		INFINITY_SS = rusacis.getProperty("InfinitySS", false);
+ 		INFINITY_ARROWS = rusacis.getProperty("InfinityArrows", false);
+ 		
++        BANKING_SYSTEM_ENABLED = Boolean.parseBoolean(rusacis.getProperty("BankingEnabled", "false"));
++        BANKING_SYSTEM_GOLDBAR_ID = Integer.parseInt(rusacis.getProperty("BankingGoldbar_Id", "1"));
++        BANKING_SYSTEM_GOLDBARS = Integer.parseInt(rusacis.getProperty("BankingGoldbarCount", "1"));
++        BANKING_SYSTEM_ADENA = Integer.parseInt(rusacis.getProperty("BankingAdenaCount", "500000000"));
++
+ 		OLY_USE_CUSTOM_PERIOD_SETTINGS = rusacis.getProperty("OlyUseCustomPeriodSettings", false);
+ 		OLY_PERIOD = OlympiadPeriod.valueOf(rusacis.getProperty("OlyPeriod", "MONTH"));
+ 		OLY_PERIOD_MULTIPLIER = rusacis.getProperty("OlyPeriodMultiplier", 1);
+diff --git a/aCis_gameserver/java/net/sf/l2j/gameserver/handler/VoicedCommandHandler.java b/aCis_gameserver/java/net/sf/l2j/gameserver/handler/VoicedCommandHandler.java
+index e77f468..fff1e95 100644
+--- a/aCis_gameserver/java/net/sf/l2j/gameserver/handler/VoicedCommandHandler.java
++++ b/aCis_gameserver/java/net/sf/l2j/gameserver/handler/VoicedCommandHandler.java
+@@ -8,6 +8,7 @@
+ import net.sf.l2j.gameserver.handler.voicedcommandhandlers.OfflinePlayer;
+ import net.sf.l2j.gameserver.handler.voicedcommandhandlers.Online;
+ import net.sf.l2j.gameserver.handler.voicedcommandhandlers.PremiumStatus;
++import net.sf.l2j.gameserver.handler.voicedcommandhandlers.VoicedBanking;
+ 
+ public class VoicedCommandHandler
+ {
+@@ -20,6 +21,7 @@
+ 		registerHandler(new OfflinePlayer());
+ 		registerHandler(new PremiumStatus());
+ 		registerHandler(new EventCommand());
++		registerHandler(new VoicedBanking());
+ 	}
+ 	
+ 	public void registerHandler(IVoicedCommandHandler handler)
+diff --git a/aCis_gameserver/java/net/sf/l2j/gameserver/handler/voicedcommandhandlers/VoicedBanking.java b/aCis_gameserver/java/net/sf/l2j/gameserver/handler/voicedcommandhandlers/VoicedBanking.java
+new file mode 100644
+index 0000000..89bb229
+--- /dev/null
++++ b/aCis_gameserver/java/net/sf/l2j/gameserver/handler/voicedcommandhandlers/VoicedBanking.java
+@@ -0,0 +1,81 @@
++package net.sf.l2j.gameserver.handler.voicedcommandhandlers;
++
++import net.sf.l2j.Config;
++import net.sf.l2j.gameserver.enums.SayType;
++import net.sf.l2j.gameserver.handler.IVoicedCommandHandler;
++import net.sf.l2j.gameserver.model.actor.Player;
++import net.sf.l2j.gameserver.network.serverpackets.CreatureSay;
++import net.sf.l2j.gameserver.network.serverpackets.ItemList;
++
++/**
++ * @author TioPatinhaS
++ *
++ */
++public class VoicedBanking implements IVoicedCommandHandler
++{
++	private static String[] VOICED_COMMANDS =
++	{
++		"bank",
++		"adena",
++		"goldbar"
++	};
++	
++	@Override
++	public boolean useVoicedCommand(String command, Player activeChar, String target)
++	{
++		if (!Config.BANKING_SYSTEM_ENABLED)
++		{
++			CreatureSay cs = new CreatureSay(activeChar.getObjectId(), SayType.ALL, activeChar.getName(), ("." + command));
++			activeChar.sendPacket(cs);
++			return false;
++		}
++		else if (command.equalsIgnoreCase("bank"))
++		{
++			activeChar.sendMessage(".goldbar (" + Config.BANKING_SYSTEM_ADENA + " Adena = " + Config.BANKING_SYSTEM_GOLDBARS + " Goldbar) / .adena (" + Config.BANKING_SYSTEM_GOLDBARS + " Goldbar = " + Config.BANKING_SYSTEM_ADENA + " Adena)");
++		}
++		else if (command.equalsIgnoreCase("goldbar"))
++		{
++			if (activeChar.getInventory().getItemCount(57, 0) >= Config.BANKING_SYSTEM_ADENA)
++			{
++				activeChar.getInventory().reduceAdena("Goldbar", Config.BANKING_SYSTEM_ADENA, activeChar, null);
++				activeChar.getInventory().addItem("Goldbar", Config.BANKING_SYSTEM_GOLDBAR_ID, Config.BANKING_SYSTEM_GOLDBARS, activeChar, null);
++				activeChar.getInventory().updateDatabase();
++				activeChar.sendPacket(new ItemList(activeChar, true));
++				activeChar.sendMessage("Now you have " + Config.BANKING_SYSTEM_GOLDBARS + " Goldbar(s), and " + Config.BANKING_SYSTEM_ADENA + " less adena.");
++			}
++			else
++			{
++				activeChar.sendMessage("You do not have enough Adena to convert to Goldbar(s), you need " + Config.BANKING_SYSTEM_ADENA + " Adena.");
++			}
++		}
++		else if (command.equalsIgnoreCase("adena"))
++		{
++			long a = activeChar.getInventory().getItemCount(57, 0);
++			long b = Config.BANKING_SYSTEM_ADENA;
++			if (a + b > 2147483647L)
++			{
++				activeChar.sendMessage("You do not have enough space for all the adena in inventory!");
++				return false;
++			}
++			if (activeChar.getInventory().getItemCount(Config.BANKING_SYSTEM_GOLDBAR_ID, 0) >= Config.BANKING_SYSTEM_GOLDBARS)
++			{
++				activeChar.getInventory().destroyItemByItemId("Adena", Config.BANKING_SYSTEM_GOLDBAR_ID, Config.BANKING_SYSTEM_GOLDBARS, activeChar, null);
++				activeChar.getInventory().addAdena("Adena", Config.BANKING_SYSTEM_ADENA, activeChar, null);
++				activeChar.getInventory().updateDatabase();
++				activeChar.sendPacket(new ItemList(activeChar, true));
++				activeChar.sendMessage("Now you have " + Config.BANKING_SYSTEM_ADENA + " Adena, and " + Config.BANKING_SYSTEM_GOLDBARS + " less Goldbar(s).");
++			}
++			else
++			{
++				activeChar.sendMessage("You do not have any Goldbars to turn into " + Config.BANKING_SYSTEM_ADENA + " Adena.");
++			}
++		}
++		return true;
++	}
++	
++	@Override
++	public String[] getVoicedCommandList()
++	{
++		return VOICED_COMMANDS;
++	}
++}
+\ No newline at end of file
