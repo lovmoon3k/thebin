@@ -1,0 +1,190 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include "bits/stdc++.h"
+using namespace std;
+//#define int long long
+#define all(a) a.begin(), a.end()
+const int inf = 1;
+struct Segtree {
+	struct Node {
+		int mx, val;
+		Node() { mx = -inf, val = -inf;}
+		Node(int _m, int _v) : mx(_m), val(_v) {}
+	};
+	int n;
+	vector<Node> t;
+	Segtree() {}
+	void init(int _n) {
+		n = _n;
+		t.resize(4 * n, Node());
+	}
+	void update(int v, int tl, int tr, int l, int r, int now) {
+		if (tl > r || tr < l) {
+			return;
+		}
+		if (tl >= l && tr <= r) {
+			t[v].mx = now, t[v].val = now;
+			return;
+		}
+		int tm = (tl + tr) / 2;
+		update(v * 2, tl, tm, l, r , now);
+		update(v * 2 + 1, tm + 1, tr, l, r, now);
+		t[v].mx = max(t[v * 2].mx, t[v * 2 + 1].mx);
+		return;
+	}
+	void update(int l, int r, int now) {
+		update(1, 0, n - 1, l, r, now);
+	}
+	int get_mx(int v, int tl, int tr, int l, int r) {
+		if (tr < l || tl>r) return -inf;
+		if (tl >= l && tr <= r) return t[v].mx;
+		int tm = (tl + tr) / 2;
+		return max({t[v].val, get_mx(v * 2, tl, tm, l, r), get_mx(v * 2 + 1, tm + 1, tr, l, r)});
+	}
+	int get_max(int l, int r) {
+		return get_mx(1, 0, n - 1, l, r);
+	}
+};
+vector<pair<int, int>> seg;
+vector<int> jump_l, jump_r;
+vector<int> ans;
+vector<pair<int, int>> query;
+vector<vector<int>> ind_query;
+vector<int> pref, suf;
+vector<unordered_set<int>> mrg;
+int it_v = -1;
+void devide(int l, int r) {
+	it_v++;
+	if (l == r) {
+		for (int& ind_q : ind_query[l]) {
+			mrg[it_v].insert(ind_q);
+		}
+		return;
+	}
+	int m = (l + r) / 2;
+	int v_l = it_v + 1;
+	devide(l, m);
+	int v_r = it_v + 1;
+	devide(m + 1, r);
+	
+	mrg[it_v].swap(mrg[v_l]);
+	vector<int> lca_query;
+	for (auto& it : mrg[v_r]) {
+		if (mrg[it_v].count(it)) {
+			lca_query.push_back(it);
+		}
+	}
+	/*for (int i = x; i <= y; i++) {
+			if (jump_l[i] >= lst) {
+				res++;
+				lst = i;
+			}
+		}*/
+	for (auto& it : mrg[v_r]) { mrg[it_v].insert(it); }
+	int lst = m + 1;
+	for (int i = m + 1; i <= r; i++) {
+		pref[i] = 0;
+		if (jump_l[i] >= lst) {
+			pref[i]++;
+			lst = i;
+		}
+		if (i > m + 1) {
+			pref[i] += pref[i - 1];
+		}
+	}
+	lst = m;
+	for (int i = m; i >= l; i--) {
+		suf[i] = 0;
+		if (jump_r[i] <= lst) {
+			suf[i]++;
+			lst = i;
+		}
+		if (i < m) {
+			suf[i] += suf[i - 1];
+		}
+	}
+
+}
+signed main() {
+#ifdef _DEBUG
+    freopen("input.txt", "r", stdin);
+    freopen("output.txt", "w", stdout);
+#endif
+    ios_base::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n; cin >> n;
+    seg.resize(n);
+    for (int i = 0; i < n; i++) {
+        cin >> seg[i].first >> seg[i].second;
+    }
+	vector<int> compress;
+    {
+        for (int i = 0; i < n; i++) {
+            compress.push_back(seg[i].first);
+            compress.push_back(seg[i].second);
+        }
+        sort(all(compress));
+        compress.resize(unique(all(compress)) - compress.begin());
+        for (int i = 0; i < n; i++) {
+            auto&& [l, r] = seg[i];
+            l = lower_bound(all(compress), l) - compress.begin();
+            r = lower_bound(all(compress), r) - compress.begin();
+        }
+    }
+	jump_l.resize(n);
+	Segtree T;
+	T.init((int)compress.size());
+	for (int i = 0; i < n; i++) {
+		 int ind = T.get_max(seg[i].first, seg[i].second);
+		 jump_l[i] = ind;
+		 T.update(seg[i].first, seg[i].second, i);
+	}
+
+	T.t.clear();
+	T.n = {};
+
+	reverse(all(seg));
+	jump_r.resize(n);
+	T.init((int)compress.size());
+	for (int i = 0; i < n; i++) {
+		int ind = T.get_max(seg[i].first, seg[i].second);
+		jump_r[n - i - 1] =  n - ind - 1;
+		T.update(seg[i].first, seg[i].second, i);
+	}
+	reverse(all(seg));
+
+	for (int i = 0; i < n; i++) {
+		cout << jump_l[i] << ' ';
+	}
+	cout << '\n';
+	for (int i = 0; i < n; i++) {
+		cout << jump_r[i] << ' ';
+	}
+	//
+	//int q; cin >> q;
+	//query.resize(q);
+	//ans.resize(q);
+	//mrg.resize(n * 20ll);
+	//ind_query.resize(n);
+	//pref.resize(n);
+	//suf.resize(n);
+	//for (int i = 0; i < q; i++) {
+	//	int x, y; cin >> x >> y;
+	//	x--, y--;
+	//	query[i] = make_pair(x, y);
+	//	ind_query[x].push_back(i);
+	//	ind_query[y].push_back(i);
+
+	//}
+	//while (q--) {
+	//	int x, y; cin >> x >> y;
+	//	x--, y--;
+	//	int res = 1, lst = x;
+	//	/*for (int i = x; i <= y; i++) {
+	//		if (jump_l[i] >= lst) {
+	//			res++;
+	//			lst = i;
+	//		}
+	//	}*/
+	//	cout << res << '\n';
+	//}
+}
