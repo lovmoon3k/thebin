@@ -1,7 +1,5 @@
-[**f8HUA0Ls**](/data/f8HUA0Ls.txt) (24/12/22 - 04:40)- 17260 bytes
+[**wfyrJ8qb**](/data/wfyrJ8qb.txt) (24/12/22 - 04:45)- 14482 bytes
 
-[**f8HUA0Ls**](/data/f8HUA0Ls.txt) (24/12/22 - 04:40)- 17260 bytes
+**Total Datas**: 1506
 
-**Total Datas**: 1505
-
-**Total Size**: 9.38 MB / 9.4 MB
+**Total Size**: 9.40 MB / 9.4 MB
