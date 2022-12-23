@@ -1,0 +1,300 @@
+local recipes = {
+  ["computercraft:mining_crafty_turtle"] = {
+    ["type"] = "crafting",
+    ["recipe"] = {
+      "minecraft:diamond_pickaxe", "computercraft:turtle_normal", "minecraft:crafting_table",
+      nil, nil, nil,
+      nil, nil, nil
+    }
+  },
+  ["computercraft:turtle_normal"] = {
+    ["type"] = "crafting",
+    ["recipe"] = {
+      "minecraft:iron_ingot", "minecraft:iron_ingot", "minecraft:iron_ingot",
+      "minecraft:iron_ingot", "computercraft:computer_normal", "minecraft:iron_ingot",
+      "minecraft:iron_ingot", "minecraft:chest", "minecraft:iron_ingot"
+    }
+  },
+  ["computercraft:computer_normal"] = {
+    ["type"] = "crafting",
+    ["recipe"] = {
+      "#c:stones", "#c:stones", "#c:stones",
+      "#c:stones", "minecraft:redstone", "#c:stones",
+      "#c:stones", "minecraft:glass_pane", "#c:stones"
+    }
+  },
+  ["computercraft:disk_drive"] = {
+    ["type"] = "crafting",
+    ["recipe"] = {
+      "#c:stones", "#c:stones", "#c:stones",
+      "#c:stones", "minecraft:redstone", "#c:stones",
+      "#c:stones", "minecraft:redstone", "#c:stones"
+    }
+  },
+  ["minecraft:glass_pane"] = {
+    ["type"] = "crafting",
+    ["recipe"] = {
+      "minecraft:glass","minecraft:glass", "minecraft:glass",
+      "minecraft:glass","minecraft:glass", "minecraft:glass",
+      nil, nil, nil
+    }
+  },
+  ["minecraft:chest"] = {
+    ["type"] = "crafting",
+    ["recipe"] = {
+      "#minecraft:planks", "#minecraft:planks", "#minecraft:planks",
+      "#minecraft:planks", nil, "#minecraft:planks",
+      "#minecraft:planks", "#minecraft:planks", "#minecraft:planks"
+    }
+  },
+  ["#minecraft:planks "] = {
+    ["type"] = "crafting",
+    ["recipe"] = {
+      "#minecraft:logs", nil, nil,
+      nil, nil, nil,
+      nil, nil, nil
+    }
+  },
+  ["minecraft:diamond_pickaxe"] = {
+    ["type"] = "crafting",
+    ["recipe"] = {
+      "minecraft:diamond", "minecraft:diamond", "minecraft:diamond",
+      nil, "minecraft:stick", nil,
+      nil, "minecraft:stick", nil
+    }
+  },
+  ["minecraft:stick"] = {
+    ["type"] = "crafting",
+    ["recipe"] = {
+      "#minecraft:planks", nil, nil,
+      "#minecraft:planks", nil, nil,
+      nil, nil, nil
+    }
+  },
+  ["minecraft:iron_ingot"] = {
+    ["type"] = "smelting",
+    ["recipe"] = {
+      "#minecraft:iron_ores"
+    }
+  },
+  ["minecraft:glass"] = {
+    ["type"] = "smelting",
+    ["recipe"] = {
+      "minecraft:sand"
+    }
+  },
+  ["minecraft:stone"] = {
+    ["type"] = "smelting",
+    ["recipe"] = {
+      "minecraft:cobblestone"
+    }
+  },
+  ["minecraft:smooth_stone"] = {
+    ["type"] = "smelting", 
+    ["recipe"] = {
+      "minecraft:stone"
+    }
+  }
+}
+
+local INVENTORY_SPACES = 16
+
+local function hasValue( tbl, val )
+  for index, value in ipairs(tbl) do
+    print(value, val)
+      if value == val then
+        return true
+      end
+  end
+
+  return false
+end
+
+function string.starts(String,Start)
+  return string.sub(String,1,string.len(Start))==Start
+end
+
+local function printTable(tbl)
+  for key, value in pairs(tbl) do
+    print(key.. ": " ..value)
+  end
+end
+
+local function findItem(item, amount)
+  local name = item
+  local tag = false
+  if(string.starts(item, "#")) then
+    name = string.sub(name, 2)
+    tag = true
+  end
+
+  for i = 1, 16, 1 do
+    local curItem = turtle.getItemDetail(i, true)
+
+    if curItem ~= nil then
+      if (tag and curItem.tags[name] and (amount ~= nil and curItem.count ~= nil and curItem.count >= amount )) then
+        return i
+      elseif (curItem.name == name and (amount ~= nil and curItem.count ~= nil and curItem.count >= amount )) then
+        return i
+      end
+    end
+  end
+
+  return false
+end
+
+local function placeAndDestroy(dir)
+  if(dir == "front") then
+    while not turtle.place() do
+      turtle.dig()
+    end
+  elseif (dir == "up") then
+    while not turtle.placeUp() do
+      turtle.digUp()
+    end
+  elseif (dir == "down") then
+    while not turtle.placeDown() do
+      turtle.digDown()
+    end
+  end
+end
+
+local function moveAndDestroy(dir)
+
+  if(turtle.getFuelLevel() < 1) then return false end
+  if(dir == "front") then
+    while not turtle.forward() do
+      turtle.dig()
+    end
+  elseif (dir == "up") then
+    while not turtle.up() do
+      turtle.digUp()
+    end
+  elseif (dir == "down") then
+    while not turtle.down() do
+      turtle.digDown()
+    end
+  end
+  return true
+end
+
+local function smelting(item, amount, makeItem)
+  if(turtle.getFuelLevel() < 4) then return false end
+  local itemIndex = findItem(recipes[item].recipe[1], amount)
+  if(itemIndex == false) then 
+    if(recipes[recipes[item].recipe[1]] ~= nil) then
+      local itemName = recipes[item].recipe[1]
+      local succes = makeItem(itemName, amount)
+      if(not succes) then return false end
+
+      itemIndex = findItem(recipes[item].recipe[1], amount)
+    else
+      return false
+    end
+  end
+
+  local coalIndex = findItem("minecraft:coal", math.ceil(amount/8))
+  if(coalIndex == false) then return false end
+
+  local block, data = turtle.inspect()
+  if (not (block and data.name == "minecraft:furnace")) then
+    local furnaceIndex = findItem("minecraft:furnace", 1)
+    if(furnaceIndex == false) then return false end
+  
+    turtle.select(furnaceIndex)
+    
+    placeAndDestroy("front")
+  end
+
+  turtle.select(coalIndex)
+  turtle.drop(math.ceil(amount/8))
+
+  moveAndDestroy("up")
+  moveAndDestroy("front")
+  
+  turtle.select(itemIndex)
+  turtle.dropDown(amount)
+
+  sleep(amount*10)
+
+  turtle.turnLeft()
+  turtle.turnLeft()
+  moveAndDestroy("front")
+  moveAndDestroy("down")
+  turtle.turnRight()
+  turtle.turnRight()
+
+  return true
+end
+
+local function crafting(item, amount, makeItem)
+  for index, value in ipairs(recipes[item].recipe) do
+    print(value)
+  end
+
+  return true
+  -- local itemIndexes = {}
+  -- for i = 1, 9, 1 do
+  --   if(recipes[item].recipe[i] ~= nil) then
+  --     local index = findItem(recipes[item].recipe[i], amount)
+  --     if (index == false) then
+  --       if(recipes[recipes[item].recipe[i]] ~= nil) then
+  --         local itemName = recipes[item].recipe[i]
+  --         local succes = makeItem(itemName, amount)
+  --         if(not succes) then return false end
+    
+  --         index = findItem(recipes[item].recipe[1], amount)
+  --       else
+  --         return false
+  --       end
+  --     end
+  --     itemIndexes[recipes[item].recipe[i]] = index
+  --   end
+  -- end
+
+  -- local block, data = turtle.inspect()
+  -- if (not (block and data.name == "minecraft:chest")) then
+  --   local chestIndex = findItem("minecraft:chest", 1)
+  --   if(chestIndex == false) then return false end
+  
+  --   turtle.select(chestIndex)
+    
+  --   placeAndDestroy("front")
+  -- end
+
+  -- for i = 1, INVENTORY_SPACES, 1 do
+  --   if (not hasValue(itemIndexes, i)) then
+  --     turtle.select(i)
+  --     turtle.drop()
+  --   end
+  -- end
+
+  -- for i = 1, 9, 1 do
+  --   turtle.select(itemIndexes[recipes[item].recipe[i]])
+  --   turtle.transferTo(i)
+  -- end
+
+  -- turtle.craft(amount)
+
+  -- return true
+end
+
+local function makeItem(item, amount)
+  if(recipes[item].type == "crafting") then
+    local succes = crafting(item, amount, makeItem)
+    if(not succes) then
+      print("Crafting of " ..item.. " failed.")
+      return false
+    end
+  elseif (recipes[item].type == "smelting") then
+    local succes = smelting(item, amount, makeItem)
+    if(not succes) then
+      print("Crafting of " ..item.. " failed.")
+      return false
+    end
+  end
+  turtle.dig()
+  return true
+end
+
+makeItem("minecraft:stick", 1)
