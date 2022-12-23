@@ -1,0 +1,198 @@
+#include "FS.h"
+#include <SPI.h>
+#include <TFT_eSPI.h>
+TFT_eSPI tft = TFT_eSPI();
+#define CALIBRATION_FILE "/TouchCalData3"
+#define REPEAT_CAL false
+// 註釋掉停止畫黑點
+#define BLACK_SPOT
+//中文字
+#include <U8g2_for_TFT_eSPI.h>
+U8g2_for_TFT_eSPI u8f;       // U8g2 字體實例
+
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include "DHT.h"
+//請修改以下參數--------------------------------------------
+char ssid[] = "xxxxxxx";
+char password[] = "xxxxxx";
+//請修改為你自己的API Key，並將https改為http
+String url = "http://api.thingspeak.com/update?api_key=xxxxxxxxxxx";
+int pinDHT11 = 33;//假設DHT11接在腳位GPIO14，麵包板左側序號8
+//---------------------------------------------------------
+DHT dht(pinDHT11, DHT11);//宣告SimpleDHT11物件
+
+//公用變數區
+float humidity=0;
+float temperature=0;
+bool SendFlag = false;
+
+//宣告任務Task1
+TaskHandle_t Task1;
+
+//任務1副程式Task1_senddata
+void Task1_senddata(void * pvParameters ) {
+  //無窮迴圈
+  for (;;) {
+    //偵測上傳旗標是否為true
+    if (SendFlag) {
+      Serial.print("Task1：啟動網頁連線，at core:");
+      Serial.println(xPortGetCoreID());
+      HTTPClient http;
+      //將溫度及濕度以http get參數方式補入網址後方
+      String url1 = url + "&field2=" + (String)temperature + "&field3=" + (String)humidity;
+      //http client取得網頁內容
+      http.begin(url1);
+      int httpCode = http.GET();
+      if (httpCode == HTTP_CODE_OK) {
+        //讀取網頁內容到payload
+        String payload = http.getString();
+        //將內容顯示出來
+        Serial.print("網頁內容=");
+        Serial.println(payload);
+      } else {
+        //傳送失敗
+        Serial.println("網路傳送失敗");
+      }
+      //修改完畢，修改傳送旗標=false
+      SendFlag = false;
+      http.end();
+    } else {
+      //Task1休息，delay(1)不可省略
+      delay(1);
+    }
+  }
+}
+
+void setup()
+{
+  Serial.begin(115200);
+  Serial.print("開始連線到無線網路SSID:");
+  Serial.println(ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(1000);
+  }
+  Serial.println("連線完成");
+
+  dht.begin();
+
+  tft.init();
+  tft.setRotation(3);
+  touch_calibrate();
+
+  u8f.begin(tft);
+  u8f.setFont(u8g2_font_unifont_t_chinese1);  // 設定中文字
+  tft.fillScreen(TFT_BLACK); //清除螢幕黑色
+
+  //在核心0啟動任務1
+  xTaskCreatePinnedToCore(
+    Task1_senddata, /*任務實際對應的Function*/
+    "Task1",        /*任務名稱*/
+    10000,          /*堆疊空間*/
+    NULL,           /*無輸入值*/
+    0,                 /*優先序0*/
+    &Task1,       /*對應的任務變數位址*/
+    0);                /*指定在核心0執行 */
+}
+
+void loop()
+{
+
+
+  Serial.print("loop主流程：溫濕度讀取，at core:");
+  Serial.println(xPortGetCoreID());
+  //嘗試讀取溫濕度內容
+   humidity = dht.readHumidity();
+   temperature = dht.readTemperature();
+  //讀取成功，將溫濕度顯示在序列視窗
+  Serial.print("溫度計讀取成功: ");
+  Serial.print(temperature); Serial.print(" *C, ");
+  Serial.print(humidity); Serial.println(" H");
+
+  tft.fillScreen(TFT_BLACK);
+
+  tft.setTextFont(2);
+  tft.setTextSize(3);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setCursor(20, 0);
+  tft.println("Temperature");
+  tft.setCursor(20, 90);
+  tft.println("Humidity");
+  
+  tft.setCursor(20, 40);
+  tft.println(temperature);
+  tft.setCursor(20, 130);
+  tft.println(humidity);
+  //修改上傳旗標=true
+  SendFlag = true;
+  delay(5000);//休息20秒
+}
+
+//====================================================================
+void touch_calibrate()
+{
+  uint16_t calData[5];
+  uint8_t calDataOK = 0;
+
+  // check file system exists
+  if (!SPIFFS.begin()) {
+    //    Serial.println(F("Formatting file system"));
+    SPIFFS.format();
+    SPIFFS.begin();
+  }
+
+  // check if calibration file exists and size is correct
+  if (SPIFFS.exists(CALIBRATION_FILE)) {
+    if (REPEAT_CAL)
+    {
+      // Delete if we want to re-calibrate
+      SPIFFS.remove(CALIBRATION_FILE);
+    }
+    else
+    {
+      File f = SPIFFS.open(CALIBRATION_FILE, "r");
+      if (f) {
+        if (f.readBytes((char *)calData, 14) == 14)
+          calDataOK = 1;
+        f.close();
+      }
+    }
+  }
+
+  if (calDataOK && !REPEAT_CAL) {
+    // calibration data valid
+    tft.setTouch(calData);
+  } else {
+    // data not valid so recalibrate
+    tft.fillScreen(TFT_BLACK);
+    tft.setCursor(20, 0);
+    tft.setTextFont(2);
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
+    tft.println("Touch corners as indicated");
+
+    tft.setTextFont(1);
+    tft.println();
+
+    if (REPEAT_CAL) {
+      tft.setTextColor(TFT_RED, TFT_BLACK);
+      tft.println("Set REPEAT_CAL to false to stop this running again!");
+    }
+
+    tft.calibrateTouch(calData, TFT_MAGENTA, TFT_BLACK, 15);
+
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.println("Calibration complete!");
+
+    // store data
+    File f = SPIFFS.open(CALIBRATION_FILE, "w");
+    if (f) {
+      f.write((const unsigned char *)calData, 14);
+      f.close();
+    }
+  }
+}
