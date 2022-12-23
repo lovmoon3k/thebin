@@ -1,0 +1,325 @@
+function run()
+    -- Stop resets global variables used for playback
+    stop('run')
+    
+    -- Wrap our speaker peripheral on top of this computer to play notes
+    speaker = peripheral.wrap('top')
+ 
+    -- Open the modem on our left side for networking with the front-end
+    rednet.open('left')
+    
+    -- Run a while loop to listen for incoming packets from the jukebox computer
+    while true do
+        -- Receive a packet over the jukebox player protocol
+        local sender, packet, protocol = rednet.receive('JBPP')
+ 
+        -- Grab the command from the packet
+        local command = packet.command
+        print(command)
+ 
+        -- There are two commands associated with incoming packets: queue and play
+        if command == 'queue' then
+            -- Queue tells us that we need to add the song object from the packet to our songs table
+            queue(packet.song)
+            
+        elseif command == 'play' and #songs > 0 then
+            -- Play tells us that the desired songs are queued and that we should begin playback
+            play()
+        end
+        
+        print(#songs)
+    end
+end
+ 
+function queue(song)
+    -- Put the song in the songs table
+    table.insert(songs, song)
+            
+    -- Print some information about the song
+    print('Added ' .. song.name .. ' (' .. #song.samples .. ' samples) to the queue.')
+end
+ 
+function play()
+    -- Print the state of doPause and doStop before playback begins (for testing)
+    print('Beginning playback. doPause = ' .. tostring(doPause) .. ', doStop = ' .. tostring(doStop))
+    print('Starting at sample ' .. sampleIndex)
+    
+    -- Get some information about the queue
+    local totalSamples = 0
+    for i = 1, #songs, 1 do
+        totalSamples = totalSamples + #songs[i].samples
+    end
+    
+    -- Print some information about the songs table
+    print('Playing ' .. #songs .. ' songs (' .. totalSamples .. ' samples).')
+    
+    -- We use a nested for loop here - one for the amount of songs we have, another for the number
+    -- of samples in each song and the last for the number of note events in each sample
+    for i = songIndex, #songs, 1 do
+        for j = sampleIndex, #songs[i].samples, 1 do
+            for k = 1, #songs[i].samples[j].noteEvents, 1 do
+                -- Play a note for every note event in the sample
+                playNote(songs[i].samples[j].noteEvents[k])
+            end
+            
+            -- After playing every note this tick, we grab the bundled output from the back and
+            -- check for orange/red; these tell us whether we need to pause/stop playback
+            doPause = redstone.getInput('back')
+            doStop = redstone.getInput('bottom')
+            
+            -- Pause/stop playback if needed
+            if doPause then
+                -- Simply returning from this function will keep our songs table, song index and 
+                -- sample index intact so that we're able to resume from where we left off
+                songIndex = i
+                sampleIndex = j
+                return
+            elseif doStop then
+                -- Calling stop() before returning will reset the aforementioned globals, clearing
+                -- the queue entirely so that other songs can be queued/played
+                stop('play.doStop')
+                return
+            else -- If we're not pausing/stopping, sleep until next tick to play more notes
+                local curMS = os.epoch()
+                local tickRem = curMS % 50
+                local tickMin = 50 - tickRem
+                local waitTime = tickMin / 1000
+                sleep(waitTime)
+            end
+        end
+ 
+        -- Set the sampleIndex back to 1 after this song is complete so we start from the
+        -- beginning of the next song
+        sampleIndex = 1
+    end
+ 
+    -- Reset globals after playback is complete
+    stop('play')
+end
+ 
+function stop(func)
+    -- Print the function this was called from (for testing)
+    print('Stop called from ' .. func .. '.')
+    
+    -- The array of songs that we add to and later play
+    songs = {}
+    
+    -- The index of the current song
+    songIndex = 1
+    
+    -- The index of the current sample (tick) within a song
+    sampleIndex = 1
+    
+    -- The pause/stop booleans
+    doPause = false
+    doStop = false
+end
+ 
+function playNote(noteEvent)
+    -- This function interfaces with the speaker peripheral to play the current note event's
+    -- note on the current note event's instrument
+    if noteEvent.instrument == 'bass' then
+        speaker.playNote(noteEvent.instrument, 3, getNoteValue(noteEvent.instrument, noteEvent.note))
+        
+    elseif noteEvent.instrument == 'guitar' then
+        speaker.playNote(noteEvent.instrument, 3, getNoteValue(noteEvent.instrument, noteEvent.note))
+ 
+    elseif noteEvent.instrument == 'flute' then
+        speaker.playNote(noteEvent.instrument, 3, getNoteValue(noteEvent.instrument, noteEvent.note))
+ 
+    elseif noteEvent.instrument == 'bell' then
+        speaker.playNote(noteEvent.instrument, 3, getNoteValue(noteEvent.instrument, noteEvent.note))
+ 
+    else -- Drums
+        if noteEvent.instrument == 'bassDrum' then
+            speaker.playNote('baseDrum', 3, 0)
+ 
+        elseif noteEvent.instrument == 'lowFloorTom' then
+            speaker.playNote('baseDrum', 3, 18)
+ 
+        elseif noteEvent.instrument == 'highFloorTom' then
+            speaker.playNote('baseDrum', 3, 21)
+ 
+        elseif noteEvent.instrument == 'lowTom' then
+            speaker.playNote('baseDrum', 3, 24)
+ 
+        elseif noteEvent.instrument == 'lowMidTom' then
+            speaker.playNote('snare', 3, 0)
+ 
+        elseif noteEvent.instrument == 'highMidTom' then
+            speaker.playNote('snare', 3, 3)
+ 
+        elseif noteEvent.instrument == 'highTom' then
+            speaker.playNote('snare', 3, 6)
+ 
+        elseif noteEvent.instrument == 'snare' then
+            speaker.playNote('snare', 3, 12)
+ 
+        elseif noteEvent.instrument == 'hat' then
+            speaker.playNote('hat', 3, 24)
+        end
+    end
+end
+ 
+function getNoteValue(instrument, note)
+    -- This function returns the integer required for speaker.playNote(...)'s third parameter: pitch
+    -- The value returned corresponds to each instrument's musical range - for example, 0 returned
+    -- from the "bell" instrument is a higher pitch than an 11 returned from the "bass" instrument
+    if instrument == 'bass' then
+        if note == "F#1" then
+            return 0
+        elseif note == "G1" then
+            return 1
+        elseif note == "G#1" then
+            return 2
+        elseif note == "A1" then
+            return 3
+        elseif note == "A#1" then
+            return 4
+        elseif note == "B1" then
+            return 5
+        elseif note == "C2" then
+            return 6
+        elseif note == "C#2" then
+            return 7
+        elseif note == "D2" then
+            return 8
+        elseif note == "D#2" then
+            return 9
+        elseif note == "E2" then
+            return 10
+        elseif note == "F2" then
+            return 11
+        end
+    elseif instrument == 'guitar' then
+        if note == "F#2" then
+            return 0
+        elseif note == "G2" then
+            return 1
+        elseif note == "G#2" then
+            return 2
+        elseif note == "A2" then
+            return 3
+        elseif note == "A#2" then
+            return 4
+        elseif note == "B2" then
+            return 5
+        elseif note == "C3" then
+            return 6
+        elseif note == "C#3" then
+            return 7
+        elseif note == "D3" then
+            return 8
+        elseif note == "D#3" then
+            return 9
+        elseif note == "E3" then
+            return 10
+        elseif note == "F3" then
+            return 11
+        elseif note == "F#3" then
+            return 12
+        elseif note == "G3" then
+            return 13
+        elseif note == "G#3" then
+            return 14
+        elseif note == "A3" then
+            return 15
+        elseif note == "A#3" then
+            return 16
+        elseif note == "B3" then
+            return 17
+        elseif note == "C4" then
+            return 18
+        elseif note == "C#4" then
+            return 19
+        elseif note == "D4" then
+            return 20
+        elseif note == "D#4" then
+            return 21
+        elseif note == "E4" then
+            return 22
+        elseif note == "F4" then
+            return 23
+        elseif note == "F#4" then
+            return 24
+        end
+    elseif instrument == 'flute' then
+        if note == "G4" then
+            return 1
+        elseif note == "G#4" then
+            return 2
+        elseif note == "A4" then
+            return 3
+        elseif note == "A#4" then
+            return 4
+        elseif note == "B4" then
+            return 5
+        elseif note == "C5" then
+            return 6
+        elseif note == "C#5" then
+            return 7
+        elseif note == "D5" then
+            return 8
+        elseif note == "D#5" then
+            return 9
+        elseif note == "E5" then
+            return 10
+        elseif note == "F5" then
+            return 11
+        elseif note == "F#5" then
+            return 12
+        elseif note == "G5" then
+            return 13
+        elseif note == "G#5" then
+            return 14
+        elseif note == "A5" then
+            return 15
+        elseif note == "A#5" then
+            return 16
+        elseif note == "B5" then
+            return 17
+        elseif note == "C6" then
+            return 18
+        elseif note == "C#6" then
+            return 19
+        elseif note == "D6" then
+            return 20
+        elseif note == "D#6" then
+            return 21
+        elseif note == "E6" then
+            return 22
+        elseif note == "F6" then
+            return 23
+        elseif note == "F#6" then
+            return 24
+        end
+    elseif instrument == 'bell' then
+        if note == "G6" then
+            return 13
+        elseif note == "G#6" then
+            return 14
+        elseif note == "A6" then
+            return 15
+        elseif note == "A#6" then
+            return 16
+        elseif note == "B6" then
+            return 17
+        elseif note == "C7" then
+            return 18
+        elseif note == "C#7" then
+            return 19
+        elseif note == "D7" then
+            return 20
+        elseif note == "D#7" then
+            return 21
+        elseif note == "E7" then
+            return 22
+        elseif note == "F7" then
+            return 23
+        elseif note == "F#7" then
+            return 24
+        end
+    end
+end
+ 
+run()
