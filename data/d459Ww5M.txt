@@ -1,0 +1,135 @@
+#include <iostream>
+#include "erfinv.h"
+using IntegralFunction = double(*)(double);
+using QuadratureFormula = double(*)(double, double, unsigned, IntegralFunction);
+
+double Trapezoid(double, double, unsigned, IntegralFunction);
+double Simpson(double, double, unsigned, IntegralFunction);
+double LeftRectangle(double, double, unsigned, IntegralFunction);
+double RightRectangle(double, double, unsigned, IntegralFunction);
+double MiddleRectangle(double, double, unsigned, IntegralFunction);
+double DoubleConverting(double, double, double, unsigned, IntegralFunction, QuadratureFormula);
+
+int main()
+{
+	auto input = [](const char* enterMessage, const char* errorMessage, int leftBorder, int rightBorder)
+	{
+		int value;
+		while (true) 
+		{
+			std::cout << enterMessage << std::endl;
+			std::cin >> value;
+			if (value >= leftBorder && value <= rightBorder) 
+			{
+				system("cls");
+				return value;
+			}
+			std::cout << errorMessage << std::endl;
+			system("pause");
+			system("cls");
+		}
+	};
+
+	int variant = input("To calculate the error function press 1\nTo To calculate integral of the inverse error function press 2", "Invalid variant. Try again.", 1, 2);
+
+	IntegralFunction function = nullptr;
+	double BeginSegm = 0, EndSegm = 1, Epsilon = 0.5E-2;
+	const double PI = atan(1) * 4;
+	const char* functionName = nullptr;
+	switch (variant)
+	{
+	case 0: function = [](double x) { return (double)erfinv(x); };
+		Epsilon = 0.5E-2;
+		functionName = "erfinv(x)", BeginSegm = 0, EndSegm = 0.99;
+		break;
+	case 1: function = [](double x) { return exp(-x * x) * 2 / sqrt(atan(1) * 4); };
+		Epsilon = 0.5E-2;
+		functionName = "erf(x)";
+		break;
+	default:
+		break;
+	}
+	unsigned partitionNumber = 2;
+
+	int method = input("Choose the method to calculate the integral:\n1 - LeftRectangle\n2 - RightRectangle\n3 - MiddleRectangle\n4 - Trapezoid\n5 - Simpson", "Error. Invalid method. Try again.", 1, 5);
+
+	QuadratureFormula formula = nullptr;
+	switch (method)
+	{
+	case 1: formula = LeftRectangle;
+		break;
+	case 2: formula = RightRectangle;
+		break;
+	case 3: formula = MiddleRectangle;
+		break;
+	case 4: formula = Trapezoid;
+		break;
+	case 5: formula = Simpson;
+		break;
+	}
+
+	double Integral = DoubleConverting(BeginSegm, EndSegm, Epsilon, partitionNumber, function, formula);
+	std::cout << "\nThe value of integral of " << functionName << " calcucated using formula on segment ["
+		<< BeginSegm << ", " << EndSegm << "] is equal to " << Integral << " (accuracy = " << Epsilon << ")\n";
+
+	return 0;
+}
+
+double LeftRectangle(double LowerLimit, double UpperLimit, unsigned partitionNumber, IntegralFunction function) {
+	double result = 0;
+	double step = (UpperLimit - LowerLimit) / partitionNumber;
+	for (double t = LowerLimit; t < UpperLimit; t += step)
+		result += function(t);
+	return result * step;
+}
+
+double RightRectangle(double LowerLimit, double UpperLimit, unsigned partitionNumber, IntegralFunction function) {
+	double result = 0;
+	double step = (UpperLimit - LowerLimit) / partitionNumber;
+	if (step)
+		for (double t = LowerLimit + step; t <= UpperLimit; t += step)
+			result += function(t);
+	return result * step;
+}
+
+double MiddleRectangle(double LowerLimit, double UpperLimit, unsigned partitionNumber, IntegralFunction function) {
+	double result = 0;
+	double step = (UpperLimit - LowerLimit) / partitionNumber;
+	for (double t = LowerLimit; t < UpperLimit; t += step)
+		result += function(t + step / 2);
+	return result * step;
+}
+
+double Trapezoid(double LowerLimit, double UpperLimit, unsigned partitionNumber, IntegralFunction function) {
+	double result = 0;
+	double step = (UpperLimit - LowerLimit) / partitionNumber;
+	for (double t = LowerLimit + step; t < UpperLimit; t += step)
+		result += function(t);
+	result *= 2;
+	result += function(LowerLimit) + function(UpperLimit);
+	return result * step / 2;
+}
+
+double Simpson(double LowerLimit, double UpperLimit, unsigned partitionNumber, IntegralFunction function) {
+	double result = 0, buff = 0;
+	double step = (UpperLimit - LowerLimit) / partitionNumber;
+	for (double t = LowerLimit + 2 * step; t < UpperLimit - step; t += step)
+		buff += function(t);
+	buff *= 2;
+	for (double t = LowerLimit + step; t < UpperLimit; t += step)
+		result += function(t);
+	result *= 4;
+	result += function(LowerLimit) + buff + function(UpperLimit);
+	return result * step / 6;
+}
+
+double DoubleConverting(double BeginSegm, double EndSegm, double Epsilon,
+	unsigned partitionNumber, IntegralFunction function, QuadratureFormula formula) {
+	double PreviousIntegral, NextIntegral;
+	do {
+		PreviousIntegral = formula(BeginSegm, EndSegm, partitionNumber, function);
+		NextIntegral = formula(BeginSegm, EndSegm, 2 * partitionNumber, function);
+		partitionNumber *= 2;
+	} while (fabs(PreviousIntegral - NextIntegral) > Epsilon);
+	return NextIntegral;
+}

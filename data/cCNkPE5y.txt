@@ -1,0 +1,132 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use List::Priority;
+use List::AllUtils      qw(firstidx);
+
+$| = 1;
+
+sub vec_sum ($$) { my ($v, $w) = @_; return ([$v->[0] + $w->[0], $v->[1] + $w->[1]]) }
+sub dist ($$)    { my ($p, $q) = @_; return (abs($p->[0] - $q->[0]) + abs($p->[1] - $q->[1])) }
+
+# Including the option to wait in directions
+my @Dirs  = ([1,0], [0,1], [-1,0], [0,-1], [0,0]);
+
+my @input = map {chomp; [split //]} <>;
+
+my $start_pos = [      0, firstidx {$_ eq '.'} $input[0]->@* ];
+my $end_pos   = [$#input, firstidx {$_ eq '.'} $input[-1]->@*];
+
+my $MAX_Y = scalar @input - 2;
+my $MAX_X = scalar $input[0]->@* - 2;
+
+push( @input, [('#') x ($MAX_X + 2)] );     # add sentinel row to bottom
+
+# Get hash of locations for each character in the valley
+my %blizz;
+foreach my $y (1 .. $MAX_Y) {
+    foreach my $x (1 .. $MAX_X) {
+        push( $blizz{ $input[$y][$x] }->@*, [$y,$x] );
+    }
+}
+
+# Build two tables, one for vertical blizzards, one for horizontal
+# Tables are $VBlizz[ $time % (size of valley) ]{ coord } => number of blizzards
+# Thus giving the number of blizzards at a spot at a time (mod repeats)
+my @VBlizz;
+my @HBlizz;
+
+for (my $time = 0; $time < $MAX_Y; $time++) {
+    for my $up ($blizz{'^'}->@*) {
+        my $y = ($up->[0] - $time - 1) % $MAX_Y + 1;
+        $VBlizz[$time]{$y, $up->[1]}++;
+    }
+
+    for my $down ($blizz{'v'}->@*) {
+        my $y = ($down->[0] + $time - 1) % $MAX_Y + 1;
+        $VBlizz[$time]{$y, $down->[1]}++;
+    }
+}
+
+for (my $time = 0; $time < $MAX_X; $time++) {
+    for my $left ($blizz{'<'}->@*) {
+        my $x = ($left->[1] - $time - 1) % $MAX_X + 1;
+        $HBlizz[$time]{$left->[0], $x}++;
+    }
+
+    for my $right ($blizz{'>'}->@*) {
+        my $x = ($right->[1] + $time - 1) % $MAX_X + 1;
+        $HBlizz[$time]{$right->[0], $x}++;
+    }
+}
+
+# Function to print the valley for testing
+sub print_valley {
+    my $time = shift @_;
+
+    print "Time: $time\n";
+    print '#' x ($MAX_X + 2), "\n";
+    for my $y (1 .. $MAX_Y) {
+        print '#';
+        for my $x (1 .. $MAX_X) {
+            my $num = ($VBlizz[$time % $MAX_Y]{$y,$x} // 0)
+                        + ($HBlizz[$time % $MAX_X]{$y,$x} // 0);
+
+            print( ($num == 0) ? '.' : $num );
+        }
+        print "#\n";
+    }
+    print '#' x ($MAX_X + 2), "\n";
+}
+
+#
+# A* Search Time!
+#
+sub cross_valley {
+    my ($begin, $start, $end) = @_;
+
+    my $queue = new List::Priority;
+    $queue->insert( 0, [$begin, $start] );
+
+    my $count = 0;
+    my %visit;
+
+    QUEUE:
+    while (my ($time, $pos) = ($queue->shift)->@*) {
+        print ::stderr "[$time : ", $queue->size(), "] ($pos->[0],$pos->[1])  \r"  if ($count++ % 10000 == 0);
+
+        if ($pos->[0] == $end->[0] && $pos->[1] == $end->[1]) {
+            print ::stderr "\nAcross at $time\n";
+            return ($time);
+        }
+
+        # Circling back here later might be correct.
+        # Coming back at the exact same time, no.
+        next QUEUE  if (exists $visit{$time, $pos->[0], $pos->[1]});
+        $visit{$time, $pos->[0], $pos->[1]} = 1;
+
+        MOVE:
+        foreach my $d (@Dirs) {
+            my $npos = vec_sum( $pos, $d );
+            next MOVE  if (exists $VBlizz[($time + 1) % $MAX_Y]{$npos->[0], $npos->[1]}
+                            or exists $HBlizz[($time + 1) % $MAX_X]{$npos->[0], $npos->[1]});
+
+            next MOVE  if ($input[$npos->[0]][$npos->[1]] eq '#');
+
+            # Add distance to end as heuristic (minimal number of steps)
+            $queue->insert( $time + 1 + &dist($npos, $end), [$time + 1, $npos] );
+        }
+    }
+}
+
+my $time = &cross_valley( 0, $start_pos, $end_pos );
+
+print "Part 1: $time\n";
+
+# Silly elf!  Next time don't forget your snacks!
+$time = &cross_valley( $time, $end_pos, $start_pos );
+$time = &cross_valley( $time, $start_pos, $end_pos );
+
+print "Part 2: $time\n";
