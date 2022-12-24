@@ -1,0 +1,162 @@
+// Import into file
+const fs = require('fs');
+const path = require('path');
+const { 
+    createAudioResource,
+    createAudioPlayer,
+    joinVoiceChannel,
+    NoSubscriberBehavior
+} = require('@discordjs/voice');
+const { EmbedBuilder } = require('discord.js');
+const ytdl = require('ytdl-core');
+const { musicChannelId } = require('../config.json')
+
+// Export for usage outside of this file
+module.exports = async (client) => {
+
+    // Finds the correct voice channel to join
+    const musicChannel = client.channels.cache.get(musicChannelId)
+
+    // Sets the track position to the start of the folder or "playlist"
+    let trackPosition = 0;
+    let currentTrack = '';
+    let currentSong = '';
+    let stream = '';
+    let currentImage;
+    let currentArtist;
+
+//TODO ENABLE FOR TESTING MUSIC FEATURE IN A PRIVATE CHANNEL
+    // const testMusicChannel = client.channels.cache.get('testMusicChannelId')
+
+//TODO ENABLE IF USING YOUTUBE FOR SONGS AND IMAGES
+    //TODO Update YouTube links with correct links for client in order of songs in 'music-files'
+    // Declare the songlist and the order of the songs
+    const youTubeSongList = [];
+
+    //TODO Update with correct track names in order for how they are in 'songlist'
+    // Declare the track names for each song in 'songlist'
+    const songName = [];
+
+//TODO ENABLE IF USING SONGS AND IMAGES STORED ON SERVER
+
+    //TODO Make sure client's music files are in this folder
+    // Declare where the files to play are located on the server
+    const musicFolder = path.join(__dirname, '../music-feature/music-files');
+
+    // Declare where the song thumbnails are located on the server
+    const imagesFolder = path.join(__dirname, '../music-feature/images/');
+
+    const playSongs = async () => {
+
+        const connection = joinVoiceChannel({
+            channelId: musicChannel.id,
+            guildId: musicChannel.guild.id,
+            adapterCreator: musicChannel.guild.voiceAdapterCreator,
+        });
+        
+        const player = createAudioPlayer({
+            behaviors: {
+                noSubscriber: NoSubscriberBehavior.Pause
+            }
+        })
+    
+        player.on('error', error => {
+            const time = new Date().toLocaleString();
+            console.error('Error at ' + time + ':', error);
+        });
+    
+        if (youTubeSongList.length >= 1) {
+            let currentSong = youTubeSongList[trackPosition];
+            let currentTrack = songName[trackPosition];
+            const videoId = currentSong.slice(32)
+            let currentImage = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+
+            const stream = ytdl(currentSong, {
+                filter: 'audioonly',
+                fmt: "mp3",
+                highWaterMark: 1 << 62,
+                liveBuffer: 1 << 62,
+                dlChunkSize: 0, //disabling chunking is recommended in discord bot
+                bitrate: 128,
+                quality: "lowestaudio"
+            });
+        } 
+
+        if (musicFolder.length >= 1) {
+            let currentSong = musicFolder[trackPosition];
+            console.log("Current Song: " + currentSong);
+            
+            let currentTrack = path.basename(musicFolder[trackPosition], '.wav');
+            console.log("Current Track: " + currentTrack);
+
+            let currentImage = imagesFolder + imagesFolder[trackPosition];
+            console.log("Current Image: " + currentImage);
+
+            const stream = fs.createReadStream(currentSong);
+        } 
+
+        //TODO Update with correct track and artist names
+        if (currentTrack === 'Tessera' || currentTrack === 'Down the Rabbit-Hole') currentArtist = 'ginkiha';
+
+        if (currentTrack === 'Nostalgic Vision') currentArtist = 'Veneo Isrugi';
+
+        if (currentTrack === ' Shining') currentArtist = 'Hiroyoshi Kato';
+
+        const resource = createAudioResource(stream, { inlineVolume: true })
+        resource.volume.setVolume(0.1);
+        // let songTitle = fileName.slice(0, -4);
+
+        
+        // Play song
+        player.play(resource)
+
+        // const nowPlayingImage = new EmbedBuilder()
+        //     .setColor('#4fbaf6')
+        //     .setImage(currentImage)
+
+        const nowPlaying = new EmbedBuilder()
+            .setColor('#4fbaf6')
+            .setImage(currentImage)
+            .setTitle(`**Currently playing:**`)
+            .setDescription(`Title: ${currentTrack}
+                            Artist: ${currentArtist}
+                            Link: ${currentSong}`)
+
+        
+        musicChannel.messages.fetch()
+        .then((message) => {
+            if(!message) {
+                return
+            }
+            if (message) {
+                musicChannel.bulkDelete(1)
+                    .catch(console.error)
+            }
+        })
+        .then(() => {
+            musicChannel.send({ embeds: [nowPlaying] })
+                .catch(console.error)
+        })
+        .catch(console.error)
+        
+    
+        player.on('idle', () => {
+            trackPosition++
+            if (trackPosition >= youTubeSongList.length) {
+                trackPosition = 0;
+            }
+
+            musicChannel.bulkDelete(1)
+                .catch(console.error)
+
+
+            playSongs(currentSong);
+        })
+        
+        connection.subscribe(player)
+
+    }
+
+playSongs();
+
+};
