@@ -1,0 +1,144 @@
+from tabulate import tabulate
+import numpy as np
+import math
+
+node_arrX = []
+n = 15
+a = 0
+b = 4
+filename = "out.txt"
+
+
+def function(x):
+    return math.exp(-x) - np.arctan(x)
+
+
+h = (b - a) / (n - 1)
+
+x_list: list[float] = [a + i * h for i in range(n)]
+xe_list: list[float] = []
+for i in range(n - 1):
+    xe_list.append(x_list[i])
+    xe_list.append((x_list[i] + x_list[i + 1]) / 2)
+xe_list.append(x_list[n - 1])
+
+y_list: list[float] = [function(x) for x in x_list]
+ye_list: list[float] = [function(xe) for xe in xe_list]
+
+# noinspection PyTypeChecker
+function_table = tabulate([["y"] + y_list, ["x"] + x_list],
+                          tablefmt="simple_outline", numalign="center", floatfmt=".9f")
+print(function_table)
+with open(filename, "w", encoding="utf-8") as f:
+    f.write(function_table)
+    f.write("\n\n")
+
+
+class Calculations:
+    def __init__(self, eps: int = 12):
+        self.eps = eps
+        self.x_list = [round(x, eps) for x in x_list]
+        self.xe_list = [round(xe, eps) for xe in xe_list]
+        self.y_list = [round(y, eps) for y in y_list]
+        self.ye_list = [round(ye, eps) for ye in ye_list]
+
+        self.delta_matrix = self.get_delta_matrix(y_list)
+        self.delta_list = self.delta_matrix[0]
+        self.interpolation_list = self.get_interpolation_list(self.xe_list, self.y_list, self.x_list, self.delta_list)
+        self.delta_interpolation = self.get_delta_interpolation(self.interpolation_list, self.ye_list)
+
+    @staticmethod
+    def get_delta_matrix(data_list: list[float]) -> list[list[float]]:
+        dim: int = len(data_list)
+        delta_matrix: list[list[float]] = [[0.0] * dim for _ in range(dim)]
+        for i in range(dim):
+            delta_matrix[i][0] = data_list[i]
+        for i in range(1, dim):
+            for j in range(dim - i):
+                delta_matrix[j][i] = delta_matrix[j + 1][i - 1] - delta_matrix[j][i - 1]
+        return delta_matrix
+
+    @staticmethod
+    def get_t_coefficient(t, num: int):
+        out = t
+        for i in range(num, 1, -1):
+            out *= t - i + 1
+        return out
+
+    @staticmethod
+    def get_interpolation_list(xe_data: list[float], y_data: list[float], x_data: list[float],
+                               delta_list: list[float]) -> list[float]:
+        interpolation_list = []
+        for x in xe_data:
+            result = y_data[0]
+            t = (x - x_data[0]) / h
+            for i in range(1, len(delta_list)):
+                coef = Calculations.get_t_coefficient(t, i)
+                result += coef * delta_list[i] / math.factorial(i)
+            interpolation_list.append(result)
+        return interpolation_list
+
+    @staticmethod
+    def get_delta_interpolation(interpolation_list: list[float], ye_data: list[float]) -> list[float]:
+        return [abs(interpolation_list[i] - ye_data[i]) for i in range(len(interpolation_list))]
+
+
+def print_delta_matrix(calc: Calculations) -> None:
+    table = calc.delta_matrix
+    table = np.insert(table, 0, calc.x_list, axis=1)
+    headers = ["x", "f"]
+    headers.extend([f"f{i}" for i in range(len(calc.delta_matrix) - 1)])
+    delta_table = tabulate(table, tablefmt="simple_outline", headers=headers, numalign="center", floatfmt="0.9f")
+    print(delta_table)
+    with open(filename, "a", encoding="utf-8") as f_delta:
+        f_delta.write(delta_table)
+        f_delta.write("\n\n")
+
+
+def get_column(data: list, eps=9) -> list:
+    column = []
+    for i in data:
+        i_str = format(i, f".{eps}f")
+        column.extend([i_str, " "])
+    return column
+
+
+def print_calculations(calc: Calculations, ce_list: list[Calculations]) -> None:
+    ie_list = [i / 2 for i in range(n * 2)]
+    del ie_list[-1]
+
+    table = [ie_list, xe_list, calc.ye_list, calc.interpolation_list,
+             [abs(calc.interpolation_list[i] - calc.ye_list[i]) for i in range(len(ie_list))],
+             [abs((calc.interpolation_list[i] - calc.ye_list[i]) / calc.ye_list[i]) for i in range(len(ie_list))]]
+    for i in range(len(ce_list)):
+        table.append(get_column(ce_list[i].y_list, ce_list[i].eps))
+        table.append(ce_list[i].interpolation_list)
+        table.append([abs(ce_list[i].interpolation_list[j] - calc.interpolation_list[j]) for j in range(len(ie_list))])
+        table.append([abs((ce_list[i].interpolation_list[j] - calc.interpolation_list[j]) / calc.interpolation_list[j])
+                      for j in range(len(ie_list))])
+
+    table = zip(*table)
+    headers = ["N", "x", "f(x)", "P(x)", "|f(x)-P(x)|", "δ(P(x))"]
+    floatfmt = [""]
+    floatfmt.extend([".9f" for _ in range(5 + len(ce_list) * 4)])
+    for i in range(len(ce_list)):
+        headers.extend([f"f*(x); {ce_list[i].eps}", "P*(x)", "|P(x)-P*(x)|", "δ(P*(x))"])
+    tab_table = tabulate(table, tablefmt="simple_outline", headers=headers, stralign="center",
+                         numalign="center", floatfmt=floatfmt)
+    with open(filename, "a", encoding="utf-8") as f_calc:
+        f_calc.write(tab_table)
+        f_calc.write("\n\n")
+    print(tab_table)
+
+
+def main() -> None:
+    calc: Calculations = Calculations()
+    print_delta_matrix(calc)
+    ce_list: list[Calculations] = []
+    for i in [6, 4, 2]:
+        ce_list.append(Calculations(i))
+    print_calculations(calc, ce_list)
+
+
+if __name__ == "__main__":
+    main()
