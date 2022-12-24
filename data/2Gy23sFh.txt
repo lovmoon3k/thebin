@@ -1,0 +1,170 @@
+#include <SPI.h>
+#include <MPU6050.h>
+#include <I2Cdev.h>
+#include <SoftwareSerial.h>
+#include <TinyGPS++.h>
+#include <dht11.h>
+#include "Wire.h"
+#include <nRF24L01.h>
+#include <RF24.h>
+
+int DustPin =   A3;
+int DHT11_DATA_PIN = 5;
+int GAS_SENSOR_ANALOG_PIN = A2;
+int UVPIN = A0; 
+int REF_3V3 = A1;
+const int RXPin = 3, TXPin = 4;
+const uint32_t GPSBaud = 9600; 
+const int pinCE = 7; 
+const int pinCSN = 8; 
+
+RF24 wirelessSPI(pinCE, pinCSN); 
+const uint64_t pAddress = 0xB00B1E5000LL;       
+
+
+float Array[10];
+float HumidityPercent; 
+float Temperature; 
+float GasValue; 
+float uvIntensity;
+float Latitude;
+float Longitude;
+float Altitude;
+float Speed;
+float dustDensity;
+
+
+
+dht11 DHT11;
+TinyGPSPlus gps; 
+SoftwareSerial gpsSerial(RXPin, TXPin);
+MPU6050 accelgyro;
+ 
+int16_t ax, ay, az;
+int16_t gx, gy, gz;
+
+void setup()
+{
+  pinMode(GAS_SENSOR_ANALOG_PIN, INPUT);
+  pinMode(UVPIN, INPUT);
+  pinMode(REF_3V3, INPUT);
+
+  Wire.begin();
+
+  gpsSerial.begin(GPSBaud);
+  accelgyro.initialize();
+  Serial.println(accelgyro.testConnection() ? "MPU6050 connection successful" : "ERROR: MPU6050 connection failed");
+
+  wirelessSPI.begin();          
+  wirelessSPI.setAutoAck(1);                
+  wirelessSPI.enableAckPayload();         
+  wirelessSPI.setRetries(5,15);            
+  wirelessSPI.openWritingPipe(pAddress);   
+  wirelessSPI.stopListening();
+  wirelessSPI.printDetails();  
+
+  Serial.begin(9600);
+}
+
+void loop()
+{
+  Serial.println();
+
+
+  accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+
+   float voltsMeasured = analogRead(DustPin);
+   float calcVoltage = voltsMeasured * (5.0 / 1024.0);
+   dustDensity = 0.17 * calcVoltage - 0.1;
+   Serial.print("Dust Sensor Voltage: ");
+   Serial.println(calcVoltage);
+   Serial.print("Dust Density: ");
+   Serial.println(dustDensity);
+
+ 
+
+   if (gpsSerial.available() > 0) {
+    if (gps.encode(gpsSerial.read())) {
+      if (gps.location.isValid()) {
+        Latitude = gps.location.lat();
+        Longitude = gps.location.lng();
+        if (gps.altitude.isValid())
+          Altitude = gps.altitude.meters();
+        else
+          Serial.println(F("ERROR: INVALID altitude"));
+      } else {
+        Serial.println(F("ERROR: INVALID location"));
+      }
+
+      if (gps.speed.isValid()) {
+        Speed = gps.speed.kmph();
+      } else {
+        Serial.println(F("ERROR: INVALID speed"));
+      }
+    }
+  }
+  if (millis() > 5000 && gps.charsProcessed() < 10)
+    Serial.println(F("ERROR: No GPS data received"));
+
+
+  int chk = DHT11.read(DHT11_DATA_PIN);
+  HumidityPercent = DHT11.humidity;
+  Temperature = DHT11.temperature;
+  Serial.print("Humidity Percent: ");
+  Serial.println(HumidityPercent);
+  Serial.print("Temperature: ");
+  Serial.println(Temperature);
+
+
+  int uvLevel = averageAnalogRead(UVPIN);
+  int refLevel = averageAnalogRead(REF_3V3);
+  float outputVoltage = 3.3 / refLevel * uvLevel;
+  uvIntensity = mapfloat(outputVoltage, 0.99, 2.8, 0.0, 15.0); 
+  Serial.print("UV Intensity: ");
+  Serial.println(uvIntensity);
+
+
+  GasValue = analogRead(GAS_SENSOR_ANALOG_PIN);
+  Serial.print("Gas Value: ");
+  Serial.println(GasValue);
+
+  Array[0] =  HumidityPercent; 
+  Array[1] =  Temperature; 
+  Array[2] = GasValue; 
+  Array[3] = uvIntensity;
+  Array[4] = Latitude;
+  Array[5] = Longitude;
+  Array[6] = Altitude;
+  Array[7] = Speed;
+  Array[8] =  dustDensity;
+
+  if (!wirelessSPI.write(&Array, sizeof(Array))){ 
+      Serial.println("delivery failed"); 
+      Serial.println();     
+  }
+  else { 
+      Serial.println("Send successful.");
+      Serial.println();
+  }
+
+  delay(2000);
+
+}
+
+int averageAnalogRead(int pinToRead)
+{
+  byte numberOfReadings = 8;
+  unsigned int runningValue = 0; 
+ 
+  for(int x = 0 ; x < numberOfReadings ; x++)
+    runningValue += analogRead(pinToRead);
+  runningValue /= numberOfReadings;
+ 
+  return(runningValue);
+}
+ 
+float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
