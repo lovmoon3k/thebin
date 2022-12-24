@@ -1,0 +1,121 @@
+#!/bin/sh
+
+INSTALL_PATH=~/ubin
+WORK_PATH=/media/ramdisk/mediainfo_tmp
+CHANGELOG=http://mediaarea.net/MediaInfo/ChangeLog
+DOWNLOAD1=http://sourceforge.net/projects/mediainfo/files/binary/mediainfo/
+DOWNLOAD2=http://mediaarea.net/download/binary/mediainfo/
+OPT=NONE
+
+CLEAN(){
+    printf "\nCleaning up... "
+    cd ~/
+    rm -drf $WORK_PATH
+    echo "done."
+    exit $1
+}
+
+BUILD(){
+    echo "Unpacking & compiling binary...   "
+    tar -xjf latest.tar.bz2
+    cd MediaInfo_CLI_GNU_FromSource
+    if ./CLI_Compile.sh; then
+	    cd $INSTALL_PATH
+	    if [ -f MediaInfo~ ]; then rm -f MediaInfo~; fi
+	    if [ -f MediaInfo ]; then mv MediaInfo MediaInfo~; fi
+	    echo "Compressing & installing MediaInfo to $INSTALL_PATH..."
+	    upx --lzma -9 $WORK_PATH/MediaInfo_CLI_GNU_FromSource/MediaInfo/Project/GNU/CLI/mediainfo -o MediaInfo
+	    echo "All done - finished MediaInfo $LATEST_VERS update."
+	    CLEAN 0
+    else
+	    echo "Unable to compile. Try another source or contact developer!"
+	    CLEAN 1
+    fi
+}
+
+echo
+if [ -d "$WORK_PATH" ]; then
+    rm -rf $WORK_PATH/*
+else
+    mkdir $WORK_PATH
+fi
+cd $WORK_PATH
+if [ $# -gt 0 ]; then
+    if [ $1 = CHECK ] || [ $1 = check ]; then OPT=CHECK
+    elif [ $1 = FORCE ] || [ $1 = force ]; then OPT=FORCE
+    else
+	    printf "Unknown option: '"$1"' Try again! ;)\n\n"
+	    exit 1
+    fi
+fi
+printf "Checking MediaInfo version...   "
+if wget -q $CHANGELOG -O changelog; then
+    STRING=$(grep -m 1 'Version ' changelog)
+    LATEST_VERS=${STRING#*Version\ }
+    LATEST_VERS=${LATEST_VERS%,\ 2*}
+    if [ -d $INSTALL_PATH ]; then
+	    echo "Latest version:            "$LATEST_VERS
+	    if [ -f $INSTALL_PATH/MediaInfo ]; then
+	        INSTALLED_VERS=$($INSTALL_PATH/MediaInfo --version | grep MediaInfoLib 2>/dev/null)
+	        INSTALLED_VERS=${INSTALLED_VERS#*\ v}
+	        printf "                                Current installed version: $INSTALLED_VERS\n\n"
+	        if [ $LATEST_VERS = $INSTALLED_VERS ]; then
+		        printf "Installed version is already the latest"
+		if [ $OPT = CHECK ]; then
+		    echo " - no update necessary."
+		    CLEAN 0
+		fi
+		if [ $OPT = FORCE ]; then
+            echo ", but FORCE option was called. Updating anyway."
+		else
+		    read -p " - update anyway (y/N)? " YN
+		    case $YN in
+			[Yy]*)
+			    echo "Starting update..."
+			    ;;
+			*)
+			    echo "Nothing changed."
+			    CLEAN 0
+			    ;;
+		    esac
+		fi
+	    else
+		    printf "New version available - "
+		    if [ $OPT = CHECK ]; then
+		        echo "update recommended!"
+		        CLEAN 0
+		    fi
+		    echo "starting update."
+	        fi
+	    else
+	        echo "No information about installed version found."
+	        if [ $OPT = CHECK ]; then CLEAN 0; fi
+	    fi
+    else
+	    printf "$INSTALL_PATH not found - "
+	    if [ $OPT = CHECK ]; then
+            echo "could not get version information"
+	    else
+            echo "no install possible."
+	    fi
+	    CLEAN 1
+    fi
+else
+    echo "Could not find release information - no download possible :("
+    CLEAN 1
+fi
+
+#LATEST_VERS=0.7.95    # <-- enable this to enforce a certain version
+
+printf "Downloading latest MediaInfo source package...\n\n"
+if wget $DOWNLOAD1$LATEST_VERS/"MediaInfo_CLI_"$LATEST_VERS"_GNU_FromSource.tar.bz2" -O latest.tar.bz2; then
+    BUILD
+else
+    printf "No luck with source 1. Trying alternative source...\n\n"
+    if wget $DOWNLOAD2$LATEST_VERS/"MediaInfo_CLI_"$LATEST_VERS"_GNU_FromSource.tar.bz2" -O latest.tar.bz2; then
+        BUILD
+    else
+	    echo "Unable to download source - try again later!"
+	    CLEAN 1
+    fi
+fi
