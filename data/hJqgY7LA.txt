@@ -1,0 +1,588 @@
+local library = loadstring(game:HttpGet('https://pastebin.com/hJqgY7LA', true))()
+
+local players = game:GetService("Players")
+local replicatedStorage = game:GetService("ReplicatedStorage")
+local marketplaceService = game:GetService("MarketplaceService")
+local runService = game:GetService("RunService")
+local virtualUser = game:GetService('VirtualUser')
+
+local player = players.LocalPlayer
+local playerGui = player.PlayerGui
+local living = workspace:WaitForChild("Living")
+local mobs = living:WaitForChild("Mobs")
+local debris = workspace:WaitForChild("Debris")
+local modules = debris:WaitForChild("Modules")
+local interactionModels = debris:WaitForChild("InteractionModels")
+local interactions = workspace:WaitForChild("Interactions")
+local uiNoReset = playerGui:WaitForChild("UINoReset")
+local abilityInfo = replicatedStorage:WaitForChild("AbilityInfos")
+local sharedFolder = replicatedStorage:WaitForChild("Shared")
+local cursePrices = require(sharedFolder:WaitForChild("GameEconomy")).Abilities
+local stockInfo = replicatedStorage:WaitForChild("StockInfo")
+
+local old
+old = hookmetamethod(game, "__namecall", function(self, ...)
+    if self.Name == "FallDamage" then
+        return
+    end
+    
+    return old(self, ...)
+end)
+
+player.Idled:Connect(function()
+    virtualUser:CaptureController()
+    virtualUser:ClickButton2(Vector2.new())
+end)
+
+local questTable, chosenQuest = {
+    ["Bandits"] = {
+        Sidequest = "BanditSideQuest",
+        QuestArg = "Bandits",
+        NPC = interactionModels.BanditSideQuest,
+        Mobs = {"Rogue Bandit"},
+        Level = {5, 15}
+    },
+    ["Armed Bandits"] = {
+        Sidequest = "BanditSideQuest",
+        QuestArg = "Armed Bandits",
+        NPC = interactionModels.BanditSideQuest,
+        Mobs = {"Armed Bandit"},
+        Level = {15, 30}
+    },
+    ["Shrooms"] = {
+        Sidequest = "ShroomSideQuest",
+        QuestArg = "Shrooms",
+        NPC = interactionModels.ShroomSideQuest,
+        Mobs = {"Shroom"},
+        Level = {30, 45}
+    },
+    ["Juniors"] = {
+        Sidequest = "StudentSideQuest",
+        QuestArg = "Juniors",
+        NPC = interactionModels.StudentSideQuest,
+        Mobs = {"Junior"},
+        Level = {45, 65}
+    },
+    ["Seniors"] = {
+        Sidequest = "StudentSideQuest",
+        QuestArg = "Seniors",
+        NPC = interactionModels.StudentSideQuest,
+        Mobs = {"Senior"},
+        Level = {65, 80}
+    },
+    ["Fly Heads"] = {
+        Sidequest = "EnrolmentCurseQuest",
+        QuestArg = "Fly Heads",
+        NPC = interactionModels.EnrolmentCurseQuest,
+        Mobs = {"Fly Head"},
+        Level = {80, 110}
+    },
+    ["Fire Shrooms"] = {
+        Sidequest = "EnrolmentCurseQuest",
+        QuestArg = "Fire Shrooms",
+        NPC = interactionModels.EnrolmentCurseQuest,
+        Mobs = {"Fire Shroom"},
+        Level = {110, 125}
+    },
+    ["Rogue Sorcerers"] = {
+        Sidequest = "MidoriPrimarySideQuests",
+        QuestArg = "Rogue Sorcerers",
+        NPC = interactionModels.MidoriPrimarySideQuests,
+        Mobs = {"Rogue Sorcerer"},
+        Level = {125, 140}
+    },
+    ["Crabions"] = {
+        Sidequest = "MidoriPrimarySideQuests",
+        QuestArg = "Crabions",
+        NPC = interactionModels.MidoriPrimarySideQuests,
+        Mobs = {"Crabion"},
+        Level = {140, 160}
+    },
+    ["Gnashers"] = {
+        Sidequest = "MidoriPrimarySideQuests",
+        QuestArg = "Gnashers",
+        NPC = interactionModels.MidoriPrimarySideQuests,
+        Mobs = {"Gnasher"},
+        Level = {160, 175}
+    },
+    ["Cursed Sushis"] = {
+        Sidequest = "SwampPrimarySideQuest",
+        QuestArg = "Cursed Sushis",
+        NPC = interactionModels.SwampPrimarySideQuest,
+        Mobs = {"Cursed Sushi"},
+        Level = {175, 195}
+    },
+    ["Poison Shrooms"] = {
+        Sidequest = "SwampPrimarySideQuest",
+        QuestArg = "Poison Shrooms",
+        NPC = interactionModels.SwampPrimarySideQuest,
+        Mobs = {"Poison Shroom"},
+        Level = {195, 220}
+    },
+    ["Eye Fanatics"] = {
+        Sidequest = "SwampPrimarySideQuest",
+        QuestArg = "Eye Fanatics",
+        NPC = interactionModels.SwampPrimarySideQuest,
+        Mobs = {"Eye Fanatic"},
+        Level = {220, 999}
+    },
+    ["Saku"] = {
+        Sidequest = "Miwa",
+        QuestArg = "Saku",
+        NPC = interactionModels.Miwa,
+        Mobs = {"Saku"},
+        Boss = true
+    },
+    ["Hanamato"] = {
+        Sidequest = "Yuzi2",
+        QuestArg = "Hanamato",
+        NPC = interactionModels.Yuzi2,
+        Mobs = {"Hanamato"},
+        Boss = true
+    },
+    ["Joko"] = {
+        Sidequest = "Pygmy",
+        QuestArg = "Joko",
+        NPC = interactionModels.Pygmy,
+        Mobs = {"Joko"},
+        Boss = true
+    }
+}
+
+local tempTable, weaponTable = {}, {}
+
+for quest, _ in pairs(questTable) do
+    table.insert(tempTable, quest)
+end
+
+for _, v in pairs(player.Backpack:GetChildren()) do
+    if v:FindFirstChild("Attack", true) then
+        table.insert(weaponTable, v.Name)
+    end
+end
+
+function questStatus()
+    local quests = uiNoReset:FindFirstChild("Quests")
+    local questMain = quests and quests:FindFirstChild("QuestMain")
+    local questsFrame = quests and quests:FindFirstChild("QuestsFrame")
+    local questFrameLabel = questsFrame and questsFrame.QuestTemplate1.Label
+
+    if questFrameLabel.RichText then
+        questFrameLabel.RichText = false
+    end
+
+    if string.find(questFrameLabel.Text, "rgb%(255, 255, 0%)") then
+        return "Completed"
+    end
+
+    if questMain and questMain.QuestName.Text ~= "QUEST MENU" then
+        return "Ongoing"
+    end
+
+    return "None"
+end
+
+local function getQuest()
+    if not player.Character:FindFirstChild("HumanoidRootPart") then return end
+
+    local questNPC = chosenQuest.NPC
+
+    if questStatus() == "Ongoing" then return end
+
+    if questStatus() == "Completed" then
+        player.Character.HumanoidRootPart.CFrame = questNPC.HumanoidRootPart.CFrame
+        task.wait(.1)
+        replicatedStorage.Knit.Services.interactService.RF.GetOptionData:InvokeServer(chosenQuest.Sidequest, "Bye")
+        return
+    end
+
+    if not questStatus() == "None" then return end
+
+    player.Character.HumanoidRootPart.CFrame = questNPC.HumanoidRootPart.CFrame
+    task.wait(.1)
+    replicatedStorage.Knit.Services.interactService.RF.GetOptionData:InvokeServer(chosenQuest.Sidequest, chosenQuest.QuestArg)
+    task.wait(.25)
+    replicatedStorage.Knit.Services.interactService.RF.GetOptionData:InvokeServer(chosenQuest.Sidequest, "Confirm")
+end
+
+local function getData()
+    local data = {}
+
+    local UI = game.Players.LocalPlayer.PlayerGui:FindFirstChild("UI")
+    local tabs = UI and UI:FindFirstChild("Tabs")
+    local menuButton = tabs and tabs:FindFirstChild("MenuButton")
+    local levelLabel = menuButton and menuButton:FindFirstChild("Level")
+    local yenLabel = menuButton and menuButton:FindFirstChild("Yen")
+
+
+    if levelLabel then
+        data.Level = tonumber(string.split(levelLabel.Text, "LV. ")[2])
+    end
+
+    if yenLabel then
+        local yenString = string.split(yenLabel.Text, "¥")[2]:gsub(",", "")
+        data.Yen = tonumber(yenString)
+    end
+
+    return data
+end
+
+local questDropdown
+local function setQuestByLevel()
+    local playerLevel = getData().Level
+    for quest, v in pairs(questTable) do
+        if not v.Boss and playerLevel >= v.Level[1] and playerLevel < v.Level[2] then
+            questDropdown:Select(quest)
+            break
+        end
+    end
+end
+
+local function getNearestMob()
+    local mob, distance = nil, math.huge
+
+    for _, v in pairs(mobs:GetChildren()) do
+        if table.find(chosenQuest.Mobs, v.Name) and v:FindFirstChild("HumanoidRootPart") and v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 then
+            local magnitude = (player.Character.HumanoidRootPart.Position - v.HumanoidRootPart.Position).Magnitude
+
+            if magnitude < distance then
+                mob, distance = v, magnitude
+            end
+        end
+    end
+
+    return mob
+end
+
+local function getModules()
+    for _, v in pairs(modules:GetChildren()) do
+        if v:FindFirstChild("TargetClient") and tostring(v.TargetClient.Value) == player.Name then
+            while true do
+                if not v or not v:FindFirstChild("TargetClient") then
+                    break
+                end
+                player.Character.HumanoidRootPart.CFrame = v.CFrame
+                task.wait()
+            end
+        end
+    end
+end
+
+local weapon
+local function getAttack()
+    if weapon == nil then return end
+
+    local attackWeapon
+
+    while true do
+        if attackWeapon then
+            break
+        end
+        attackWeapon = player.Backpack:FindFirstChild(weapon) or player.Character:FindFirstChild(weapon)
+        task.wait(.1)
+    end
+
+    local attackRemote = attackWeapon:FindFirstChild("Attack", true)
+
+    return attackRemote
+end
+
+local weaponList = {
+    ["Deadly Moo"] = {
+        Price = 100000
+    },
+    ["Jet Black"] = {
+        Price = 500000
+    },
+    ["Mantis Edge"] = {
+        Price = 3700
+    },
+    ["Viper Edge"] = {
+        Price = 35000
+    },
+    ["Wayward Cutter"] = {
+        Price = 2500
+    }
+}
+
+local styleList = {
+    ["Cursed Fist"] = {
+        Price = 100000
+    },
+    ["Divergent Kicks"] = {
+        Price = 300000
+    },
+    ["Lightspeed Technique"] = {
+        Price = 600000
+    }
+}
+
+local window = library:Window({
+    Text = marketplaceService:GetProductInfo(game.PlaceId).Name
+})
+
+local farmTab = window:Tab({
+    Text = "Farming"
+})
+
+local miscTab = window:Tab({
+    Text = "Miscellaneous"
+})
+
+local farmSection = farmTab:Section({
+    Text = "Leveling"
+})
+
+local curseSection = miscTab:Section({
+    Text = "Curse Sniping"
+})
+local creditSection = miscTab:Section
+    Text = "Isscoby"
+    Side = "Left"
+})
+
+local shopSection = miscTab:Section({
+    Text = "Shop",
+    Side = "Right"
+})
+
+local statsSection = farmTab:Section({
+    Text = "Stats",
+    Side = "Right"
+})
+
+local autoFarm, questByLevel, mode, killingLabel = false, false
+farmSection:Check({
+    Text = "Enabled",
+    Callback = function(v)
+        autoFarm = v
+
+        while autoFarm do
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+                if questByLevel then
+                    if questStatus() ~= "Ongoing" then
+                        setQuestByLevel()
+                    end
+                end
+
+                getQuest()
+
+                local nearestMob = getNearestMob()
+                local attack = getAttack()
+
+                if nearestMob and questStatus() == "Ongoing" then
+                    while true do
+                        if not autoFarm or (not nearestMob:FindFirstChild("HumanoidRootPart") or nearestMob:FindFirstChild("Humanoid") and nearestMob.Humanoid.Health <= 0) or not player.Character:FindFirstChild("HumanoidRootPart") then
+                            break
+                        end
+                        killingLabel:Set(string.format("Killing: %s (%d/%d)", nearestMob.Name, math.floor(nearestMob.Humanoid.Health), math.floor(nearestMob.Humanoid.MaxHealth)))
+                        nearestMob.HumanoidRootPart.Size = Vector3.new(10, 20, 10)
+                        player.Character.HumanoidRootPart.CFrame =  nearestMob.HumanoidRootPart.CFrame * CFrame.new(0, mode == "Above" and 6 or -8, 0) * CFrame.Angles(math.rad(mode == "Above" and -90 or 90), 0, 0)
+                        attack:FireServer(false)
+                        getModules()
+                        task.wait()
+                    end
+
+                    killingLabel:Set("Killing: None")
+                end
+            end
+            task.wait()
+        end
+    end
+})
+
+farmSection:Check({
+    Text = "Get Quest by Level",
+    Callback = function(v)
+        questByLevel = v
+
+        if questByLevel then
+            if questStatus() ~= "Ongoing" then
+                setQuestByLevel()
+            end
+        end
+    end
+})
+
+farmSection:Dropdown({
+    Text = "Mode",
+    Default = "Under",
+    List = {"Above", "Under"},
+    Callback = function(v)
+        mode = v
+    end
+})
+
+questDropdown = farmSection:Dropdown({
+    Text = "Quest",
+    List = tempTable,
+    Callback = function(v)
+        chosenQuest = questTable[v]
+    end
+})
+
+local weaponDropdown = farmSection:Dropdown({
+    Text = "Weapon",
+    List = weaponTable,
+    Callback = function(v)
+        weapon = v
+    end
+})
+
+farmSection:Button({
+    Text = "Refresh Weapons",
+    Callback = function(v)
+        table.clear(weaponTable)
+
+        for _, v in pairs(player.Backpack:GetChildren()) do
+            if v:FindFirstChild("Attack", true) then
+                table.insert(weaponTable, v.Name)
+            end
+        end
+
+        weaponDropdown:Refresh(weaponTable)
+    end
+})
+
+killingLabel = farmSection:Label({
+    Text = "Killing: None"
+})
+
+local addPoints, points = false, {}
+statsSection:Check({
+    Text = "Add Points",
+    Callback = function(v)
+        addPoints = v
+
+        while addPoints do
+            for _, v in pairs(points) do
+                game:GetService("ReplicatedStorage").Knit.Services.attributeService.RE.IncrementAttribute:FireServer(v == "Curse" and "Ability" or v, 1)
+                task.wait(.5)
+            end
+            task.wait()
+        end
+    end
+})
+
+statsSection:Dropdown({
+    Text = "Choose",
+    Multi = true,
+    List = {"Physical", "Stamina", "Defense", "Curse", "Weapon"},
+    Callback = function(v)
+        points = v
+    end
+})
+
+local curseSnipe, curses, curseCheck = false, {}
+curseCheck = curseSection:Check({
+    Text = "Enabled",
+    Callback = function(v)
+        curseSnipe = v
+
+        while curseSnipe do
+            for _, v in pairs(curses) do
+                if stockInfo:FindFirstChild(v) then
+                    if getData().Yen < cursePrices[v] then return end
+
+                    game:GetService("ReplicatedStorage").Knit.Services.yenService.RF.BuyCurseWithYen:InvokeServer(v)
+                    curseCheck:Set(false)
+                    break
+                end
+            end
+            task.wait(1)
+        end
+    end
+})
+
+local curseTable = {}
+
+for _, v in pairs(abilityInfo:GetChildren()) do
+    table.insert(curseTable, v.Name)
+end
+
+curseSection:Dropdown({
+    Text = "Curses",
+    Multi = true,
+    List = curseTable,
+    Callback = function(v)
+        curses = v
+    end
+})
+
+local dropWeaponList, dropStyleList = {}, {}
+
+for v, _ in pairs(weaponList) do
+    table.insert(dropWeaponList, v)
+end
+
+for v, _ in pairs(styleList) do
+    table.insert(dropStyleList, v)
+end
+
+local chosenWeapon
+shopSection:Dropdown({
+    Text = "Weapons",
+    List = dropWeaponList,
+    Callback = function(v)
+        chosenWeapon = v
+    end
+})
+
+shopSection:Button({
+    Text = "Buy Weapon",
+    Callback = function()
+        if getData().Yen <= weaponList[chosenWeapon].Price then return end
+
+        local before = player.Character.HumanoidRootPart.CFrame
+
+        player.Character.HumanoidRootPart.CFrame = interactions.Weapons[chosenWeapon].CFrame
+        task.wait(.5)
+        game:GetService("ReplicatedStorage").Knit.Services.interactService.RF.GetOptionData:InvokeServer(chosenWeapon, "Buy with Yen")
+        task.wait(.25)
+        player.Character.HumanoidRootPart.CFrame = before
+    end
+})
+
+local chosenStyle
+shopSection:Dropdown({
+    Text = "Styles",
+    List = dropStyleList,
+    Callback = function(v)
+        chosenStyle = v
+    end
+})
+
+shopSection:Button({
+    Text = "Buy Style",
+    Callback = function()
+        if getData().Yen <= styleList[chosenStyle].Price then return end
+
+        local before = player.Character.HumanoidRootPart.CFrame
+
+        local styleArg = chosenStyle:gsub(" ", "").."Teacher"
+
+        player.Character.HumanoidRootPart.CFrame = interactions.Styles[styleArg].CFrame
+        task.wait(.5)
+        game:GetService("ReplicatedStorage").Knit.Services.interactService.RF.GetOptionData:InvokeServer(styleArg, "Yes")
+        task.wait(.25)
+        player.Character.HumanoidRootPart.CFrame = before
+    end
+})
+
+runService.Stepped:Connect(function()
+    if autoFarm then
+        if player.Character then
+            if player.Character:FindFirstChild("HumanoidRootPart") then
+                player.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+            end
+
+            for _, v in pairs(player.Character:GetChildren()) do
+                if v:IsA("BasePart") then
+                    v.CanCollide = false
+                end
+            end
+        end
+    end
+end)
+
+farmTab:Select()
