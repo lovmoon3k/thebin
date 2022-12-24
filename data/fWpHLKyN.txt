@@ -1,0 +1,68 @@
+-- program startup and networking
+rednet.open("left")
+
+local function sendMessage(id, sendMsg, rcvMsg)
+    local protocol = "inventory"
+    print("SENDING "..sendMsg)
+    rednet.send(id, sendMsg, protocol)
+    local senderID, senderMessage, senderProtocol = rednet.receive("inventory",5)
+    if senderMessage == rcvMsg then
+        print(sendMsg.." ACKNOWLEDGED, STATE "..rcvMsg)
+        return true
+    else
+        return false
+    end
+end
+
+local function stateCheck(id, sendMsg, rcvMsg)
+    local state = sendMessage(id, sendMsg, rcvMsg)
+    if state == true then
+        sleep(0)
+    else
+        error(sendMsg.." timed out. Turtle "..id.." is not responding.")
+    end
+end
+
+local function receive(rcvID, rcvMsg, sendID, sendMsg)
+    local senderID, senderMessage, senderProtocol = rednet.receive("inventory")
+    if senderID == rcvID and senderMessage == rcvMsg then
+        print("Received "..rcvMsg.." from Server "..rcvID.." Sending "..sendMsg)
+        rednet.send(sendID, sendMsg, "inventory")
+    else
+        error("Critical Failure, stopping...")
+    end
+end
+
+local id = 6
+stateCheck(id, "STATUS", "READY")
+stateCheck(id, "SCAN", "SCANNING")
+-- if scan is true, wait for it to finish scanning
+receive(id, "SCANDONE", id, "SCANDONEACK")
+-- once the scan is acknowledged, I have to receive the data
+local senderID, senderMessage, senderProtocol = rednet.receive("inventory")
+if senderID == id then
+    -- handle the data here
+    local items2 = senderMessage
+    -- gotta save this shit to a file and not overwrite shit
+    -- if data file exists, load variables from file
+    if fs.exists("items") then
+        -- var loader
+        local file = assert(fs.open("items", "r"), "Couldn't load items")
+        local input = file.readAll()
+        file.close()
+    
+        local items = textutils.unserialize(input)
+      else
+        -- if data file doesn't exist, create one
+        local target = items2
+        local output = textutils.serialize(target)
+        local file = assert(fs.open("items", "w"), "Couldn't Create Items")
+        file.write(output)
+        file.close()
+      end
+    -- once existence is dealt with and all objects are loaded
+    -- compare the tables and add counts
+  
+else
+    error("Critical Failure, stopping...")
+end
