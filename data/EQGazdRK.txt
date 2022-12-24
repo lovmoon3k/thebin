@@ -1,0 +1,140 @@
+/// Move round a mpa avoiding blizzards
+/// 1) once
+/// 2) there and back and there again
+
+import 'dart:math';
+
+import 'package:collection/collection.dart';
+import 'package:more/more.dart';
+
+class Point3 {
+  final int x, y, z;
+  const Point3(this.x, this.y, this.z);
+  Point3 operator +(Point3 o) => Point3(o.x + x, o.y + y, o.z + z);
+  bool get isInBounds =>
+      (Point(x, y) == start || Point(x, y) == end) ||
+      x.between(0, width - 1) &&
+          y.between(0, height - 1) &&
+          z.between(0, duration - 1);
+  @override
+  int get hashCode => Object.hash(x, y, z);
+  @override
+  bool operator ==(Object o) => o is Point3 && o.x == x && o.y == y && o.z == z;
+  @override
+  String toString() => '$x $y $z';
+}
+
+class Blizzard {
+  Point<int> pos, dir;
+  Blizzard(this.pos, this.dir);
+  Point3 move3({n = 1}) => Point3((pos.x + (n * dir.x as int)) % width,
+      (pos.y + (n * dir.y as int)) % height, n);
+  void move() {
+    pos = Point((pos.x + dir.x) % width, (pos.y + dir.y) % height);
+  }
+}
+
+const headings = {
+  'N': Point3(0, -1, 1),
+  'W': Point3(-1, 0, 1),
+  'E': Point3(1, 0, 1),
+  'S': Point3(0, 1, 1),
+  'F': Point3(0, 0, 1), // just sit here for a round
+  //'B': Point3(0, 0, -1) Can't go back in time!
+};
+// const dirs = {
+//   'N': Point(-1, -1),
+//   'W': Point(-1, 0),
+//   'E': Point(1, 0),
+//   'S': Point(0, 1),
+// };
+const bDirs = {
+  '^': Point(0, -1),
+  '<': Point(-1, 0),
+  '>': Point(1, 0),
+  'v': Point(0, 1),
+};
+var n6 = headings.values;
+
+var blizzards = <Blizzard>{};
+late int height, width;
+
+var cameFrom = <Point3, Point3>{};
+// Returns map of Points examined and their distances from the start.
+Map<Point3, int> dijkstra(Set<Point3> graph, Point3 start, Point<int> end) {
+  cameFrom = {start: Point3(-1, -1, -1)};
+  var bestCost = {start: 0};
+  var frontier =
+      PriorityQueue<Point3>((a, b) => (bestCost[a]!).compareTo((bestCost[b]!)));
+  frontier.add(start);
+  while (frontier.isNotEmpty) {
+    var current = frontier.removeFirst();
+    if (current.x == end.x && current.y == end.y) break;
+    var ns = n6
+        .map((e) => current + e)
+        //.where((e) => e.isInBounds && !isBlocked(e));
+        .where((e) => e.isInBounds && !blocks.contains(e));
+    for (var next in ns) {
+      var newCost = bestCost[current]! + 1;
+      if (!bestCost.containsKey(next) || newCost < bestCost[next]!) {
+        bestCost[next] = newCost;
+        frontier.add(next);
+        cameFrom[next] = current;
+      }
+    }
+  }
+  return bestCost;
+}
+
+// var bb = <Point3>{};
+// isBlocked(Point3 p3) {
+//   if (bb.contains(p3)) return true;
+//   var ib = blizzards.any((e) {
+//     var p = e.move3(n: p3.z);
+//     return p3.x == p.x && p3.y == p.y;
+//   });
+//   if (ib) bb.add(p3);
+//   return ib;
+// }
+
+late Point<int> start, end;
+late Set<Point3> blocks;
+const duration = 2000;
+part1(List<String> lines) {
+  buildBlocks(lines);
+  var pp = dijkstra(blocks, Point3(start.x, start.y, 0), end);
+  return pp.keys.firstWhere((e) => e.x == end.x && e.y == end.y).z;
+}
+
+void buildBlocks(List<String> lines) {
+  var map0 = lines.map((e) => e.split('')).toList();
+  height = map0.length - 2;
+  width = map0.first.length - 2;
+  start = Point(map0.first.indexOf('.') - 1, -1);
+  end = Point(map0.last.indexOf('.') - 1, height);
+  for (var y in 1.to(map0.length - 1)) {
+    for (var x in 1.to(map0.first.length - 1)) {
+      if (map0[y][x] != '.') {
+        blizzards.add(Blizzard(Point(x - 1, y - 1), bDirs[map0[y][x]]!));
+      }
+    }
+  }
+  blocks = <Point3>{};
+  for (var t in 0.to(duration)) {
+    for (var b in blizzards) {
+      blocks.add(Point3(b.pos.x, b.pos.y, t));
+      b.move();
+    }
+  }
+}
+
+part2(List<String> lines) {
+  buildBlocks(lines);
+  var pp = dijkstra(blocks, Point3(start.x, start.y, 0), end);
+  var t = pp.keys.firstWhere((e) => e.x == end.x && e.y == end.y).z;
+  pp = dijkstra(blocks, Point3(end.x, end.y, t), start);
+  t = pp.keys.firstWhere((e) => e.x == start.x && e.y == start.y).z;
+  pp = dijkstra(blocks, Point3(start.x, start.y, t), end);
+  t = pp.keys.firstWhere((e) => e.x == end.x && e.y == end.y).z;
+  return t;
+}
