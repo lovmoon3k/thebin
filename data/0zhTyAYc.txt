@@ -1,0 +1,151 @@
+### entrypoint.py
+import os
+
+from flask import send_from_directory
+
+from app import create_app
+
+settings_module = os.getenv('APP_SETTINGS_MODULE')
+app = create_app(settings_module)
+
+@app.route('/media/posts/<filename>')
+def media_posts(filename):
+    dir_path = os.path.join(
+        app.config['MEDIA_DIR'],
+        app.config['POSTS_IMAGES_DIR'])
+    return send_from_directory(dir_path, filename)
+
+---------------------------------------------------------------------
+###app/__init__.py 
+import logging
+from logging.handlers import SMTPHandler
+
+from flask import Flask, render_template
+from flask_login import LoginManager
+from flask_mail import Mail
+from flask_migrate import Migrate
+from flask_sqlalchemy import SQLAlchemy
+
+from app.common.filters import format_datetime
+
+login_manager = LoginManager()
+db = SQLAlchemy()
+migrate = Migrate()
+mail = Mail()
+
+def create_app(settings_module):
+    app = Flask(__name__, instance_relative_config=True)
+    # Load the config file specified by the APP environment variable
+    app.config.from_object(settings_module)
+    # Load the configuration from the instance folder
+    if app.config.get('TESTING', False):
+        app.config.from_pyfile('config-testing.py', silent=True)
+    else:
+        app.config.from_pyfile('config.py', silent=True)
+
+    #configure_logging(app)
+
+    login_manager.init_app(app)
+    login_manager.login_view = "auth.login"
+
+    db.init_app(app)
+    migrate.init_app(app, db)
+    mail.init_app(app)
+
+    # Registro de los filtros
+    register_filters(app)
+
+    # Registro de los Blueprints
+    from .auth import auth_bp
+    app.register_blueprint(auth_bp)
+
+    from .admin import admin_bp
+    app.register_blueprint(admin_bp)
+
+    from .public import public_bp
+    app.register_blueprint(public_bp)
+
+    from .compras import compras_bp
+    app.register_blueprint(compras_bp)
+
+    from .consultas import consultas_bp
+    app.register_blueprint(consultas_bp)
+
+    from .abms import abms_bp
+    app.register_blueprint(abms_bp)
+
+    # Custom error handlers
+    register_error_handlers(app)
+
+    return app
+
+def register_filters(app):
+    app.jinja_env.filters['datetime'] = format_datetime
+
+def register_error_handlers(app):
+
+    @app.errorhandler(500)
+    def base_error_handler(e):
+        #logger.error(e)
+        return render_template('500.html'), 500
+
+    @app.errorhandler(404)
+    def error_404_handler(e):
+        return render_template('404.html'), 404
+
+    @app.errorhandler(401)
+    def error_401_handler(e):
+        return render_template('401.html'), 401
+
+-------------------------------------------------------------------
+### config/default.py
+from os.path import abspath, dirname, join
+
+# Define the application directory
+BASE_DIR = dirname(dirname(abspath(__file__)))
+
+# Media dir
+MEDIA_DIR = join(BASE_DIR, 'media')
+ARCHIVOS_DIR = join(MEDIA_DIR, 'archivos')
+
+SECRET_KEY = '7110c8ae51a4b5af97be6534caef90e4bb9bdcb3380af008f90b23a5d1616bf319bc298105da20fe'
+
+# Database configuration
+SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+# App environments
+APP_ENV_LOCAL = 'local'
+APP_ENV_TESTING = 'testing'
+APP_ENV_DEVELOPMENT = 'development'
+APP_ENV_STAGING = 'staging'
+APP_ENV_PRODUCTION = 'production'
+APP_ENV = ''
+
+# Configuración del email
+MAIL_SERVER = 'smtp.gmail.com'
+MAIL_PORT = 587
+MAIL_USERNAME = ''
+MAIL_PASSWORD = ''
+DONT_REPLY_FROM_EMAIL = '(no responder, @gmail.com)'
+ADMINS = ('@gmail.com', )
+MAIL_USE_TLS = True
+MAIL_DEBUG = False
+
+ITEMS_PER_PAGE = 3
+
+-------------------------------------------------------------------------
+###config/prod.py
+from .default import *
+
+SECRET_KEY = '7110c8ae51a4b5af97be6534caef90e4bb9bdcb3380af008f90b23a5d1616bf319bc298105da20fe'
+
+APP_ENV = APP_ENV_PRODUCTION
+
+SQLALCHEMY_DATABASE_URI = "mysql+mysqlconnector://{username}:{password}@{hostname}/{databasename}?auth_plugin=mysql_native_password".format(
+    username = "root",
+    password = "TESTTEST",
+    hostname = "localhost:3306",
+    databasename = "aicragdb"
+)
+
+DEBUG = False
