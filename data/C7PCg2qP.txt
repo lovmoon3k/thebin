@@ -1,0 +1,41 @@
+rednet.open("right")
+local serverID = 5
+
+local function receive(rcvID, rcvMsg, sendID, sendMsg)
+    local senderID, senderMessage, senderProtocol = rednet.receive("inventory")
+    if senderID == rcvID and senderMessage == rcvMsg then
+        print("Received "..rcvMsg.." from Server "..rcvID.." Sending "..sendMsg)
+        rednet.send(sendID, sendMsg, "inventory")
+    else
+        error("Critical Failure, stopping...")
+    end
+end
+
+receive(serverID, "STATUS", serverID, "READY")
+receive(serverID, "SCAN", serverID, "SCANNING")
+-- start the scan process
+turtle.suckDown()
+itemCount = turtle.getItemCount(1)
+local data = {}
+-- main loop
+while itemCount ~= 0 do
+    -- scan item
+    local item = turtle.getItemDetail()
+    if item then
+        damage = tostring(item.damage)
+        nameScheme = item.name.." "..damage
+        data[nameScheme] = item.count
+    else
+        print("no items!")
+    end
+    turtle.drop()
+    turtle.suckDown()
+    itemCount = turtle.getItemCount(1)
+end
+-- send the data
+rednet.send(serverID, "SCANDONE", "inventory")
+local senderID, senderMessage, senderProtocol = rednet.receive("inventory")
+if senderID == serverID and senderMessage == "SCANDONEACK" then
+    print("Received "..senderMessage.." from Server "..serverID.." Sending Data.")
+end
+rednet.send(serverID, textutils.serialize(data), "inventory")
