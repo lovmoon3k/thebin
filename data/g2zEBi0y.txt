@@ -1,0 +1,134 @@
+#define _CRT_SECURE_NO_WARNINGS
+#pragma GCC optimize("O3")
+#pragma GCC optimize("unroll-loops")
+#include "bits/stdc++.h"
+using namespace std;
+#define all(a) a.begin(), a.end()
+typedef long double ld;
+#define int int64_t
+const int inf = 1e18;
+struct Segtree {
+	struct node {
+		int val, ind;
+		node() {
+			val = inf, ind = -1;
+		}
+	};
+	vector<node> t;
+	int n;
+	Segtree(int _n) :n(_n) {
+		t.resize(4 * n, node());
+	}
+	node cmin(const node& lhs, const node& rhs) {
+		if (lhs.val > rhs.val) return rhs;
+		return lhs;
+	}
+	void update(int v, int tl, int tr, int pos, int x) {
+		if (tl == tr) {
+			t[v].val = x;
+			t[v].ind = pos;
+			return;
+		}
+		int tm = (tl + tr) / 2;
+		if (pos <= tm) { update(v * 2, tl, tm, pos, x); }
+		else { update(v * 2 + 1, tm + 1, tr, pos, x); }
+		t[v] = cmin(t[v * 2], t[v * 2 + 1]);
+	}
+	node get_min(int v, int tl, int tr, int l, int r) {
+		if (tl > r || tr < l) { return node(); }
+		if (tl >= l && tr <= r) { return t[v]; }
+		int tm = (tl + tr) / 2;
+		return cmin(get_min(v * 2, tl, tm, l, r), get_min(v * 2 + 1, tm + 1, tr, l, r));
+	}
+};
+int n;
+struct w_edge {
+	int val1, val2;
+	w_edge(int _v1, int _v2) :val1(_v1), val2(_v2) {};
+};
+
+vector<vector<pair<int, w_edge>>> gr;
+int count_vertex = 0;
+void merge(int l, int r, Segtree& odd_t, Segtree& ev_t, int pred) {
+	if (r <= l)return;
+	if (l % 2 == 1) {
+		Segtree::node i = odd_t.get_min(1, 0, n - 1, l, r);
+		Segtree::node j = ev_t.get_min(1, 0, n - 1, i.ind, r);
+		gr[pred].push_back({ count_vertex++, w_edge(i.val, j.val) });
+		odd_t.update(1, 0, n - 1, i.ind, inf);
+		ev_t.update(1, 0, n - 1, j.ind, inf);
+		int now = count_vertex - 1;
+		if (l < i.ind - 1) { merge(l, i.ind - 1, odd_t, ev_t, now); }
+		merge(i.ind + 1, j.ind - 1, odd_t, ev_t, now);
+		if (j.ind + 1 < r) { merge(j.ind + 1, r, odd_t, ev_t, now); }
+	}
+	else {
+		Segtree::node i = ev_t.get_min(1, 0, n - 1, l, r);
+		Segtree::node j = odd_t.get_min(1, 0, n - 1, i.ind, r);
+		gr[pred].push_back({ count_vertex++, w_edge(i.val, j.val) });
+		ev_t.update(1, 0, n - 1, i.ind, inf);
+		odd_t.update(1, 0, n - 1, j.ind, inf);
+		int now = count_vertex - 1;
+		if (l < i.ind - 1) { merge(l, i.ind - 1, odd_t, ev_t, now); }
+		merge(i.ind + 1, j.ind - 1, odd_t, ev_t, now);
+		if (j.ind + 1 < r) { merge(j.ind + 1, r, odd_t, ev_t, now); }
+	}
+}
+
+signed main() {
+#ifdef _DEBUG
+	freopen("input.txt", "r", stdin);
+	freopen("output.txt", "w", stdout);
+#endif
+	ios_base::sync_with_stdio(false);
+	cin.tie(nullptr);
+	cout.tie(nullptr);
+	cin >> n;
+	int k; cin >> k;
+	Segtree odd_t(n), ev_t(n);
+	gr.resize(n);
+	for (int i = 0; i < n; i++) {
+		int x; cin >> x;
+		if (i % 2 == 0) {
+			ev_t.update(1, 0, n - 1, i, x);
+			odd_t.update(1, 0, n - 1, i, inf);
+		}
+		else {
+			ev_t.update(1, 0, n - 1, i, inf);
+			odd_t.update(1, 0, n - 1, i, x);
+		}
+	}
+	{
+		Segtree::node i = ev_t.get_min(1, 0, n - 1, 0, n - 1);
+		Segtree::node j = odd_t.get_min(1, 0, n - 1, i.ind, n - 1);
+		gr[count_vertex].push_back({ count_vertex + 1, w_edge(i.val, j.val) });
+		count_vertex += 2;
+		ev_t.update(1, 0, n - 1, i.ind, inf);
+		odd_t.update(1, 0, n - 1, j.ind, inf);
+		if (0 < i.ind - 1) { merge(0, i.ind - 1, odd_t, ev_t, 1ll); }
+		merge(i.ind + 1, j.ind - 1, odd_t, ev_t, 1ll);
+		if (j.ind + 1 < n - 1) { merge(j.ind + 1, n - 1, odd_t, ev_t, 1ll); }
+	}
+	set <pair<int, pair<int, int>>> q;
+	q.insert({ -1,{-1, 0} });
+	while (!q.empty()) {
+		auto f = *q.begin();
+		if (f.first != -1) {
+			if (k) {
+				cout << f.first << ' ';
+				k--;
+			}
+			if (k) {
+				cout << f.second.first << ' ';
+				k--;
+			}
+			if (k == 0) {
+				break;
+			}
+		}
+		q.erase(q.begin());
+		for (pair<int, w_edge>& u : gr[f.second.second]) {
+			q.insert({ u.second.val1,{u.second.val2, u.first} });
+		}
+	}
+}

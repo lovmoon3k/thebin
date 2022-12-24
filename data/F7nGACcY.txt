@@ -1,0 +1,111 @@
+#include <bits/stdc++.h>
+#define int long long
+
+using namespace std;
+const int maxn = 1 << 20;
+
+struct node {
+  int mn = INT_MAX;
+  int imn = -1;
+  static node combine(node a, node b) {
+    node c;
+    if (a.mn < b.mn) {
+      c.mn = a.mn;
+      c.imn = a.imn;
+    } else {
+      c.mn = b.mn;
+      c.imn = b.imn;
+    }
+    return c;
+  }
+};
+
+struct segtree {
+  vector<node> tree;
+  segtree() {
+    tree.resize(maxn * 2 - 1);
+  }
+  void build(int x, int l, int r, const vector<int>& a, int ch) {
+    if (l == r) {
+      if (l < a.size() && l % 2 == ch) {
+        tree[x].mn = a[l];
+        tree[x].imn = l;
+      }
+      return;
+    }
+    int mid = (l + r) >> 1;
+    build(2 * x + 1, l, mid, a, ch);
+    build(2 * x + 2, mid + 1, r, a, ch);
+    tree[x] = node::combine(tree[2 * x + 1], tree[2 * x + 2]);
+  }
+  node get(int x, int l, int r, int ll, int rr) {
+    if (r < ll || rr < l)
+      return {};
+    if (ll <= l && r <= rr)
+      return tree[x];
+    int mid = (l + r) >> 1;
+    return node::combine(get(2 * x + 1, l, mid, ll, rr),
+                         get(2 * x + 2, mid + 1, r, ll, rr));
+  }
+};
+
+vector<segtree> sg(2);
+vector<pair<int, int>> val;
+vector<vector<int>> rg;
+vector<int> deg;
+
+int c = -1;
+void rec(int l, int r, int p) {
+  if (l > r)
+    return;
+  auto [aL, L] = sg[l % 2].get(0, 0, maxn - 1, l, r);
+  auto [aR, R] = sg[r % 2].get(0, 0, maxn - 1, L, r);
+  c += 1;
+  val[c] = {aL, aR};
+  if (p != -1) {
+    rg[p].push_back(c);
+    deg[c] += 1;
+  }
+  rec(L + 1, R - 1, c);
+  rec(l, L - 1, p);
+  rec(R + 1, r, p);
+}
+
+signed main() {
+  ios::sync_with_stdio(false);
+  cin.tie(0);
+#ifdef LOCAL
+  freopen("input", "r", stdin);
+#endif
+  int n, k;
+  cin >> n >> k;
+  rg.resize(n / 2);
+  deg.resize(n / 2);
+  val.resize(n / 2);
+  vector<int> a(n);
+  for (auto& i : a)
+    cin >> i;
+  for (int i = 0; i < 2; i++)
+    sg[i].build(0, 0, maxn - 1, a, i);
+  rec(0, n - 1, -1);
+  deque<int> ans;
+  set<pair<pair<int, int>, int>> q;
+  for (int i = 0; i < n / 2; i++)
+    if (deg[i] == 0)
+      q.emplace(val[i], i);
+  while (!q.empty()) {
+    auto x = *q.begin();
+    q.erase(q.begin());
+    ans.push_back(x.first.first);
+    ans.push_back(x.first.second);
+    for (auto& to : rg[x.second]) {
+      deg[to]--;
+      if (deg[to] == 0) {
+        q.emplace(val[to], to);
+      }
+    }
+  }
+  assert(ans.size() == n);
+  ans.resize(k);
+  for (auto& i : ans) cout << i << ' ';
+}
