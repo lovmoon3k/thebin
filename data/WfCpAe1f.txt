@@ -1,0 +1,61 @@
+local server = "gunzodus"
+-- functions
+local function updateExp(names)
+    expData = {}
+
+    for i=1,#names do
+        local characterName = names[i]
+        characterName = characterName:gsub(" ", "_")
+
+        local link = "https://www."..server..".net/character/show/"..characterName
+        if HTTP.get(link, function(data, err)
+            local exp = regexMatch(data, expRegex)
+            exp = exp and exp[1] and exp[1][2] or 0
+            local level = regexMatch(data, lvlRegex)
+            level = level and level[1] and level[1][2]
+
+            if not level then
+                expData = {}
+                return false
+            end
+
+            local vocation = data:find("Royal Paladin") and "[RP]" or
+                             data:find("Master Sorcerer") and "[MS]" or
+                             data:find("Elder Druid") and "[ED]" or 
+                             data:find("Elite Knight") and "[EK]"
+
+            expData[names[i]] = names[i] .. " " .. vocation .. " " .. level .. "lvl, exp: " .. exp
+            expData.loaded = true
+        end) == false then
+            break
+        end
+    end
+end
+
+local function updateDeaths()
+    HTTP.get("https://www."..server..".net/character/latest_deaths", function(data, err)
+
+        local re = regexMatch(data, deathRegex)
+        deathString = "Latest Deaths:"
+
+        if re then
+            for i=1,#re do
+                local data = re[i]
+                local name = data[2]
+                local level = data[3]
+                local text = data[4]
+
+                text = text:gsub([[<a class="notranslate" href="/character/show/]], "")
+                text = text:gsub("_", " ")
+                text = text:gsub([["><strong>]], "|")
+                text = text:gsub("[\n\r]", " ") 
+                text = string.split(text, "|")[1]
+                text = "\n" .. name .. " died at level " .. level .. " by" .. text -- ready string
+
+                if expData[name] then
+                    deathString = deathString .. text
+                end
+            end
+        end
+    end)
+end
