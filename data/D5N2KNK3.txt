@@ -1,0 +1,120 @@
+#!/usr/local/bin/gst -q
+
+FileStream fileIn: '../../smalltalk/Priority.st'!
+
+Point extend [
+    distance: pt [ ^(self x - pt x) abs + (self y - pt y) abs ]
+]
+
+Integer extend [
+    " Does number % N, but returns residue on interval of 1 to N, not 0 to N-1. "
+    %% modulus [ ^self - 1 \\ modulus + 1 ]
+]
+
+Object subclass: Valley [
+    | dim grid start end vBlizz hBlizz |
+
+    dirs := { (1@0). (-1@0). (0@1). (0@-1). (0@0) }.
+
+    Valley class >> new: textArray [
+        ^super new init: textArray
+    ]
+
+    init: arr [
+        | blizz sentinel |
+        dim := (arr first size) @ (arr size).
+
+        " Build flattened array version of grid with sentinels "
+        sentinel := String new.
+        dim x timesRepeat: [ sentinel := sentinel, '#' ].
+        grid := sentinel, arr join, sentinel.
+
+        " Break input into list of coordinates for each character "
+        blizz := Dictionary new.
+        (1 to: dim y) do: [ :y |
+            (1 to: dim x) do: [ :x |
+                (blizz at: ((arr at: y) at: x) ifAbsentPut: [OrderedCollection new]) add: (x@y)
+            ].
+        ].
+        stdout nextPutAll: 'Gathered blizzards...'; nl; flush.
+
+        " Find start and end positions "
+        start := (blizz at: $.) detect: [:pt | pt y = 1].
+        end   := (blizz at: $.) detect: [:pt | pt y = arr size].
+
+        stdout nextPutAll: 'Building vertical table...'; nl; flush.
+        vBlizz := (1 to: dim y - 2) collect: [:x | Set new].
+        (0 to: dim y - 3) do: [ :time |
+            | vb |
+            vb := vBlizz at: time + 1.
+            vb addAll: ((blizz at: $^) collect: [:pt | pt x @ ((pt y - time - 1) %% (dim y - 2) + 1)]).
+            vb addAll: ((blizz at: $v) collect: [:pt | pt x @ ((pt y + time - 1) %% (dim y - 2) + 1)]).
+        ].
+
+        hBlizz := (1 to: dim x - 2) collect: [:x | Set new].
+        (0 to: dim x - 3) do: [ :time |
+            | hb |
+            hb := hBlizz at: time + 1.
+            hb addAll: ((blizz at: $<) collect: [:pt | ((pt x - time - 1) %% (dim x - 2) + 1) @ pt y]).
+            hb addAll: ((blizz at: $>) collect: [:pt | ((pt x + time - 1) %% (dim x - 2) + 1) @ pt y]).
+        ].
+        ^self
+    ]
+
+    clear: pt at: time [
+        | blizz |
+        blizz := ((vBlizz at: (time + 1) %% (dim y - 2)) includes: pt)
+                    or: [(hBlizz at: (time + 1) %% (dim x - 2)) includes: pt].
+
+        ^blizz not and: [(grid at: (pt y * dim x + pt x)) ~= $#]
+    ]
+
+    from: startPos to: endPos begin: startTime [
+        | queue visit key dist count state time pos |
+        visit := Set new.
+        count := 0.
+
+        queue := PriorityQueue new.
+        queue at: 0 insert: {startTime. startPos}.
+
+        [ (state := queue next) notNil ] whileTrue: [
+            time := state first.
+            pos  := state second.
+
+            ((count := count + 1) \\ 1000) = 0 ifTrue: [
+                stderr nextPutAll: ('[%1] %2   ' % {time. pos}); cr; flush.
+            ].
+
+            (pos = endPos) ifTrue: [ ^time - 1 ].
+
+            key := time asString, ':', pos printString.
+            (visit includes: key) ifFalse: [
+                visit add: key.
+
+                (dirs collect: [:d | pos + d]) do: [ :neigh |
+                    (self clear: neigh at: time) ifTrue: [
+                        dist := neigh distance: endPos.
+                        queue at: (time + 1 + dist) insert: {time + 1. neigh}.
+                    ].
+                ].
+            ]
+        ]
+    ]
+
+    dim     [ ^dim   ]
+    start   [ ^start ]
+    end     [ ^end   ]
+]
+
+"
+| Mainline
+"
+valley := Valley new: stdin lines contents.
+stdout nextPutAll: 'Loaded.'; nl; flush.
+
+time := valley from: valley start to: valley end begin: 0.
+('Part 1: %1  ' % {time}) displayNl.
+
+time := valley from: valley end   to: valley start begin: time.
+time := valley from: valley start to: valley end   begin: time.
+('Part 2: %1  ' % {time}) displayNl.
