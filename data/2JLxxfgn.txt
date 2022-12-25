@@ -1,0 +1,85 @@
+CREATE OR ALTER PROCEDURE [dbo].[xml_getRSS]
+ @RSSItemData		 RSSItemType READONLY
+,@titleChannel		 nvarchar(max)  NULL 
+,@linkChannel		 nvarchar(1024) NULL  
+,@descriptionChannel nvarchar(max)  NULL  
+,@languageChannel	 nvarchar(max)  = 'en-us' 
+
+-- Проц. Генерирует данные для ленты новостей RSS. 
+-- Входные данные: переменная пользовательского тип данных (User-Defined Table Types)  – структура RSS ленты. + параметры канала 
+
+-- вызов --
+/* DECLARE @TestRSSItemTable RSSItemType 
+INSERT INTO @TestRSSItemTable (  titleArticle ,descriptionArticle ,authorArticle ,linkArticle,pubDateArticle )
+SELECT  'RSS Tutorial', 'New RSS tutorial on w3ii', 'hege@refsnesdata.no', 'http://www.w3ii.com/xml/xml_rss.html', GETDATE()-10
+UNION
+SELECT  'XML Tutorial', 'New XML tutorial on w3ii', 'hege2@refsnesdata.no', 'http://www.w3ii.com/xml', GETDATE()-9
+UNION
+SELECT  'XML Tutorial test1', 'New XML tutorial on w3ii test1', 'hegetest1@refsnesdata.no', 'http://www.w3ii.com/xml', GETDATE()-8
+
+EXEC [dbo].[as_getRssXML] @TestRSSItemTable ,'w3ii Home Page title' ,'http://www.w3ii.com' ,'Free web building tutorials' ,'en-us'
+*/
+AS
+BEGIN
+
+	DECLARE @result  nvarchar(max)
+	SET @result = N'' -- рез. процедуры
+	SET @result =  @result + N'<?xml version="1.0" encoding="UTF-8" ?>'+char(10)+'<rss version="2.0">'+char(10)+char(10)
+-------------------------------------------------------------	
+	DECLARE @cnt int = 0
+	SELECT  @cnt = COUNT(*) FROM @RSSItemData
+	SELECT  @cnt = ISNULL( @cnt, 0)
+ 
+	IF @cnt = 0
+	BEGIN
+		RAISERROR (N'Ошибка! Нет данных. Выполнение прервано.', 11,1)
+		RETURN
+	END
+-------------------------------------------------------------
+-- Канал
+	SET @result =  @result + '<channel>'+char(10) -- откр.<channel>
+	SET @result =  @result + '<title>'		+ ISNULL( @titleChannel, '')		+'</title>'+char(10)
+	                       + '<link>'		+ ISNULL( @linkChannel, '')			+'</link>'+char(10) 
+	                       + '<description>'+ ISNULL( @descriptionChannel, '')	+'</description>'+char(10) 
+	                       + '<language>'	+ ISNULL( @languageChannel, '')		+'</language>'+char(10) 
+						   +char(10) 
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+-- Статьи  
+	DECLARE @tmp_titleArticle nvarchar(max), @tmp_descriptionArticle nvarchar(max), @tmp_authorArticle nvarchar(max), @tmp_linkArticle nvarchar(max), @tmp_pubDateArticle nvarchar(max) 
+	DECLARE tmp_CursorArticles CURSOR --Объявляем курсор
+	FORWARD_ONLY 
+	FOR 
+		SELECT titleArticle ,descriptionArticle ,authorArticle ,linkArticle,pubDateArticle
+		FROM  @RSSItemData Articles
+		ORDER BY titleArticle 
+	OPEN tmp_CursorArticles;  
+
+	FETCH NEXT FROM tmp_CursorArticles 
+	INTO @tmp_titleArticle, @tmp_descriptionArticle, @tmp_authorArticle, @tmp_linkArticle, @tmp_pubDateArticle; -- Выбираем первую строку
+	WHILE @@FETCH_STATUS = 0  -- Выполняем в цикле перебор строк
+	BEGIN 
+		SET @result =  @result + '<item>'+char(10)
+
+		SET @result =  @result + '<title>'		+ ISNULL( @tmp_titleArticle, '')		+'</title>'+char(10)
+							   + '<description>'+ ISNULL( @tmp_descriptionArticle, '')	+'</description>'+char(10) 
+							   + '<author>'		+ ISNULL( @tmp_authorArticle, '')		+'</author>'+char(10) 
+							   + '<link>'		+ ISNULL( @tmp_linkArticle, '')			+'</link>'+char(10) 
+							   + '<pubDate>'	+ ISNULL( @tmp_pubDateArticle, '')		+'</pubDate>'+char(10) 
+
+		SET @result =  @result + '</item>'+char(10)
+		                       +char(10)
+
+	FETCH NEXT FROM tmp_CursorArticles 
+	INTO @tmp_titleArticle, @tmp_descriptionArticle, @tmp_authorArticle, @tmp_linkArticle, @tmp_pubDateArticle	;  -- Выбираем следующую строку
+	END; --  tmp_CursorArticles; 
+	CLOSE tmp_CursorArticles;  
+	DEALLOCATE tmp_CursorArticles;    
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+		SET @result =  @result + '</channel>'+char(10) -- закрыть </channel>
+-------------------------------------------------------------
+	-- 
+	SET @result =  @result + N'</rss>'+char(10)
+	-- вывод результата 
+	SELECT  @result
+
+END -- PROCEDURE                  
