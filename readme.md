@@ -1,11 +1,7 @@
-[**QMChG39v**](/data/QMChG39v.txt) (25/12/22 - 08:51)- 698 bytes
+[**PTT2TpH4**](/data/PTT2TpH4.txt) (25/12/22 - 10:06)- 8544 bytes
 
-[**WZx5u4UN**](/data/WZx5u4UN.txt) (25/12/22 - 08:51)- 6526 bytes
+[**PTT2TpH4**](/data/PTT2TpH4.txt) (25/12/22 - 10:06)- 8544 bytes
 
-[**WZx5u4UN**](/data/WZx5u4UN.txt) (25/12/22 - 08:51)- 6526 bytes
+**Total Datas**: 1644
 
-[**QMChG39v**](/data/QMChG39v.txt) (25/12/22 - 08:51)- 698 bytes
-
-**Total Datas**: 1643
-
-**Total Size**: 10.31 MB / 10.3 MB
+**Total Size**: 10.32 MB / 10.3 MB
