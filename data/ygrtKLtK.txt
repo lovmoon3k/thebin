@@ -1,0 +1,161 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include "bits/stdc++.h"
+#define ll long long
+#define ld long double
+
+using namespace std;
+
+const ll inf = 1e18;
+
+ll n, k;
+vector<ll> a;
+vector<vector<vector<ll>>> dp;
+
+ll step[20];
+
+vector<ll> siz;
+
+void buildStep() {
+    step[0] = 1;
+    siz = vector<ll>((1ll << 21), 0);
+    siz[step[0]] = 0;
+    for (ll i = 1; i < 20; i++) {
+        step[i] = step[i - 1] * 2;
+        siz[step[i]] = i;
+    }
+    for (ll i = 2; i < (1ll << 21); i++) {
+        if (siz[i] == 0) {
+            siz[i] = siz[i - 1];
+        }
+    }
+}
+
+void read() {
+    cin >> n >> k;
+    a = vector<ll>(n);
+    for (ll i = 0; i < n; i++) {
+        cin >> a[i];
+    }
+}
+
+ll minn(ll ind1, ll ind2) {
+    if (ind1 == -1) {
+        return ind2;
+    }
+    if (ind2 == -1) {
+        return ind1;
+    }
+    if (a[ind1] < a[ind2]) {
+        return ind1;
+    } else {
+        return ind2;
+    }
+}
+
+void buildDp() {
+    dp = vector<vector<vector<ll>>>(2, vector<vector<ll>>(20, vector<ll>(n, -1)));
+    for (ll i = 0; i < n; i += 2) {
+        dp[0][0][i] = i;
+    }
+    for (ll i = 1; i < n; i += 2) {
+        dp[1][0][i] = i;
+    }
+    for (ll j = 1; j < 20; j++) {
+        for (ll i = 0; i < n; i++) {
+            dp[0][j][i] = dp[0][j - 1][i];
+            dp[1][j][i] = dp[1][j - 1][i];
+            if (i - step[j - 1] >= 0) {
+                dp[0][j][i] = minn(dp[0][j][i], dp[0][j - 1][i - step[j - 1]]);
+                dp[1][j][i] = minn(dp[1][j][i], dp[1][j - 1][i - step[j - 1]]);
+            }
+        }
+    }
+}
+
+ll getMin(ll ind, ll l, ll r) {
+    if (r < l) return inf;
+    ll curSiz = r - l + 1;
+    return minn(dp[ind][siz[curSiz]][r], dp[ind][siz[curSiz]][l + step[siz[curSiz]] - 1]);
+}
+
+pair<ll, ll> getPair(ll ind, ll l, ll r) {
+    //if (r > l) return { inf, inf };
+    ll ind1 = getMin(ind, l, r);
+    ll ind2 = getMin(1 - ind, ind1, r);
+    return { ind1, ind2 };
+}
+
+vector<ll> u;
+vector<pair<ll, ll>> p;
+ll sum = 1;
+
+void f(ll ind, ll l, ll r) {
+    if (r < l) {
+        return;
+    }
+    pair<ll, ll> cur = getPair(ind, l, r);
+    f(ind, l, cur.first - 1);
+    f(1 - ind, cur.first + 1, cur.second - 1);
+    f(ind, cur.second + 1, r);
+    p.push_back(cur);
+    u[cur.first] = sum;
+    u[cur.second] = -sum;
+    sum++;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(0);
+
+    //freopen("input.txt", "r", stdin);
+
+    read();
+    buildStep();
+    buildDp();
+    u = vector<ll>(n, 0);
+    p.push_back({ 0, 0 });
+    f(0, 0, n - 1);
+    vector<ll> s;
+    vector<vector<ll>> gr(n / 2 + 1);
+    vector<ll> c(n + 1, 0);
+    for (ll i = 0; i < n; i++) {
+        //cout << u[i] << ' ';      
+        if (u[i] > 0) {
+            s.push_back(i);
+        } else {
+            if (u[s.back()] != abs(u[i])) {
+                return 1;
+            }
+            s.pop_back();
+            if (!s.empty()) {
+                gr[-u[i]].push_back(u[s.back()]);
+                c[u[s.back()]]++;
+            }   
+        }
+    }
+    //return 0;
+    set<pair<ll, ll>> q;
+    for (ll i = 1; i <= n / 2; i++) {
+        if (c[i] == 0) {
+            q.insert({a[p[i].first], i });
+        }
+    }
+    deque<ll> d;
+    while (!q.empty()) {
+        ll cur = prev(q.end())->second;
+        d.push_front(a[p[cur].second]);
+        d.push_front(a[p[cur].first]);
+        q.erase(prev(q.end()));
+        for (auto& to : gr[cur]) {
+            c[to]--;
+            if (c[to] == 0) {
+                q.insert({ a[p[to].first], to });
+            }
+        }
+    }
+    for (ll i = 0; i < k; i++) {
+        cout << d[i] << ' ';
+    }
+
+    return 0;
+}
