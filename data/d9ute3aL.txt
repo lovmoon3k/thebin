@@ -1,0 +1,94 @@
+// ==UserScript==
+// @name         BlueMediaFiles Bypasser
+// @namespace    https://greasyfork.org/en/users/85671-jcunews
+// @version      1.0.4
+// @license      GNU AGPLv3
+// @author       jcunews and Darkn
+// @description  Automatically retrieve the destination URL of Blue Media redirector links without any delay and ads. Edited by Darkn to add bluemediafile.sbs.
+// @match        *://*/*
+// @connect      bluemediafiles.com
+// @connect      bluemediafiles.eu
+// @connect      bluemediafile.sbs
+// @grant        GM_xmlhttpRequest
+// @run-at       document-start
+// ==/UserScript==
+
+((cs, es) => {
+  function updOvl(v, u) {
+    v.textContent = u ? "Success" : "ERROR";
+    v.style.color = "#fff";
+    v.style.backgroundColor = u ? "#090" : "#d00";
+    setTimeout(() => {
+      v.remove();
+    }, 2000);
+  }
+  function updLink(t, u) {
+    if (u) {
+      if (t.e.textContent.trim() === t.e.href) t.e.textContent = u;
+      t.e.href = u;
+    }
+    t.e.style.pointerEvents = t.e.dataset.pe;
+    delete t.e.dataset.pe;
+    if (t.v) updOvl(t.v, u);
+  }
+  function doPage(x, m, c, l, h, i) {
+    if (m = x.responseText.match(/Goroi_n_Create_Button\("([^"]+)/)) {
+      c = "https://bluemediafile.sbs/get-url.php?url=";
+      h = (l = (m = m[1]).length) / 2;
+      for (i = h - 5; i >= 0; i -= 2) c += m[i];
+      for (i = h + 4; i < l; i += 2) c += m[i];
+      GM_xmlhttpRequest({
+        method: "HEAD",
+        url: c,
+        headers: {Referrer: x.context.e.href},
+        onload: y => {
+          if (y.finalUrl) {
+            updLink(x.context, cs[x.context.o] = y.finalUrl);
+          } else updLink(x.context);
+        },
+        onerror: y => {
+          if (y = y.error.match(/"(https?:\/\/[^"]+)/)) {
+            updLink(x.context, cs[x.context.o] = y[1]);
+          } else updLink(x.context);
+        }
+      });
+    }
+  }
+  function errPage(x) {
+    delete cs[x.context.o];
+    if (x.context.v) updOvl(x.context.v);
+  }
+  function chkEle(e, o, s, v) {
+    if (e.href.match && (o = e.href.match(/^https?:\/\/bluemediafile\.(sbs|[a-z]{2})\/url-generator\.php.*[?&]url=([^&]+)/))) {
+      if (cs[o]) {
+        if (!e.dataset.o) {
+          es.push(e);
+        }
+        return;
+      }
+      if (((s = getComputedStyle(e)).display !== "none") && (s.opacity !== "0") && (s.visibility !== "hidden")) {
+        (v = document.createElement("DIV")).style.cssText = `position:absolute;z-index:1;padding:0 .2em;background-color:#777;color:#fff;font:${s.font}`;
+        v.textContent = "Retrieving URL...";
+        e.parentNode.insertBefore(v, e);
+      }
+      cs[o] = 1;
+      e.dataset.o = o;
+      e.dataset.pe = s.pointerEvents;
+      e.style.pointerEvents = "none";
+      GM_xmlhttpRequest({url: e.href, onload: doPage, onerror: errPage, context: {e: e, o: o, v: v}});
+    }
+  }
+  cs = {};
+  es = [];
+  (new MutationObserver(rs => {
+    rs.forEach(r => {
+      r.addedNodes.forEach(n => {
+        if (n.tagName === "A") {
+          chkEle(n)
+        } else if (n.querySelectorAll) {
+          n.querySelectorAll("a").forEach(chkEle)
+        }
+      });
+    })
+  })).observe(document, {childList: true, subtree: true});
+})();

@@ -1,0 +1,460 @@
+#include "Core.hpp"
+
+TableHandle::TableHandle(sf::Texture &p_texture, float &dt) {
+
+    this->cardsSprite = p_texture;
+    this->dt = dt;
+
+    this->wins = 0;
+    this->lose = 0;
+    this->tie = 0;
+
+    this->tableWinTex.loadFromFile("E:/C labs/MyBlackJack/resource/tableWin.png");
+    this->playerWinTex.loadFromFile("E:/C labs/MyBlackJack/resource/playerWin.png");
+    this->tieTex.loadFromFile("E:/C labs/MyBlackJack/resource/Tie.png");
+
+    this->tableWinSpr.setTexture(tableWinTex);
+    this->tableWinSpr.setPosition(sf::Vector2f(150, 20));
+
+    this->playerWinSpr.setTexture(playerWinTex);
+    this->playerWinSpr.setPosition(sf::Vector2f(150, 20));
+
+    this->tieSpr.setTexture(tieTex);
+    this->tieSpr.setPosition(sf::Vector2f(150, 20));
+
+    this->font.loadFromFile("E:/C labs/MyBlackJack/font/SuperMario256.ttf");
+
+    this->playerDisplay.setFont(this->font);
+    this->playerDisplay.setString("Player:");
+    this->playerDisplay.setFillColor(sf::Color::White);
+    this->playerDisplay.setPosition(sf::Vector2f(430, 450));
+
+    this->tableDisplay.setFont(this->font);
+    this->tableDisplay.setFillColor(sf::Color::White);
+    this->tableDisplay.setString("Dealer:");
+    this->tableDisplay.setPosition(sf::Vector2f(430, 77));
+
+    this->tableStats.setFont(this->font);
+    this->tableStats.setFillColor(sf::Color::Red);
+    this->tableStats.setPosition(sf::Vector2f(620, 720));
+    this->tableStats.setCharacterSize(24);
+
+    this->playerStats.setFont(this->font);
+    this->playerStats.setFillColor(sf::Color::Green);
+    this->playerStats.setPosition(sf::Vector2f(150, 720));
+    this->playerStats.setCharacterSize(24);
+
+    this->tieStats.setFont(this->font);
+    this->tieStats.setFillColor(sf::Color::Yellow);
+    this->tieStats.setPosition(sf::Vector2f(450, 720));
+    this->tieStats.setCharacterSize(24);
+
+    this->playersChips.setFont(this->font);
+    this->playersChips.setFillColor(sf::Color::White);
+    this->playersChips.setPosition(sf::Vector2f(130, 450));
+    this->playersChips.setCharacterSize(24);
+
+    this->totalBet.setFont(this->font);
+    this->totalBet.setFillColor(sf::Color::White);
+    this->totalBet.setPosition(sf::Vector2f(420, 280));
+    this->totalBet.setCharacterSize(28);
+
+    this->playersSumTxt.setFont(this->font);
+    this->playersSumTxt.setFillColor(sf::Color::White);
+    this->playersSumTxt.setPosition(sf::Vector2f(558, 450));
+
+    this->dealersSumTxt.setFont(this->font);
+    this->dealersSumTxt.setFillColor(sf::Color::White);
+    this->dealersSumTxt.setPosition(sf::Vector2f(554, 77));
+}
+
+TableHandle::~TableHandle() {
+
+    playerCards.clear();
+    tableCards.clear();
+
+}
+
+void TableHandle::GameRun(float &dt) {
+    if (this->gamerun) {
+
+        // # Display Text
+        if (this->playerturn) {
+            this->playerDisplay.setFillColor(sf::Color::Yellow);
+            this->tableDisplay.setFillColor(sf::Color::White);
+        } else {
+            this->playerDisplay.setFillColor(sf::Color::White);
+            this->tableDisplay.setFillColor(sf::Color::Yellow);
+        }
+
+        if (!this->updGame) {
+            dealersum = 0;
+            playersum = 0;
+            for (auto &pc: this->playerCards) {
+                playersum += pc.card_value;
+            }
+            for (auto &tc: this->tableCards) {
+                dealersum += tc.card_value;
+            }
+
+            if (firstCards) {
+                // # player init cards given
+                for (int i = 0; i < 2; i++) {
+                    this->EventAddCards();
+                }
+                // # Table init cards given
+                playerturn = false;
+                for (int i = 0; i < 2; i++) {
+                    this->EventAddCards();
+                }
+
+                this->playerturn = true;
+                this->firstCards = false;
+                this->buttonLocked = false;
+            } else {
+
+                // # AI Table
+                if (!playerturn) {
+                    if (this->delayAI >= 1.f) {
+                        this->lockedAI = false;
+                        this->delayAI = 0;
+                    }
+
+                    if (!lockedAI) {
+                        if (dealersum > playersum || playersum > 21 || dealersum > 21) {
+                            switch (this->CheckWins()) {
+                                case 0:
+                                    if (!doOnce) {
+                                        this->wins++;
+                                        chips += bet * 2;
+                                        bet = 0;
+                                        this->doOnce = true;
+                                    }
+                                    this->showPlayerWinner = true;
+                                    this->lockedShowWinner = true;
+                                    break;
+                                case 1:
+                                    if (!doOnce) {
+                                        this->lose++;
+                                        bet = 0;
+                                        this->doOnce = true;
+                                    }
+
+                                    this->showTableWinner = true;
+                                    this->lockedShowWinner = true;
+                                    break;
+                                case 2:
+                                    if (!doOnce) {
+                                        this->tie++;
+                                        chips += bet;
+                                        bet = 0;
+                                        this->doOnce = true;
+                                    }
+
+                                    this->showTie = true;
+                                    this->lockedShowWinner = true;
+                                    break;
+                            }
+                        } else {
+                            this->EventAddCards();
+                            this->lockedAI = true;
+                            this->delayAI = 0;
+                        }
+                    } else {
+                        this->delayAI += dt;
+                    }
+                }
+            }
+        }
+
+        this->playerStats.setString("Player Wins: " + std::to_string(this->wins));
+        this->tableStats.setString("Dealer Wins: " + std::to_string(this->lose));
+        this->tieStats.setString("Tie: " + std::to_string(this->tie));
+        this->totalBet.setString("Bet: " + std::to_string(bet));
+        this->playersChips.setString("Chips: " + std::to_string(chips));
+        this->playersSumTxt.setString(std::to_string(this->playersum));
+        this->dealersSumTxt.setString(std::to_string(this->dealersum));
+    }
+}
+
+bool TableHandle::EventAddCards() {
+
+    if (playerturn) {
+
+        playerCards.push_back(*new Cards(this->cardsSprite, playerCards.size(), getTurn()));
+
+        int playersum = 0;
+
+        for (auto &pc: this->playerCards) {
+
+            playersum += pc.card_value;
+        }
+
+        if (playersum > 21) {
+
+            return true;
+        }
+
+        return false;
+
+    } else {
+
+        int tablesum = 0;
+        tableCards.push_back(*new Cards(this->cardsSprite, tableCards.size(), getTurn()));
+
+        for (auto &tc: this->tableCards) {
+
+            tablesum += tc.card_value;
+        }
+
+        if (tablesum > 21) {
+
+            return true;
+        }
+
+        return false;
+
+    }
+}
+
+inline void TableHandle::EventStop() {
+
+    if (playerturn) {
+        playerturn = false;
+        buttonLocked = false;
+    } else {
+        playerturn = true;
+        buttonLocked = true;
+    }
+}
+
+inline void TableHandle::EventQuit() {
+
+    this->gamerun = false;
+}
+
+uint16_t TableHandle::CheckWins() {
+
+    int playersum = 0;
+    int tablesum = 0;
+
+    for (auto &pc: this->playerCards) {
+
+        playersum += pc.card_value;
+    }
+
+    for (auto &tc: this->tableCards) {
+
+        tablesum += tc.card_value;
+    }
+
+    // # 0 = Player Win
+    // # 1 = Table Win
+    // # 2 = Tie
+
+    if (playersum == 21 && tablesum == 21) {
+        return 2;
+    } else if (playersum == 21 && tablesum != 21) {
+        return 0;
+    } else if (tablesum == 21 && playersum != 21) {
+        return 1;
+    } else if (tablesum > playersum && tablesum <= 21) {
+        return 1;
+    } else if (playersum < tablesum && tablesum > 21) {
+        return 0;
+    } else if (playersum > 21 && tablesum <= 21) {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+
+void TableHandle::RestartMatch() {
+
+    playerCards.clear();
+    tableCards.clear();
+    this->playerturn = true;
+    this->firstCards = true;
+    this->buttonLocked = true;
+
+    this->showTableWinner = false;
+    this->showPlayerWinner = false;
+    this->showTie = false;
+
+    this->delayShowWinner = 0;
+    this->lockedShowWinner = false;
+    this->doOnce = false;
+    this->doOnceWinner = false;
+}
+
+inline int TableHandle::getTurn() {
+
+    return (playerturn) ? 1 : 2;
+}
+
+void TableHandle::EventHandle(enum Actions event) {
+
+    switch (event) {
+
+        case 1:
+
+            if (this->EventAddCards()) {
+
+                this->playerturn = false;
+                this->buttonLocked = true;
+            }
+
+            break;
+        case 2:
+            this->EventStop();
+            break;
+        case 3:
+            this->EventQuit();
+            break;
+        case 4:
+            this->EventBet();
+            break;
+        case 5:
+            this->newGame = true;
+            break;
+        case 6:
+            this->showDevInfo = true;
+            break;
+        case 7:
+            this->showGuide = true;
+            break;
+        case 8:
+            if (this->guidePage > 1) {
+                this->guidePage--;
+            }
+            break;
+        case 9:
+            if (this->guidePage < 4) {
+                this->guidePage++;
+            }
+            break;
+        case 10: {
+            this->saveGame = true;
+            break;
+        }
+        case 11:
+
+            this->updGame = true;
+            this->newGame = true;
+            break;
+
+    }
+}
+
+void EventStartNew() {
+
+}
+
+void TableHandle::DrawTable(sf::RenderWindow &app, float &dt) {
+
+    if (!this->updGame) {
+        if (this->gamerun) {
+            for (auto &pc: this->playerCards) {
+
+                app.draw(pc.Draw());
+            }
+
+            for (auto &tc: this->tableCards) {
+
+                app.draw(tc.Draw());
+            }
+
+            app.draw(playerStats);
+            app.draw(tableStats);
+            app.draw(tieStats);
+            app.draw(playersChips);
+            app.draw(totalBet);
+
+            app.draw(playerDisplay);
+            app.draw(playersSumTxt);
+            app.draw(dealersSumTxt);
+            app.draw(tableDisplay);
+
+
+            if (this->showPlayerWinner) {
+
+                if (!this->doOnceWinner) {
+                    this->doOnceWinner = true;
+                }
+
+                app.draw(this->playerWinSpr);
+
+                if (this->delayShowWinner >= 3.f) {
+
+                    this->lockedShowWinner = false;
+                    this->delayShowWinner = 0;
+                }
+
+                if (!lockedShowWinner) {
+                    this->RestartMatch();
+                } else {
+
+                    this->delayShowWinner += dt;
+                }
+            }
+            if (this->showTableWinner) {
+
+                if (!this->doOnceWinner) {
+
+                    if (rand() % 2 == 1) {
+                    } else {
+                    }
+                    this->doOnceWinner = true;
+                }
+
+                app.draw(this->tableWinSpr);
+
+                if (this->delayShowWinner >= 3.f) {
+                    this->lockedShowWinner = false;
+                    this->delayShowWinner = 0;
+                }
+
+                if (!lockedShowWinner) {
+
+                    this->RestartMatch();
+                } else {
+
+                    this->delayShowWinner += dt;
+                }
+            }
+            if (this->showTie) {
+
+                if (!this->doOnceWinner) {
+                    this->doOnceWinner = true;
+                }
+
+                app.draw(this->tieSpr);
+
+                if (this->delayShowWinner >= 3.f) {
+                    this->lockedShowWinner = false;
+                    this->delayShowWinner = 0;
+                }
+
+                if (!lockedShowWinner) {
+
+                    this->RestartMatch();
+                } else {
+
+                    this->delayShowWinner += dt;
+                }
+            }
+            if (this->bet == 0 && this->chips == 0) {
+                app.close();
+            }
+        }
+    } else {
+        this->updGame = false;
+    }
+}
+
+void TableHandle::EventBet() {
+    if (chips > 0) {
+        bet += 20;
+        chips -= 20;
+    }
+}
