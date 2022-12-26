@@ -1,0 +1,289 @@
+// main
+
+#include "log_duration.h"
+#include "my_assert.h"
+#include "stack_vector.h"
+
+#include <iostream>
+#include <random>
+#include <stdexcept>
+
+using namespace std;
+
+void TestConstruction() {
+    StackVector<int, 10> v;
+    assert(v.Size() == 0u);
+    assert(v.Capacity() == 10u);
+
+    StackVector<int, 8> u(5);
+    assert(u.Size() == 5u);
+    assert(u.Capacity() == 8u);
+
+    try {
+        StackVector<int, 10> u(50);
+        cout << "Expect invalid_argument for too large size"s << endl;
+        assert(false);
+    } catch (invalid_argument&) {
+    } catch (...) {
+        cout << "Expect invalid_argument for too large size"s << endl;
+        assert(false);
+    }
+}
+
+void TestPushBack() {
+    StackVector<int, 5> v;
+    for (size_t i = 0; i < v.Capacity(); ++i) {
+        v.PushBack(i);
+    }
+
+    try {
+        v.PushBack(0);
+        cout << "Expect overflow_error for PushBack in full vector"s << endl;
+        assert(false);
+    } catch (overflow_error&) {
+    } catch (...) {
+        cout << "Unexpected exception for PushBack in full vector"s << endl;
+        assert(false);
+    }
+}
+
+void TestPopBack() {
+    StackVector<int, 5> v;
+    for (size_t i = 1; i <= v.Capacity(); ++i) {
+        v.PushBack(i);
+    }
+    for (int i = v.Size(); i > 0; --i) {
+        assert(v.PopBack() == i);
+    }
+
+    try {
+        v.PopBack();
+        cout << "Expect underflow_error for PopBack from empty vector"s << endl;
+        assert(false);
+    } catch (underflow_error&) {
+    } catch (...) {
+        cout << "Unexpected exception for PopBack from empty vector"s << endl;
+        assert(false);
+    }
+}
+
+int main() {
+    TestConstruction();
+    TestPushBack();
+    TestPopBack();
+
+    cerr << "Running benchmark..."s << endl;
+    const size_t max_size = 2500;
+
+    default_random_engine re;
+    uniform_int_distribution<int> value_gen(1, max_size);
+
+    vector<vector<int>> test_data(50000);
+    for (auto& cur_vec : test_data) {
+        cur_vec.resize(value_gen(re));
+        for (int& x : cur_vec) {
+            x = value_gen(re);
+        }
+    }
+
+    {
+        LOG_DURATION("vector w/o reserve");
+        for (auto& cur_vec : test_data) {
+            vector<int> v;
+            for (int x : cur_vec) {
+                v.push_back(x);
+            }
+        }
+    }
+    {
+        LOG_DURATION("vector with reserve");
+        for (auto& cur_vec : test_data) {
+            vector<int> v;
+            v.reserve(cur_vec.size());
+            for (int x : cur_vec) {
+                v.push_back(x);
+            }
+        }
+    }
+    {
+        LOG_DURATION("StackVector");
+        for (auto& cur_vec : test_data) {
+            StackVector<int, max_size> v;
+            for (int x : cur_vec) {
+                v.PushBack(x);
+            }
+        }
+    }
+    cerr << "Done"s << endl;
+}
+
+// log_duration.h
+
+#pragma once
+
+#include <chrono>
+#include <iostream>
+
+#define PROFILE_CONCAT_INTERNAL(X, Y) X##Y
+#define PROFILE_CONCAT(X, Y) PROFILE_CONCAT_INTERNAL(X, Y)
+#define UNIQUE_VAR_NAME_PROFILE PROFILE_CONCAT(profileGuard, __LINE__)
+#define LOG_DURATION(x) LogDuration UNIQUE_VAR_NAME_PROFILE(x)
+#define LOG_DURATION_STREAM(x, y) LogDuration UNIQUE_VAR_NAME_PROFILE(x, y)
+
+class LogDuration {
+public:
+    // заменим имя типа std::chrono::steady_clock
+    // с помощью using для удобства
+    using Clock = std::chrono::steady_clock;
+
+    LogDuration(const std::string& id, std::ostream& dst_stream = std::cerr)
+        : id_(id)
+        , dst_stream_(dst_stream) {
+    }
+
+    ~LogDuration() {
+        using namespace std::chrono;
+        using namespace std::literals;
+
+        const auto end_time = Clock::now();
+        const auto dur = end_time - start_time_;
+        dst_stream_ << id_ << ": "s << duration_cast<milliseconds>(dur).count() << " ms"s << std::endl;
+    }
+
+private:
+    const std::string id_;
+    const Clock::time_point start_time_ = Clock::now();
+    std::ostream& dst_stream_;
+};
+
+// my_assert.h
+
+#pragma once
+#include <memory>
+#include <string>
+
+namespace detail {
+
+class AssertionFailed final {
+public:
+    AssertionFailed(std::string message, std::string file, std::string func, unsigned line)
+        : message_{std::move(message)}
+        , file_{std::move(file)}
+        , function_{std::move(func)}
+        , line_(line) {
+    }
+
+    const std::string& GetMessage() const {
+        return message_;
+    }
+
+    const std::string& GetFile() const {
+        return file_;
+    }
+
+    const std::string& GetFunction() const {
+        return function_;
+    }
+
+    unsigned GetLine() const {
+        return line_;
+    }
+
+private:
+    std::string message_;
+    std::string file_;
+    std::string function_;
+    unsigned line_;
+};
+
+inline void AssertImpl(const char* message, char const* file, char const* func, unsigned line) {
+    throw AssertionFailed(message, file, func, line);
+}
+
+}  // namespace detail
+
+#ifdef assert
+#undef assert
+#endif
+
+#define assert(expression)   \
+    (void) ((!!(expression)) \
+            || (::detail::AssertImpl(#expression, __FILE__, __FUNCTION__, static_cast<unsigned>(__LINE__)), 0))
+
+// stack_vector.h
+
+#pragma once
+
+#include <array>
+#include <stdexcept>
+#include <exception>
+
+template <typename T, size_t N>
+class StackVector {
+public:
+    explicit StackVector(size_t a_size = 0) {
+        if (a_size > Capacity() ) {
+            throw std::invalid_argument("invalid_argument");
+        }
+        size_ = a_size;
+    }
+
+    T& operator[](size_t index) {
+        return array_[index];
+    }
+
+    const T& operator[](size_t index) const {
+        return array_[index];
+    }
+
+    typename std::array<T, N>::iterator begin() noexcept {
+        return array_.begin();
+    }
+
+    typename std::array<T, N>::iterator end() noexcept {
+        auto it_first = array_.begin();
+        auto it_last = size_;
+        auto nx = std::next(it_first, it_last);
+        return nx;
+    }
+
+    typename std::array<T, N>::const_iterator begin() const noexcept {
+        return array_.begin();
+    }
+
+    typename std::array<T, N>::const_iterator end() const noexcept {
+        auto it_first = array_.begin();
+        auto it_last = size_;
+        auto nx = std::next(it_first, it_last);
+        return nx;
+    }
+
+    size_t Size() const {
+        return size_;
+    }
+    size_t Capacity() const {
+        return array_.size();
+    }
+
+    void PushBack(const T& value) {
+        if (size_ == Capacity()) {
+            throw std::overflow_error("no space");
+        } else {
+            array_[size_] = value;
+            ++size_;
+        }
+    }
+
+    T PopBack() {
+        if (size_ == 0) {
+            throw std::underflow_error("no elements");
+        } else {
+            --size_;
+            return array_[size_];
+        }
+    }
+
+private:
+    std::array<T, N> array_;
+    size_t size_{};
+};
