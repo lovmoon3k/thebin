@@ -1,0 +1,226 @@
+_shell = {}
+
+currentDirectory = shell.dir()
+
+_shell.writeCurrentDirectory = function()
+  local split = string.split(currentDirectory, "[\\/]+")
+  local indexes = #split
+  
+  for index, name in ipairs( split ) do
+    local isLast = index == indexes
+    
+    if (isLast) then
+      term.setTextColor(colors.lightBlue)
+      write(name)
+      term.setTextColor(colors.yellow)
+      write(">")
+    else
+      term.setTextColor(colors.cyan)
+      write(name)
+      term.setTextColor(colors.gray)
+      write("/")
+    end
+  end
+  if (#split == 0) then
+    term.setTextColor(colors.yellow)
+    write(">")
+  end
+  
+  term.setTextColor(colors.white)
+  return
+end
+
+_shell.locateProgram = function(name)
+  -- First search in current directory
+  local programs = fs.find(currentDirectory .. "/" .. (name or ""))
+  local program = programs[1]
+  if (program) then
+    return currentDirectory .. "/" .. program
+  end
+
+  -- Then search for programs in the rom
+  local programs = fs.find("/rom/*/" .. (name or ""))
+  local program = programs[1]
+  return program
+end
+
+_shell.getInputColor = function(inputText)
+  if (inputText == "") then
+    return colors.white
+  end
+
+  local splitInput = string.split(inputText, " ")
+  local programName = splitInput[1]
+
+  local program = _shell.locateProgram(programName)
+  if (not program) then
+    return colors.red
+  end
+  
+  local isDirectory = fs.isDir(program)
+  if (isDirectory) then
+    return colors.lightBlue
+  end
+  
+  return colors.white
+end
+
+_shell.warning = function(text)
+  local originalTextColor = term.getTextColor()
+  term.setTextColor(colors.white)
+  term.setBackgroundColor(colors.red)
+  print(text)
+  
+  term.setTextColor(originalTextColor)
+  term.setBackgroundColor(colors.black)
+  
+  return
+end
+
+_shell.run = function(inputText)
+  if (inputText == "") then
+    return
+  end
+  
+  local splitInput = string.split(inputText, " ")
+  local programName = splitInput[1]
+  
+  local file = _shell.locateProgram(programName)
+  if (not file) then
+    _shell.warning(" File not found ")
+    return
+  end
+  
+  local isDirectory = fs.isDir(file)
+  
+  if (isDirectory) then
+    shell.run("cd " .. inputText)
+    currentDirectory = shell.dir()
+    return
+  end
+  
+  local success, message = pcall(function()
+    shell.run( inputText )
+  end)
+  if (not success) then
+    _shell.warning(" " .. (message or "An unknown error occured executing this program") .. " ")
+  end
+  
+  currentDirectory = shell.dir()
+end
+
+_shell.input = function()
+  local looping = true
+  local shiftHeld = false
+  local ctrlHeld = false
+  local inputText = ""
+  
+  local _,currentLine = term.getCursorPos()
+  local lineSpan = 0
+
+  local function update()
+    -- Update a couple important variables
+    local textLength = #currentDirectory + #inputText + 1
+    lineSpan = math.floor(textLength / 51) + 1
+    local textColor = _shell.getInputColor(inputText)
+  
+    -- Clear this line
+    term.setBackgroundColor(colors.black)
+    for line = currentLine, 19 do
+      term.setCursorPos(1, line)
+      term.clearLine()
+      term.setCursorPos(1, line)
+    end
+    term.setCursorPos(1, currentLine)
+    
+    -- Write the expected content now
+    _shell.writeCurrentDirectory()
+    
+    term.setTextColor( textColor )
+    write(" ")
+    write(inputText)
+    
+    term.setTextColor(colors.white)
+  end
+  
+  local function keyPush(key)
+    local keycode = keys.getName(key)
+    if (not keycode) then
+      return
+    end
+    
+    local character = ""
+    
+    if (ctrlHeld) then
+      return
+    end
+    
+    if (string.len(keycode) == 1) then
+      if (shiftHeld) then
+        character = string.upper(keycode)
+      else
+        character = string.lower(keycode)
+      end
+    elseif (key == 14) then
+      inputText = inputText:sub(1, #inputText-1)
+    else
+      local matchingCharacter = nil
+      
+      for char, charKeys in pairs(string.keyTranslations) do
+        if (table.find(charKeys, key)) then
+          matchingCharacter = char
+        elseif (shiftHeld and table.find(charKeys, key+1000)) then
+          -- Alternative check for held Shift
+          matchingCharacter = char
+        end
+      end
+      if (matchingCharacter) then
+        character = matchingCharacter
+      end
+    end
+    
+    inputText = inputText .. character
+  
+    -- Debug
+    --term.setCursorPos(1, 1)
+    --write(tostring(shiftHeld) .. "  " .. key .. "  " .. keycode .. "                 ")
+  end
+  
+  while (looping) do
+    update()
+    eventType, key = os.pullEvent()
+    
+    if (eventType == "key") then
+      -- Key push
+      if (key == 42 or key == 54) then
+        -- Shift pushed
+        shiftHeld = true
+      elseif (key == 29 or key == 157) then
+        -- Ctrl pushed
+        ctrlHeld = true
+      elseif (key == 28) then
+        -- Enter pushed
+        looping = false
+        break
+      end
+      keyPush(key)
+    elseif (eventType == "key_up") then
+      -- Key release
+      if (key == 42 or key == 54) then
+         -- Shift released
+         shiftHeld = false
+       elseif (key == 29 or key == 157) then
+         -- Ctrl released
+         ctrlHeld = false
+      end
+    end
+  end
+  
+  return inputText
+end
+
+while true do
+  local input = _shell.input()
+  print("")
+  _shell.run(input)
+end
