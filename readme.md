@@ -1,3 +1,7 @@
-**Total Datas**: 1822
+[**CDigMiju**](/data/CDigMiju.txt) (26/12/22 - 22:21)- 99557 bytes
 
-**Total Size**: 11.02 MB / 11.0 MB
+[**CDigMiju**](/data/CDigMiju.txt) (26/12/22 - 22:21)- 99557 bytes
+
+**Total Datas**: 1823
+
+**Total Size**: 11.12 MB / 11.1 MB
