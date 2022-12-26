@@ -1,0 +1,61 @@
+@client.tree.command(name="suggest", description='Submit a Suggestion')
+@cooldown(1, 10, BucketType.user)
+async def suggestion(interaction, message: str):
+    global is_cancelleds
+    global cancelled_ids
+    global cancelled_channels
+    imgembed = discord.Embed(
+        title="💡 SUGGESTIONS | SUPERKENOS 💡", description=f"{message}", colour=0xAC00FF)
+    imgembed.set_footer(
+        text=f"BY: {interaction.user} - ID: {interaction.user.id}", icon_url=interaction.user.avatar)
+
+
+    # check if channel configured.
+
+    cur.execute("SELECT * FROM skdatabase WHERE sgserverID = %s",
+                (interaction.guild.id,))
+    exist_channels = cur.fetchone()
+
+    if exist_channels == None:
+        await interaction.response.send_message("A first suggestions channel must be configured **/update-manager-channel** ⚠",ephemeral=True)
+        return
+
+    suggest_channel = await client.fetch_channel(str(exist_channels[1]))
+
+    try:
+        def check(m):
+            return m.channel == interaction.channel and m.author == interaction.user
+
+        im = await interaction.response.send_message('Do you want upload image?, or say **"N"** to skip')
+        #print("waiting for user respond...")
+        msg = await client.wait_for('message', check=check)
+
+        await im.delete()
+        imgembed.set_image(url="attachment://sksuggest.png")
+        message = None
+
+        if msg.content == "N" or msg.content == "n":
+          #  print("No option")
+            message = await suggest_channel.send(embed=imgembed)
+            #await asyncio.sleep(10)
+            await msg.delete(delay=10)
+        elif msg.attachments[0].url:
+        #    print("Yes Option")
+            result = requests.get(msg.attachments[0].url)
+            message = await suggest_channel.send(embed=imgembed, file=discord.File(io.BytesIO(result.content), filename="sksuggest.png"))
+
+        cancelled_ids = message.id
+        cancelled_channels = message.channel.id
+    except:
+        message = await suggest_channel.send(embed=imgembed)
+    #await message.delete(delay=30)
+    await message.add_reaction("✅")
+    await message.add_reaction("❌")
+
+    is_cancelleds = False
+
+    message2 = await interaction.edit_original_response(content=f"{interaction.user.mention}, your suggestion has been successfully submitted! Check <#{exist_channels[1]}>")
+    #message2=await interaction.original_response() 
+    if is_cancelleds == True:
+        return
+    await message2.delete(delay=25)
