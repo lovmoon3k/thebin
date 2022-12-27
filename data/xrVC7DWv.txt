@@ -1,0 +1,83 @@
+import logging
+import json
+
+from aiogram import Bot, Dispatcher, types
+from aiogram.utils import executor
+
+API_TOKEN = 'YOUR_API_TOKEN'
+
+# Load list of available cookies from a JSON file
+with open('cookies.json', 'r') as f:
+    COOKIES = json.load(f)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+# Initialize bot and dispatcher
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
+
+@dp.message_handler(commands='start')
+async def cmd_start(message: types.Message):
+    """
+    Process the '/start' command.
+    """
+    await message.reply("Welcome to the Cookie Shop! Type /menu to see our list of available cookies.")
+
+@dp.message_handler(commands='menu')
+async def cmd_menu(message: types.Message):
+    """
+    Process the '/menu' command.
+    """
+    menu_text = "Here is a list of our available cookies:\n\n"
+    for cookie in COOKIES:
+        menu_text += f"{cookie['name']}: ${cookie['price']}\n"
+    await message.reply(menu_text)
+
+@dp.message_handler(commands='order')
+async def cmd_order(message: types.Message):
+    """
+    Process the '/order' command.
+    """
+    # Split the message text into separate words
+    words = message.text.split()
+    
+    # Check if the user provided enough arguments
+    if len(words) < 3:
+        await message.reply("Invalid order format. Please use the format '/order COOKIE_NAME QUANTITY'")
+        return
+    
+    # Get the cookie name and quantity from the message
+    cookie_name = words[1]
+    try:
+        quantity = int(words[2])
+    except ValueError:
+        await message.reply("Invalid quantity. Please enter a valid number.")
+        return
+    
+    # Check if the requested cookie is available
+    cookie = None
+    for c in COOKIES:
+        if c['name'] == cookie_name:
+            cookie = c
+            break
+    if cookie is None:
+        await message.reply("Sorry, that cookie is not available.")
+        return
+    
+    # Check if there are enough cookies in stock
+    if cookie['stock'] < quantity:
+        await message.reply("Sorry, we don't have enough of that cookie in stock.")
+        return
+    
+    # Calculate the total price for the order
+    total_price = cookie['price'] * quantity
+    
+    # Confirm the order with the user
+    confirmation_text = f"Your order:\n{quantity} x {cookie_name} = ${total_price}\n\n"
+    confirmation_text += "Please type '/confirm' to place your order, or '/cancel' to cancel."
+    await message.reply(confirmation_text)
+
+@dp.message_handler(commands='confirm')
+async def cmd_confirm(message: types.Message):
+   
