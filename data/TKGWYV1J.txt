@@ -1,0 +1,58 @@
+class BloomFilter {
+  constructor(fpRate, capacity) {
+    // Calculate the number of bits and hashes needed for the given false positive rate and capacity
+    this.bits = Math.ceil(-capacity * Math.log(fpRate) / Math.LN2 ** 2);
+    this.hashes = Math.round(this.bits / capacity * Math.LN2);
+
+    // Create the bit array and hash functions
+    this.array = new Uint8Array(Math.ceil(this.bits / 8));
+    this.hashFunctions = [];
+    for (let i = 0; i < this.hashes; i++) {
+      this.hashFunctions.push(this.createHashFunction(i));
+    }
+  }
+
+  createHashFunction(seed) {
+    // Use the FNV-1a hash function to create a hash function with the given seed
+    const fnvPrime = 0x01000193;
+    return (data) => {
+      let hash = 0x811c9dc5 ^ seed;
+      for (let i = 0; i < data.length; i++) {
+        hash ^= data.charCodeAt(i);
+        hash = (hash * fnvPrime) & 0xffffffff;
+      }
+      return hash;
+    };
+  }
+
+  add(data) {
+    // Hash the data using all of the hash functions, and set the corresponding bits in the array to 1
+    for (const hashFunction of this.hashFunctions) {
+      const index = hashFunction(data) % this.bits;
+      this.array[Math.floor(index / 8)] |= 1 << (index % 8);
+    }
+  }
+
+  test(data) {
+    // Hash the data using all of the hash functions, and check if the corresponding bits in the array are all set to 1
+    for (const hashFunction of this.hashFunctions) {
+      const index = hashFunction(data) % this.bits;
+      if ((this.array[Math.floor(index / 8)] & (1 << (index % 8))) === 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
+
+// Create a Bloom filter with a false positive rate of 1% and a capacity of 1000 elements
+const bloomFilter = new BloomFilter(0.01, 1000);
+
+// Add some elements to the Bloom filter
+bloomFilter.add('apple');
+bloomFilter.add('banana');
+bloomFilter.add('orange');
+
+// Test if an element is in the set
+console.log(bloomFilter.test('apple'));  // true
+console.log(bloomFilter.test('grape'));  // false
