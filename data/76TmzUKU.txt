@@ -1,0 +1,94 @@
+const fs = require('fs');
+const path = require('path');
+const { 
+    createAudioResource,
+    createAudioPlayer,
+    joinVoiceChannel,
+    NoSubscriberBehavior
+} = require('@discordjs/voice');
+const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
+const { musicChannelId } = require('../config.json')
+
+module.exports = async (client, message) => {
+
+    const musicChannel = client.channels.cache.get(musicChannelId)
+    
+    // Join the voice channel
+    const connection = joinVoiceChannel({
+        channelId: musicChannel.id,
+        guildId: musicChannel.guild.id,
+        adapterCreator: musicChannel.guild.voiceAdapterCreator,
+    });
+
+    const player = createAudioPlayer({
+        behaviors: {
+            noSubscriber: NoSubscriberBehavior.Pause
+        }
+    })
+
+    // Get the folder containing the song files
+    const songsFolder = path.join(__dirname, '../music-feature/songs')
+    const imageFolder = path.join(__dirname, '../music-feature/images')
+
+    // Read the contents of the folders
+    fs.readdir(songsFolder, (err, songFiles) => {
+        if (err) {
+            console.log(err);
+            return;
+        }
+
+        fs.readdir(imageFolder, (err, imageFiles) => {
+            if (err) {
+                console.log(err);
+                return;
+            }
+
+            // Iterate through the song files and play them
+            let currentIndex = 0;
+            const playNextSong = () => {
+                if (currentIndex >= songFiles.length) {
+                    // If we've reached the end of the list, start again from the beginning
+                    currentIndex = 0;
+                }
+
+                const songFile = songFiles[currentIndex];
+                const imageFile = imageFiles[currentIndex];
+                const song = `${songsFolder}/${songFile}`;
+                const image = `${imageFolder}/${imageFile}`;
+                const attachment = new AttachmentBuilder(imageFolder, { name: imageFile } )
+
+                const resource = createAudioResource(song, { inlineVolume: true })
+                player.play(resource);
+
+                // Send an embed with the track name and image
+                const embed = new EmbedBuilder()
+                .setTitle(songFile)
+                .setImage(`attachment://${imageFile}`)
+                .setColor('#0099ff');
+
+                // musicChannel.messages.fetch()
+                //  .then((message) => {
+                //      if(!message) {
+                //          return
+                //      }
+                //      if (message) {
+                //          musicChannel.bulkDelete(1)
+                //              .catch(console.error)
+                //      }
+                //  })
+                //  .then(() => {
+                //      musicChannel.send({ embeds: [embed] })
+                //          .catch(console.error)
+                //  })
+                //  .catch(console.error)
+
+            musicChannel.send({ embeds: [embed] })    
+            
+            currentIndex++;
+            player.on('finish', playNextSong);
+            };
+
+            playNextSong();
+        });
+    });
+};
