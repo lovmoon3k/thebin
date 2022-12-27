@@ -1,15 +1,9 @@
-[**CgbL6UFU**](/data/CgbL6UFU.txt) (28/12/22 - 04:56)- 882 bytes
+[**LTRf2GkR**](/data/LTRf2GkR.txt) (28/12/22 - 05:07)- 1376 bytes
 
-[**0G4hdwJn**](/data/0G4hdwJn.txt) (28/12/22 - 04:56)- 895 bytes
+[**LTRf2GkR**](/data/LTRf2GkR.txt) (28/12/22 - 05:07)- 1376 bytes
 
-[**bAA1UNPK**](/data/bAA1UNPK.txt) (28/12/22 - 04:56)- 1368 bytes
+[**n25M9xyq**](/data/n25M9xyq.txt) (28/12/22 - 05:07)- 1326 bytes
 
-[**0G4hdwJn**](/data/0G4hdwJn.txt) (28/12/22 - 04:56)- 895 bytes
+**Total Datas**: 2018
 
-[**CCy1L9MF**](/data/CCy1L9MF.txt) (28/12/22 - 04:56)- 68378 bytes
-
-[**CCy1L9MF**](/data/CCy1L9MF.txt) (28/12/22 - 04:56)- 68378 bytes
-
-**Total Datas**: 2016
-
-**Total Size**: 12.64 MB / 12.6 MB
+**Total Size**: 12.65 MB / 12.6 MB
