@@ -1,0 +1,144 @@
+SWEP.Secondary.ScopeZoom	= 10
+
+SWEP.IronSightsPos = Vector (-5.2263, -0.0007, -0.715)
+SWEP.IronSightsAng = Vector (0, 0, 0)
+SWEP.SightsPos = Vector (0, 0, 0)
+SWEP.SightsAng = Vector (0, 0, 0)
+SWEP.RunSightsPos = Vector (0, 0, 0)
+SWEP.RunSightsAng = Vector (0, 0, 0)
+
+local IRONSIGHT_TIME = 0.4
+
+function SWEP:PostReloadScopeCheck()
+	if self.Weapon != nil then 
+	if self.Owner:KeyDown(IN_ATTACK2) and self.Weapon:GetClass() == self.Gun then 
+		if CLIENT then return end
+		self.Owner:SetFOV( 75/self.Secondary.ScopeZoom, 0.15 )                      		
+		self.IronSightsPos = self.SightsPos					-- Bring it up
+		self.IronSightsAng = self.SightsAng					-- Bring it up
+		self.DrawCrosshair = false
+		self:SetIronsights(true, self.Owner)
+		self.Owner:DrawViewModel(false)
+ 	elseif self.Owner:KeyDown(IN_SPEED) and self.Weapon:GetClass() == self.Gun then
+		if self.Weapon:GetNextPrimaryFire() <= (CurTime()+0.3) then
+			self.Weapon:SetNextPrimaryFire(CurTime()+0.3)				-- Make it so you can't shoot for another quarter second
+		end
+		self.IronSightsPos = self.RunSightsPos					-- Hold it down
+		self.IronSightsAng = self.RunSightsAng					-- Hold it down
+		self:SetIronsights(true, self.Owner)					-- Set the ironsight true
+		self.Owner:SetFOV( 0, 0.2 )
+	else return end
+	end
+end
+
+function SWEP:IronSight()
+
+	if not IsValid(self) then return end
+	if not IsValid(self.Owner) then return end
+	
+	--if self.Owner:KeyPressed(IN_ATTACK2) then return end
+
+		if self.Owner:KeyPressed(IN_ATTACK2) then
+			self.Owner:SetFOV( 75/self.Secondary.ScopeZoom, 0.15 )                      		
+			self.IronSightsPos = self.SightsPos					-- Bring it up
+			self.IronSightsAng = self.SightsAng					-- Bring it up
+			self.DrawCrosshair = false
+			self:SetIronsights(true, self.Owner)
+			if CLIENT then return end
+			self.Owner:DrawViewModel(false)
+		elseif self.Owner:KeyPressed(IN_ATTACK2) then
+			if self.Weapon:GetNextPrimaryFire() <= (CurTime()+0.3) then
+				self.Weapon:SetNextPrimaryFire(CurTime()+0.3)				-- Make it so you can't shoot for another quarter second
+			end
+			self.IronSightsPos = self.RunSightsPos					-- Hold it down
+			self.IronSightsAng = self.RunSightsAng					-- Hold it down
+			self:SetIronsights(true, self.Owner)					-- Set the ironsight true
+			self.Owner:SetFOV( 0, 0.2 )
+		end
+
+	if (self.Owner:KeyReleased(IN_ATTACK2)) then
+		self.Owner:SetFOV( 0, 0.2 )
+		self:SetIronsights(false, self.Owner)
+		self.DrawCrosshair = self.XHair
+		-- Set the ironsight false
+		if CLIENT then return end
+		self.Owner:DrawViewModel(true)
+	end
+
+	if self.Owner:KeyDown(IN_ATTACK2) then
+		self.SwayScale 	= 0.05
+		self.BobScale 	= 0.05
+	else
+		self.SwayScale 	= 1.0
+		self.BobScale 	= 1.0
+	end
+end
+
+function SWEP:Think()
+	self:IronSight()
+end
+
+function SWEP:SecondaryAttack()
+end
+
+function SWEP:GetViewModelPosition(pos, ang)
+ 
+	if !self.IronSightsPos then return pos, ang end
+ 
+	local bIron = self.Weapon:GetNWBool("Ironsights")
+ 
+	if (bIron != self.bLastIron) then
+		self.bLastIron = bIron
+		self.fIronTime = CurTime()
+	end
+ 
+	local fIronTime = self.fIronTime or 0
+ 
+	if (not bIron and fIronTime < CurTime() - IRONSIGHT_TIME) then
+		return pos, ang
+	end
+ 
+	local Mul = 1.0
+ 
+	if (fIronTime > CurTime() - IRONSIGHT_TIME) then
+		Mul = math.Clamp((CurTime() - fIronTime) / IRONSIGHT_TIME, 0, 1)
+ 
+		if not bIron then Mul = 1 - Mul end
+	end
+ 
+	local Offset    = self.IronSightsPos
+ 
+	if (self.IronSightsAng) then
+		ang = ang * 1
+		ang:RotateAroundAxis(ang:Right(),               self.IronSightsAng.x * Mul)
+		ang:RotateAroundAxis(ang:Up(),          self.IronSightsAng.y * Mul)
+		ang:RotateAroundAxis(ang:Forward(),     self.IronSightsAng.z * Mul)
+	end
+ 
+	local Right     = ang:Right()
+	local Up                = ang:Up()
+	local Forward   = ang:Forward()
+ 
+	pos = pos + Offset.x * Right * Mul
+	pos = pos + Offset.y * Forward * Mul
+	pos = pos + Offset.z * Up * Mul
+ 
+	return pos, ang
+end
+
+function SWEP:SetIronsights(b)
+	self.Weapon:SetNWBool("Ironsights", b)
+end
+ 
+function SWEP:GetIronsights()
+	return self.Weapon:GetNWBool("Ironsights")
+end
+
+function SWEP:AdjustMouseSensitivity()
+	
+	if self.Owner:KeyDown(IN_ATTACK2) then
+        return (1/(self.Secondary.ScopeZoom/2))
+	else 
+    	return 1
+	end
+end
