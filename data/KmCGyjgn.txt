@@ -1,0 +1,200 @@
+# tk_localhost_png.py ZZZ
+
+import json
+import tempfile
+import urllib.request
+import subprocess
+import requests
+
+from tkinter import *
+
+ww = 1400
+hh = 600
+
+# Create the root and canvas
+root = Tk()
+canvas = Canvas(root, width=ww, height=hh)
+canvas.pack()
+
+# any formula will get converted into being javascript
+formula = {
+    "ww": ww,
+    "hh": hh,
+    "Du": 0.16,
+    "Dv": 0.08,
+    "f": 0.035,
+    "k": 0.065,
+    "dt": 0.1,
+    "u": {},
+    "v": {},
+}
+
+for i in range(ww):
+    for j in range(hh):
+        formula["u"][i, j] = 1 + 0.1 * (0.5 - random.random())
+        formula["v"][i, j] = 0.1 * (0.5 - random.random())
+
+# Encode the formula as a JSON string
+formula_json = json.dumps(formula).encode("utf-8")
+
+# for the convertToJS function to process the 600x1400 image
+# this example is to render a Gray-Scott grayscale animation
+PyToJS = """
+rgb = []
+p = 255 / 0.099
+while 1:
+	for j in range(1, hh-1):
+		for i in range(1, ww-1):
+			u[i,j] = u[i,j] + dt * (Du * (u[i+1,j] + u[i-1,j] + u[i,j+1] + u[i,j-1] - 4*u[i,j]) - u[i,j]*v[i,j]**2 + f*(1-u[i,j]))
+			v[i,j] = v[i,j] + dt * (Dv * (v[i+1,j] + v[i-1,j] + v[i,j+1] + v[i,j-1] - 4*v[i,j]) + u[i,j]*v[i,j]**2 - (f+k)*v[i,j])
+			color = int(p * min(1, max(0, v[i,j])))
+			rgb.append((color, color, color))
+"""
+
+zoom = 1
+def zoom_fn(event):
+    global zoom
+    if event.keysym == "Up":
+        zoom /= 1.01
+    elif event.keysym == "Down":
+        zoom *= 1.01
+
+imagePosX = 0
+imagePosY = 0
+def on_mouse_move(event):
+    global imagePosX
+    global imagePosY
+    imagePosX += event.x
+    imagePosY += event.y
+
+root.bind("<B1-Motion>", on_mouse_move)
+root.bind("<Up>", zoom_fn)
+root.bind("<Down>", zoom_fn)
+
+# Send the formula to the JavaScript server using a POST request
+req = urllib.request.Request("http://localhost:8000/generate_image")
+req.add_header("Content-Type", "application/json")
+response = urllib.request.urlopen(req, formula_json)
+
+# Read the image data from the response
+image_data = response.read()
+
+# Save the image data to a temporary file
+with tempfile.NamedTemporaryFile(suffix=".png") as f:
+    f.write(image_data)
+    f.flush()
+    # Use Tkinter's "create_image" method to display the image on the canvas
+    canvas.create_image(0, 0, anchor=NW, image=f.name)
+
+# create javascript localhost that will convert python code into javascript code
+js_localhost = """
+function convertToJS(pythonCode) {
+  // Replace all instances of "as" with "="
+  pythonCode = pythonCode.replace(/as ([^\s]+)/g, (match, variable) => {
+    return `= ${variable}`;
+  });
+
+  // Replace all instances of "range" with "for" loop syntax
+  pythonCode = pythonCode.replace(/range\(([^)]+)\)/g, (match, args) => {
+    return `for (let i = 0; i < ${args}; i++)`;
+  });
+
+  // Replace all instances of "True" with "true"
+  pythonCode = pythonCode.replace(/True/g, "true");
+
+  // Replace all instances of "False" with "false"
+  pythonCode = pythonCode.replace(/False/g, "false");
+
+  // Replace all instances of "None" with "null"
+  pythonCode = pythonCode.replace(/None/g, "null");
+
+  // Replace all instances of "print" with "console.log"
+  pythonCode = pythonCode.replace(/print\(([^)]+)\)/g, (match, args) => {
+    return `console.log(${args})`;
+  });
+
+  // Replace all instances of ":" with "{"
+  pythonCode = pythonCode.replace(/:/g, "{");
+
+  // Replace all instances of "indent" with a tab character
+  pythonCode = pythonCode.replace(/indent/g, "\t");
+
+  // Replace all instances of "and" with "&&"
+  pythonCode = pythonCode.replace(/ and /g, " && ");
+
+  // Replace all instances of "or" with "||"
+  pythonCode = pythonCode.replace(/ or /g, " || ");
+
+  // Replace all instances of "not" with "!"
+  pythonCode = pythonCode.replace(/not /g, "!");
+
+  // Return the converted code
+  return pythonCode;
+}
+
+const http = require('http');
+
+const hostname = 'localhost';
+const port = 8000;
+
+const fs = require('fs');
+const pngjs = require('pngjs');
+
+app.post('/convert_to_png', (req, res) => {
+  const rgb = req.body;
+  const width = 1400;
+  const height = 600;
+
+  // Create a new PNG image with the specified width and height
+  const png = new pngjs.PNG({ width, height });
+
+  // Set the pixel data of the PNG image from the rgb array
+  for (let i = 0; i < rgb.length; i++) {
+    const pixel = rgb[i];
+    png.data[i * 4] = pixel[0];
+    png.data[i * 4 + 1] = pixel[1];
+    png.data[i * 4 + 2] = pixel[2];
+    png.data[i * 4 + 3] = 255;
+  }
+
+  // Write the PNG image to a file
+  png.pack().pipe(fs.createWriteStream('image.png'));
+
+  // Alternatively, you can send the PNG image back to the Python script as a response
+  // png.pack().pipe(res);
+});
+
+const server = http.createServer((req, res) => {
+  if (req.url === '/generate_image' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString(); // convert Buffer to string
+    });
+    req.on('end', () => {
+      const formula = JSON.parse(body);
+      // Convert the formula from Python to JavaScript and generate the image
+      // Save the image data to a temporary file
+      const imageData = generateImage(formula);
+      res.writeHead(200, {'Content-Type': 'image/png'});
+      res.end(imageData, 'binary');
+    });
+  } else {
+    res.statusCode = 404;
+    res.end();
+  }
+});
+
+server.listen(port, hostname, () => {
+  console.log(`Server running at http://${hostname}:${port}/`);
+});
+"""
+
+# Create a temporary file
+with tempfile.NamedTemporaryFile(suffix=".js", delete=False) as f:
+    # Write the js_localhost code to the file
+    f.write(js_localhost.encode("utf-8"))
+    # Store the file name for later use
+    js_file = f.name
+
+rgb_json = json.dumps(rgb).encode("utf-8")
+response = requests.post("http://localhost:8000/convert_to_png", json=rgb_json)
