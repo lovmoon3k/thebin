@@ -1,0 +1,70 @@
+class CountingBloomFilter {
+  constructor(fpRate, capacity) {
+    // Calculate the number of bits and hashes needed for the given false positive rate and capacity
+    this.bits = Math.ceil(-capacity * Math.log(fpRate) / Math.LN2 ** 2);
+    this.hashes = Math.round(this.bits / capacity * Math.LN2);
+
+    // Create the bit array and hash functions
+    this.array = new Uint8Array(Math.ceil(this.bits / 8));
+    this.hashFunctions = [];
+    for (let i = 0; i < this.hashes; i++) {
+      this.hashFunctions.push(this.createHashFunction(i));
+    }
+  }
+
+  createHashFunction(seed) {
+    // Use the FNV-1a hash function to create a hash function with the given seed
+    const fnvPrime = 0x01000193;
+    return (data) => {
+      let hash = 0x811c9dc5 ^ seed;
+      for (let i = 0; i < data.length; i++) {
+        hash ^= data.charCodeAt(i);
+        hash = (hash * fnvPrime) & 0xffffffff;
+      }
+      return hash;
+    };
+  }
+
+  add(data) {
+    // Hash the data using all of the hash functions, and increment the corresponding bits in the array
+    for (const hashFunction of this.hashFunctions) {
+      const index = hashFunction(data) % this.bits;
+      this.array[Math.floor(index / 8)]++;
+    }
+  }
+
+  test(data) {
+    // Hash the data using all of the hash functions, and check if the corresponding bits in the array are all non-zero
+    for (const hashFunction of this.hashFunctions) {
+      const index = hashFunction(data) % this.bits;
+      if (this.array[Math.floor(index / 8)] === 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  count(data) {
+    // Hash the data using all of the hash functions, and return the minimum count of the corresponding bits in the array
+    let count = Infinity;
+    for (const hashFunction of this.hashFunctions) {
+      const index = hashFunction(data) % this.bits;
+      count = Math.min(count, this.array[Math.floor(index / 8)]);
+    }
+    return count;
+  }
+}
+
+// Create a counting Bloom filter with a false positive rate of 1% and a capacity of 1000 elements
+const countingBloomFilter = new CountingBloomFilter(0.01, 1000);
+
+// Add some elements to the counting Bloom filter
+countingBloomFilter.add('apple');
+countingBloomFilter.add('banana');
+countingBloomFilter.add('orange');
+countingBloomFilter.add('apple');
+countingBloomFilter.add('apple');
+
+// Test if an element is in the set
+console.log(countingBloomFilter.test('apple'));  // true
+
