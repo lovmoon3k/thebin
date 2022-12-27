@@ -1,0 +1,48 @@
+function chainAnimationsGenerator(elem, animations) {
+    // spawn will return a Promise
+    return spawn(function*() {
+        let ret = null;
+        try {
+            for(const anim of animations) {
+                ret = yield anim(elem);
+            }
+        } catch(e) { /* ignore and keep going */ }
+        return ret;
+    });
+}
+
+function spawn(genFunc, self) {
+    return new Promise(function(resolve, reject) {
+        // start iterating the original function and set correct this pointer
+        var iterator = genFunc.call(self);  
+
+        function step(nextFunc) {
+            var next;
+
+            try {
+                next = nextFunc();
+            } catch(e) {
+                // finished with failure, reject the promise
+                reject(e);
+                return;
+            }
+
+            if(next.done) {
+                // finished with success, resolve the promise
+                resolve(next.value);
+                return;
+            }
+
+            // not finished, chain off the yielded promise and `step` again
+            Promise.resolve(next.value).then(function(v) {
+                // keep stepping until next yield (original await) passing new value to yield
+                step(function() { return iterator.next(v); });
+            }, function(e) {
+                step(function() { return iterator.throw(e); });
+            });
+        }
+
+        // keep stepping until next yield (original await)
+        step(function() { return iterator.next(); });
+    });
+}
