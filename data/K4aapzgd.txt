@@ -1,0 +1,61 @@
+using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.XR;
+
+public class InputTester : MonoBehaviour
+{
+    [Header("Set dynamically\n\tInput testing variables")]
+    [SerializeField] Animator playerAnimator;
+    [SerializeField] float verticalInput;
+    [SerializeField] float horizontalInput;
+
+    [SerializeField] PlayerInput playerInteractions;
+    [SerializeField] Vector2 playerInput;
+    [SerializeField] float smoothingTime;
+
+    Vector2 inputSmoothing;
+    CharacterController controller;
+    InputAction moveAction;
+
+    private void Start()
+    {
+        playerInteractions = GetComponent<PlayerInput>();
+        playerAnimator = GetComponentInChildren<Animator>();
+        controller = GetComponent<CharacterController>();
+
+        Cursor.lockState = CursorLockMode.Confined;
+        Cursor.visible = false;
+
+        SetPlayerInteractions();
+    }
+
+    void SetPlayerInteractions()
+    {
+        moveAction = playerInteractions.actions["Move"];
+    }
+
+    private void Update()
+    {
+        Vector2 moveInput = moveAction.ReadValue<Vector2>();
+        playerInput = Vector2.SmoothDamp(playerInput, moveInput, ref inputSmoothing, smoothingTime);
+
+        Vector3 tempMove = new Vector3(playerInput.x, 0, playerInput.y);
+
+        controller.Move(tempMove * 5f * Time.deltaTime);
+
+        UpdateMovementAnimation(playerInput.x, playerInput.y);
+    }
+
+    void UpdateMovementAnimation(float horInput, float verInput)
+    {
+        try
+        {
+            playerAnimator.SetFloat("forwardInput", verInput);
+            playerAnimator.SetFloat("horizontalInput", horInput);
+        }
+        catch (UnassignedReferenceException)
+        {
+            Debug.LogError("Animator is not set!");
+        }
+    }
+}
