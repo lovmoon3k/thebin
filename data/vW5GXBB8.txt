@@ -1,0 +1,92 @@
+    public function paynet_callback()
+    {
+
+        if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+
+
+            $paymentInfo = file_get_contents('php://input');
+            $paymentObj = json_decode($paymentInfo);
+
+            $order = $this->db->where('ExternalID',$paymentObj->Payment->ExternalId)->get('orders')->row();
+            $rest_id = json_decode($order->shipping);
+            foreach($rest_id as $key => $value)
+            {
+                $rest_id = $key;
+                break;
+            }
+
+            require_once(realpath('application') . '/libraries/paynet/paynet/PaynetAPI.php');
+            if ($rest_id == 9){
+                require_once(realpath('application') . '/libraries/paynet/paynet/PaynetConfigBoutique.php');
+            } elseif($rest_id == 8) {
+                require_once(realpath('application') . '/libraries/paynet/paynet/PaynetConfig.php');
+            } else {
+                require_once(realpath('application') . '/libraries/paynet/paynet/PaynetConfigGastroPub.php');
+            }
+            $api = new PaynetEcomAPI(MERCHANT_CODE, MERCHANT_SEC_KEY, MERCHANT_USER, MERCHANT_USER_PASS);
+//------------------------ get an input stream -----------------------------
+
+            $data = array(
+                'order_id' => 'paymentInfo',
+                'response' => $paymentInfo,
+                'date' => date("Y-m-d H:i:s")
+            );
+            $this->db->insert('paynet_logs', $data);
+
+            if (!$paymentObj) {
+                $data = array(
+                    'order_id' => 'error paymentObj',
+                    'response' => $paymentInfo,
+                    'date' => date("Y-m-d H:i:s")
+                );
+                $this->db->insert('paynet_logs', $data);
+                return;
+            }
+            if ($paymentObj->EventType !== 'PAID') {
+                $data = array(
+                    'order_id' => 'NOT SUCCESS EventType',
+                    'response' => $paymentInfo,
+                    'date' => date("Y-m-d H:i:s")
+                );
+                $this->db->insert('paynet_logs', $data);
+                return;
+            }
+            $checkObj = $api->PaymentGet($paymentObj->Payment->ExternalId);
+
+            if ($checkObj->IsOk()) {
+                if ($checkObj->Data[0]['Status'] !== 4) {
+                    $data = array(
+                        'order_id' => 'The payment status is not complete. Please wait and try again !!!',
+                        'response' => $paymentInfo,
+                        'date' => date("Y-m-d H:i:s")
+                    );
+                    $this->db->insert('paynet_logs', $data);
+                    return;
+                } else {
+                    $data = array(
+                        'order_id' => 'The payment has confirmed',
+                        'response' => $paymentInfo,
+                        'date' => date("Y-m-d H:i:s")
+                    );
+                    $this->db->insert('paynet_logs', $data);
+                    $paymentInfo = json_decode($paymentInfo);
+                    $this->db->where('ExternalID', $paymentInfo->Payment->ExternalId);
+                    $this->db->update('orders', array('payments'=>1));
+
+                    //------------- Send success info !
+                    $this->send_success_info($paymentInfo->Payment->ExternalId);
+
+                }
+                //------------- here you can confirm your transaction !
+
+            }
+        } else {
+
+            $data = array(
+                'response' => 'error',
+                    'date' => date("Y-m-d H:i:s")
+        );
+            $this->db->insert('paynet_logs', $data);
+            throw_on_404();
+        }
+    }
