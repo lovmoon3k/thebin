@@ -1,0 +1,128 @@
+const { Telegraf } = require("telegraf");
+const {
+	writeToDb,
+	formatMessage,
+	getStep,
+	delUser,
+	getKey,
+} = require("./helpers");
+
+// Токен для работы с телеграм-ботом
+const { token } = require("./config.json");
+
+const bot = new Telegraf(token);
+
+// Для работы с ботом используется концепция шагов, которым следует пользователь
+const steps = [
+	{
+		message: "Здравствуйте, пожалуйста пройдите регистрацию в нашем телеграм-боте. " +
+						 "Для этого введите пожалуйста Ваше имя в формате *ФАМИЛИЯ ИМЯ ОТЧЕСТВО*",
+		field: "name",
+		fieldName: "ФИО",
+		regex: /[^-А-ЯA-Z\x27а-яa-z]/,
+	},
+	{
+		message: "Приятно познакомиться *:name*, а теперь введите свой номер телефона в " +
+		         "формате *+7 (XXX) XXX-XX-XX*",
+		field: "phone",
+		fieldName: "телефон",
+		regex: /(?:\+|\d)[\d\-\(\) ]{9,}\d/g,
+	},
+	{
+		message: "А теперь введите свой адрес электронной почты в формате *address@domain.ru*",
+		field: "email",
+		fieldName: "адрес электронной почты",
+		regex: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+	},
+	{
+		message: "Вы зарегистрированы!\n\n*Имя:* :name\n*Номер телефона:* :phone\n*E-mail:* :email",
+	}
+];
+
+
+const sendStepMessage = (step, userId) => {
+  const { message } = steps[step];
+
+  bot.telegram.sendMessage(
+  	userId,
+  	formatMessage(message, userId),
+  	{ parse_mode: "MarkdownV2" }
+  );
+};
+
+// С помощью regex-выражений осуществляем валидацию данных, вводимых пользователем
+const validateStep = (step, userId, userMessage) => {
+  const { message, field, fieldName, regex } = steps[step];
+
+  if (message && field && fieldName && regex) {
+	  if (regex.test(userMessage)) {
+	  	writeToDb(userId, field, userMessage);
+	  	writeToDb(userId, "step", step + 1);
+
+	  	return true;
+	  } else {
+  		bot.telegram.sendMessage(
+  			userId,
+  			`Это не похоже на *${fieldName}*, введите заново`,
+  			{ parse_mode: "MarkdownV2" }
+  		);
+
+	  	return false;
+	  }
+  }
+};
+
+const form = (ctx) => {
+  const userId = ctx.update.message.chat.id;
+  const userMessage = ctx.update.message.text;
+  const currentStep = getStep(userId);
+
+	if (userMessage !== "/start" && currentStep < steps.length - 1) {
+		const stepResult = validateStep(currentStep, userId, userMessage);
+
+		if (stepResult) {
+			sendStepMessage(currentStep + 1, userId);
+		}
+	} else if (userMessage === "/start") {
+		delUser(userId);
+		sendStepMessage(0, userId);
+	} else {
+		sendStepMessage(currentStep, userId);
+	}
+};
+
+bot.command("/help", (ctx) => {
+	ctx.reply(
+		"*Справка*\n\n" +
+		"/start \\- Начало работы с ботом или сбросить свою сессию\n" +
+		"/documents \\- Информация о документах\n" +
+		"/orders \\- Информация о заказах\n",
+		{ parse_mode: "MarkdownV2" }
+	);
+});
+
+bot.command("/orders", (ctx) => {
+  const userId = ctx.update.message.chat.id;
+	const name = getKey(userId, "name") || "";
+	ctx.reply(
+		`*Заказы ${name}*\n\n` +
+		"Заказ 1\n" +
+		"Заказ 2\n",
+		{ parse_mode: "MarkdownV2" }
+	);
+});
+
+bot.command("/documents", (ctx) => {
+  const userId = ctx.update.message.chat.id;
+	const name = getKey(userId, "name") || "";
+	ctx.reply(
+		`*Список документов ${name}*\n\n` +
+		"1\\. Бриф\n" +
+		"2\\. Анкета\n",
+		{ parse_mode: "MarkdownV2" }
+	);
+});
+
+bot.start(form);
+bot.on("text", form);
+bot.launch();
