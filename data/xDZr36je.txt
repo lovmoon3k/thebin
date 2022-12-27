@@ -1,0 +1,154 @@
+#include <iostream>
+#include <vector>
+#include <list>
+#include <mutex>
+#include <atomic>
+#include <thread>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <matplot/matplot.h>
+using namespace std::chrono_literals;
+using namespace matplot;
+
+class Worker{
+public:
+    enum State: std::uint8_t {
+        None = 255,
+        Working = 0,
+        Thinking = 1,
+        TakingLeftResource = 2,
+        TakingRightResource = 3,
+        ReleasingResources = 4
+    };
+private:
+    std::array<std::uint32_t, 5> _state_duration;
+    std::mutex& _min_resource;
+    std::mutex& _max_resource;
+    std::atomic_bool is_cancellation_requested;
+    std::list<std::pair<State, std::uint32_t>> _log;
+    std::chrono::time_point<std::chrono::steady_clock> _start;
+    std::uint32_t _duration;
+public:
+    Worker(std::mutex& min_resource, std::mutex& max_resource):
+    _min_resource(min_resource), _max_resource(max_resource)
+    {
+        for(auto& elem: _state_duration)
+            elem = (rand() % 4 + 1) * 1000;
+    }
+
+    void run(){
+        is_cancellation_requested.store(false);
+        _start = std::chrono::steady_clock::now();
+        _duration = 0;
+        while(!is_cancellation_requested.load()){
+            __log(Thinking);
+            std::this_thread::sleep_for(std::chrono::milliseconds(__get_state_duration(Thinking)));
+            if(is_cancellation_requested.load()) break;
+            _min_resource.lock();
+            __log(TakingLeftResource);
+            if(is_cancellation_requested.load()) {_min_resource.unlock(); break;}
+            _max_resource.lock();
+            __log(TakingRightResource);
+            if(is_cancellation_requested.load()) {_min_resource.unlock(); _max_resource.unlock(); break;}
+            std::this_thread::sleep_for(std::chrono::milliseconds(__get_state_duration(Working)));
+            __log(Working);
+            if(is_cancellation_requested.load()) {_min_resource.unlock(); _max_resource.unlock(); break;}
+            _max_resource.unlock();
+            _min_resource.unlock();
+        }
+    }
+
+    std::list<std::pair<Worker::State, std::uint32_t>> stop() noexcept{
+        std::list<std::pair<Worker::State, std::uint32_t>> result = _log;
+        is_cancellation_requested.store(true);
+        _log.clear();
+        return result;
+    }
+private:
+    inline uint32_t __get_state_duration(const State state) const noexcept{
+        if (state == Working || state == Thinking)
+            return _state_duration[static_cast<uint8_t>(state)];
+        else
+            return std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - (_start + std::chrono::milliseconds(_duration))
+                    ).count();
+    }
+
+    void __log(const State state) noexcept{
+        const float duration = __get_state_duration(state);
+        _duration += duration;
+        _log.emplace_back(state, duration);
+    }
+};
+
+class WorkerPool{
+    std::vector<std::mutex> _resource;
+    std::vector<Worker*> _workers;
+    std::vector<std::thread> _threads;
+public:
+
+    WorkerPool(std::uint8_t size): _resource(size){
+        for(std::uint8_t idx = 0; idx < size; idx++)
+            if (idx != size - 1)
+                _workers.push_back(new Worker(_resource[idx], _resource[idx + 1]));
+            else
+                _workers.push_back(new Worker(_resource[0], _resource[idx]));
+    }
+
+    void start(){
+        for(std::uint8_t idx = 0; idx < _workers.size(); idx++)
+            _threads.emplace_back(&Worker::run, _workers[idx] );
+    }
+
+    std::vector<std::list<std::pair<Worker::State, uint32_t>>> stop(){
+        std::vector<std::list<std::pair<Worker::State, uint32_t>>> result;
+        for(auto& worker: _workers)
+            result.push_back(worker->stop());
+        for(auto& th: _threads)
+            if(th.joinable()) th.join();
+        for(auto& worker: _workers)
+            delete worker;
+        return result;
+    }
+};
+auto get_color(const Worker::State state){
+    if (state == Worker::Working)
+        return color::green;
+    if (state == Worker::Thinking)
+        return color::red;
+    if (state == Worker::TakingRightResource)
+        return color::magenta;
+    if (state == Worker::TakingLeftResource)
+        return color::blue;
+}
+
+int main(int argc, char** argv){
+    std::srand(std::time(nullptr));
+    WorkerPool pool(5);
+    pool.start();
+    char input;
+    for(;;){
+        std::cin >> input;
+        if(input == 'q' || input == 'Q') break;
+    }
+    auto log = pool.stop();
+
+    auto t = std::time(nullptr);
+    auto tm = *std::localtime(&t);
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%d-%m-%Y-%H-%M-%S");
+    std::string filename = "log-" + oss.str() + ".svg";
+    for(std::uint32_t idx = 0; idx < log.size(); idx++){
+        float _start = 0;
+        for(const auto& res: log[idx]){
+            if (res.second == 0) continue;
+            const std::vector<float> x{_start, };
+            const std::vector<float> y{idx+1.f, idx+1.f};
+            line(_start,idx+1.f, _start + static_cast<float>(res.second)/1000.f, idx+1.f)->color(get_color(res.first)).line_width(2);
+            _start += static_cast<float>(res.second)/1000.f;
+        }
+    }
+    save(filename);
+    return 0;
+}
