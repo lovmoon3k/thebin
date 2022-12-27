@@ -1,0 +1,60 @@
+-- Door Access Function
+  function HasAccess(ply, door, requiredRank)
+    local fileName = "my_server_data_" .. ply:SteamID64() .. ".json"
+    local rank = file.Read(fileName, "DATA")
+    local dataTable = util.JSONToTable(data)
+    if dataTable.rank >= requiredRank then
+        return true
+    else
+        return false
+    end
+  end
+
+-- Door Interaction Function
+function DoorInteract(ply, door)
+  -- Read the door ranks data from the file
+  local fileContents = file.Read("door_ranks.json", "DATA") or "{}"
+  -- Convert the JSON data to a table
+  local doorRanks = util.JSONToTable(fileContents)
+  -- Get the required rank for the door
+  local requiredRank = doorRanks[door:EntIndex()] or 2
+
+  if not HasAccess(ply, door, requiredRank) then
+      ply:ChatPrint("You do not have access to this door.")
+      return false
+  end
+
+  return true
+end
+
+-- Door Interaction Hook
+hook.Add("PlayerUse", "door_interact", function(ply, door)
+  return DoorInteract(ply, door)
+end)
+
+  -- Set Required Rank Command
+  concommand.Add("door_set_rank", function(ply, cmd, args)
+    local door = ply:GetEyeTrace().Entity
+    if IsValid(door) and door:GetClass() == "prop_door_rotating" then
+        ply:ChatPrint("You must be looking at a door to use this command.")
+        return
+    end
+  
+    local requiredRank = tonumber(args[1]) or 2
+    door:SetNWInt("required_rank", requiredRank)
+    ply:ChatPrint("The required rank for interacting with this door has been set to " .. requiredRank .. ".")
+  
+    -- Read the existing door data from the file
+    local fileContents = file.Read("door_data.json", "DATA") or "[]"
+    -- Convert the JSON data to a table
+    local doorDataTable = util.JSONToTable(fileContents)
+    -- Add the new door data to the table
+    table.insert(doorDataTable, {
+      doorID = door:EntIndex(),
+      requiredRank = requiredRank,
+    })
+    -- Convert the updated table to a JSON string
+    local jsonString = util.TableToJSON(doorDataTable, true)
+    -- Write the updated data back to the file
+    file.Write("door_data.json", jsonString)
+  end)
