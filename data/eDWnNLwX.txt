@@ -1,0 +1,69 @@
+(*
+  This function is used to drop the lot in your inventory.
+
+  Technically, this can be done in very few lines of code,
+  but as an anti pattern mechanism it breaks the drop-cycle
+  into smaller slices of the pattern, allowing for Anitban to be activated
+  while dropping, including breaks, and also will potensially stall a little
+  more between some items.
+*)
+var tmpCount: Int32;
+function TMiner.DropInventory(): Boolean;
+var
+  ptrn: TIntegerArray;
+  slices,itemsToKeep: TIntegerArray;
+  sequences: T2DIntArray;
+  slot,i,hi: Int32;
+begin
+  ptrn := Inventory.ErrorPattern(DROP_PATTERN_REGULAR, 10);
+
+  // make sub-patterns (sequences)
+  hi := 0;
+  while hi <> Length(ptrn) do
+  begin
+    if Self.IsUnfocused() then
+      slices += Random(hi, Length(ptrn))
+    else
+      slices += srl.TruncatedGauss(Length(ptrn), hi, 6);
+    hi := slices[High(slices)];
+  end;
+
+  sequences += Copy(ptrn, 0, slices[0]);
+  for i:=1 to High(slices) do
+    sequences += Copy(ptrn, slices[i-1], 28-slices[i-1]);
+
+  //for each sequence do
+  for i:=0 to High(sequences) do
+  begin
+    ptrn := sequences[i];
+
+    // check if we have an antiban ready and lined up
+    Self.DoAntiban();
+
+    // here we can add filter-rules, something like this
+    Inventory.FindItems(KEEP_THESE_ITEMS, itemsToKeep);
+    for slot in itemsToKeep do
+      ptrn.Remove(slot);
+
+    // shift-drop the rest of our ores
+    Inventory.ShiftDrop(ptrn);
+    if Self.IsUnfocused() then Self.BurstOfUnfocused();
+
+    // do not delay before completing if we are hyper focued
+    if (Self.IsHyperFocused()) and (i = High(sequences))  then
+      break;
+
+    // delay before next sequence or before completing
+    Sleep(srl.TruncatedGauss(0, 6000, 6));
+
+    // if we are unfocused shit might happen.
+    if Self.IsUnfocused() then
+    begin
+      Self.BurstOfUnfocused();
+      if (Random() < 0.1) then break;
+    end;
+  end;
+
+  tmpCount += 28;
+  WriteLn('Mined: ', tmpCount, 'ores');
+end;
