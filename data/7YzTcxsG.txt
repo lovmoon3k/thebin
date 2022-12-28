@@ -1,0 +1,2044 @@
+/*
+ * R e a d m e
+ * -----------
+ * 
+ * In this file you can include any instructions or other comments you want to have injected onto the 
+ * top of your final script. You can safely delete this file if you do not want any such comments.
+ */
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// Expanse Flight Controls
+// Create by Jawa
+// Version 1.5
+//
+//	Notes
+//
+//	-Fixed exception occurring after editing custom data
+//	-Fixed Set Damp command not working
+//	-Fixed issue with grabbing attached grid thrusters and gyros
+//	-Stopped retrograde/prograde from affecting rcs on/off state
+//	-Added "Add" argument to allow adding multiple GPS sequentially without using custom data (In Beta testing)
+//	-Added variables to control which PB and Control block screen display script info
+//	-Updated Draconis Expanse Server RTS settings and speed zones
+//
+//	To Do
+//	-Fix on exception												DONE
+//	-Fix set damp													DONE
+//	-stop retrograde/prograde from affecting rcs					DONE
+//	-Add same grid check to all blocks								DONE
+//	-Add GPS one at a time via args									DONE
+//	-Add screen number control										DONE
+//	-Check speed zones settings										DONE
+//	-Manual Thrust setup option (removes need for epstein mod)
+//	-Add states for course correction to avoid oscillation
+//	-Check on stopping wiggle (Return of the wiggle)
+//
+//
+/////////////////////////////////////////////////////////////////////////////////////////
+//
+// --Instructions--
+//
+//
+//	SETUP:
+//	Add the ScriptTag to your ship controller/cockpit (Default is [EFC])
+//	Run the "Tune" command.
+//	Edit the settings in Custom Data to your preferences
+//	It is Highly recommended you add "Off" to you hotbar so you can quickly retrieve ship control
+//	Recompile when changing blocks related to the script
+//	You can setup an LCD by adding the ScriptTag to the name
+//
+//	Full guide can be found here:
+//	https://steamcommunity.com/sharedfiles/filedetails/?id=2663326103&searchtext=expanse+flight+control
+//
+/////////////////////////////////////////////////////////////////////////////////////////
+//
+// --Commands--
+//
+//	--Simple Commands--
+//	Stop: Flip and burn to stop
+//	Off: Stop program, disable all overrides, reset dampners to inital state
+//	Tune: Does a small rotation to tune ship rotation damping. Prevents overshooting when during rotations. [DO THIS FIRST]
+//	Plot: After putting your GPS markers into the custom data "Trip GPS Points" section, use the plot command to calculate distance and prepare the ship for the trip
+//	Engage: Proceed to GPS, ship will first come to a stop, then fly to the GPS and stop
+//
+//	-------------------
+//	Flip: Flip ship 180 degrees
+//	Flip2: Flip ship 180 degrees, disable forward RCS thrust, and enable main drives
+//	Dampreset: Resets rotation damping to 1
+//	Retrograde: Point the front of the ship in the opposite direction of current velocity (good for preparing to stop)
+//	Prograde: Point the front of the ship in the dirction of current velocity (good for preparing to increase speed without chaning direction)
+//	Orbit: When in planet gravity, this will fly to outside gravity then flip and burn to stop.
+//	Deorbit: When flying down a grav well, this will flip and burn stopping above the ground and hovering (WARNING: Deorbit manuever uses FULL thurst despite max burn settings)
+//	GPS: Enter a full GPS and get distance, use "Engage" to proceed to GPS
+//	Add GPS: Use the keyword "Add" along with a GPS to add multiple GPS one at a time via the argument line (In Beta testing)
+//	Plot: After putting your GPS markers into the custom data "Trip GPS Points" section, use the plot command to calculate distance and prepare the ship for the trip
+//	Engage: Proceed to GPS, ship will first come to a stop, then fly to the GPS and stop
+//	Cancel: Stop trip, does not remove destination
+//	Boost: Toggle on/off using boost for entire trips to a specified GPS (Use thrust the entire trip to gain boost speed)
+//	Boost On: Turn on using boost for entire trips to a specified GPS (Use thrust the entire trip to gain boost speed)
+//	Boost Off: Turn off using boost for entire trips to a specified GPS (Coast once max cruise speed has been reached)
+//	Set Damp #: Allows manual entry of the rotation damping (must be between 0 and 1)
+//	Set Speed #: Override your ships cruising speed. When your ship reaches this speed on a trip, it will begin coasting to the destination. (capped at max speed of your current instance)
+//	Set Burn #: Max burn allowed, script will not burn higher than this percent
+//	Set Thrust #: Thrust override for epstein drives. Make setting thrust override just a little easier.
+//	Mass: Display the ships physical mass in the programmable block console (mass used by physics engine, includes cargo and cargo multiplier)
+//	Setting Reset: Reset all settings in Custom Data to defaults (a recompile will not do this)
+//	Gas: Toggle displaying gas levels to all displays
+//	Instance: Force and check of the current instance to update RTS speeds
+//
+//	Note: Case is ignored for all commands
+//
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+///////////////////////////////////// Variables ////////////////////////////////////////////////////
+double MaxSpeed = 300;
+double BoostSpeed = 4;
+float MaxBurn = 1;
+bool UseBoost = false;
+bool DisplayGasInfo = false;
+
+string ScriptTag = "[EFC]";
+double DefaultDeorbitBuffer = 1000;
+double DefaultGPSBuffer = 2000;
+bool UseControllerScreen = true;
+bool UsePBScreen = true;
+int PBScreenNumber = 0;							// <--- New screen selection feature
+int ControllerScreenNumber = 0;                 // <--- New screen selection feature
+
+
+
+///////////////////////////////////// Main Script ////////////////////////////////////////////////////
+IMyShipController ControlBlock = null;
+IMyTextPanel DisplayLCD = null;
+IMyTextSurface ControllerScreenLCD = null;
+IMyTextSurface PBScreenLCD = null;
+List<IMyGyro> ShipGyros = new List<IMyGyro>();
+List<IMyThrust> ForwardThrust = new List<IMyThrust>();
+List<IMyThrust> ForwardRCS = new List<IMyThrust>();
+List<IMyGasTank> HydroTanks = new List<IMyGasTank>();
+List<IMyGasTank> OxyTanks = new List<IMyGasTank>();
+List<Vector3> TripGPSPoints = new List<Vector3>();
+List<string> TripGPSPointStrings = new List<string>();
+List<SpeedZone> AllSpeedZones = new List<SpeedZone>();
+List<MyTuple<Vector3, Vector3, SpeedZone>> TripSpeedZones = new List<MyTuple<Vector3, Vector3, SpeedZone>>();
+SpeedZone CurrentZone;
+float MaxHydro = 0;
+string HydroUnits = "L";
+string HydroCapUnits = "L";
+string OxyUnits = "L";
+string OxyCapUnits = "L";
+float MaxOxy = 0;
+bool IsReady = false;
+bool DampnersStartSetting = false;
+bool ThrustState = false;
+bool RCSState = true;
+bool DestSet = false;
+bool SinglePointTrip = true;
+bool SDExpanseServer = true;
+//bool GridIsLarge = true;
+double ShipLastSpeed;
+double TotalForwardThrust = 0;
+double RotationDamping = 0.4881;
+double ShipRotationRate = 80;
+double AngularAcceleration = 80;
+double TripTime = 0;
+int TripPointNum = 0;
+int ImpulseCheckCounter = 0;
+int TickCounter = 0;
+Vector3D TargetVector;
+Vector3D DirectionOld;
+StringBuilder Output = new StringBuilder();
+StringBuilder ErrorsOutput = new StringBuilder();
+StringBuilder StartErrors = new StringBuilder();
+Vector3 GPSDestination = new Vector3();
+string DestinationName = "None";
+StringBuilder ActivityIndicator = new StringBuilder();
+
+public enum FlipDirection
+{
+	Flip,
+	Retrograde,
+	Prograde
+}
+FlipDirection FlipDirec;
+
+public enum SStates
+{
+	Inactive,
+	Stop,
+	Flip,
+	Reverse,
+	GPS,
+	CourseCorrect,
+	GPSStopped,
+	Deorbit,
+	Orbit,
+	Tune
+}
+SStates ShipState;
+public enum GStates
+{
+	None,
+	InitialStop,
+	Acceleration,
+	Coasting,
+	DestinationStop
+}
+GStates GPSState;
+
+SpeedZone EarthLowSpeedZone = new SpeedZone(new Vector3(0, -348668, 30504), 300000, 350, 4, false);
+SpeedZone MarsLowSpeedZone = new SpeedZone(new Vector3(1200000, 0, 0), 300000, 350, 4, false);
+SpeedZone JupiterLowSpeedZone = new SpeedZone(new Vector3(0, -3200000, 0), 715000, 350, 4, false);
+SpeedZone SaturnLowSpeedZone = new SpeedZone(new Vector3(0, -348668, 30504), 310000, 350, 4, false);
+SpeedZone BeltLowSpeedZone = new SpeedZone(new Vector3(0, 0, 0), 2290000, 350, 4, false);
+SpeedZone MainHighSpeedZone = new SpeedZone(Vector3.Zero, 15000000, 3000, 30, true);
+SpeedZone SmallHighSpeedZone = new SpeedZone(Vector3.Zero, 1800000, 3000, 30, true);
+SpeedZone TrojanLowSpeedZone = new SpeedZone(new Vector3(1584429, 2744311, 445353), 250000, 350, 4, true);
+SpeedZone GreekLowSpeedZone = new SpeedZone(new Vector3(-1591235, 2756099, -334491), 250000, 350, 4, true);
+
+//RTSSettings(LGMinMass, LGMidMass, LGMaxMass, LGMinCruise, LGMidCruise, LGMaxCruise, LGSpeedLimit, LGResistance, SGMinMass, SGMidMass, SGMaxMass, SGMinCruise, SGMidCruise, SGMaxCruise, SGSpeedLimit, SGResistance)
+RTSSettings LowSpeedRTS = new RTSSettings(1600000, 40000000, 64000000, 350, 300, 250, 500, 0.5f, 800000, 2400000, 4800000, 500, 400, 300, 500, 0.75f);
+RTSSettings HighSpeedRTS = new RTSSettings(1600000, 40000000, 64000000, 2000, 1500, 1000, 3000, 0.5f, 800000, 2400000, 4800000, 2250, 1750, 1000, 3000, 0.75f);
+
+
+
+////////////////////////////////////// -- Classes -- \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+public class SpeedZone
+{
+	public Vector3 ZoneCenter;
+	public double ZoneRadius;
+	public double ZoneSpeed;
+	public double ZoneBoostSpeed;
+	public bool HighSpeed;
+	public RTSSettings ZoneSettings;
+
+	public SpeedZone(Vector3 ZoneCenter, double ZoneRadius, double ZoneSpeed, double ZoneBoostSpeed, bool HighSpeed)
+    {
+		this.ZoneCenter = ZoneCenter;
+		this.ZoneRadius = ZoneRadius;
+		this.ZoneSpeed = ZoneSpeed;
+		this.ZoneBoostSpeed = ZoneBoostSpeed;
+		this.HighSpeed = HighSpeed;
+    }
+
+	public void GetSpeeds(IMyShipController shipController, double PrimaryThrust)
+    {
+		ZoneSpeed = ZoneSettings.ShipCruise(shipController);
+		ZoneBoostSpeed = (PrimaryThrust / shipController.CalculateShipMass().PhysicalMass) / ZoneSettings.GetResistance(shipController);
+	}
+}
+
+public class RTSSettings
+{
+	public float LGMinMass;
+	public float LGMidMass;
+	public float LGMaxMass;
+	public float LGMinCruise;
+	public float LGMidCruise;
+	public float LGMaxCruise;
+	public float LGSpeedLimit;
+	public float LGResistance;
+
+	public float SGMinMass;
+	public float SGMidMass;
+	public float SGMaxMass;
+	public float SGMinCruise;
+	public float SGMidCruise;
+	public float SGMaxCruise;
+	public float SGSpeedLimit;
+	public float SGResistance;
+
+	public float Resistance = 0;
+
+
+	public RTSSettings(float LGMinMass, float LGMidMass, float LGMaxMass, float LGMinCruise, float LGMidCruise, float LGMaxCruise, float LGSpeedLimit, float LGResistance,
+		float SGMinMass, float SGMidMass, float SGMaxMass, float SGMinCruise, float SGMidCruise, float SGMaxCruise, float SGSpeedLimit, float SGResistance)
+	{
+		this.LGMinMass = LGMinMass;
+		this.LGMidMass = LGMidMass;
+		this.LGMaxMass = LGMaxMass;
+		this.LGMinCruise = LGMinCruise;
+		this.LGMidCruise = LGMidCruise;
+		this.LGMaxCruise = LGMaxCruise;
+		this.LGSpeedLimit = LGSpeedLimit;
+		this.LGResistance = LGResistance;
+
+		this.SGMinMass = SGMinMass;
+		this.SGMidMass = SGMidMass;
+		this.SGMaxMass = SGMaxMass;
+		this.SGMinCruise = SGMinCruise;
+		this.SGMidCruise = SGMidCruise;
+		this.SGMaxCruise = SGMaxCruise;
+		this.SGSpeedLimit = SGSpeedLimit;
+		this.SGResistance = SGResistance;
+
+	}
+
+	public float GetResistance(IMyShipController ShipController)
+	{
+		return ShipController.CubeGrid.GridSizeEnum == MyCubeSize.Large ? LGResistance : SGResistance;
+	}
+
+	public double ShipCruise(IMyShipController ShipController)
+    {
+		Resistance = ShipController.CubeGrid.GridSizeEnum == MyCubeSize.Large ? LGResistance : SGResistance;
+
+	bool LargeGrid;
+		float ShipMass = ShipController.CalculateShipMass().PhysicalMass;
+		float MinMass;
+		float MidMass;
+		float MaxMass;
+		float MinCruise;
+		float MidCruise;
+		float MaxCruise;
+		float SpeedLimit;
+		LargeGrid = ShipController.CubeGrid.GridSizeEnum == MyCubeSize.Large ? true : false;
+
+		if (LargeGrid)
+        {
+			MinMass = this.LGMinMass;
+			MidMass = this.LGMidMass;
+			MaxMass = this.LGMaxMass;
+			MinCruise = this.LGMinCruise;
+			MidCruise = this.LGMidCruise;
+			MaxCruise = this.LGMaxCruise;
+			SpeedLimit = this.LGSpeedLimit;
+		}
+        else
+		{
+			MinMass = this.SGMinMass;
+			MidMass = this.SGMidMass;
+			MaxMass = this.SGMaxMass;
+			MinCruise = this.SGMinCruise;
+			MidCruise = this.SGMidCruise;
+			MaxCruise = this.SGMaxCruise;
+			SpeedLimit = this.SGSpeedLimit;
+		}
+
+		if (ShipMass > MaxMass)
+		{
+			return MaxCruise;
+		}
+		else if (ShipMass < MinMass)
+		{
+			return MinCruise;
+		}
+
+		bool lessThanMid = (ShipMass < MidMass);
+
+		double speed0;
+		double speed1;
+		double deltaX;
+		double deltaY;
+		double x;
+		double slopeRatio = 1;
+
+		if (lessThanMid)
+		{
+			speed0 = MinCruise;
+			speed1 = MidCruise;
+			deltaX = MidMass - MinMass;
+			deltaY = MidCruise - MinCruise;
+			x = (ShipMass - MinMass) / deltaX;
+		}
+		else
+		{
+			speed0 = MidCruise;
+			speed1 = MaxCruise;
+			deltaX = MaxMass - MidMass;
+			deltaY = MaxCruise - MidCruise;
+			x = (ShipMass - MidMass) / deltaX;
+			slopeRatio = deltaX / (MidMass - MinMass);
+		}
+
+		double slope0 = deltaY * slopeRatio;
+		double slope1 = slope0;
+
+		double specialSlope = (MaxCruise - MinCruise) * slopeRatio * 0.2f;
+
+		if (lessThanMid)
+		{
+			slope1 = specialSlope;
+		}
+		else
+		{
+			slope0 = specialSlope;
+		}
+
+		float interp = (float)CubicInterpolation(x, speed0, slope0, speed1, slope1);
+
+		// dont flip the signs THEY ARE CORRECT
+		if (interp > MinCruise)
+		{
+			interp = MinCruise;
+		}
+		if (interp < MaxCruise)
+		{
+			interp = MaxCruise;
+		}
+
+		return Math.Min(Math.Max(interp, 100), SpeedLimit);
+    }
+
+}
+
+////////////////////////////////////// -- Secondary Functions -- \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+public void ReadyCheck()
+{
+	IsReady = true;
+
+	if (ControlBlock == null)
+	{
+		IsReady = false;
+		StartErrors.Append("-No ship controller found\nMake sure to add the " + ScriptTag + " tag to the name the main control seat.\n");
+	}
+	if (ShipGyros.Count < 1)
+	{
+		IsReady = false;
+		StartErrors.Append("-No gyros found\n");
+	}
+	if (ForwardThrust.Count < 1)
+	{
+		IsReady = false;
+		StartErrors.Append("-No Epstein drive found\n");
+	}
+	if (!IsReady) StartErrors.Append("-Add required blocks and recompile.\n");
+}
+
+public void GetLCDs()
+{
+	try
+	{
+		if (UsePBScreen == true)    //Get cockpit main screen (if setting is true)
+		{
+			PBScreenLCD = Me.GetSurface(PBScreenNumber);
+			//PBScreenLCD.ContentType = ContentType.TEXT_AND_IMAGE;                             //Set LCD block mode
+			PBScreenLCD.ContentType = VRage.Game.GUI.TextPanel.ContentType.TEXT_AND_IMAGE;
+			PBScreenLCD.FontSize = 0.8f;                                                        //Set font size
+			PBScreenLCD.Alignment = VRage.Game.GUI.TextPanel.TextAlignment.LEFT;                //Set text
+			//PBScreenLCD.GetSelectedImages(TempStrings);
+			PBScreenLCD.FontColor = Color.DodgerBlue;
+		}
+
+		if (UseControllerScreen == true)    //Get cockpit main screen (if setting is true)
+		{
+			if (ControlBlock != null)
+			{
+				IMyCockpit TempCockpit = ControlBlock as IMyCockpit;
+				if (TempCockpit != null)
+				{
+					ControllerScreenLCD = TempCockpit.GetSurface(ControllerScreenNumber);
+					//ControllerScreenLCD.ContentType = ContentType.TEXT_AND_IMAGE;                              //Set LCD block mode
+					ControllerScreenLCD.ContentType = VRage.Game.GUI.TextPanel.ContentType.TEXT_AND_IMAGE;
+					ControllerScreenLCD.FontSize = 0.8f;                                                       //Set font size
+					ControllerScreenLCD.Alignment = VRage.Game.GUI.TextPanel.TextAlignment.LEFT;               //Set text allignment
+					ControllerScreenLCD.FontColor = Color.DodgerBlue;
+				}
+			}
+		}
+
+		var Surfaces = new List<IMyTextPanel>();    //Get tagged LCD screen
+		GridTerminalSystem.GetBlocksOfType(Surfaces, block => block.CustomName.IndexOf(ScriptTag, StringComparison.OrdinalIgnoreCase) > -1 && block.CubeGrid == Me.CubeGrid); // && block.IsSameConstructAs(Probe connector)
+		if (Surfaces.Count() != 0)
+		{
+			DisplayLCD = Surfaces[0];
+			//DisplayLCD.ContentType = ContentType.TEXT_AND_IMAGE;                              //Set LCD block mode
+			DisplayLCD.ContentType = VRage.Game.GUI.TextPanel.ContentType.TEXT_AND_IMAGE;
+			DisplayLCD.FontSize = 1.0f;                                                       //Set font size
+			DisplayLCD.Alignment = VRage.Game.GUI.TextPanel.TextAlignment.LEFT;               //Set text allignment
+			DisplayLCD.FontColor = Color.DodgerBlue;
+		}
+	}
+	catch (Exception e)
+	{
+		StartErrors.Append("-LCD exception: " + e + "\n");
+	}
+}
+
+public void GetBlocks()
+{
+	//GridIsLarge = Me.CubeGrid.GridSizeEnum == MyCubeSize.Large ? true : false;
+	List<IMyShipController> AllControlBlocks = new List<IMyShipController>();
+	GridTerminalSystem.GetBlocksOfType(AllControlBlocks, block => block.CustomName.IndexOf(ScriptTag, StringComparison.OrdinalIgnoreCase) > -1 && block.CubeGrid == Me.CubeGrid);	//Get all control blocks
+	if (AllControlBlocks.Count() > 0)                                                   //if any control blocks found, get first one
+	{
+		ControlBlock = AllControlBlocks[0];
+	}
+
+	GetLCDs();
+
+	GridTerminalSystem.GetBlocksOfType(ShipGyros, block => block.CubeGrid == Me.CubeGrid);                                                      //Get all Gyro blocks
+
+	//if (ControlBlock != null) GridTerminalSystem.GetBlocksOfType(ForwardThrust, block => block.WorldMatrix.Forward == ControlBlock.WorldMatrix.Backward); //Get forward thrust blocks
+	GridTerminalSystem.GetBlocksOfType(ForwardThrust, block => (block.BlockDefinition.ToString().IndexOf("Fusion", StringComparison.OrdinalIgnoreCase) > -1 && block.CubeGrid == Me.CubeGrid)); //Get epstein drives
+	if(ForwardThrust.Count() > 0) GridTerminalSystem.GetBlocksOfType(ForwardRCS, block => block.WorldMatrix.Forward == ForwardThrust[0].WorldMatrix.Forward && block.BlockDefinition.ToString().IndexOf("Thrust", StringComparison.OrdinalIgnoreCase) > -1 && block.CubeGrid == Me.CubeGrid); //Get forward RCS blocks
+
+	GridTerminalSystem.GetBlocksOfType(HydroTanks, block => block.DefinitionDisplayNameText.IndexOf("Hydrogen", StringComparison.OrdinalIgnoreCase) > -1 && block.CubeGrid == Me.CubeGrid); //Get Hydrogen tank blocks
+	foreach(var tank in HydroTanks)
+    {
+		MaxHydro += tank.Capacity;
+	}
+
+	GridTerminalSystem.GetBlocksOfType(OxyTanks, block => block.DefinitionDisplayNameText.IndexOf("Oxygen", StringComparison.OrdinalIgnoreCase) > -1 && block.CubeGrid == Me.CubeGrid); //Get Hydrogen tank blocks
+	foreach (var tank in OxyTanks)
+	{
+		MaxOxy += tank.Capacity;
+	}
+
+
+}
+
+//***********
+public void InstanceIntersect(Vector3 StartPos, Vector3D DirectionVec, Vector3 InstCenter, double InstRadius, out Vector3 P1, out Vector3 P2)
+{
+	P1 = new Vector3();
+	P2 = new Vector3();
+
+	DirectionVec.Normalize();	//Convert to unit vector
+
+	double Del = Math.Pow(Vector3.Dot(DirectionVec, (StartPos - InstCenter)), 2) - (Math.Pow((StartPos - InstCenter).Length(), 2) - Math.Pow(InstRadius, 2));
+
+	if (Del > 0)			//Line intersects with sphere, else does not intersect return 0s
+	{
+		double Dist1 = -Vector3.Dot(DirectionVec, (StartPos - InstCenter)) + Math.Sqrt(Del);        //Dist to intersection point 1
+		double Dist2 = -Vector3.Dot(DirectionVec, (StartPos - InstCenter)) - Math.Sqrt(Del);        //Dist to intersection point 2
+
+		if (Dist1 < Dist2)				//Send closest point as P1
+		{
+			P1 = Dist1 * DirectionVec;
+			P2 = Dist2 * DirectionVec;
+		}
+        else
+        {
+			P2 = Dist1 * DirectionVec;
+			P1 = Dist2 * DirectionVec;
+		}
+	}
+
+}
+
+public static double CubicInterpolation(double x, double y0, double m0, double y1, double m1)
+{
+	/*
+             * This implements a cubic hermite spline interpolator
+             * It interpolates between two points and the first derivatives at those two points
+             *
+             * x must be in the domain [0,1]
+             * m0 and m1 are first derivatives at points (0, y0) and (1, y1)
+             *
+             * Returns the interpolated y value (speed) between y0 and y1 given x
+             */
+	double x2 = x * x;
+	double x3 = x * x * x;
+	return (2 * x3 - 3 * x2 + 1) * y0 +
+			(x3 - 2 * x2 + x) * m0 +
+			(-2 * x3 + 3 * x2) * y1 +
+			(x3 - x2) * m1;
+}
+
+public void InstanceCheck()
+{
+	if (!SDExpanseServer) return;
+	Vector3 CurrentPos = ControlBlock.GetPosition();
+
+	foreach (var Zone in AllSpeedZones)	//All speed zones should be ordered outer (low priority) to inner (high priority), so this stops on the innermost being CurrentZone
+    {
+		if (Vector3.Distance(CurrentPos, Zone.ZoneCenter) < Zone.ZoneRadius) CurrentZone = Zone;	//If inside zone radius, set as current zone, ZONE LIST MUST BE ORDERD FOR THIS TO WOrk
+	}
+
+	CurrentZone.GetSpeeds(ControlBlock, TotalForwardThrust);
+	MaxSpeed = CurrentZone.ZoneSpeed;
+	BoostSpeed = CurrentZone.ZoneBoostSpeed;
+
+}
+
+public double RotationTune()
+{
+
+
+	GyroAim(ControlBlock.WorldMatrix.Up * 1000);
+	if (ImpulseCheckCounter > 60)   //Run for 60 cycles (1 second)
+	{
+		OverridesDisable();
+		Vector3D ShipForward = ControlBlock.WorldMatrix.Forward;
+		double RotationAngle = Math.Acos(Vector3D.Dot(ShipForward, DirectionOld) / (ShipForward.Length() * DirectionOld.Length())); //Rotation Angle in radians
+		RotationAngle = RotationAngle * (180/2*Math.PI);                                                            //Rotation Angle in degrees
+		AngularAcceleration = RotationAngle/1;																// Angular Acceleration in Degrees/s/s
+		ShipState = SStates.Inactive;
+		Runtime.UpdateFrequency = UpdateFrequency.None;
+		ShipRotationRate = RotationAngle;
+		return RotationAngle/(220);	//Rotation rate in RPM divided by max rotation rate (converting degrees\s to RPM) (should be /180, but that is too slow)
+	}
+	else if (ImpulseCheckCounter == 0)
+	{
+		DirectionOld = ControlBlock.WorldMatrix.Forward;
+		ImpulseCheckCounter += 1;
+		return 0;
+	}
+	else
+	{
+		ImpulseCheckCounter += 1;
+		return 0;
+	}
+}
+
+public double GyroAim(Vector3D AimVec)
+{
+	Vector3D RotationAxis;
+	Vector3D ForwardVec = ControlBlock.WorldMatrix.Forward;
+	double AngularSpeed = ControlBlock.GetShipVelocities().AngularVelocity.Length();
+
+	RotationAxis = Vector3D.Cross(ForwardVec, AimVec);									//Rotation axis is perpendicular to both current direction and desired direction
+	if (RotationAxis.Length() < 0.01) RotationAxis = ControlBlock.WorldMatrix.Right;		//In case desired direction is exactly 180 (flips) (cross = 0), then begin rotation on Up axis
+
+	double AngleToTarget = Math.Acos(Vector3D.Dot(ForwardVec, AimVec) / (ForwardVec.Length() * AimVec.Length()));   //Calculate angle to target orientation
+																													//double TargetAnglePercent = Math.Sqrt(AngleToTarget /(2*Math.PI));			//sqrt Angle to target orientation as a percentage of max possible angle (Slower)
+	double TargetAnglePercent = 6 * Math.Pow(AngleToTarget / (2 * Math.PI), 5 / 4);     //Custom designed gain curve for fast precise aiming 6*(Theta%)^(5/4)
+	if (TargetAnglePercent < .01) TargetAnglePercent = 0;								//If less that 1% off target ignore error
+
+	if (AngleToTarget < 2 * Math.PI) RotationAxis *= -1;                                            //Handle sign changes at angles past 180 deg
+
+	if(AngleToTarget < 0.785 && (0.5*AngularSpeed*AngularSpeed/AngularAcceleration) >= AngleToTarget*(180/Math.PI)) RotationAxis = Vector3D.Zero;       //compares stoping dist to current dist set to 0
+	else RotationAxis = Vector3D.Normalize(RotationAxis) * Math.PI * TargetAnglePercent * RotationDamping;       //Scale rotation vector with damping
+
+	//RotationAxis = Vector3D.Normalize(RotationAxis) * Math.PI * TargetAnglePercent * RotationDamping;		//Test this****************************************
+	//double OmegaDesired = (AngleToTarget/ 1.484) * Math.PI;
+	//if (AngularSpeed > OmegaDesired) RotationAxis = -RotationAxis;
+
+
+	Vector3D LocalRotationAxis;             //Vector to be used for local gyro coodinates
+
+	foreach (IMyGyro Gyro in ShipGyros)     //Command gyros to correct pitch, roll, and yaw
+	{
+		LocalRotationAxis = Vector3D.TransformNormal(RotationAxis, MatrixD.Transpose(Gyro.WorldMatrix.GetOrientation()));   //transform rotation vector to gyro local coordinates
+		Gyro.GyroOverride = true;
+		Gyro.Pitch = (float)(LocalRotationAxis.X);
+		Gyro.Yaw = (float)(LocalRotationAxis.Y);
+		Gyro.Roll = (float)(LocalRotationAxis.Z);
+	}
+
+
+	return AngleToTarget;
+}
+
+Vector3 FormatVector(string GPS, out string GPSName)
+{
+	GPSName = "None";
+	try
+	{
+		string[] GPSSplit = GPS.Split(':');
+		if (GPSSplit.Length == 5 || GPSSplit.Length == 6 || GPSSplit.Length == 7)
+		{
+			GPSName = GPSSplit[1];
+			Double GPSX = float.Parse(GPSSplit[2]);
+			Double GPSY = float.Parse(GPSSplit[3]);
+			Double GPSZ = float.Parse(GPSSplit[4]);
+			Vector3 VectorGPS = new Vector3(GPSX, GPSY, GPSZ);
+			return VectorGPS;
+		}
+		else
+		{
+			ErrorsOutput.Append("-Argument must be in the format of: \nGPS:Name:X:Y:Z:ColorCode\n");
+			return new Vector3();
+		}
+	}
+	catch
+	{
+		ErrorsOutput.Append("-Argument must be in the format of: \nGPS:Name:X:Y:Z:ColorCode\n");
+		return new Vector3();
+	}
+}
+
+float GetTotalThrust()
+{
+	float TotalThrust = 0;
+
+	foreach (var Thruster in ForwardThrust)
+    {
+		TotalThrust = TotalThrust + Thruster.MaxThrust;
+    }
+
+	return TotalThrust;
+}
+
+double CalcSpaceStoppingDist()
+{
+	double CurrentVel = ControlBlock.GetShipVelocities().LinearVelocity.Length();										//Get Ship linear velocity
+	double ShipMass = ControlBlock.CalculateShipMass().PhysicalMass;                                                    //Ship mass including cargo
+	double StopDist = 0.5 * (CurrentVel * CurrentVel) / ((TotalForwardThrust * MaxBurn)/ShipMass);
+
+	return StopDist;
+}
+
+public string GetGasLevels()
+{
+	StringBuilder GasOutput = new StringBuilder();
+
+	double HydroLevel = 0;
+	double HydrogenLevelUnits = 0;
+	double MaxHydrogenLevel = MaxHydro;
+	double OxyLevel = 0;
+	double OxygenLevelUnits = 0;
+	double MaxOxygenLevel = MaxOxy;
+
+	foreach (var tank in HydroTanks)
+	{
+		HydroLevel += (tank.FilledRatio * tank.Capacity);
+	}
+	foreach (var tank in OxyTanks)
+	{
+		OxyLevel += (tank.FilledRatio * tank.Capacity);
+	}
+	HydrogenLevelUnits = HydroLevel;
+	OxygenLevelUnits = OxyLevel;
+
+	//Units conversion
+	if (MaxHydrogenLevel > 1000000)
+	{
+		MaxHydrogenLevel /= 1000000;
+		HydroCapUnits = "ML";
+	}
+	else if (MaxHydrogenLevel > 1000)
+	{
+		MaxHydrogenLevel /= 1000;
+		HydroCapUnits = "KL";
+	}
+
+	if (HydrogenLevelUnits > 1000000)
+	{
+		HydrogenLevelUnits /= 1000000;
+		HydroUnits = "ML";
+	}
+	else if (HydrogenLevelUnits > 1000)
+	{
+		HydrogenLevelUnits /= 1000;
+		HydroUnits = "KL";
+	}
+	else HydroUnits = "L";
+
+	if (MaxOxygenLevel > 1000000)
+	{
+		MaxOxygenLevel /= 1000000;
+		OxyCapUnits = "ML";
+	}
+	else if (MaxOxy > 1000)
+	{
+		MaxOxygenLevel /= 1000;
+		OxyCapUnits = "KL";
+	}
+
+	if (OxygenLevelUnits > 1000000)
+	{
+		OxygenLevelUnits /= 1000000;
+		OxyUnits = "ML";
+	}
+	else if (OxygenLevelUnits > 1000)
+	{
+		OxygenLevelUnits /= 1000;
+		OxyUnits = "KL";
+	}
+	else OxyUnits = "L";
+
+	GasOutput.Append("H2 Levels: " + Math.Round(HydrogenLevelUnits, 1) + HydroUnits + " / " + Math.Round(MaxHydrogenLevel, 1) + HydroCapUnits + "  [" + Math.Round(HydroLevel / MaxHydro * 100, 1) + "%]\n");
+	GasOutput.Append("O2 Levels: " + Math.Round(OxygenLevelUnits, 1) + OxyUnits + " / " + Math.Round(MaxOxygenLevel, 1) + OxyCapUnits + "  [" + Math.Round(OxyLevel / MaxOxy * 100, 1) + "%]\n");
+	//Output.Append("Hydrogen Level: " + Math.Round(HydroLevel, 1) + HydroUnits + " / " + Math.Round(MaxHydro, 1) + HydroCapUnits + " " + Math.Round(HydroLevel / MaxHydro * 100, 1) + "%\n");
+	//Output.Append("Oxygen Level: " + Math.Round(OxyLevel, 1) + OxyUnits + " / " + Math.Round(MaxOxy, 1) + OxyCapUnits + "  " + Math.Round(OxyLevel / MaxOxy * 100, 1) + "%\n");
+
+	return GasOutput.ToString();
+}
+
+string TimeFormat(double TimeSeconds)
+{
+	int hours = (int)TimeSeconds / 3600;
+
+	TimeSeconds %= 3600;
+
+	int minutes = (int)TimeSeconds / 60;
+
+	TimeSeconds %= 60;
+
+	int Seconds = (int)TimeSeconds;
+
+	StringBuilder ETA = new StringBuilder();
+	if (hours > 0) ETA.Append(hours + " hr ");
+	if (minutes > 0) ETA.Append(minutes + " min ");
+	if (Seconds > 0) ETA.Append(Seconds + " s ");
+	return ETA.ToString();
+}
+
+public void TripPlanner()		///Put on Hold**************
+{
+	//SpeedZone CurrentZone = InstanceCheck();
+	var ZonePoints = new List<MyTuple<Vector3, Vector3, SpeedZone>>();
+	Vector3 TempP1;
+	Vector3 TempP2;
+	Vector3 LastVelocity = ControlBlock.GetShipVelocities().LinearVelocity;
+	//MyTuple<Vector3, double> TempTripPoint;
+	for (int i=0; i< TripGPSPoints.Count; ++i)
+	{
+		var SectionZonePoints = new List<MyTuple<Vector3, Vector3>>();
+		foreach (var Zone in AllSpeedZones)								//Check if vector intersects with any different speed zones (spheres)
+		{
+			var TempZonePoints = new List<MyTuple<Vector3, Vector3, SpeedZone>>();
+			InstanceIntersect(TripGPSPoints[i], (TripGPSPoints[i+1] - TripGPSPoints[i]), Zone.ZoneCenter, Zone.ZoneRadius, out TempP1, out TempP2);
+			if (TempP1.Length() > 0)
+			{
+				double DistanceFromLast = Vector3.Distance(TempP1, TripGPSPoints[i + 1]);
+				if (DistanceFromLast < Vector3.Distance(TempP1, TempP2)) ZonePoints.Add(new MyTuple<Vector3, Vector3, SpeedZone>(TempP1, TripGPSPoints[i + 1], Zone));
+				else ZonePoints.Add(new MyTuple<Vector3, Vector3, SpeedZone>(TempP1, TempP2, Zone));
+			}
+		}
+
+
+
+	}
+
+	//foreach (var ZoneIntersect in ZonePoints)
+	//for(int i=0; i < ZonePoints.Count; ++i)
+	//{
+	//	TripSpeedZones.Add(new MyTuple<Vector3, Vector3, SpeedZone>(ZonePoints[i].Item1, ZonePoints[i].Item2, ZonePoints[i].Item3));	//Move points to new list
+	//	if (i < ZonePoints.Count - 1)	//if not on last point of trip
+	//	{
+	//		//Add the space inbetween zone intersections to the trip
+	//		TripSpeedZones.Add(new MyTuple<Vector3, Vector3, SpeedZone>(ZonePoints[i].Item2, ZonePoints[i + 1].Item1, ZonePoints[i].Item3.HighSpeed ? LowSpeedZone : HighSpeedZone));
+	//	}
+	//}
+
+
+	//Call CalcETA ******************
+	TripTime = 0;
+	for(int i=1; i < ZonePoints.Count; ++i)		//Skips first leg of journy (will be calculated later with a constant refresh)
+    {
+		if (!UseBoost)
+		{
+			MyTuple<double, Vector3> ETAReturn = CalcETA(ZonePoints[i].Item1, LastVelocity, ZonePoints[i].Item2, ZonePoints[i].Item3.ZoneSpeed, (i == (ZonePoints.Count - 1)) ? true : false);
+			TripTime += ETAReturn.Item1;
+			LastVelocity = ETAReturn.Item2;
+		}
+		else if (UseBoost)
+		{
+			MyTuple<double, Vector3> ETAReturn = CalcETA(ZonePoints[i].Item1, LastVelocity, ZonePoints[i].Item2, ZonePoints[i].Item3.ZoneBoostSpeed, (i == (ZonePoints.Count - 1)) ? true : false);
+			TripTime += ETAReturn.Item1;
+			LastVelocity = ETAReturn.Item2;
+		}
+
+	}
+
+
+}
+
+double TripDist()
+{
+	double RemainingTripDist = 0;
+	if (TripGPSPoints.Count() > 1)
+	{
+		for (int i = TripPointNum; i < TripGPSPoints.Count() - 1; ++i)
+		{
+			RemainingTripDist += Vector3.Distance(TripGPSPoints[i], TripGPSPoints[i + 1]);
+
+		}
+	}
+
+	return RemainingTripDist;
+}
+
+MyTuple<double, Vector3> CalcETA(Vector3 StartPos, Vector3 StartVel, Vector3 Destination, double ZoneSpeed, bool Stopping)      ///Put on Hold**************
+{
+
+
+	//*************** WORKING HERE
+	//Just collected all zone intersection points, need to convert to distances in each zone
+	//For each zone, use start position, start velocity, distance, and top speed to calc that section of ETA (Acceleration and coasting time)
+	//	Check if distance between zone enter/exit points is greater than distance to next manuever point, if yes sub manuever point for exit point start calc to next point
+	//Do timervals of point to point, detect zone enter/exits for each point to point
+
+	double DestinationDistance = Vector3.Distance(StartPos, Destination);
+	double CurrentMaxSpeed = ZoneSpeed;
+	if (UseBoost) CurrentMaxSpeed += BoostSpeed;
+	double Acceleration = (TotalForwardThrust/ ControlBlock.CalculateShipMass().PhysicalMass) * MaxBurn;
+	double TimeToArrive = 0;
+	Vector3 EndVelocity = Vector3.Zero;
+	StringBuilder ETA = new StringBuilder();
+
+	if (GPSState != GStates.Coasting && ZoneSpeed == 0) return new MyTuple<double, Vector3>(0.0, EndVelocity);					//When stopped no max speed data
+
+	else if (GPSState == GStates.Coasting)																						//When coasting at max speed
+	{
+		//TimeToArrive = (DestinationDistance - (0.5 * (StartVel * StartVel) / Acceleration)) / StartVel;						//Time traveling at const speed
+		//TimeToArrive += StartVel / Acceleration;																				//Time decelerating
+	}
+    else			//When stopped with max speed data
+    {
+		TimeToArrive = (DestinationDistance - (CurrentMaxSpeed * CurrentMaxSpeed) / Acceleration) / CurrentMaxSpeed;			//Time traveling at const speed
+		TimeToArrive += (CurrentMaxSpeed / Acceleration) * 2;																	//Time acelerating/decelerating
+	}
+
+	//return TimeFormat(TimeToArrive);
+	return new MyTuple<double, Vector3>(TimeToArrive, EndVelocity);
+}
+
+public void SetThrustOverride(bool Onoff, float ThrustPercent = -1)
+{
+	if(ThrustPercent > -1)
+    {
+		ThrustPercent /= 100;
+		foreach (IMyThrust Thruster in ForwardThrust) Thruster.ThrustOverridePercentage = ThrustPercent;
+		return;
+    }
+
+	if(Onoff)
+    {
+		float CurrentBurn = 0;
+		if (UseBoost) CurrentBurn = 1;
+		else CurrentBurn = MaxBurn;
+		foreach (var Thruster in ForwardThrust)                     //Set forward thrust to full
+		{
+			Thruster.ThrustOverridePercentage = CurrentBurn;
+			Thruster.Enabled = true;
+		}
+		ThrustState = true;
+		ControlBlock.DampenersOverride = true;
+	}
+	else
+    {
+		foreach (var Thruster in ForwardThrust)                                         //Disable thrust
+		{
+			Thruster.ThrustOverridePercentage = 0;
+			Thruster.Enabled = true;
+		}
+		ThrustState = false;
+	}
+}
+
+public void SetRCSOnOff(bool OverrideRCSOn = false)
+{
+	if(OverrideRCSOn)
+    {
+		foreach (var RCS in ForwardRCS)
+		{
+			RCS.Enabled = true;
+			RCSState = true;
+		}
+		return;
+    }
+
+	if (ControlBlock.DampenersOverride == false && !RCSState)
+	{
+		foreach (var RCS in ForwardRCS)
+		{
+			RCS.Enabled = true;
+			RCSState = true;
+		}
+	}
+	else if(ControlBlock.DampenersOverride == true && RCSState)
+	{
+		foreach (var RCS in ForwardRCS)
+		{
+			RCS.Enabled = false;
+			RCSState = false;
+		}
+	}
+}
+
+public void ResetDest()
+{
+	DestSet = false;
+	DestinationName = "None";
+	GPSDestination = Vector3D.Zero;
+}
+
+public void ResetCMDs()
+{
+	ShipState = SStates.Inactive;
+	GPSState = GStates.None;
+	ThrustState = false;
+	ShipLastSpeed = 0;
+}
+
+public void OverridesDisable()
+{
+	foreach (IMyGyro Gyro in ShipGyros)
+	{
+		Gyro.Pitch = 0f;
+		Gyro.Yaw = 0f;
+		Gyro.Roll = 0f;
+		Gyro.GyroOverride = false;
+	}
+    SetThrustOverride(false);
+	SetRCSOnOff(true);
+}
+
+public void Save()
+{
+	StringBuilder CurrentState = new StringBuilder();
+	CurrentState.Append(DampnersStartSetting + "\n" + SDExpanseServer + "\n" + ThrustState + "\n" + RCSState + "\n" + DestSet + "\n" + SinglePointTrip + "\n");	// 0 - 5
+	CurrentState.Append(ShipLastSpeed + "\n" + RotationDamping + "\n" + ShipRotationRate + "\n" + AngularAcceleration + "\n" + TripPointNum + "\n");// 6 - 10
+	CurrentState.Append("GPS:" + DestinationName + ":" + GPSDestination.X + ":" + GPSDestination.Y + ":" + GPSDestination.Z + ":" + "\n");  //11
+	CurrentState.Append(ShipState + "\n" + GPSState + "\n");	// 12 - 13
+	CurrentState.Append(Me.CustomData); //14
+
+	Storage = CurrentState.ToString();
+
+}
+
+public void LoadData()
+{
+	bool LoadErrors = false;
+	string[] StorageData = Storage.Split('\n');
+	try
+	{
+		if (!bool.TryParse(StorageData[0].ToString(), out DampnersStartSetting)) LoadErrors = true;
+		if (!bool.TryParse(StorageData[1].ToString(), out SDExpanseServer)) LoadErrors = true;
+		if (!bool.TryParse(StorageData[2].ToString(), out ThrustState)) LoadErrors = true;
+		if (!bool.TryParse(StorageData[3].ToString(), out RCSState)) LoadErrors = true;
+		if (!bool.TryParse(StorageData[4].ToString(), out DestSet)) LoadErrors = true;
+		if (!bool.TryParse(StorageData[5].ToString(), out SinglePointTrip)) LoadErrors = true;
+
+		if (!double.TryParse(StorageData[6].ToString(), out ShipLastSpeed)) LoadErrors = true;
+		if (!double.TryParse(StorageData[7].ToString(), out RotationDamping)) LoadErrors = true;
+		if (!double.TryParse(StorageData[8].ToString(), out ShipRotationRate)) LoadErrors = true;
+		if (!double.TryParse(StorageData[9].ToString(), out AngularAcceleration)) LoadErrors = true;
+
+		if (!int.TryParse(StorageData[10].ToString(), out TripPointNum)) LoadErrors = true;
+		if (!Enum.TryParse(StorageData[12].ToString(), out ShipState)) LoadErrors = true;
+		if (!Enum.TryParse(StorageData[13].ToString(), out GPSState)) LoadErrors = true;
+
+		if (StorageData[11].Length > 12) GPSDestination = FormatVector(StorageData[11], out DestinationName);
+		else
+		{
+			GPSDestination = Vector3.Zero;
+			DestinationName = "None";
+			DestSet = false;
+		}
+
+		StringBuilder CustomDataLoad = new StringBuilder();
+		for (int i = 14; i < StorageData.Count(); ++i)
+		{
+			CustomDataLoad.Append(StorageData[i] + "\n");
+		}
+		if (CustomDataLoad.Length > 5) CustomDataCheck(CustomDataLoad.ToString());
+	}
+    catch (Exception){ }
+
+	if (LoadErrors) StartErrors.Append("Settings Partial Load Failure\n");
+}
+
+public void CustomDataSetDefault()
+{
+	StringBuilder CustomDataOut = new StringBuilder();
+
+	CustomDataOut.Append("Script_Tag = [EFC]\n");							// Tag used on control seat and LCD (optional)
+	CustomDataOut.Append("Sigma_Draconis_Expanse_Server = true\n");			// Draconis Expanse server, yes/no
+	CustomDataOut.Append("Deorbit_Buffer = 1000\n");						// Distance from ground to stop at when Deorbiting
+	CustomDataOut.Append("GPS_Buffer = 2000\n");							// Distance from destination to stop when going to a GPS
+	CustomDataOut.Append("Max_Burn = 100\n");                               // Set max allowable thrust % (can keep heat signature low, but gives lower acceleration)
+	CustomDataOut.Append("Max_Speed = 150\n");								// Set max speed allowed for trips
+	CustomDataOut.Append("Use_Controller_Screen = true\n");                 // Use the primary screen on the Ship controller/cockpit
+	CustomDataOut.Append("Use_PB_Screen = true\n");                         // Use the Program Block screen
+	CustomDataOut.Append("Use_Boost = false\n");							// Use thrust for enture trip
+	CustomDataOut.Append("Display_Gas_Levels = false\n");                   // Show oxygen and hydrogen levels on displays
+	CustomDataOut.Append("\nTrip GPS Points:\n");
+
+	Me.CustomData = CustomDataOut.ToString();
+
+}
+
+public void CustomDataSet()
+{
+	StringBuilder CustomDataOut = new StringBuilder();
+
+	CustomDataOut.Append("Script_Tag = " + ScriptTag + "\n");                           // Tag used on control seat and LCD (optional)
+	CustomDataOut.Append("Sigma_Draconis_Expanse_Server = " + SDExpanseServer + "\n");                           // Tag used on control seat and LCD (optional)
+	CustomDataOut.Append("Deorbit_Buffer = " + DefaultDeorbitBuffer + "\n");                        // Distance from ground to stop at when Deorbiting
+	CustomDataOut.Append("GPS_Buffer = " + DefaultGPSBuffer + "\n");                            // Distance from destination to stop when going to a GPS
+	CustomDataOut.Append("Max_Burn = " + MaxBurn*100 + "\n");                               // Set max allowable thrust % (can keep heat signature low, but gives lower acceleration)
+	CustomDataOut.Append("Max_Speed = " + MaxSpeed + "\n");                                // Set max speed allowed for trips
+	CustomDataOut.Append("Use_Controller_Screen = " + UseControllerScreen + "\n");                 // Use the primary screen on the Ship controller/cockpit
+	CustomDataOut.Append("Use_PB_Screen = " + UsePBScreen + "\n");                         // Use the Program Block screen
+	CustomDataOut.Append("Use_Boost = " + UseBoost + "\n");                            // Use thrust for enture trip
+	CustomDataOut.Append("Display_Gas_Levels = " + DisplayGasInfo + "\n");                   // Show oxygen and hydrogen levels on displays
+	CustomDataOut.Append("\nTrip GPS Points:");
+
+	//foreach(var GPS in TripGPSPointStrings)		//***Test removing this for security reasons)
+    //{
+	//	CustomDataOut.Append("\n" + GPS);
+	//
+	//}
+
+	Me.CustomData = CustomDataOut.ToString();
+
+}
+
+public void CustomDataCheck(string SavedData = "")
+{
+	string[] CustomDataStrings;
+	if (SavedData.Length > 1)
+    {
+		CustomDataStrings = SavedData.Split('\n');
+	}
+	else CustomDataStrings = Me.CustomData.Split('\n');
+
+    try
+    {
+		string tag = CustomDataStrings[0].Split(new char[] { ' ', '=' })[3];
+		string EXPServer = CustomDataStrings[1].Split(new char[] { ' ', '=' })[3];
+		string DeorbitBuff = CustomDataStrings[2].Split(new char[] { ' ', '=' })[3];
+        string GPSBuff = CustomDataStrings[3].Split(new char[] { ' ', '=' })[3];
+        string Burn = CustomDataStrings[4].Split(new char[] { ' ', '=' })[3];
+        string Speed = CustomDataStrings[5].Split(new char[] { ' ', '=' })[3];
+        string ControllerLCD = CustomDataStrings[6].Split(new char[] { ' ', '=' })[3];
+        string PBLCD = CustomDataStrings[7].Split(new char[] { ' ', '=' })[3];
+        string Boost = CustomDataStrings[8].Split(new char[] { ' ', '=' })[3];
+        string Gas = CustomDataStrings[9].Split(new char[] { ' ', '=' })[3];
+
+
+
+        string tempstring;
+		List<String> TripGPSPointStringsTemp = new List<String>();
+		List<Vector3> TripGPSPointsTemp = new List<Vector3>();
+
+        for (int i = 12; i < CustomDataStrings.Length; ++i)
+        {
+            if (CustomDataStrings[i].Length > 3)
+            {
+				TripGPSPointStringsTemp.Add(CustomDataStrings[i]);
+				TripGPSPointsTemp.Add(FormatVector(CustomDataStrings[i], out tempstring));
+            }
+        }
+
+		if(TripGPSPointsTemp.Count > 1)
+        {
+			TripGPSPointStrings.Clear();
+			TripGPSPoints.Clear();
+			TripGPSPointStrings = TripGPSPointStringsTemp;
+			TripGPSPoints = TripGPSPointsTemp;
+		}
+
+        float TempBurn = 0;
+
+		if (tag.Length != 0) ScriptTag = tag;
+        if (!bool.TryParse(EXPServer, out SDExpanseServer)) ErrorsOutput.Append("Setting: SD Expanse Server incorrect format\n");
+        if (!double.TryParse(DeorbitBuff, out DefaultDeorbitBuffer)) ErrorsOutput.Append("Setting: Deorbit Buffer incorrect format\n");
+        if (!double.TryParse(GPSBuff, out DefaultGPSBuffer)) ErrorsOutput.Append("Setting: GPS Buffer incorrect format\n");
+        if (!bool.TryParse(ControllerLCD, out UseControllerScreen)) ErrorsOutput.Append("Setting: Controller Screen incorrect format\n");
+        if (!bool.TryParse(PBLCD, out UsePBScreen)) ErrorsOutput.Append("Setting: PB Screen incorrect format\n");
+        if (!float.TryParse(Burn, out TempBurn)) ErrorsOutput.Append("Setting: Max Burn incorrect format\n");
+        if (!bool.TryParse(Boost, out UseBoost)) ErrorsOutput.Append("Setting: Use Boost incorrect format\n");
+        if (!double.TryParse(Speed, out MaxSpeed)) ErrorsOutput.Append("Setting: Max speed incorrect format\n");
+        if (!bool.TryParse(Gas, out DisplayGasInfo)) ErrorsOutput.Append("Setting: Display Gas Levels incorrect format\n");
+
+        if (TempBurn > 0) MaxBurn = Math.Min(TempBurn / 100, 1);
+
+	}
+	catch (Exception)
+	{
+		ErrorsOutput.Append("Custom Data load error:\n");
+	}
+
+}
+
+
+///////////////////////////////////////////////////////// -- Primary Functions -- \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+public void ShipStop(SStates NextState = SStates.Inactive)
+{
+	TargetVector = ControlBlock.GetShipVelocities().LinearVelocity * -1;					//Set ship flip direction opposite of direction of travel
+
+	double AngleToTargetVec;
+
+	if (ControlBlock.GetShipVelocities().LinearVelocity.Length() > .005f)					//if the ship is moving (at .005 m/s SE stops objects automatically)
+	{
+		AngleToTargetVec = GyroAim(TargetVector);                                           //Rotate ship and record current error angle
+		if (ControlBlock.GetShipSpeed() < 5)
+		{
+			SetThrustOverride(false);
+			ControlBlock.DampenersOverride = true;
+		}
+		else if (AngleToTargetVec < .06 && ControlBlock.GetShipVelocities().AngularVelocity.Length() < 0.17)
+		{
+			if (ControlBlock.GetShipSpeed() >= 5) SetThrustOverride(true);
+			else
+			{
+				SetThrustOverride(false);
+				ControlBlock.DampenersOverride = true;                  //If error angle is less than 1% turn on dampners to enable thrust
+			}
+			//SetThrustOverride(false);
+		}
+		//else if (ControlBlock.GetShipSpeed() < 1) ControlBlock.DampenersOverride = true;
+		else ControlBlock.DampenersOverride = false;
+
+	}
+	else
+	{
+		ControlBlock.DampenersOverride = DampnersStartSetting;								//Put dampners back to original state
+		OverridesDisable();																	//Disable all gyro overrides
+		ShipState = NextState;                                                              //move to next program state (default is inactive)
+		if (NextState == SStates.Inactive)
+		{
+			Runtime.UpdateFrequency = UpdateFrequency.None; //If the next state is inactive stop running program
+			GPSState = GStates.None;
+		}
+	}
+
+	SetRCSOnOff();
+
+}
+
+public void ShipFlip()
+{
+	double AngleToTargetVec;
+
+    if (FlipDirec == FlipDirection.Flip)
+    {
+        AngleToTargetVec = GyroAim(DirectionOld * -1);
+        if (AngleToTargetVec < .02 && ControlBlock.GetShipVelocities().AngularVelocity.Length() < 0.1)
+        {
+            ShipState = SStates.Inactive;
+            foreach (IMyGyro Gyro in ShipGyros)
+            {
+                Gyro.Pitch = 0f;
+                Gyro.Yaw = 0f;
+                Gyro.Roll = 0f;
+                Gyro.GyroOverride = false;
+            }
+            Runtime.UpdateFrequency = UpdateFrequency.None;
+        }
+    }
+	else if (FlipDirec == FlipDirection.Retrograde)
+    {
+		AngleToTargetVec = GyroAim(ControlBlock.GetShipVelocities().LinearVelocity * -1);
+		if (AngleToTargetVec < .02 && ControlBlock.GetShipVelocities().AngularVelocity.Length() < 0.1)
+		{
+			ShipState = SStates.Inactive;
+			foreach (IMyGyro Gyro in ShipGyros)
+			{
+				Gyro.Pitch = 0f;
+				Gyro.Yaw = 0f;
+				Gyro.Roll = 0f;
+				Gyro.GyroOverride = false;
+			}
+			Runtime.UpdateFrequency = UpdateFrequency.None;
+		}
+	}
+	else if (FlipDirec == FlipDirection.Prograde)
+	{
+		AngleToTargetVec = GyroAim(ControlBlock.GetShipVelocities().LinearVelocity);
+		if (AngleToTargetVec < .02 && ControlBlock.GetShipVelocities().AngularVelocity.Length() < 0.1)
+		{
+			ShipState = SStates.Inactive;
+			foreach (IMyGyro Gyro in ShipGyros)
+			{
+				Gyro.Pitch = 0f;
+				Gyro.Yaw = 0f;
+				Gyro.Roll = 0f;
+				Gyro.GyroOverride = false;
+			}
+			Runtime.UpdateFrequency = UpdateFrequency.None;
+		}
+	}
+}
+
+public void CourseCorrect()
+{
+	Vector3 VelForwardVec = ControlBlock.GetShipVelocities().LinearVelocity;
+	Vector3 DesiredVec = GPSDestination - ControlBlock.GetPosition();
+	double VelAngleToTarget = Math.Acos(Vector3D.Dot(VelForwardVec, DesiredVec) / (VelForwardVec.Length() * DesiredVec.Length()));	//angle between ship velocity and vector to destination
+	double OrientAngleToThrustVec;
+	bool UseDampners = false;
+
+	//If getting close to destination stop course corrections (prep for stopping or destination change)
+	if (Vector3D.Distance(ControlBlock.GetPosition(), GPSDestination) < ((VelForwardVec.Length()/350)*5000) && (VelForwardVec.Length() > 0.9 * MaxSpeed))
+    {
+		ControlBlock.DampenersOverride = false;
+		OverridesDisable();
+		ShipState = SStates.GPS;
+		GPSState = GStates.Coasting;
+	}
+	else if (VelAngleToTarget >= 1.48353) ShipStop(SStates.GPSStopped);						//if velocity error angle is greater than 85 degrees, stop and reboost
+	else if (VelAngleToTarget > 0.02 || VelForwardVec.Length() < MaxSpeed)					//if significant error angle exists or low speed
+	{
+		Vector3 ThrustVec;
+		if (VelAngleToTarget > 0.08) { ThrustVec = Vector3.Normalize(DesiredVec) - Vector3.Normalize(VelForwardVec); UseDampners = false; }	//For large angles set course to correct vector
+		else { ThrustVec = DesiredVec; UseDampners = true; }				//For small angles set course to target, and use dampners to adjust
+		OrientAngleToThrustVec = GyroAim(Vector3.Normalize(ThrustVec));		//Aim the ship
+		if (OrientAngleToThrustVec < 0.07 && ControlBlock.GetShipVelocities().AngularVelocity.Length() < 0.25)	//When aiming correctly, and not still rotating, engage thrust
+        {
+			if (!ThrustState)									//Only do if thrust is off
+			{
+				SetThrustOverride(true);						//engage thrust
+				ControlBlock.DampenersOverride = UseDampners;
+			}
+		}
+        else
+        {
+			if (ThrustState)									//Only do if thrust is on
+			{
+				SetThrustOverride(false);
+				ControlBlock.DampenersOverride = false;
+			}
+		}
+	}
+	else
+	{															//Course correction complete, return to GPS mode
+		ControlBlock.DampenersOverride = false;
+		OverridesDisable();
+		ShipState = SStates.GPS;
+		GPSState = GStates.Coasting;
+	}
+
+
+}
+
+public void ShipToGPS(Vector3D Destination)					//GPS mode
+{
+	Vector3D TargetVector = Destination - ControlBlock.GetPosition();					//Set target vector to destination
+	double AngleToTargetVec = 0;
+	double ShipSpeed = ControlBlock.GetShipSpeed();
+	double AngleToTargetVel = 0;
+	Vector3 VelocityVector = ControlBlock.GetShipVelocities().LinearVelocity;
+
+	double StopDistCalc = CalcSpaceStoppingDist() + DefaultGPSBuffer;
+	double DistCalc = Vector3D.Distance(ControlBlock.GetPosition(), Destination);
+	double RotationDist = ((180 / ShipRotationRate) * ShipSpeed * 2 + 3000 + StopDistCalc); // Distance at which to flip retrograde
+
+	if (GPSState != GStates.Coasting) AngleToTargetVec = GyroAim(TargetVector);                               //Rotate ship and record current error angle
+	if (AngleToTargetVec < .02 && ControlBlock.GetShipVelocities().AngularVelocity.Length() < 0.1)												//If oriented on course
+    {
+		if (GPSState == GStates.Acceleration)								//If ship has reached initial stop and has not started acceleration stage
+		{
+			if (!ThrustState)
+			{
+				SetThrustOverride(true);
+				ControlBlock.DampenersOverride = true;
+			}
+			if(UseBoost) GPSState = GStates.Coasting;						//If useboost is true go straight to coasting dont wait for acceleration
+			else if (ThrustState && ShipSpeed > 5 && Math.Abs(ShipSpeed - ShipLastSpeed) < .01) GPSState = GStates.Coasting;	//Set to coast stage
+			else if (ThrustState && MaxSpeed != 0 && ShipSpeed >= MaxSpeed) GPSState = GStates.Coasting;
+			if(GPSState == GStates.Coasting)
+            {
+				foreach (IMyGyro Gyro in ShipGyros)
+				{
+					Gyro.Pitch = 0f;
+					Gyro.Yaw = 0f;
+					Gyro.Roll = 0f;
+				}
+			}
+		}
+		else if (GPSState == GStates.Coasting )												//If not already coasting, start coasting
+		{
+			if (UseBoost == false && ThrustState == true)										//Dont need to boost, and thrust is already on, prep for coasting
+			{
+				ControlBlock.DampenersOverride = false;                                         //Disable Dampners for coast stage
+				SetThrustOverride(false);
+			}
+			else if (UseBoost == true && ThrustState == false)									//If need to boost, and thrusters are not yet on, set up dampners and thrust override
+			{
+				ControlBlock.DampenersOverride = true;                                         //Disable Dampners for coast stage
+				SetThrustOverride(true);
+			}
+			Runtime.UpdateFrequency = UpdateFrequency.Update100;                             //Slow program while in coast stage
+
+			AngleToTargetVel = Math.Acos(Vector3D.Dot(VelocityVector, TargetVector) / (VelocityVector.Length() * TargetVector.Length()));
+
+			if (AngleToTargetVel > .065 || VelocityVector.Length() < MaxSpeed - 5 && DistCalc > RotationDist * 1.5)
+			{
+				Runtime.UpdateFrequency = UpdateFrequency.Update1;
+				ShipState = SStates.CourseCorrect;
+			}
+
+		}
+    }
+	//double StopDistCalc = CalcSpaceStoppingDist() + DefaultGPSBuffer * 1.1 + ((180 / ShipRotationRate) * ShipSpeed * 2);
+
+
+
+	//if (SinglePointTrip && (CalcSpaceStoppingDist() + DefaultGPSBuffer * 1.1 + ((180 / ShipRotationRate) * ShipSpeed * 2) >= Vector3D.Distance(ControlBlock.GetPosition(), Destination)))  //Begin Decceleration to stop at DefaultGPSBuffer
+	if (SinglePointTrip && StopDistCalc + 1 >= DistCalc)  //Begin Decceleration to stop at DefaultGPSBuffer
+	{
+		Runtime.UpdateFrequency = UpdateFrequency.Update1;									//Speed up program for destination stop
+		OverridesDisable();
+		GPSState = GStates.DestinationStop;                                                 //Set to destination stop stage
+		ShipState = SStates.GPS;                                                            //Make sure we are in GPS mode in case course correct is on
+		DestSet = false;
+	}
+	//else if(SinglePointTrip && DistCalc <= ((ShipSpeed > 500 ) ? 30000 : 5000))
+	else if(SinglePointTrip && DistCalc <= ((180 / ShipRotationRate) * ShipSpeed * 2 + 3000 + StopDistCalc))
+    {
+        Runtime.UpdateFrequency = UpdateFrequency.Update1;
+		OverridesDisable();
+		GyroAim(-VelocityVector);
+	}
+	else if(!SinglePointTrip && DistCalc < ((ShipSpeed/350)*1400))		//Apparoaching mid course point, start course change (if not about to prep to stop)
+    {
+		Runtime.UpdateFrequency = UpdateFrequency.Update1;
+		if(TripPointNum < TripGPSPoints.Count()) TripPointNum += 1;															//update GPS point index
+		GPSDestination = TripGPSPoints[TripPointNum];                              //update destination to next GPS point
+		DestinationName = TripGPSPointStrings[TripPointNum].Split(':')[1];			//update destination name to name of next GPS point
+		if (TripPointNum == TripGPSPoints.Count()-1) SinglePointTrip = true;
+		ShipState = SStates.CourseCorrect;
+		GPSState = GStates.Acceleration;
+	}
+	ShipLastSpeed = ShipSpeed;
+}
+
+public void Deorbit()
+{
+	TargetVector = ControlBlock.GetNaturalGravity() * -1;                                   //Set ship flip direction opposite of direction of travel
+	Vector3D GravForce = ControlBlock.GetNaturalGravity();
+	double AngleToTargetVec;
+	double CurrentDownVel = Vector3D.Dot(ControlBlock.GetShipVelocities().LinearVelocity, GravForce) / GravForce.Length();	// Component of ship velocity parallel with gravity
+	double ShipMass = ControlBlock.CalculateShipMass().PhysicalMass;														//Ship mass including cargo
+	double ShipAlt;
+	ControlBlock.TryGetPlanetElevation(MyPlanetElevation.Surface, out ShipAlt);												//Ship altitude
+
+	AngleToTargetVec = GyroAim(TargetVector);														//Rotate ship and record current error angle
+
+	double StoppingDist = 0.5 * ( (CurrentDownVel * CurrentDownVel * ShipMass) / (TotalForwardThrust - (GravForce.Length() * ShipMass)) );
+
+	if (ShipAlt - StoppingDist <= DefaultDeorbitBuffer)												//deccelearate such that ship will stop at preset altitude
+	{
+		//if (AngleToTargetVec < .035) ControlBlock.DampenersOverride = true;						//If error angle is less than 1% turn on dampners to enable thrust
+		ControlBlock.DampenersOverride = true;														//turn on dampners to enable thrust
+	}
+
+	if(ShipAlt <= DefaultDeorbitBuffer && CurrentDownVel < 0.01)										//Once de-orbit is complete
+    {
+		OverridesDisable();
+		Runtime.UpdateFrequency = UpdateFrequency.None;
+		ShipState = SStates.Inactive;
+	}
+
+}
+
+public void Orbit()
+{
+	if (ControlBlock.GetNaturalGravity() != null)
+	{
+		Vector3D GravForce = (ControlBlock.GetNaturalGravity() * ControlBlock.CalculateShipMass().PhysicalMass);
+		TargetVector = GravForce * -1;                                       //Set ship flip direction opposite of direction of travel
+		double AngleToTargetVec;
+		double ShipMass = ControlBlock.CalculateShipMass().PhysicalMass;                            //Ship mass including cargo
+
+		AngleToTargetVec = GyroAim(TargetVector);                                                   //Rotate ship and record current error angle
+		if (AngleToTargetVec < .035 && GPSState != GStates.Coasting)
+        {
+			if (!ThrustState)
+			{
+				SetThrustOverride(true);
+			}
+			else if (Math.Abs(ControlBlock.GetShipSpeed() - ShipLastSpeed) < .01)
+			{
+				if(ControlBlock.GetShipSpeed() > 5) GPSState = GStates.Coasting;
+				else
+                {
+					ErrorsOutput.Append(" --LOW THRUST DETECTED-- Increase Max Burn to escape gravity\n");
+					OverridesDisable();
+					ControlBlock.DampenersOverride = true;
+					Runtime.UpdateFrequency = UpdateFrequency.None;
+					ShipState = SStates.Inactive;
+				}
+			}
+
+		}
+		else if(GPSState == GStates.Coasting)
+        {
+			ThrustState = false;
+			Runtime.UpdateFrequency = UpdateFrequency.Update10;
+			float ThrustPercent = (float) (Math.Abs(GravForce.Length()) / TotalForwardThrust) * 1.03f;
+
+			foreach (var Thruster in ForwardThrust)                     //Set forward thrust to full
+			{
+				Thruster.ThrustOverridePercentage = ThrustPercent;
+			}
+		}
+
+	}
+	else
+    {
+		OverridesDisable();
+		Runtime.UpdateFrequency = UpdateFrequency.None;
+		ShipState = SStates.Inactive;
+	}
+
+	ShipLastSpeed = ControlBlock.GetShipSpeed();
+
+}
+
+///////////////////////////////////////////////////////// -- Startup -- \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+public Program()
+{
+    Runtime.UpdateFrequency = UpdateFrequency.Once;
+    GetBlocks();                                                                        //Get all needed blocks
+    ReadyCheck();                                                                       //Check if all needed blocks found, set ready state
+	if (IsReady)
+	{
+		TotalForwardThrust = GetTotalThrust();
+		ShipState = SStates.Inactive;
+		GPSState = GStates.None;
+		ThrustState = false;
+		ShipLastSpeed = 0;
+	}
+
+    CustomDataSetDefault();
+	AllSpeedZones.Add(MainHighSpeedZone);
+    AllSpeedZones.Add(BeltLowSpeedZone);
+    AllSpeedZones.Add(SmallHighSpeedZone);
+    AllSpeedZones.Add(TrojanLowSpeedZone);
+    AllSpeedZones.Add(GreekLowSpeedZone);
+    AllSpeedZones.Add(EarthLowSpeedZone);
+    AllSpeedZones.Add(MarsLowSpeedZone);
+    AllSpeedZones.Add(JupiterLowSpeedZone);
+    AllSpeedZones.Add(SaturnLowSpeedZone);
+
+    EarthLowSpeedZone.ZoneSettings = LowSpeedRTS;
+    MarsLowSpeedZone.ZoneSettings = LowSpeedRTS;
+    JupiterLowSpeedZone.ZoneSettings = LowSpeedRTS;
+    SaturnLowSpeedZone.ZoneSettings = LowSpeedRTS;
+    BeltLowSpeedZone.ZoneSettings = LowSpeedRTS;
+    MainHighSpeedZone.ZoneSettings = HighSpeedRTS;
+    SmallHighSpeedZone.ZoneSettings = HighSpeedRTS;
+    TrojanLowSpeedZone.ZoneSettings = HighSpeedRTS;
+    GreekLowSpeedZone.ZoneSettings = HighSpeedRTS;
+
+
+	if (IsReady)
+	{
+		if (Storage.Length > 1) LoadData();
+		if (SDExpanseServer)
+		{
+			if (ControlBlock != null) InstanceCheck();
+			CurrentZone.GetSpeeds(ControlBlock, TotalForwardThrust);    //Update RTS speeds
+			MaxSpeed = Math.Min(CurrentZone.ZoneSpeed, MaxSpeed);       //Update max speed if cruise speed is less than maxspeed
+			BoostSpeed = CurrentZone.ZoneBoostSpeed;
+		}
+
+		CustomDataSet();
+	}
+
+}
+
+//////////////////////////////////////////////////////////// ++ Main ++ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+public void Main(string Argument, UpdateType updateSource)
+{
+	Output.Clear();
+	Output.Append("Flight Controls v1.5: " + ActivityIndicator.ToString() + "\n\n");
+
+	ActivityIndicator.Append(".");				//Used to show if the script is activly running, appears at top of displays
+	if (ActivityIndicator.Length > 3)
+	{
+		ActivityIndicator.Clear();
+		ActivityIndicator.Append(".");
+	}
+
+	TickCounter += 1;
+	if (TickCounter > 60) TickCounter = 0;
+
+	if (Runtime.UpdateFrequency == UpdateFrequency.Update1)
+	{
+		if(TickCounter == 1) CustomDataCheck();                 //Check custom data every 60th run if Update1
+	}
+	else if (Runtime.UpdateFrequency == UpdateFrequency.Update10 || Runtime.UpdateFrequency == UpdateFrequency.Update100)
+	{
+		if (TickCounter%30 == 1) CustomDataCheck();             //Check custom data every 30th run if Update10 or Update100
+	}
+
+
+	//////////////////////////////// -- Variable Initialization -- \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+	double DestDist = 0;
+	//string TimeToArrive = " ";
+	double Gravity = 0;
+
+	if (IsReady)
+	{
+		///////////////////////////////////// -- Input Parse -- \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+		if (updateSource == UpdateType.Terminal || updateSource == UpdateType.Trigger)
+		{
+            CustomDataCheck();
+            //InstanceCheck();
+            if (Argument.IndexOf("Boost Off", StringComparison.OrdinalIgnoreCase) > -1)     //disable boost
+            {
+                UseBoost = false;
+            }
+            else if (Argument.IndexOf("Off", StringComparison.OrdinalIgnoreCase) > -1)      //Release all controls to manual
+            {
+                Runtime.UpdateFrequency = UpdateFrequency.None;
+                if (ShipState != SStates.Inactive) ControlBlock.DampenersOverride = DampnersStartSetting;
+                OverridesDisable();
+                ResetCMDs();
+                ResetDest();
+            }
+            else if (Argument.IndexOf("Stop", StringComparison.OrdinalIgnoreCase) > -1)     //Flip N Burn, stop the ship using main engines
+            {
+                OverridesDisable();
+                ResetCMDs();
+                Runtime.UpdateFrequency = UpdateFrequency.Update1;
+                DampnersStartSetting = ControlBlock.DampenersOverride;
+                ControlBlock.DampenersOverride = false;
+                ShipState = SStates.Stop;
+            }
+            else if (Argument.IndexOf("Flip2", StringComparison.OrdinalIgnoreCase) > -1)     //Flip the ship 180 degrees
+            {
+                OverridesDisable();
+                ResetCMDs();
+                Runtime.UpdateFrequency = UpdateFrequency.Update1;
+                DirectionOld = ControlBlock.WorldMatrix.Forward;
+                ShipState = SStates.Flip;
+                foreach (var RCS in ForwardRCS)
+                {
+                    RCS.Enabled = false;
+                    RCSState = false;
+                }
+                SetThrustOverride(false);
+                ControlBlock.DampenersOverride = false;
+            }
+            else if (Argument.IndexOf("Flip", StringComparison.OrdinalIgnoreCase) > -1)     //Flip the ship 180 degrees
+            {
+                FlipDirec = FlipDirection.Flip;
+                OverridesDisable();
+                ResetCMDs();
+                Runtime.UpdateFrequency = UpdateFrequency.Update1;
+                DirectionOld = ControlBlock.WorldMatrix.Forward;
+                ShipState = SStates.Flip;
+            }
+            else if (Argument.IndexOf("Retrograde", StringComparison.OrdinalIgnoreCase) > -1)     //Flip the ship 180 degrees
+            {
+                if (ControlBlock.GetShipSpeed() > 1)
+                {
+                    FlipDirec = FlipDirection.Retrograde;
+                    //OverridesDisable();
+                    SetThrustOverride(false);
+                    ResetCMDs();
+                    Runtime.UpdateFrequency = UpdateFrequency.Update1;
+                    DirectionOld = ControlBlock.WorldMatrix.Forward;
+                    ShipState = SStates.Flip;
+                }
+            }
+            else if (Argument.IndexOf("prograde", StringComparison.OrdinalIgnoreCase) > -1)     //Flip the ship 180 degrees
+            {
+                if (ControlBlock.GetShipSpeed() > 1)
+                {
+                    FlipDirec = FlipDirection.Prograde;
+                    //OverridesDisable();
+                    SetThrustOverride(false);
+                    ResetCMDs();
+                    Runtime.UpdateFrequency = UpdateFrequency.Update1;
+                    DirectionOld = ControlBlock.WorldMatrix.Forward;
+                    ShipState = SStates.Flip;
+                }
+            }
+			else if (Argument.IndexOf("Add", StringComparison.OrdinalIgnoreCase) > -1)      //Set navigation to GPS but dont start trip
+			{
+				string[] StringSeparators = new string[] { "d " };
+				if (DestSet == false)
+				{
+					TripGPSPoints.Clear();
+					TripGPSPointStrings.Clear();
+					TripGPSPointStrings.Add(Argument.Split(StringSeparators, StringSplitOptions.None)[1]);
+					if (ShipState == SStates.GPS) OverridesDisable();
+					ResetDest();
+					GPSDestination = FormatVector(Argument, out DestinationName);
+					TripGPSPoints.Add(GPSDestination);
+					if (GPSDestination.Length() > 0)
+					{
+						DestSet = true;
+						SinglePointTrip = true;
+						TripPointNum = 0;
+					}
+				}
+				else
+				{
+                    string TempDestName;
+					TripGPSPointStrings.Add(Argument.Split(StringSeparators, StringSplitOptions.None)[1]);
+					//string[] StringSeparators = new string[] { "d " };
+					//Vector3D TempNewDest = FormatVector(Argument.Split(StringSeparators, StringSplitOptions.None)[1], out TempDestName);
+					Vector3D TempNewDest = FormatVector(Argument, out TempDestName);
+					if (TempDestName != "None") TripGPSPoints.Add(TempNewDest);
+					SinglePointTrip = false;
+				}
+
+			}
+			else if (Argument.IndexOf("GPS", StringComparison.OrdinalIgnoreCase) > -1)      //Set navigation to GPS but dont start trip
+            {
+                if (ShipState == SStates.GPS) OverridesDisable();
+                ResetDest();
+                GPSDestination = FormatVector(Argument, out DestinationName);
+                if (GPSDestination.Length() > 0)
+                {
+                    DestSet = true;
+                    SinglePointTrip = true;
+					TripPointNum = 0;
+				}
+
+            }
+			else if (Argument.IndexOf("Plot", StringComparison.OrdinalIgnoreCase) > -1)
+			{
+				if (TripGPSPoints.Count() > 0)
+				{
+					GPSDestination = TripGPSPoints[0];
+					DestinationName = TripGPSPointStrings[0].Split(':')[1];
+					DestSet = true;
+					if (TripGPSPoints.Count > 1) SinglePointTrip = false;
+					else SinglePointTrip = true;
+					TripPointNum = 0;
+				}
+				else Output.Append("No Trip GPS set in Custom Data");   ///** Look into positions for this
+			}
+			else if (Argument.IndexOf("engage", StringComparison.OrdinalIgnoreCase) > -1)       //Start trip to specified GPS
+			{
+				if (DestSet)
+				{
+					OverridesDisable();
+					Runtime.UpdateFrequency = UpdateFrequency.Update1;
+					DampnersStartSetting = ControlBlock.DampenersOverride;
+					ControlBlock.DampenersOverride = false;
+					if (ControlBlock.GetShipSpeed() > 5) ShipState = SStates.CourseCorrect;
+					else ShipState = SStates.GPSStopped;
+				}
+				else if (TripGPSPoints.Count() > 0)
+				{
+					Runtime.UpdateFrequency = UpdateFrequency.Update1;
+                    GPSDestination = TripGPSPoints[0];
+					DestinationName = TripGPSPointStrings[0].Split(':')[1];
+					DestSet = true;
+					if (TripGPSPoints.Count() > 1) SinglePointTrip = false;
+					else SinglePointTrip = true;
+					TripPointNum = 0;
+					if (ControlBlock.GetShipSpeed() > 5) ShipState = SStates.CourseCorrect;
+					else ShipState = SStates.GPSStopped;
+				}
+				else Output.Append("No Destination Set");   ///** Look into positions for this
+
+			}
+			else if (Argument.IndexOf("Cancel", StringComparison.OrdinalIgnoreCase) > -1)       //Cancel trip
+			{
+				Runtime.UpdateFrequency = UpdateFrequency.None;
+				ResetCMDs();
+				OverridesDisable();
+
+			}
+			else if (Argument.IndexOf("Boost On", StringComparison.OrdinalIgnoreCase) > -1)     //Enable boost
+			{
+				UseBoost = true;
+			}
+			else if (Argument.IndexOf("Boost", StringComparison.OrdinalIgnoreCase) > -1)        //Toggle boost
+			{
+				UseBoost = !UseBoost;
+			}
+			else if (Argument.IndexOf("Deorbit", StringComparison.OrdinalIgnoreCase) > -1)      //When entering gravity, coast down, then stop and hover a specified distance above the ground
+			{
+				OverridesDisable();
+				ResetCMDs();
+				Runtime.UpdateFrequency = UpdateFrequency.Update1;
+				DampnersStartSetting = ControlBlock.DampenersOverride;
+				ControlBlock.DampenersOverride = false;
+				ShipState = SStates.Deorbit;
+				GPSState = GStates.None;
+
+			}
+			else if (Argument.IndexOf("Orbit", StringComparison.OrdinalIgnoreCase) > -1)    //When in gravity, travel opposite of gravity vector out of grav well and stop
+			{
+				OverridesDisable();
+				ResetCMDs();
+				Runtime.UpdateFrequency = UpdateFrequency.Update1;
+				ShipState = SStates.Orbit;
+				GPSState = GStates.None;
+				ControlBlock.DampenersOverride = true;
+			}
+			else if (Argument.IndexOf("Tune", StringComparison.OrdinalIgnoreCase) > -1)           //Tune rotation damping to optimal level for ship
+			{
+				OverridesDisable();
+				ResetCMDs();
+				if (IsReady)
+				{
+					Runtime.UpdateFrequency = UpdateFrequency.Update1;
+					ImpulseCheckCounter = 0;
+					ShipState = SStates.Tune;
+				}
+				else ErrorsOutput.Append("-Missing Blocks. Unable to perform Impulse Check\n");
+			}
+			else if (Argument.IndexOf("Dampreset", StringComparison.OrdinalIgnoreCase) > -1)    //Reset rotation damping to 1
+			{
+				RotationDamping = 1;
+			}
+			else if (Argument.IndexOf("Set Damp", StringComparison.OrdinalIgnoreCase) > -1)     //Set Rotation damping to specified amount (max of 1)
+			{
+				string[] dampSplit = Argument.Split(' ');
+				try
+				{
+					Double TempDamp = Convert.ToDouble(dampSplit[2]);
+					RotationDamping = Math.Min(TempDamp, 1);
+				}
+				catch
+				{
+					ErrorsOutput.Append("-Argument must be in the format of:\nSet Damp #\n");
+				}
+			}
+			else if (Argument.IndexOf("Set Speed", StringComparison.OrdinalIgnoreCase) > -1)             //Set Aim Mode on
+			{
+				string[] TempSetSpeed = Argument.Split(' ');
+				try
+				{
+					if (SDExpanseServer)
+					{
+						CurrentZone.GetSpeeds(ControlBlock, TotalForwardThrust);							//Update RTS speeds
+						MaxSpeed = Math.Min(Convert.ToDouble(TempSetSpeed[2]), CurrentZone.ZoneSpeed);      //Set max speed to user input or zone max (lower)
+						if (Convert.ToDouble(TempSetSpeed[2]) > CurrentZone.ZoneSpeed) ErrorsOutput.Append("Set speed exceeds zone maximum.\nUsing zone max speed.");
+					}
+					else MaxSpeed = Convert.ToDouble(TempSetSpeed[2]);      //Set max speed to user input
+				}
+				catch (Exception)
+				{
+					ErrorsOutput.Append("Must use format: Set Speed #" + "\n");
+				}
+			}
+			else if (Argument.IndexOf("Set Burn", StringComparison.OrdinalIgnoreCase) > -1)             //Set Aim Mode on
+			{
+				string[] TempSetBurn = Argument.Split(' ');
+				try
+				{
+					MaxBurn = Math.Min(float.Parse(TempSetBurn[2]), 100) / 100;     //set max allowed epstein thrust % (upper limit of 100%)
+					if (ThrustState) SetThrustOverride(true);                       //If ship is under thrust, push through new max thrust setting
+				}
+				catch (Exception)
+				{
+					ErrorsOutput.Append("Must use format: Set Burn #, where # is between 0 and 100" + "\n");
+				}
+			}
+			else if (Argument.IndexOf("Instance", StringComparison.OrdinalIgnoreCase) > -1)             //Set Aim Mode on
+			{
+				string[] TempSetBurn = Argument.Split(' ');
+				try
+				{
+					InstanceCheck();
+
+				}
+				catch (Exception e)
+				{
+					ErrorsOutput.Append("Exception: " + e + "\n");
+				}
+			}
+			else if (Argument.IndexOf("Set Thrust", StringComparison.OrdinalIgnoreCase) > -1)             //Set Aim Mode on
+			{
+				string[] TempSetThrust = Argument.Split(' ');
+				try
+				{
+					float SetThrustPercent = float.Parse(TempSetThrust[2]);                                       //Set max speed to user input
+					Echo("Set thrust: " + SetThrustPercent);
+					SetThrustOverride(false, Math.Max(Math.Min(SetThrustPercent, 100), 0));
+				}
+				catch (Exception)
+				{
+					ErrorsOutput.Append("Must use format: Set Thrust #" + "\n");
+				}
+			}
+			else if (Argument.IndexOf("Mass", StringComparison.OrdinalIgnoreCase) > -1)    //Show ship physical mass in PB console
+			{
+				Echo("Ship Physical Mass: \n" + ControlBlock.CalculateShipMass().PhysicalMass);
+				return;
+			}
+			else if (Argument.IndexOf("Settings Reset", StringComparison.OrdinalIgnoreCase) > -1)    //Reset rotation damping to 1
+			{
+				Storage = "";
+				CustomDataSetDefault();
+				CustomDataCheck();
+			}
+			else if (Argument.IndexOf("Gas", StringComparison.OrdinalIgnoreCase) > -1)    //Reset rotation damping to 1
+			{
+				DisplayGasInfo = !DisplayGasInfo;
+			}
+			else if (Argument.Length == 0)
+			{
+				//Do nothing (Dont give an error)
+			}
+			else ErrorsOutput.Append("Invalid command");
+
+			CustomDataSet();
+		}//if (updateSource
+		///////////////////////////////////// -- Main Script -- \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+
+		if (ShipState == SStates.Stop)
+        {
+			try
+			{
+				ShipStop();
+			}
+			catch (Exception e)
+			{
+				ErrorsOutput.Append("Exception: " + e + "\n");
+				OverridesDisable();
+				Runtime.UpdateFrequency = UpdateFrequency.None;
+			}
+		}
+		else if (ShipState == SStates.Flip)
+		{
+			try
+			{
+				ShipFlip();
+			}
+			catch (Exception e)
+			{
+				ErrorsOutput.Append("Exception: " + e + "\n");
+				OverridesDisable();
+				Runtime.UpdateFrequency = UpdateFrequency.None;
+			}
+		}
+		else if (ShipState == SStates.GPS || ShipState == SStates.GPSStopped)
+		{
+			try
+			{
+
+				//DestDist = Vector3D.Distance(ControlBlock.GetPosition(), GPSDestination);*********************
+				//if (GPSState == GStates.Coasting) TimeToArrive = CalcETA(DestDist);
+				//else TimeToArrive = " ";
+
+				if (ShipState == SStates.GPSStopped)
+				{
+					GPSState = GStates.Acceleration;
+					ShipState = SStates.GPS;
+				}
+
+				if (GPSState == GStates.InitialStop) ShipStop(SStates.GPSStopped);
+				else if (GPSState == GStates.Acceleration || GPSState == GStates.Coasting) ShipToGPS(GPSDestination);
+				else if (GPSState == GStates.DestinationStop)
+				{
+					ShipStop();
+					ResetDest();
+				}
+
+
+			}
+			catch (Exception e)
+			{
+				ErrorsOutput.Append("Exception: " + e + "\n");
+				OverridesDisable();
+				Runtime.UpdateFrequency = UpdateFrequency.None;
+			}
+		}
+		else if (ShipState == SStates.Deorbit)
+        {
+			//if (ControlBlock.GetNaturalGravity() != null)
+			if (ControlBlock.GetNaturalGravity().LengthSquared() > 0)
+			{
+				Gravity = ControlBlock.GetNaturalGravity().Length()/9.81;
+				try
+				{
+					Deorbit();
+				}
+				catch (Exception e)
+				{
+					ErrorsOutput.Append("Exception: " + e + "\n");
+					OverridesDisable();
+					Runtime.UpdateFrequency = UpdateFrequency.None;
+				}
+			}
+			else
+            {
+				ErrorsOutput.Append("No gravity field detected. Unable to initiate deorbit sequence");
+				ShipState = SStates.Inactive;
+				Runtime.UpdateFrequency = UpdateFrequency.None;
+			}
+
+		}
+		else if (ShipState == SStates.Orbit)
+		{
+			if (ControlBlock.GetNaturalGravity().LengthSquared() > 0)
+			{
+				Gravity = ControlBlock.GetNaturalGravity().Length() / 9.81;
+				try
+				{
+					Orbit();
+				}
+				catch (Exception e)
+				{
+					ErrorsOutput.Append("Exception: " + e + "\n");
+					OverridesDisable();
+					Runtime.UpdateFrequency = UpdateFrequency.None;
+				}
+			}
+			else if (GPSState == GStates.Coasting)
+			{
+				ControlBlock.DampenersOverride = false;
+				ShipState = SStates.Stop;
+				GPSState = GStates.None;
+			}
+
+			else
+			{
+				ErrorsOutput.Append("No gravity field detected. Unable to initiate orbit sequence");
+				ShipState = SStates.Inactive;
+				GPSState = GStates.None;
+				Runtime.UpdateFrequency = UpdateFrequency.None;
+			}
+
+		}
+		else if (ShipState == SStates.Tune)
+        {
+			RotationDamping = 1;
+			RotationDamping = Math.Min(RotationTune(), 1);
+		}
+		if (ShipState == SStates.CourseCorrect)
+		{
+			try
+			{
+				CourseCorrect();
+			}
+			catch (Exception e)
+			{
+				ErrorsOutput.Append("Exception: " + e + "\n");
+				OverridesDisable();
+				Runtime.UpdateFrequency = UpdateFrequency.None;
+			}
+		}
+		///////////////////////////////////// -- Build Output -- \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+		Output.Append("Ship Speed: " + Math.Round(ControlBlock.GetShipSpeed(), 2) + "m/s\n");
+		Output.Append("Rotation Dampening: " + Math.Round(RotationDamping, 4) + "\n");
+		Output.Append("Cruise Speed: " + Math.Round(MaxSpeed, 2) + "  Max Burn: " + (MaxBurn * 100) + "%\n");
+		Output.Append("Boosted Speed: " + Math.Round(BoostSpeed + MaxSpeed, 2) + "\n");
+		Output.Append("Ship State: " + ShipState.ToString() + "\n");
+		Output.Append("SD Expanse: " + SDExpanseServer.ToString() + "\n");
+		//Output.Append("GPSState: " + GPSState + "\n");
+		if (DisplayGasInfo) Output.Append("\n" + GetGasLevels());
+		Output.Append((SinglePointTrip ? "\nDestination: " : "\nNext Destination: ") + DestinationName + "\n");
+		if (UseBoost) Output.Append("[Boost Enabled]" + "\n");
+		try
+		{
+			if (DestSet)
+			{
+                if (SinglePointTrip) DestDist = Vector3.Distance(ControlBlock.GetPosition(), GPSDestination);
+                else DestDist = Vector3.Distance(ControlBlock.GetPosition(), TripGPSPoints[TripPointNum]) + TripDist();
+				double NextDist = Vector3.Distance(ControlBlock.GetPosition(), GPSDestination);
+
+				Output.Append("Distance: " + Math.Round(DestDist / 1000, 1) + "km\n");
+				if (!SinglePointTrip) Output.Append("Next Distance: " + Math.Round(NextDist / 1000, 1) + "km\n");
+				Output.Append("Next ETA: " + TimeFormat(NextDist / MaxSpeed) + "\n");
+				//TimeToArrive = CalcETA(DestDist);
+			}
+		}
+		catch(Exception)
+        {
+			ResetDest();
+			TripPointNum = 0;
+			TripGPSPoints.Clear();
+
+		}
+		//else TimeToArrive = " ";
+		if (Gravity != 0) Output.Append("Gravity: " + Math.Round(Gravity, 2) + "Gs\n");
+	}//if (IsReady)
+	ErrorsOutput.Append(StartErrors);
+	if (ErrorsOutput.Length > 0)
+	{
+		Output.Append("Error: \n" + ErrorsOutput);
+		ErrorsOutput.Clear();
+	}
+
+	if (DisplayLCD != null) DisplayLCD.WriteText(Output.ToString());													//Output to Display LCD
+	if (PBScreenLCD != null) PBScreenLCD.WriteText(Output.ToString());													//Output to Program Block Screen
+	if (ControllerScreenLCD != null) ControllerScreenLCD.WriteText(Output.ToString());									//Output to Controller Screen
+	Echo(Output.ToString());																							//
+
+
+}//Main
