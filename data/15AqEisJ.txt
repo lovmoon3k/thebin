@@ -1,0 +1,73 @@
+alias: Postkasse
+description: ''
+trigger:
+  - type: motion
+    platform: device
+    device_id: 7ba07dcbc083c27b04a108622c384713
+    entity_id: binary_sensor.hue_motion_sensor_1_motion
+    domain: binary_sensor
+condition:
+  - condition: or
+    conditions:
+      - condition: state
+        entity_id: input_boolean.postkasse_notifikation_sendt
+        state: 'off'
+      - condition: template
+        value_template: >-
+          {{ state_attr("automation.postkasse","last_triggered").strftime("%d")
+          != now().strftime("%d") }}
+action:
+  - service: script.1670247447247
+    data:
+      message: Der er kommet post!
+      title: Postkassen
+      type: persistent
+      id: postkasse
+  - service: notify.mobile_app_clt_l29
+    data:
+      message: Der er kommet post!
+      title: Besked fra postkassen
+      data:
+        notification_icon: mdi:mailbox-outline
+        ttl: 0
+        priority: high
+        channel: postkasse
+        icon_url: https://cdn-icons-png.flaticon.com/512/948/948695.png
+        actions:
+          - action: POSTKASSE_NOTIFIKATION_MODTAGET
+            title: Okay!
+  - if:
+      - condition: time
+        after: '09:00:00'
+        before: '21:30:00'
+    then:
+      - service: tts.edge_tts_say
+        data:
+          entity_id: media_player.nestmini8623
+          message: Der er kommet post.
+          language: da-DK-JeppeNeural
+          options:
+            volume: 100
+            rate: +15%
+  - service: input_boolean.turn_on
+    data: {}
+    target:
+      entity_id: input_boolean.postkasse_notifikation_sendt
+  - wait_for_trigger:
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: POSTKASSE_NOTIFIKATION_MODTAGET
+      - platform: event
+        event_type: mobile_app_notification_cleared
+    timeout:
+      hours: 16
+    continue_on_timeout: true
+  - service: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.postkasse_notifikation_sendt
+    data: {}
+  - service: persistent_notification.dismiss
+    data:
+      notification_id: postkasse
+mode: single

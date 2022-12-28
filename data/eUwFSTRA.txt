@@ -1,0 +1,577 @@
+--Скрипт для робота, для ремонта многоблоков по всей базе
+--Автор: aka_zaratustra зима 2022
+local ver = "1.0" -- версия программы
+--Историю версий см. в конце файла
+ 
+--Что делает этот робот?
+	--Робот отрабатывает роль дежурного по ремонту многоблоков на вашей базе. 
+	--Робот находится на своей парковочной станции и периодически совершает обходы по базе
+	--В обходе робот следует по маршруту, в котором точками остановки являются многоблоки внесенные в маршрутный лист робота, а точнее мэйнтененс блоки многоблоков.
+	--Робот ремонтирует многоблок через мейнтененс с помощью изоленты и отправляется к следующей точке маршрута, когда все точки маршрута пройдены, робот возвращается на парковочную станцию
+
+--Как начать работать с роботом?
+	--Скачаваем программу на робота и помещаем имя ее файла в автозапуск (в файл /home/.shrc нужно добавить имя программы: "fixit.lua" без кавычек)
+	--Ставим робота на парковочную станцию - любое место на вашей базе на уровне пола рядом с блоком зарядки (charger) так, чтобы робот смотрел в зарядку лицом. Включаем робота. Он загружается, видит перед собой зарядку, понимает, что он на парковочной станции и запоминает место, где она находится.
+	--Снимаем робота и несем его к многоблоку, который мы хотим, чтобы робот ремонтировал. Ставим робота рядом с мэйнтененс хэтчем так, чтобы робот смотрел в него лицом. Включаем его. Он загружается, видит перед собой мэйнтененс хэтч, понимает, что он рядом с многоблоком, который мы хотим внести в его маршрутный лист, добавляет этот мэйнтененс в свой маршрутный лист, ремонтирует его и уезжает на парковочную станцию. Повторяем это для каждого мультиблока, который должен ремонтировать робот.
+	--Далее робот сам будет периодически отправляться по маршруту и ремонтировать мультиблоки из своего маршрутного листа.
+
+--Требования к геометрии зоны обслуживания - той части базы, где будет дежурить робот ремонтник
+	--Пол зоны обслуживания должен быть весь на одном уровне, без ступенек и перепадов высот. 
+	--Зона обслуживания должна образовывать прямоугольник из чанков. Количество чанков может быть любым по длине и ширине, но важно чтобы это был прямоугольник.
+	--Все чанки зоны обслуживания должны иметь свободные каря-дорожки: Крайний ряд блоков по всему периметру каждого чанка должен быть свободным. Он используются как дорожки для следования робота.
+	--Пример вашей базы: 	
+	--ХХХХХХХ
+	--ХХХХХХХ
+	--ХХХХХХХ
+	--ХХХХХХХ
+	--, где X - чанк вашей базы. У каждого чанка Х должны быть свободные дорожки по краям.
+	--Расположение мэйнтененса в многоблоке должно быть таким, чтобы мейнтененс смотрел интерфейсной стороной на край чанка. Оттуда будет заезжать робот. Прямой путь от края чанка до мейнтененса должен быть свободен. Мейнтенес должен быть выше пола (на любое количество блоков).
+	
+--Как добавлять мейнтененсы в маршрут робота:
+	--Поставить робота лицом к мейнтененсу и включить.
+--Как удалять мейтененсы из маршрута робота. Варианты:
+	-- 1) Удалить многоблок. Робот приедет осуществлять ремонт, увидит, что мейнтененса нет и вычеркнет его из своего списка.
+	-- 2) Поставить робота лицом к мейнтененсу, удалить(сбить) мейнтененс, после чего включить робота. Включившись, робот узнает эту точку, т.к. она у него есть в маршруте, увидит, что мейнтененса на ней больше нет и удалит этот мейнтененс из своего маршрута.
+	-- 3) Отредактировать в ручную файл /home/route_data.lua - файл, в котором робот хранит точки своего маршрута.
+--Как сообщить роботу, что я переставил зарядку (Charger). Варианты:
+	-- 1) Поставить робота рядом с новым местом зарядки (Charger) и включить. Он забудет старое место и запомнит новое.
+	-- 2) Отредактировать в ручную файл /home/park_data.lua - файл, в котором робот хранит координаты парковочной станции.
+
+--Требуемый состав компонентов робота:
+	--Screen T1
+	--Keyboard
+	--Inventory Controller Upgrade
+	--Inventory Upgrade
+	--Geolyzer
+	--Navigation Upgrade*
+	--Internet Card (не обязательно)
+	--Graphic Card
+	--CPU 
+	--Memory
+	--Memory
+	--EEPROM (Lua Bios
+	--Hard Disk Drive
+	
+	--* - Navigation Upgrade нужно крафтить с картой, НА КОТОРОЙ ПОМЕЩАЕТСЯ ЗОНА ОБСЛУЖИВАНИЯ ЦЕЛИКОМ! Ваш робот сможет ездить только в том куске мира, который влезет в эту долбаную карту! Почему долбанную? Посмотрите мой стрим (ссылка позже будет тут) или гайд (если я его записал)
+	
+--Длина сна между дежурными обходами робота в секундах
+local DutyPeriod = 86400 --сутки
+	
+local robot = require("robot") 
+local computer = require("computer") 
+local component = require("component") 
+local term = require("term")
+local shell = require("shell")
+local sides = require("sides")
+local colors = require("colors")
+local filesystem = require("filesystem")
+local geo = component.geolyzer
+local navigation = component.navigation
+local inventory = component.inventory_controller
+
+
+local RouteListFileName = "route_data" --файл с маршрутом точек ремонта робота ремонтника
+local ParkStationFileName = "park_data" --файл с координатами парковочной станции
+
+--Таблица маршрута точек ремонта
+local RouteListTable = {
+	--m - признак посещения
+	--x, y, z - координаты точки ремонта
+	--f - направление лицевой части робота в точке ремонта
+	
+	--пример точек
+	--{ m = 1, x = 110, y = 65 , z = 210, f = 1},
+	--{ m = 2, x = 120, y = 65 , z = 220, f = 2},
+	--{ m = 3, x = 130, y = 65 , z = 230, f = 3},
+	--{ m = 4, x = 140, y = 65 , z = 240, f = 4},
+}
+
+--координаты станции парковки
+local ParkStation = {
+	x = 0, y = 0 , z = 0, f = 0
+}
+
+function debugPrintTable(t)
+	print("Таблица:")
+	for name, val in pairs(t) do --просмотрим таблицу 
+		print(name, val)
+		os.sleep(0.5)
+	end
+	os.exit()
+end
+
+function blockNameInfrontOfRobot() --возвращает имя блока перед роботом
+	analyze_result = geo.analyze(3) --анализируем блок перед роботом 
+	for name, val in pairs(analyze_result) do --просмотрим таблицу скана
+		if name == "name" then
+			return val
+		end
+	end
+end
+
+
+function createRouteListTableText() --возвращает таблицу маршрута точек ремонта в виде текста 
+	local code = ""
+
+	code = code .. "\n-- Файл с маршрутом точек ремонта робота ремонтника"
+	code = code .. "\n"
+	code = code .. "\nlocal RouteListTable = {"
+
+	for pointIndex, point in pairs(RouteListTable) do
+		code = code .. "\n	{ m = " .. point.m .. ', x = ' .. point.x .. ', y = ' .. point.y .. ', z = ' .. point.z .. ', f = ' .. point.f .. '},'
+	end
+	code = code .. "\n}"
+	code = code .. "\n\nreturn RouteListTable"
+
+	return code
+end
+function createParkStationText() --возвращает координаты станции парковки в виде текста
+	local code = ""
+
+	code = code .. "\n-- Файл с координатами парковочной станции"
+	code = code .. "\n"
+	code = code .. "\nlocal ParkStation = {"
+
+	code = code .. "\n	x = " .. ParkStation.x .. ', y = ' .. ParkStation.y .. ', z = ' .. ParkStation.z .. ', f = ' .. ParkStation.f 
+	code = code .. "\n}"
+	code = code .. "\n\nreturn ParkStation"
+
+	return code
+end
+
+function SaveCodeToFile(code, filename) --сохранить текст в файл
+    local file = io.open(filename .. ".lua", "w")
+    file:write(code)
+    file:close()
+end
+
+function getRobotPositionXYZF()
+		local currentX, currentY, currentZ = navigation.getPosition()
+		if currentX == nil then
+			term.write("Я нахожусь в месте, которое лежит за пределами \nмоей карты, которую вы использовали для крафта \nмоего Navigation Upgrade, поэтому не могу \nопределить свое местоположение. \nДля работы мне необходимо находиться в пределах\n моей карты.")
+			os.exit()
+		end
+		--Убираем дробную часть координат
+		currentX = currentX - 0.5
+		currentY = currentY - 0.5
+		currentZ = currentZ - 0.5
+		local currentF = navigation.getFacing()
+		return currentX, currentY, currentZ, currentF
+end
+
+function init() --инициализация программы
+	--Робот включился. 
+	term.clear()
+	term.write("--------------------------------------------------")
+	term.write("Скрипт для робота, \nдля ремонта многоблоков по всей базе\n")
+	term.write("Версия: "..ver.."\n")
+	term.write("--------------------------------------------------\n")
+	--Проверим, что стоит перед роботом. 
+	blockName = blockNameInfrontOfRobot()
+	--В зависимости от того, перед каким блоком был включен робот, запоминаем этот блок либо как нашу парковочнку станцию, либо как точку маршрута
+	if blockName == "gregtech:gt.blockmachines" then --Если грег блок, значит это мэйнтененс, нужно добавить его в маршрут обхода
+		--перед нами блок грега, занчит считаем что перед нами мэйнтененс
+		term.write("Вижу перед собой мейнтененс (блок грега).\n")
+		
+		--добавляем его в маршрутный лист, но сперва проверим, может быть он уже там есть
+		--загрузим таблицу маршрута точек ремонта из файла
+		if filesystem.exists(shell.resolve(RouteListFileName..".lua")) == true then
+			RouteListTable = require (RouteListFileName)
+		end
+		
+		--проверим, может быть эта точка уже есть в таблице
+		local currentX, currentY, currentZ, currentF =  getRobotPositionXYZF()
+		
+		--цикл по таблице точек ремонта
+		local founded = false
+		for name, val in pairs(RouteListTable) do --просмотрим таблицу 
+			--term.write(val.x, val.y, val.z, val.f)
+			if currentX == val.x and currentY == val.y and currentZ == val.z and currentF == val.f then
+				founded = true
+				break
+			end
+		end
+		if founded == true then
+			term.write("Точка, в которой я сейчас нахожусь, уже есть \nв моем маршруте.\n")
+		else
+			local line = { m = -1, x = currentX, y = currentY, z = currentZ, f = currentF}
+			table.insert(RouteListTable, line)
+			SaveCodeToFile(createRouteListTableText(), RouteListFileName)
+			term.write("Я добавил точку, на которой я сейчас нахождусь, \nв свой маршрут обхода.\n")
+		end
+		
+		
+	elseif blockName == "OpenComputers:charger" then --Если это Charger, значит мы перед нашей новой станцией парковки. Нужно обновить координаты станции парковки.
+		--робот загрузился и видит перед собой Charger
+		term.write("Вижу перед собой чарджер.\n")
+
+		--проверяем, не поменялись ли координаты станции парковки
+		--загрузим координаты парковки из файла
+		if filesystem.exists(shell.resolve(ParkStationFileName..".lua")) == true then
+			ParkStation = require (ParkStationFileName)
+		end
+		--сравним их
+		local currentX, currentY, currentZ, currentF =  getRobotPositionXYZF()
+		if currentX ~= ParkStation.x or currentY ~= ParkStation.y or currentZ ~= ParkStation.z or currentF ~= ParkStation.f then
+			--положение чарджера поменялось. нужно обновить координаты
+			term.write("Значит это мое новое парковочное место!\n")
+			ParkStation.x = currentX
+			ParkStation.y = currentY
+			ParkStation.z = currentZ
+			ParkStation.f = currentF
+			SaveCodeToFile(createParkStationText(), ParkStationFileName)
+			term.write("Я запомнил его.\n")
+		else
+			term.write("Это моё привычное парковочное место, я помню его!\n")
+		end
+		
+		
+	else --если перед нами непонятно что
+		term.write("Не вижу перед собой ни чаржера, ни мейнтененса.\n")
+	end	
+
+	--попробуем загрузить данные из файлов
+
+	--загрузим координаты парковки из файла
+	if filesystem.exists(shell.resolve(ParkStationFileName..".lua")) == true then
+		ParkStation = require (ParkStationFileName)
+	else
+		term.write("Я не помню своего места парковки! \nПоставьте меня перед чаржером и запустите.\n")
+		os.exit()
+	end
+
+	--загрузим таблицу маршрута точек ремонта из файла
+	if filesystem.exists(shell.resolve(RouteListFileName..".lua")) == true then
+		RouteListTable = require (RouteListFileName)
+	end
+	local size1 = 0
+	for _ in pairs(RouteListTable) do size1 = size1 + 1 end
+	if size1 == 0 then
+		term.write("Я помню своё место парковки. \nНо мой маршрутный лист пуст! \nПоставьте меня перед мейнтенесом и запустите.\n")
+		os.exit()
+	end
+end 	
+
+function MakeADutyRound() --совершить обход по маршруту
+	
+	function calcChunkCoordinates(x, z) --вычисляем координаты текущего чанка
+		local ChunkX = math.floor(x / 16) * 16
+		local ChunkZ = math.floor(z / 16) * 16
+		return ChunkX, ChunkZ
+	end
+	function robotAlignTo(d) --выровнять нос робота на заданную сторону света; d - заданная сторона света
+	
+		currentX, currentY, currentZ, F =  getRobotPositionXYZF()
+
+		if d == F then return end
+		if (d == sides.north and F == sides.west) or 
+			(d == sides.west and F == sides.south) or
+			(d == sides.south and F == sides.east) or
+			(d == sides.east and F == sides.north) then
+				robot.turnRight()
+				return
+		elseif (F == sides.north and d == sides.west) or 
+			(F == sides.west and d == sides.south) or
+			(F == sides.south and d == sides.east) or
+			(F == sides.east and d == sides.north) then
+				robot.turnLeft()
+				return
+		else
+			robot.turnAround()
+			return
+		end
+	end
+	function makeATrip(destX, destY, destZ, destF) --совершить поездку до указанной точки
+		local destChunkX, destChunkZ
+		term.write("Следую к: х = " .. destX .." y = " .. destY .." z = " .. destZ .. "...")
+		
+		--следование до точки проходит в три этапа: 1 - до края чанка, 2 - по границам чанка до нужного чанка, 3 - от границы чанка до конечной точки
+		--Этап 1 - следуем до края чанка
+		--print("Выбираюсь к кромке чанка...")
+		
+		
+		--для этого мы должны развернуться в сторону ближайшей дорожки чанка
+		
+		--текущие координаты робота
+		local currentX, currentY, currentZ, currentF =  getRobotPositionXYZF()
+
+		--опустимся на пол
+		while currentY ~= ParkStation.y do
+			robot.down()
+			currentX, currentY, currentZ, currentF =  getRobotPositionXYZF()
+		end
+
+		--текущий чанк робота
+		local currentChunkX, currentChunkZ = calcChunkCoordinates(currentX, currentZ)
+		
+		--координаты робота в чанке	
+		--local curX_inChank = currentX - currentChunkX
+		--local curZ_inChank = currentZ - currentChunkZ
+		
+		--исходя из требования к геометрии зоны обслуживания, робот стоит спиной к той границе чанка, проезд до которой свободен
+		--разворачиваем робота на 180 градусов и едем к границе чанка
+		robot.turnAround()
+		--цикл пока не доехали до границы чанка
+		while currentX ~= currentChunkX and currentZ ~= currentChunkZ and currentX ~= currentChunkX+16 and currentZ ~= currentChunkZ+16 do
+			robot.forward()
+			currentX, currentY, currentZ, currentF =  getRobotPositionXYZF()
+			--print(currentX, currentChunkX, currentZ, currentChunkZ)
+		end
+		
+		--Этап 2 следуем до чанка, в котором находится точка назначения
+		--print("Следую до чанка, в котором находится точка \nназначения...")
+		
+		destChunkX, destChunkZ = calcChunkCoordinates(destX, destZ)
+			
+		--проверим, точно ли точка назначения находится в другом, а не в этом чанке
+		if currentChunkX ~= destChunkX or currentChunkZ ~= destChunkZ then
+		
+			while currentChunkX ~= destChunkX or currentChunkZ ~= destChunkZ do
+				--производим движение по X пока не приедем в нужный чанк, при этом мы уже должны быть на границе чанка по Z (т.е. находится на кромке чанка)
+				--print (currentZ, math.floor(currentZ / 16) * 16)
+				while currentX ~= destChunkX  and currentZ == math.floor(currentZ / 16) * 16 do 
+					--выровняем нос робота
+					if currentX < destChunkX then
+						robotAlignTo(sides.east) 
+					else
+						robotAlignTo(sides.west) 
+					end
+					robot.forward()
+					currentX, currentY, currentZ, currentF =  getRobotPositionXYZF()
+					currentChunkX, currentChunkZ = calcChunkCoordinates(currentX, currentZ)
+					
+				end
+				--производим движение по Z пока не приедем в нужный чанк, при этом мы уже должны быть на границе чанка по X (т.е. находится на кромке чанка)
+				--print (currentX, math.floor(currentX / 16) * 16)
+				while currentZ ~= destChunkZ  and currentX == math.floor(currentX / 16) * 16 do 
+					--выровняем нос робота
+					if currentZ < destChunkZ then
+						robotAlignTo(sides.south) 
+					else
+						robotAlignTo(sides.north) 
+					end
+					robot.forward()
+					currentX, currentY, currentZ, currentF =  getRobotPositionXYZF()
+					currentChunkX, currentChunkZ = calcChunkCoordinates(currentX, currentZ)
+					
+				end
+
+			end
+		end
+		
+		--Этап 3 Следую к месту кромки чанка, с которого я заеду на точки назначения внутри чанка
+		--print("Следую к месту кромки чанка, с которого я заеду \nна точку назначения внутри чанка...")
+		--вычислим координаты точки заезда
+		local getinX
+		local getinZ
+		if destF == sides.north then
+			getinX = destX
+			getinZ = destChunkZ + 15
+		elseif destF == sides.south then
+			getinX = destX
+			getinZ = destChunkZ
+		elseif destF == sides.west then
+			getinX = destChunkX+15
+			getinZ = destZ
+		else --destF == sides.east then
+			getinX = destChunkX
+			getinZ = destZ
+		end
+		
+		--отправляемся к точке заезда
+		
+		while currentX ~= getinX or currentZ ~= getinZ do
+			--производим движение по X
+			while currentX ~= getinX and ((currentZ == getinZ) or (destF == sides.west) or (destF == sides.east)) do 
+				
+				--выровняем нос робота
+				if currentX < getinX then
+					robotAlignTo(sides.east) 
+				else
+					robotAlignTo(sides.west) 
+				end
+				robot.forward()
+				currentX, currentY, currentZ, currentF =  getRobotPositionXYZF()
+			end
+			--производим движение по Z
+			while currentZ ~= getinZ and ((currentX == getinX) or (destF == sides.north) or (destF == sides.south)) do 
+				
+				--выровняем нос робота
+				if currentZ < getinZ then
+					robotAlignTo(sides.south) 
+				else
+					robotAlignTo(sides.north) 
+				end
+				robot.forward()
+				currentX, currentY, currentZ, currentF =  getRobotPositionXYZF()
+			end
+
+		end		
+		
+		--Этап 4 - следуем до точки назначения внутри чанка
+		--print("Вхожу в чанк и следую до точки назначения внутри \nчанка...")
+		robotAlignTo(destF) --повернем робота к точке назначения
+		while currentX ~= destX or currentZ ~= destZ do
+			robot.forward()
+			currentX, currentY, currentZ, currentF =  getRobotPositionXYZF()
+		end
+		--поднимаемся к мейнтененсу
+		while currentY ~= destY do
+			robot.up()
+			currentX, currentY, currentZ, currentF =  getRobotPositionXYZF()
+		end
+		print(" Ok")
+	end
+	function checkTapeinInventory() --проверяет наличие ремонтного материла в инвентори робота, и если его нет, а робот находится на базе, то пытается взять из сундука
+		function findTapeInInnerInventory() --возвращает номер слота и количество изоленты
+			local tapeSlot = -1
+			local tapeCount = 0
+			for i=1, math.floor(robot.inventorySize()) do --пройдемся по инвентори робота
+				local item = inventory.getStackInInternalSlot(i)
+				if item ~= nil then 
+					--print (item.name, item.damage) 
+					if item.name == "gregtech:gt.metaitem.01" and item.damage == 32764 then --изолента
+						tapeSlot = i -- запомним слот, в котором лежит изолента
+						return tapeSlot, item.size
+					end
+				end
+			end
+			return -1, 0
+		end
+		--проверим, есть ли в роботе ремонтные принадлежности
+		term.write("Проверяю, есть ли у меня изолента...")
+		local tapeSlot, size = findTapeInInnerInventory()
+		if tapeSlot == -1 then
+			-- в инвентори не нашли, но может есть на поясе?
+			inventory.equip() --возвращаем принадлежность во внутреннюю инвентори
+			tapeSlot, size = findTapeInInnerInventory()
+			if tapeSlot == -1 then
+				print(" Не найдено!");
+				--попробуем взять из сундука под роботом
+				--проверим, находимся ли мы на парковке
+				curX, curY, curZ, curF = getRobotPositionXYZF()
+				if curX == ParkStation.x and curY == ParkStation.y and curZ == ParkStation.z and curF == ParkStation.f then
+					term.write("Пытаюсь взять изоленту из сундука под моим местом\nпарковки...")
+					
+					
+					local chestSize = inventory.getInventorySize(sides.down)
+					if chestSize == nil then --если под роботом на парковке нет сундука, а раз мы здесь, то и в роботе нет ремонтных принадлежностей, то конец работы
+						print(" Сундук не найден!")
+						os.exit()
+					end
+					if robot.suckDown() == false then
+						print(" В сундуке ничего нет!")
+						os.exit()
+					else
+						--проверим что мы взяли
+						tapeSlot, size = findTapeInInnerInventory()
+						if tapeSlot == -1 then
+							print(" В сундуке оказался неподходящий \nпредмет!")
+							os.exit()
+						end
+					end
+				else
+					return false
+				end
+			end
+		end
+		
+		print(" Ok")		
+		return true
+	end
+	function returnToBaseToReplenishSupplies() --вернутся на базу за ремонтными принадлежностями
+		print("Возвращаюсь на станцию парковки за изолентой.");
+		makeATrip(ParkStation.x, ParkStation.y, ParkStation.z, ParkStation.f)
+		if checkTapeinInventory() == false then
+			print("\nНе могу отправиться на ремонт без материала! \nНа моей станции парковки под моим местом парковки\nдолжен быть сундук или бочка с ремонтным \nматериалом (изолентой).")
+			os.exit()
+		end
+	end
+
+	--перед поездкой проверим ремонтные принадлежности (изолента)
+	if checkTapeinInventory() == false then
+		--если нет у нас изоленты, съездим за ней на базу
+		returnToBaseToReplenishSupplies()
+	end
+	--посетим все точки в маршруте
+	print("НАЧИНАЮ ОБХОД ВСЕХ ТОЧЕК РЕМОНТА.");
+	for name, val in pairs(RouteListTable) do
+
+		
+		--совершим поездку до очередной точки ремонта
+		makeATrip(RouteListTable[name].x, RouteListTable[name].y, RouteListTable[name].z, RouteListTable[name].f)
+		
+		--Прибыли на точку. Проверим есть ли там то, зачем мы прибыли
+		blockName = blockNameInfrontOfRobot()
+		if blockName ~= "gregtech:gt.blockmachines" then
+			print("Прибыв на точку не обнаружил там мейнтененс! \nУдаляю эту точку из маршрута.");
+			RouteListTable[name] = nil
+			--сохраним на диск
+			SaveCodeToFile(createRouteListTableText(), RouteListFileName)
+			
+		else --осуществляем ремонт
+			--проверим изоленту в инвентори
+			if checkTapeinInventory() == false then
+				print("Не могу осуществить ремонт!")
+				returnToBaseToReplenishSupplies() --вернемся на парковочную станцию для пополнения запаса ремонтных принадлежностей (изоленты)
+				--После того как пополнили запасы изоленты, вернемся на точку ремонта
+				print("Возвращаюся к точке закончить ремонт.")
+				makeATrip(RouteListTable[name].x, RouteListTable[name].y, RouteListTable[name].z, RouteListTable[name].f)
+			end	
+			term.write("Осуществляю ремонт...");
+			inventory.equip() --берем принадлежность в руки
+			robot.use(sides.back)
+			inventory.equip() --возвращаем принадлежность во внутреннюю инвентори
+			print(" Ok")
+		end
+		
+		
+	end
+	
+	--вернемся на станцию парковки
+	
+	print("ОБХОД ЗАВЕРШЕН. Возвращаюсь на станцию парковки.");
+	makeATrip(ParkStation.x, ParkStation.y, ParkStation.z, ParkStation.f)
+	--проверим, есть ли там чарджер
+	
+	
+end
+
+--ГЛАВНЫЙ ЦИКЛ ПРОГРАММЫ
+init() --инициализируем робота
+while true do 
+	--Оправляемся на обход
+	MakeADutyRound()
+	
+	--после обхода проверим, остались ли точки ремонта в таблице
+	local ListHasPoints = false
+	for name, val in pairs(RouteListTable) do
+		if val ~= nil then
+			ListHasPoints = true
+			break
+		end
+	end
+	if ListHasPoints == false then
+		print("В моем списке не осталось ни одной точки ремонта!")
+		print("Поставьте меня перед мейнтенесом и запустите.")
+		os.exit()
+	end
+	
+	--Спим до следующего обхода
+	term.write("Ожидаю следующего обхода.\n");
+	RemainTimer = DutyPeriod
+	while RemainTimer > 0 do
+		term.clearLine()
+		term.write("Осталось секунд... "..RemainTimer)
+		RemainTimer = RemainTimer - 5
+		os.sleep(5)
+	end
+	term.clearLine()
+
+end
+
+
+--todo
+--изоленту в роботе проверять во всех слотах
+--приезжая на базу проверять наличие чарджера
+--при пробуждении перед пустым блоком, в котором раньше был мейнтененс, удалять точку маршрута из таблицы
