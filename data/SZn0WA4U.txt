@@ -1,0 +1,520 @@
+---@diagnostic disable: undefined-field, undefined-global
+---Original File from https://pastebin.com/u/King0fGamesYami
+---Edited by m0rtis0 14.11.2021, Added Rednet + Fast waste algorithm
+--[[
+Use below List for defining waste blocks
+Slot 15: Bucket
+Slot 16: Fuel
+]]--
+
+local ok, tArgs, ignoredFuel, oldprint, fuelAmount = true, { ... }, 0, print, nil
+
+local waste_blocks = {
+    "minecraft:sand",
+    "minecraft:dirt",
+    "minecraft:stone",
+    "minecraft:gravel",
+    "minecraft:andesite",
+    "minecraft:diorite",
+    "minecraft:granite",
+    "minecraft:torch",
+    "minecraft:lava",
+    "minecraft:water",
+    "minecraft:cobblestone",
+    "minecraft:prismarine_bricks",
+    "minecraft:dark_prismarine",
+    "minecraft:prismarine_wall",
+    "minecraft:tall_seagrass",
+    "minecraft:seagrass",
+    "minecraft:oak_trapdoor",
+    "tconstruct:molten_ender_fluid",
+    "create:andesite_cobblestone",
+    "create:diorite_cobblestone",
+    "create:granite_cobblestone",
+    "create:gabbro_cobblestone",
+    "create:gabbro",
+    "chisel:basalt/raw",
+    "forbidden_arcanus:darkstone",
+    "forbidden_arcanus:runestone",
+    "extcaves:brokenstone",
+    "darkerdepths:grimestone",
+    "quark:limestone",
+    "byg:soapstone",
+    "xycraft_world:kivi"
+}
+
+
+local function has_value (tab, val)
+    for index, value in ipairs(tab) do
+        if value == val then
+            return true
+        end
+    end
+
+    return false
+end
+
+
+if peripheral.getType("left") ~= "modem" then
+    print( "There is no wireless modem attached! Do you wish to continue? Y/N" )
+		while true do
+			local _, char = os.pullEvent( "char" )
+			if char:lower() == "n" then
+				error("Aborted.")
+			elseif char:lower() == "y" then
+				break
+			end
+		end
+else
+    print("Found wireless modem on 'left' slot, trying to open it ...")
+    if pcall(rednet.open, "left") then
+        print("Successfully opened, now broadcasting on Channel "..rednet.CHANNEL_BROADCAST)
+        print("-- START BROADCAST --")
+    else 
+        print("Failed to open Channel, continue without modem? Y/N")
+        while true do
+			local _, char = os.pullEvent( "char" )
+			if char:lower() == "n" then
+				error("Aborted.")
+			elseif char:lower() == "y" then
+				break
+			end
+		end
+    end
+end
+
+
+print( "You have defined the following as waste blocks: " )
+for i,v in ipairs(waste_blocks) do print("  - "..v) end
+print("Is this correct? Y/N")
+while true do
+    local _, char = os.pullEvent( "char" )
+    if char:lower() == "n" then
+        error("Aborted.")
+    elseif char:lower() == "y" then
+        break
+    end
+end
+
+
+if turtle.getItemCount( 15 ) ~= 1 then
+	error( "Place a single bucket in slot 15" )
+end
+if turtle.getItemCount( 16 ) == 0 then
+	print( "Are you sure you wish to continue with no fuel in slot 16? Y/N" )
+	while true do
+		local _, char = os.pullEvent( "char" )
+		if char:lower() == "n" then
+			error("Aborted.")
+		elseif char:lower() == "y" then
+			break
+		end
+	end
+end
+
+local function print( text )
+	oldprint( text )
+	local file = fs.open( "turtleLog", "a" )
+	file.writeLine( text )
+	file.close()
+    if rednet.isOpen("left") then
+        pcall(rednet.broadcast, text)
+    end
+end
+
+function dumpWaste()
+	while ok do
+        local num_dumped = 0
+        print("[dumpWaste]: Will dump the following blocks:")
+		for i = 1, 14 do
+			local count = turtle.getItemCount( i )
+            local detail = turtle.getItemDetail( i )
+			if count > 1 and detail ~= nil and has_value(waste_blocks, detail.name) then
+				turtle.select( i )
+				turtle.drop( count )
+                num_dumped = num_dumped + count
+                print("[dumpWaste]: - "..detail.name.." (x"..count..")")
+			end
+		end
+        if num_dumped == 0 then
+            print("[dumpWaste]: No blocks")
+        end
+        print("[dumpWaste]: Dumped "..num_dumped.." blocks of waste!")
+        num_dumped = 0
+		local id = os.startTimer( 20 )
+		while true do
+			local _, tid = os.pullEvent( "timer" )
+			if tid == id then
+				break
+			end
+		end
+	end
+end
+
+function notwaste( func )
+    local solid, value = func()
+    if has_value(waste_blocks, value.name) then
+        return false
+    end
+
+    return solid
+end
+
+function check( nLevel )
+	if not nLevel then
+		nLevel = 1
+	elseif nLevel > 40 then
+		return
+	end
+	if not ok then return end
+	--check for lava
+	turtle.select( 14 )
+	if turtle.getItemCount( 14 ) == 0 and not turtle.compare() and not turtle.detect() then
+		turtle.select( 15 )
+		if turtle.place() then
+			print( "[check]: Liquid detected!" )
+			if turtle.refuel() then
+				print( "[check]: Refueled using lava source!" )
+				turtle.forward()
+				check( nLevel + 1 )
+				while not turtle.back() do end
+				ignoredFuel = ignoredFuel + 2
+			else
+				print( "[check]: Liquid was not lava!" )
+				turtle.place()
+			end
+		end
+	end
+	--check for inventories
+	if turtle.detect() and turtle.suck() then
+		while turtle.suck() do end
+	end
+	--check for ore
+	if notwaste( turtle.inspect ) then
+        local _, ore = turtle.inspect()
+		print( "[check]: Ore Detected! ("..ore.name..")" )
+		repeat turtle.dig() until turtle.forward()
+		print( "[check]: Dug ore!" )
+		check( nLevel + 1 )
+		while not turtle.back() do end
+		ignoredFuel = ignoredFuel + 2
+	end
+	if not ok then return end
+	turtle.turnLeft()
+	--check for lava
+	turtle.select( 14 )
+	if turtle.getItemCount( 14 ) == 0 and not turtle.compare() and not turtle.detect() then
+		turtle.select( 15 )
+		if turtle.place() then
+			print( "[check]: Liquid detected!" )
+			if turtle.refuel() then
+				print( "[check]: Refueled using lava source!" )
+				turtle.forward()
+				check( nLevel + 1 )
+				while not turtle.back() do end
+				ignoredFuel = ignoredFuel + 2
+			else
+				print( "[check]: Liquid was not lava!" )
+				turtle.place()
+			end
+		end
+	end
+	--check for inventories
+	if turtle.detect() and turtle.suck() then
+		while turtle.suck() do end
+	end
+	--check for ore
+	if notwaste( turtle.inspect ) then
+        local _, ore = turtle.inspect()
+		print( "[check]: Ore Detected! ("..ore.name..")" )
+		repeat turtle.dig() until turtle.forward()
+		print( "[check]: Dug ore!" )
+		check( nLevel + 1 )
+		while not turtle.back() do end
+		ignoredFuel = ignoredFuel + 2
+	end
+	turtle.turnRight()
+	if not ok then return end
+	turtle.turnRight()
+	--check for lava
+	turtle.select( 14 )
+	if turtle.getItemCount( 14 ) == 0 and not turtle.compare() and not turtle.detect() then
+		turtle.select( 15 )
+		if turtle.place() then
+			print( "[check]: Liquid detected!" )
+			if turtle.refuel() then
+				print( "[check]: Refueled using lava source!" )
+				turtle.forward()
+				check( nLevel + 1 )
+				while not turtle.back() do end
+				ignoredFuel = ignoredFuel + 2
+			else
+				print( "[check]: Liquid was not lava!" )
+				turtle.place()
+			end
+		end
+	end
+	--check for inventories
+	if turtle.detect() and turtle.suck() then
+		while turtle.suck() do end
+	end
+	--check for ore
+	if notwaste( turtle.inspect ) then
+        local _, ore = turtle.inspect()
+		print( "[check]: Ore Detected! ("..ore.name..")" )
+		repeat turtle.dig() until turtle.forward()
+		print( "[check]: Dug ore!" )
+		check( nLevel + 1 )
+		while not turtle.back() do end
+		ignoredFuel = ignoredFuel + 2
+	end
+	turtle.turnLeft()
+	if not ok then return end
+	--check for lava
+	turtle.select( 14 )
+	if turtle.getItemCount( 14 ) == 0 and not turtle.compareUp() and not turtle.detectUp() then
+		turtle.select( 15 )
+		if turtle.placeUp() then
+			print( "[check]: Liquid detected!" )
+			if turtle.refuel() then
+				print( "[check]: Refueled using lava source!" )
+				turtle.up()
+				check( nLevel + 1 )
+				while not turtle.down() do end
+				ignoredFuel = ignoredFuel + 2
+			else
+				print( "[check]: Liquid was not lava!" )
+				turtle.placeUp()
+			end
+		end
+	end
+	--check for inventories
+	if turtle.detectUp() and turtle.suckUp() then
+		while turtle.suckUp() do end
+	end
+	--check for ore
+	if notwaste( turtle.inspectUp ) then
+        local _, ore = turtle.inspectUp()
+		print( "[check]: Ore Detected! ("..ore.name..")" )
+		repeat turtle.digUp() until turtle.up()
+		print( "[check]: Dug ore!" )
+		check( nLevel + 1 )
+		while not turtle.down() do end
+		ignoredFuel = ignoredFuel + 2
+	end
+	if not ok then return end
+	--check for lava
+	turtle.select( 14 )
+	if turtle.getItemCount( 14 ) == 0 and not turtle.compareDown() and not turtle.detectDown() then
+		turtle.select( 15 )
+		if turtle.placeDown() then
+			print( "[check]: Liquid detected!" )
+			if turtle.refuel() then
+				print( "[check]: Refueled using lava source!" )
+				turtle.down()
+				check( nLevel + 1 )
+				while not turtle.up() do end
+				ignoredFuel = ignoredFuel + 2
+			else
+				print( "[check]: Liquid was not lava!" )
+				turtle.placeDown()
+			end
+		end
+	end
+	--check for inventories
+	if turtle.detectDown() and turtle.suckDown() then
+		while turtle.suckDown() do end
+	end
+	--check for ore
+	if notwaste( turtle.inspectDown ) then
+        local _, ore = turtle.inspectDown()
+		print( "[check]: Ore Detected! ("..ore.name..")" )
+		repeat turtle.digDown() until turtle.down()
+		print( "[check]: Dug ore!" )
+		check( nLevel + 1 )
+		while not turtle.up() do end
+		ignoredFuel = ignoredFuel + 2
+	end
+end
+
+function branch(mainPos)
+	local gone = 0
+	for i = 1, 25 do
+		repeat turtle.dig() until turtle.forward()
+		print( "[branch]: Dug branch at pos ["..mainPos.."] ["..gone.."]!" )
+		gone = gone + 1
+		if not ok then break end
+		check()
+		if not ok then break end
+	end
+	print( "[branch]: Returning to main!" )
+	turtle.turnLeft()
+	turtle.turnLeft()
+	for i = 1, gone do
+		while not turtle.forward() do
+			while turtle.dig() do end
+			while turtle.attack() do end
+		end
+	end
+	ignoredFuel = ignoredFuel + ( gone * 2 )
+	print( "[branch]: Returned to main!" )
+end
+
+function main()
+	local gone = 0
+	while ok do
+        print("[main]: Searching wall")
+        repeat 
+            if turtle.forward() then
+                gone = gone + 1
+                if gone >= 50 then
+                    ok = false
+                    print("[main]: Exceeding 64 blocks range, returning")
+                    break
+                end
+            end
+        until turtle.detect() or not ok
+        print("[main]: Found wall, digging main at pos ["..gone.."]")
+		for i = 1, 3 do
+			repeat turtle.dig() until turtle.forward()
+			print( "[main]: Digging main at pos ["..gone.."]!" )
+            if gone >= 50 then
+                ok = false
+                print("[main]: Exceeding 64 blocks range, returning")
+            end
+			gone = gone + 1
+			if not ok then break end --not ok, don't keep running
+			check()
+			if not ok then break end
+		end
+		if not ok then break end
+		turtle.turnLeft()
+		print( "[main]: Initiating branch!" )
+		branch(gone-1)
+		turtle.turnLeft()
+		if not ok then break end --not ok, don't run second branch
+		turtle.turnRight()
+		print( "[main]: Initiating branch!" )
+		branch(gone-1)
+		turtle.turnRight()
+	end
+	--not ok, return to base
+	print( "[main]: Returning to base!" )
+	turtle.turnLeft()
+	turtle.turnLeft()
+	repeat
+		while not turtle.forward() do
+			while turtle.attack() do end
+			while turtle.dig() do end
+		end
+		gone = gone - 1
+	until gone == 0
+    turtle.turnLeft()
+    turtle.turnLeft()
+end
+
+
+function findMaxLevel()
+	local level = turtle.getFuelLevel()
+	if turtle.getItemCount( 16 ) > 1 then
+		if not fuelAmount then
+			turtle.select( 16 )
+			turtle.refuel( 1 )
+			fuelAmount = turtle.getFuelLevel() - level
+			print( "[findMaxLevel]: Found fuelAmount: "..fuelAmount)
+		end
+		print( "[findMaxLevel]: Found max level: " .. turtle.getItemCount( 16 ) * fuelAmount + turtle.getFuelLevel() .. "!")
+		return turtle.getItemCount( 16 ) * fuelAmount + turtle.getFuelLevel()
+	else
+		print( "[findMaxLevel]: Found max level: " .. turtle.getFuelLevel() .. "!" )
+		return turtle.getFuelLevel()
+	end
+end
+
+function isOk()
+	local okLevel = findMaxLevel() / 2 + 10
+	while ok do
+		local currentLevel = turtle.getFuelLevel()
+		if currentLevel < 100 then --check fuel
+			print( "[isOk]: Fuel Level Low!" )
+			if turtle.getItemCount( 16 ) > 0 then
+				print( "[isOk]: Refueling!" )
+				repeat
+					turtle.select( 16 )
+				until turtle.refuel( 1 ) or turtle.getSelectedSlot() == 16
+				if turtle.getFuelLevel() > currentLevel then
+					print( "[isOk]: Refuel Successful!" )
+				else
+					print( "[isOk]: Refuel Unsuccessful, Initiating return!" )
+					ok = false
+				end
+			end
+		elseif okLevel - ignoredFuel > findMaxLevel()  then
+			print("[isOk]: Fuel Reserves Depleted!  Initiating return!")
+			ok = false
+		end
+		--make sure turtle can take new items
+		local hasSpace = false
+		for i = 1, 15 do
+			if turtle.getItemCount( i ) == 0 then
+				hasSpace = true
+			end
+		end
+        local manualInterrupt = false
+        --Listen for RedNet manual interrupts
+        if rednet.isOpen("left") then
+            --Listen for RET
+            local _, msg = rednet.receive(nil, 0.1)
+            if msg == "RET" then
+                manualInterrupt = true
+            end
+        end
+		if not hasSpace then
+			print( "[isOk]: Out of space!  Intiating return!" )
+			ok = false
+        end
+        if manualInterrupt then
+            print("[isOk]: Manual return requested!, Returning..")
+            ok = false
+		elseif ok then
+			print( "[isOk]: Everything is OK!" )
+			local id = os.startTimer( 10 )
+			while true do
+				local _, tid = os.pullEvent( "timer" )
+				if tid == id then
+					break
+				end
+			end
+		end
+	end
+end
+
+
+function trackTime()
+	local sTime = table.concat( tArgs, " " )
+	local nSeconds = 0
+	for i, period in sTime:gmatch( "(%d+)%s+(%a+)s?" ) do
+		if period:lower() == "second" then
+			nSeconds = nSeconds + i
+		elseif period:lower() == "minute" then
+			nSeconds = nSeconds + ( i * 60 )
+		elseif period:lower() == "hour" then
+			nSeconds = nSeconds + ( i * 3600 )
+		end
+	end
+	print( "[trackTime]: Starting timer for "..nSeconds.." seconds!" )
+	local id = os.startTimer( nSeconds )
+	while ok do
+		local _, tid = os.pullEvent( "timer" )
+		if id == tid then
+			print( "[trackTime]: End of session reached!  Returning to base!" )
+			ok = false
+		end
+	end
+end
+
+parallel.waitForAll( trackTime, isOk, dumpWaste, main )
+for i = 1, 14 do
+	turtle.select( i )
+	turtle.dropDown()
+end
