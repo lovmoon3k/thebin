@@ -1,0 +1,69 @@
+#include <tuple>
+#include <vector>
+#include <variant>
+#include <type_traits>
+
+using VarVec = std::vector<std::variant<std::string, int, bool>>;
+
+template <bool...> struct bool_pack;
+
+template <class T, class... Ts>
+struct is_any : std::disjunction<std::is_same<T, Ts>...> {};
+
+template <bool... v>
+using all_true = std::is_same<bool_pack<true, v...>, bool_pack<v..., true>>;
+
+template <typename... Types>
+class NodeList {
+private:
+    template <typename = std::enable_if_t<all_true<is_any<Types, std::string, int, bool>{}...>{}>>
+    static void checkSupportedTypes() {}
+public:
+    template <size_t FieldsAmount>
+    NodeList(const std::string(&fieldNames)[FieldsAmount], const size_t keyField = 0) : 
+        fieldNames(std::begin(fieldNames), std::end(fieldNames)), 
+        keyField(keyField) {
+        static_assert(sizeof...(Types) == FieldsAmount, "Filed types and names are not the same size");
+    }
+    NodeList& Addfield(const std::tuple<Types...>& record) {
+        records.push_back(record);
+        return *this;
+    }
+    VarVec GetAll() const {
+        VarVec res;
+        res.reserve(records.size() * fieldNames.size());
+        for(auto& record : records) {
+            std::apply([&res](auto&&... args) {((res.push_back(args)), ...);}, record);
+        }
+        return res;
+    }
+private:
+    std::vector<std::tuple<Types...>> records;
+    std::vector<std::string> fieldNames;
+    const size_t keyField;
+};
+
+struct NodeListAdapter
+{
+    template <typename... Types>
+    NodeListAdapter(const NodeList<Types...>& nl) : data(nl.GetAll()) { }
+    VarVec data;
+};
+
+class ListUser {
+public:
+    ListUser(NodeListAdapter na) { /*na.data;*/ }
+};
+
+int main() {
+    NodeList<int, bool> list{{"field_int", "field_bool"}};
+    //NodeList<int, bool, bool> list2{{"field_int", "field_bool"}}; //not compile
+    //NodeList<int, bool> list3{{"field_int", "field_bool", "field_int"}}; //not compile
+	//NodeList<std::string, uint32_t> list4{{"field_int", "field_bool"}}; //not compile
+    list.Addfield({(int)32, false});
+    //list.Addfield({"string", true}); //not compile
+
+    ListUser user(list);
+    
+    return 0;
+}
