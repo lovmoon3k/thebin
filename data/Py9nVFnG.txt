@@ -1,0 +1,103 @@
+# uninstall other cuda versions inside WSL - https://stackoverflow.com/questions/56431461/how-to-remove-cuda-completely-from-ubuntu
+sudo apt-get --purge remove "*cublas*" "cuda*" "nsight*"  #uninstall cuda toolkit
+
+# install cuda 11.6 - https://developer.nvidia.com/cuda-11-6-0-download-archive?target_os=Linux&target_arch=x86_64&Distribution=WSL-Ubuntu&target_version=2.0&target_type=deb_local
+wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin
+sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600
+wget https://developer.download.nvidia.com/compute/cuda/11.6.0/local_installers/cuda-repo-wsl-ubuntu-11-6-local_11.6.0-1_amd64.deb
+sudo dpkg -i cuda-repo-wsl-ubuntu-11-6-local_11.6.0-1_amd64.deb
+sudo apt-key add /var/cuda-repo-wsl-ubuntu-11-6-local/7fa2af80.pub
+sudo apt-get update
+sudo apt-get -y install cuda
+
+# check CUDA 
+nvidia-smi 
+# still shows CUDA 12.0, we ignore it
+
+# create cuda env
+conda create --name diffusers python=3.10.0
+conda activate diffusers
+
+# install pytorch for cuda 11.6
+conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.6 -c pytorch -c conda-forge
+
+# install triton
+pip install -U --pre triton
+
+# install xformers
+conda install xformers -c xformers/label/dev
+
+#install functorch + ninja
+pip install functorch==0.2.1 ninja
+
+# install correct bitsandbytes with GPU support for selected cuda variant
+conda list| grep cudatoolkit 
+# get toolkit version above cudaXXX
+pip install bitsandbytes-cuda116
+
+# clone and install Shivam's diffusers implementation
+git clone https://github.com/ShivamShrirao/diffusers.git
+cd diffusers
+pip install .
+cd examples/dreambooth
+
+# install HF login + token
+huggingface-cli login
+
+# install deepspeed, configurate accelerate
+pip install deepspeed
+accelerate config
+	0 this machine
+	0 no distributed training
+	NO CPU only
+	YES use DeepSpeed
+	NO use deepseed config
+	2 ZeRO optimisation stage
+	CPU offload optimizer states
+	CPU offload parameters
+	1 gradient accumulation steps
+	NO gradient clipping
+	NO zero.init
+	1 GPU
+	fp16
+
+# fix weird xformers dependency error for pyre-extensions and einops
+pip install pyre-extensions==0.0.23
+pip install einops
+
+# add library path for wsl into launch.sh
+	export LD_LIBRARY_PATH=/usr/lib/wsl/lib:$LD_LIBRARY_PATH
+	export MODEL_NAME="runwayml/stable-diffusion-v1-5"
+	export OUTPUT_DIR="output"
+	accelerate launch train_dreambooth.py \
+	  --pretrained_model_name_or_path=$MODEL_NAME \
+	  --output_dir=$OUTPUT_DIR \
+	  --revision="fp16" \
+	  --with_prior_preservation --prior_loss_weight=1.0 \
+	  --seed=5825825 \
+	  --resolution=512 \
+	  --train_batch_size=1 \
+	  --mixed_precision="fp16" \
+	  --gradient_checkpointing \
+	  --use_8bit_adam \
+	  --gradient_accumulation_steps=1 \
+	  --learning_rate=5e-6 \
+	  --lr_scheduler="constant" \
+	  --lr_warmup_steps=0 \
+	  --num_class_images=47\
+	  --sample_batch_size=1 \
+	  --max_train_steps=500 \
+	  --save_interval=250\
+	  --save_sample_prompt="photo of young amiarp woman" \
+	  --concepts_list="concepts_list.json" \
+
+# edit concepts_list.json:
+        "instance_prompt":      "photo of young amiarp woman",
+        "class_prompt":         "photo of a young woman",
+        "instance_data_dir":    "instance",
+        "class_data_dir":       "class"
+
+# train
+chmod +x launch.sh
+./launch.sh
+
