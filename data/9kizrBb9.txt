@@ -1,0 +1,209 @@
+facing = nil
+direction = {"north", "east", "south", "west"}
+
+function facingTest() -- Gets the direction the turtle is facing
+    x, y, z = gps.locate()
+    if x > pX then
+        facing = 2
+    elseif z > pZ then
+        facing = 3
+    elseif x < pX then
+        facing = 4
+    else
+        facing = 1
+    end
+    return facing
+end
+
+function getFacing()
+    pX, pY, pZ = gps.locate()
+    j = 0
+    i = 0
+    while j ~= 5 and i == 0 do
+        if turtle.forward() then
+            facingTest()
+            i = 1
+        else
+            j = j + 1
+            turtle.turnLeft() 
+        end           
+    end
+    turtle.back()
+end
+
+function stuck()
+    x, y, z = gps.locate()
+    turtleTransmit.Update(x.."!"..y.."!"..z)
+    error("Turtle is stuck awaiting human for rescue!")
+end
+
+function forward(amount)
+    i = 0
+    Amount = amount or 1
+    while i < Amount do
+        if turtle.forward() then
+            i = i + 1
+        else
+        homeZone = turtleTransmit.checkHomeZone()
+            if not homeZone then
+                turtle.dig()
+                turtle.forward()
+                i = i + 1
+            else
+                stuck()
+            end
+        end
+    end
+end
+
+function down(amount)
+    i = 0
+    Amount = amount or 1
+    while i < Amount do
+        if turtle.down() then
+            i = i + 1
+        else
+        homeZone = turtleTransmit.checkHomeZone()
+            if not homeZone then
+                turtle.digDown()
+                turtle.down()
+                i = i + 1
+            else
+                stuck()
+            end
+        end
+    end
+end
+
+function up(amount)
+    i = 0
+    Amount = amount or 1
+    while i < Amount do
+        if turtle.up() then
+            i = i + 1
+        else
+        homeZone = turtleTransmit.checkHomeZone()
+            if not homeZone then
+                turtle.digUp()
+                turtle.up()
+                i = i + 1
+            else
+                stuck()
+            end
+        end
+    end
+end
+
+function setFacing(dir)
+    facing = dir
+end
+
+function face(dir)
+    while facing ~= dir do
+        turtle.turnLeft()
+        if facing ~=  1 then
+            facing = facing - 1
+        else
+            facing = 4
+        end
+        print(direction[facing]) 
+    end
+    return facing
+end
+
+function prepForJourney()
+    x, y, z = gps.locate()
+    if turtleTransmit.checkHome() then
+        leaveHome()
+        return true
+    elseif not turtleTransmit.checkHomeZone() then
+        sleep(2)
+        if y < 256 then    
+            while y ~= 256 do
+                up()
+                y = y + 1
+            end
+        elseif y > 256 then
+            while y ~= 256 do
+                down()
+                y = y - 1
+            end
+        end
+        return true
+    elseif turtleTransmit.checkHomeZone() then
+        stuck()
+    end
+end
+
+function calculateJourney(tarX, tarY, tarZ)
+    travelDirX, travelDirZ, travelDirY , travelDistX, travelDistZ, travelDistY = nil
+    x, y, z     = gps.locate()
+        
+        if x > tarX then
+            travelDirX = 4
+        elseif x < tarX then
+            travelDirX = 2
+        else
+            travelDirX = 1
+        end
+    travelDistX = math.abs(tarX - x)
+    
+        if y > tarY then
+            travelDirY = -1
+        elseif y < tarY then
+            travelDirY = 1
+        else
+            travelDirY = 0
+        end
+    travelDistY = math.abs(tarY - y)
+    
+        if z > tarZ then
+            travelDirZ = 1
+        elseif z < tarZ then
+            travelDirZ = 3
+        else
+            travelDirZ = 1
+        end
+    travelDistZ = math.abs(tarZ - z)
+    
+    return travelDirX, travelDirY, travelDirZ, travelDistX, travelDistY, travelDistZ 
+end 
+
+function leaveHome()
+    turtleTransmit.Update("Leaving")
+    moveTo(-1299, 256, -1474)
+end      
+
+function returnHome()
+    home, homePos = turtleTransmit.checkHome()
+    cruiseTo(-1277, 51, -1473)
+    moveTo(homePos[1],homePos[2],homePos[3])
+    face(3)
+    x, y, z = gps.locate()
+    turtleTransmit.Update("Returned")
+end  
+
+local function moveTo(x, y, z) --unsafe for general travel use cruiseTo()
+    getFacing()
+    turtleTransmit.Update("Moving")
+    tDirX, tDirY, tDirZ, tDstX, tDstY, tDstZ = calculateJourney(x, y, z)
+    face(tDirX)
+    forward(tDstX)
+    face(tDirZ)
+    forward(tDstZ)
+    if tDirY == 1 then
+        up(tDstY)
+    elseif tDirY == -1 then
+        down(tDstY)
+    else
+    end
+    turtleTransmit.Update("Waiting")
+end
+
+function cruiseTo(x, y, z)
+    if prepForJourney() then
+        moveTo(x, y, z)
+    end
+end
+
+returnHome()    
