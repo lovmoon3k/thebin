@@ -1,0 +1,80 @@
+std::set<std::string, std::less<>> stop_words_;
+    std::map<std::string_view, std::map<int, double>> word_to_document_freqs_;
+    std::map<int, std::map<std::string_view, double>> document_to_word_freqs_;
+    std::map<int, DocumentData> documents_;
+    std::set<int> document_ids_;
+
+SearchServer::Query SearchServer::ParseQuery(string_view text, bool skip_sort) const {
+    Query result;
+    for (const string_view word : SplitIntoWords(text)) {
+        const auto query_word = ParseQueryWord(word);
+        if (!query_word.is_stop) {
+            if (query_word.is_minus) {
+                result.minus_words.push_back(query_word.data);
+            } else {
+                result.plus_words.push_back(query_word.data);
+            }
+        }
+    }
+    if (!skip_sort) {
+        for (auto* words : {&result.plus_words, &result.minus_words}) {
+            sort(words->begin(), words->end());
+            words->erase(unique(words->begin(), words->end()), words->end());
+        }
+    }
+    return result;
+}
+SearchServer::MatchDocument(const execution::parallel_policy&, string_view raw_query, int document_id) const {
+    const auto query = ParseQuery(raw_query, /* skip_sort */ true);
+
+    const auto status = documents_.at(document_id).status;
+
+    const auto word_checker = 
+        [this, document_id](string_view word) {
+            const auto it = word_to_document_freqs_.find(word);
+            return it != word_to_document_freqs_.end() && it->second.count(document_id);
+        };
+
+    if (any_of(execution::par, query.minus_words.begin(), query.minus_words.end(), word_checker)) {
+        return {{}, status};
+    }
+
+    vector<string_view> matched_words(query.plus_words.size());
+    auto words_end = copy_if(
+        execution::par,
+        query.plus_words.begin(), query.plus_words.end(),
+        matched_words.begin(),
+        word_checker
+    );
+    sort(matched_words.begin(), words_end);
+    words_end = unique(matched_words.begin(), words_end);
+    matched_words.erase(words_end, matched_words.end());
+
+    return {matched_words, status};
+}
+SearchServer::MatchDocument(const execution::sequenced_policy&, string_view raw_query, int document_id) const {
+    const auto query = ParseQuery(raw_query);
+
+    const auto status = documents_.at(document_id).status;
+
+    for (const string_view word : query.minus_words) {
+        if (word_to_document_freqs_.count(word) == 0) {
+            continue;
+        }
+        if (word_to_document_freqs_.at(word).count(document_id)) {
+            return {{}, status};
+        }
+    }
+
+    vector<string_view> matched_words;
+    for (const string_view word : query.plus_words) {
+        if (word_to_document_freqs_.count(word) == 0) {
+            continue;
+        }
+        if (word_to_document_freqs_.at(word).count(document_id)) {
+            matched_words.push_back(word);
+        }
+    }
+    return {matched_words, status};
+}
+
