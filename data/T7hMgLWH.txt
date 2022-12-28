@@ -1,0 +1,157 @@
+local function readTasks(t)
+	if not fs.exists("tasks.txt") then
+		return
+	end
+	local f = fs.open("tasks.txt", "r")
+	f.readLine()
+	local line = f.readLine()
+	while line do
+		table.insert(t, line)
+		line = f.readLine()
+	end
+	f.close()
+end
+
+local function removeTask(n, t)
+	table.remove(n, t)
+	local f = fs.open("tasks.txt", "w")
+	f.writeLine()
+	for _, task in pairs(t) do
+		f.writeLine(task)
+	end
+	f.close()
+end
+
+local function readPeople(p)
+	if not fs.exists("people.txt") then
+		return
+	end
+	local f = fs.open("people.txt", "r")
+	local line = f.readLine()
+	while line do
+		local person = {}
+		for arg in line:gmatch("[^ ]+") do
+			print(arg)
+			table.insert(person, arg)
+		end
+		table.insert(p, person)
+		line = f.readLine()
+	end
+	f.close()
+end
+
+tasks = {}
+readTasks(tasks)
+
+people = {}
+readPeople(people)
+
+m = peripheral.find("monitor")
+w, h = m.getSize()
+selected = -1
+
+tx = -1
+ty = -1
+
+term.clear()
+term.setCursorPos(1,1)
+
+window = 1
+-- 1: TASKS 0: INFO (WIP)
+
+um = 3
+rm = 3
+
+local function refreshScreen()
+	m.clear()
+	m.setCursorPos(1, 1)
+	
+	m.setTextColor(colors.cyan)
+	m.write("TASKBOARD v0.8")
+	
+	m.setTextColor(colors.orange)
+	m.setCursorPos(1, 2)
+	m.write("by Andres ;)  Newest Feature: Remove Item")
+	
+	for n, t in pairs(tasks) do
+		m.setTextColor(colors.white)
+		if selected == n then 
+			m.setTextColor(colors.yellow) 
+		end
+		m.setCursorPos(1, n + um)
+		m.write(tostring(n))
+		m.write(" ")
+		m.write(tostring(t))
+		
+		m.setCursorPos(w - rm + 1)
+		m.setTextColor(colors.green)
+		m.write("T ")
+		
+		m.setTextColor(colors.red)
+		m.write("X")
+		
+	end
+	if #tasks == 0 then
+		m.setCursorPos(1, um + 1)
+		m.setTextColor(colors.white)
+		m.write("Write \"new [task description]\" in the terminal to begin...")
+	end
+end
+
+local function textInput()
+	local input = read()
+	local args = {}
+	for arg in input:gmatch("%S+") do
+		table.insert(args, arg)
+	end
+	if args[1] == "new" then
+		local task = ""
+		for n, arg in pairs(args) do
+			if n ~= 1 then
+				if n ~= 2 then
+					task = task.." "
+				end
+				task = task..arg
+			end
+		end
+		
+		table.insert(tasks, task)
+		local f = fs.open("tasks.txt", "a")
+		f.writeLine(task)
+		f.close()
+	end
+	
+	if args[1] == "clear" then
+		tasks = {}
+		
+		local f = fs.open("tasks.txt", "w")
+		f.write("balls to the walls")
+		f.close()
+	end
+	
+	if args[1] == "people" then
+		for _, person in pairs(people) do
+			print(person[1].." "..person[2])
+		end
+	end
+end
+
+local function touchInput()
+	local _, _, x, y = os.pullEvent("monitor_touch")
+	tx = x
+	ty = y
+	if selected == y - um then
+		if x == w then
+			removeTask(selected)
+		end
+	end
+	if y >= um + 1 and y <= um + #tasks then
+		selected = y - um
+	end
+end
+	
+refreshScreen()
+while true do
+	parallel.waitForAny(textInput, touchInput)
+	refreshScreen()
+end
