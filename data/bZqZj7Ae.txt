@@ -1,0 +1,184 @@
+import sys, random, time, math
+import tkinter as tk
+import webbrowser
+
+fp=open('eternity2.txt', 'r')
+width, height = list(map(int,fp.readline().strip('\n').split(' ')))
+
+pieces = dict()
+piecenum=0
+for line in fp.read().splitlines():
+    t1 = tuple(map(int,line.split(' ')))
+    for rot in range(4):
+        pieces[(piecenum,rot)] = t1[-rot:] + t1[:-rot]
+    piecenum += 1
+
+fp.close()
+
+fit = dict()
+for key1, val in pieces.items():
+    key2 = (val[0], val[3], val[1] == 0, val[2] == 0)
+    fit[key2] = fit.get(key2, []) + [key1]
+	    
+#print(fit)
+
+myoutput = ''
+
+def myprint(s):
+    global myoutput
+    myoutput += str(s + '\n')
+    #console.log(s)
+    self.postMessage({'output': s})
+
+def print_puzz():
+    global url
+    #url = 'https://e2.bucas.name/#puzzle=EternityII&board_w=16&board_h=16&motifs_order=jblackwood&board_edges='
+    url = 'https://e2.bucas.name/#puzzle=EternityII&board_w=16&board_h=16&board_edges='
+    for r in range(height):
+        for c in range(width):
+            i = r*width+c
+            img = blank
+            asc = '0'
+            for rot in range(4):
+                if Q[i] != None:
+                    pp = Q[i][0]
+                    img = imgs[(pp[1][rot], rot)]
+                    #asc = '%c' % (pp[1][rot]+ord('a'))
+                    asc = 'animovhuqprslwtjgkbdecf'[pp[1][rot]]
+                if currimg.get((r, c, rot), None) != img:
+                    currimg[(r, c, rot)] = img
+                    C.itemconfig(Ci[(r, c, rot)], image=img)
+                url += asc
+    speed_report()
+    #root.update()
+    #print(url)
+
+def speed_report():
+    line = f"nodes={nodes} "
+    t = int(time.time())-start_time
+    line += f'time={t} '
+    line += f'best={best} \n'
+    line += f'rate={(nodes//t)//1000}k '
+    line += f'solutions={solutions} '
+    line += f'{running} '
+    #self.postMessage({'status': line })
+    print({'status': line })
+    #myprint(line)
+    stat.config(text=line)
+    root.update()
+
+def restart():
+    global restarting
+    restarting = True
+
+root = tk.Tk()
+
+imgs = {}
+for i in range(23):
+    for rot in range(4):
+        img = tk.PhotoImage(file='img/%d-%d.png' % (i, rot))
+        #img = img.zoom(3)
+        #img = img.subsample(4)
+        imgs[(i, rot)] = img
+blank = tk.PhotoImage(file='img/blank.gif')
+
+scale = 64
+C = tk.Canvas(root, height=height*65, width=width*65, bg='black')
+url=''
+F = tk.Frame(root)
+B1 = tk.Button(F, command=restart, text='Restart')
+B2 = tk.Button(F, command=lambda: webbrowser.open(url), text='View')
+stat = tk.Label(root)
+C.pack(expand=tk.YES,fill=tk.X)
+stat.pack(side=tk.TOP)
+B1.pack(expand=tk.NO,fill=tk.X, side=tk.LEFT)
+B2.pack(expand=tk.NO,fill=tk.X, side=tk.LEFT)
+F.pack(expand=tk.YES,fill=tk.X)
+ii=[]
+Ci = {}
+currimg = {}
+for r in range(height):
+    for c in range(width):
+        i = r*width+c
+        for rot in range(4):
+            img = imgs[(pieces[(i,0)][rot], rot)]
+            x = c*65
+            y = r*65
+            if rot == 1:
+                x += 32
+            if rot == 2:
+                y += 32
+            Ci[(r,c,rot)] = C.create_image(x, y, anchor=tk.NW, image=blank)
+root.update()
+
+funcs = [] 
+for pos in range(width*height+1):
+    r = pos // width
+    c = pos % width
+    src  = ''
+    src += 'def cell%d():\n' % pos
+    src += '    # r%d c%d\n' % (r, c)
+    src += '    global nodes, Q, best\n'
+    src += '    \n'
+    if pos == width*height:
+        src += '    global solutions\n'
+        src += '    solutions += 1\n'
+        src += '    best = %d\n' % pos
+        src += '    print_puzz()\n'
+        src += f'    return {pos-1}\n'
+    else:
+        if pos >= (height*width)//3:
+            src += f'    if {pos} > best:\n'
+            src += f'        best = {pos}\n'
+            src += '        print_puzz()\n'
+        src += f'    if Q[{pos}] == None:\n'
+        src += f'        Q[{pos}] = [None]\n'
+        if r == 0:
+            up = '0'
+        else:
+            up = f'Q[{pos-width}][0][1][2]'
+        if c == 0:
+            left = '0'
+        else:
+            left = f'Q[{pos-1}][0][1][1]'
+        src += f'        for k in fit.get(({up},{left},{c+1 == width},{r+1 == height}),[]):\n'
+        src +=  '            if placed[k[0]]:\n'
+        src +=  '                continue\n'
+        src += f'            Q[{pos}] += [(k, pieces[k])]\n'
+        src += f'    if Q[{pos}][0] != None:\n'
+        src += f'        p = Q[{pos}][0][0][0]\n'
+        src +=  '        placed[p] = False\n'
+        src += f'    Q[{pos}] = Q[{pos}][1:]\n'
+        src += f'    if len(Q[{pos}]) > 0:\n'
+        src += f'        p = Q[{pos}][0][0][0]\n'
+        src +=  '        placed[p] = True\n'
+        src +=  '        nodes += 1\n'
+        src +=  '        if nodes % 1000 == 0:\n'
+        #src +=  '            print_puzz()\n'
+        src +=  '            root.update()\n'
+        src +=  '            if nodes % 100000 == 0:\n'
+        src +=  '                speed_report()\n'
+        src += f'        return {pos+1}\n'
+        src += f'    Q[{pos}] = None\n'
+        src += f'    return {pos-1}\n'
+    src += f'funcs += [cell{pos}]'
+    exec(src)
+
+print('starting', flush=True)
+restarting=False
+running='Running'
+while True:
+    restarting=False
+    for k in fit:
+        random.shuffle(fit[k])
+    pos=0
+    start_time = int(time.time()-1)
+    placed = [False]*width*height
+    Q = [None]*width*height
+    nodes = 0
+    best = 0
+    solutions=0
+    while pos >= 0 and not restarting:
+        pos = funcs[pos]()
+running='Stopped'
+speed_report()
