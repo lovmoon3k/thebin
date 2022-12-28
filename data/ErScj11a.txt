@@ -1,0 +1,182 @@
+#  coding: utf-8
+import os
+from typing import List
+
+from telegram import Update, Message, Bot
+from telegram.ext import Application, PicklePersistence, ContextTypes, CommandHandler
+
+PERSISTENCE_FILE = "FULL/PATH/TO/PERSISTENCE_FILE"
+BOT_ID = "BOT_TOKEN_HERE"
+
+# I created this function beacause i wanted to centralize the logic of sending messages.
+# You may find it useless, but, well, i needed it
+async def send_or_edit_message(
+        bot: Bot, chat_id: int, text: str,
+        message_id=None, parse_mode=None, reply_markup=None, reply_to_message_id=None
+) -> Message:
+    try:
+        if message_id is None:
+            print("Sending message")
+            message = await bot.send_message(
+                chat_id, text, parse_mode=parse_mode,
+                reply_markup=reply_markup, reply_to_message_id=reply_to_message_id
+            )
+        else:
+            print("Editing message")
+            message = await bot.edit_message_text(
+                text, chat_id, message_id,
+                parse_mode=parse_mode, reply_markup=reply_markup
+            )
+
+        print("Message sent/edited succesfully")
+        return message
+    except Exception as e:
+        print("Impossible to send/edit message: {}".format(e))
+        print("Message: <<<{}>>>".format(text))
+        raise Exception("Impossible to send/edit message")
+
+class MessagesHandler:
+    """
+        This class is responsible for handling the messages sent by a context. Actually, it can be used from any other
+        class, but for now, it's only used by Context children classes.
+    """
+    def __init__(self, bot: Bot, chat_id: int):
+        self.messages = []
+        # I need to store the bot and chat_id so i dont have to pass them everytime i need to send a message,
+        # since the class holding a MessageHandler usually send messages to one chat only
+        self.bot = bot
+        self.chat_id = chat_id
+
+    async def send_message(self, track: bool = True, *args, **kwargs):
+        kwargs["bot"] = self.bot
+        kwargs["chat_id"] = self.chat_id
+
+        message: Message = await send_or_edit_message(*args, **kwargs)
+        if track:
+            self.add_message(message)
+
+        return message
+
+    async def edit_message(self, message_index_from_end: int = 1, *args, **kwargs):
+        """Edita a mensagem passada"""
+        # 1 pois o padrão é editar a última mensagem
+        
+        print("Editing message {} ....".format(message_index_from_end))
+        if len(self.messages) < message_index_from_end:
+            print(
+                "Impossible to edit message {}, there is only {} messages on list"
+                .format(message_index_from_end, len(self.messages))
+            )
+    
+        return await self.messages[-message_index_from_end].edit_text(*args, **kwargs)
+
+    async def edit_last_message(self, *args, **kwargs):
+        """Edits the last message from pipeline. If there is no message, it will send a new one"""
+        lm_index, last_message = self.get_last_message()
+        if last_message:
+            self.messages[lm_index] = await self.edit_message(lm_index, *args, **kwargs)
+            print("Array size after: {}".format(len(self.messages)))
+        else:
+            print("There is no messages to edit")
+            await self.send_message(*args, **kwargs)
+
+    async def delete_last_message(self):
+        """Removes and deletes the last message from list"""
+        message: Message = self.pop_last_message()
+        if message:
+            await message.delete()
+        else:
+            pass
+
+    async def clear_pipeline_messages(self):
+        """Remove and then deletes all the messages from pipeline, in the order they were sent"""
+        print("Removing all messages from pipeline")
+        all_messages: List[Message] = self.pop_last_n_messages()
+        amount = len(all_messages)
+
+        # I have to revert in order to delete in the order it was sent
+        all_messages.reverse()
+        for message in all_messages:
+            await message.delete()
+
+        print("{} messages removed".format(amount))
+
+    # INTERNAL METHODS
+    def add_message(self, message) -> None:
+        """Add a message to pipeline"""
+        print("Adding message to list")
+        self.messages.append(message)
+
+    def get_messages(self) -> List[Message]:
+        """Returns all mesages from list"""
+        print("Returning {} messages from list".format(len(self.messages)))
+        return self.messages
+
+    def get_last_message(self) -> (int, Message | None):
+        """Returns the last message from list"""
+        last_message = self.messages[-1] if len(self.messages) > 0 else None
+        return len(self.messages) - 1, last_message
+
+    def pop_last_message(self) -> Message | None:
+        """Removes and returns the last message from list"""
+        print("Removing last message. Array size before: {}".format(len(self.messages)))
+        try:
+            return self.messages.pop()
+        except IndexError:
+            print("There is no messages to be removed!")
+            return None
+
+    def pop_last_n_messages(self, n: int = None) -> List[Message]:
+        """
+            Removes and returns the last N messages from list
+            If N is not given, it will remove all messages
+        """
+        if n is None:
+            n = len(self.messages)
+
+        print("Removing last {} messages".format(n))
+        messages = []
+        for i in range(n):
+            messages.append(self.pop_last_message())
+
+        return messages
+
+
+async def command_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if "context" not in context.chat_data:
+        context.chat_data["context"] = MessagesHandler(context.bot, update.effective_chat.id)
+
+    await context.chat_data["context"].send_message(text="Hello world!")
+
+async def command_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message_index = context.args[0] if len(context.args) > 0 else 0
+    message_content = "".join(context.args[1:]) if len(context.args) > 1 else "Edited message"
+    await context.chat_data["context"].edit_message(int(message_index), message_content)
+
+
+def ensure_persistence_exists(persist_file_name: str):
+    splitted = persist_file_name.split("/")
+    # A última posição é o nome do arquivo
+    path = "/".join(splitted[:-1])
+    if not os.path.exists(path):
+        try:
+            print("Creating directory {}".format(path))
+            os.makedirs(path)
+        except OSError as e:
+            print("Error at creating directory {}".format(path))
+            raise e
+
+def main():
+    builder = Application.builder()
+
+    ensure_persistence_exists(PERSISTENCE_FILE)
+    persistence = PicklePersistence(filepath=PERSISTENCE_FILE)
+    builder = builder.token(BOT_ID).persistence(persistence)
+    application: Application = builder.build()
+
+    application.add_handler(CommandHandler('start', command_start))
+    application.add_handler(CommandHandler('edit', command_edit))
+    application.run_polling()
+
+if __name__ == '__main__':
+    main()
