@@ -1,0 +1,181 @@
+shell.run("clear")
+
+print("Welcome to Branching V2.0")
+print("Place turtle in front of first branch.")
+print("He can only dig new branches to the")
+print("right, so make sure he's on the left")
+print("side of the tunnel :)")
+print("---------------------------------------")
+print("How many branches would you like?")
+rows = io.read()
+print("How deep should they be? (Blocks)")
+depth = io.read()
+print("Place torches? (Slot 1) (Y/N)")
+torches = io.read()
+print("Branch offset (branches until chest)")
+offset = io.read()
+
+-- Check if vars are set, if not, use defaults
+rows = rows ~= "" and rows or 4
+depth = depth ~= "" and depth or 100
+torches = torches ~= "" and torches or "Y"
+offset = offset ~= "" and offset or 0
+
+shell.run("clear")
+
+print("Settings:")
+print("---------------------------------------")
+print("Branches : ", rows)
+print("Depth  : ", depth)
+print("Torches: ", torches)
+print("Offset: ", offset, " branches")
+print("---------------------------------------")
+print("Start branching? (Y/N)")
+start = io.read()
+
+-- Functions
+
+function checkFuel()
+	fuelLeft = turtle.getFuelLevel()
+	if fuelLeft < (depth * 2 + 20) then
+		for i = 1, 16 do
+			turtle.select(i)
+			turtle.refuel()
+		end
+		if turtle.getFuelLevel() < (depth * 2 + 20) then
+			print("Not enough fuel left! Abort!")
+			return false
+		else
+			return true
+		end
+	else
+		return true
+	end
+end
+
+
+function returnToMainPath(finalDepth)
+	turtle.turnLeft()
+	turtle.turnLeft()
+
+	while finalDepth > 0 do
+		repeat
+			turtle.attack()
+			turtle.dig()
+		until turtle.forward()
+		finalDepth = finalDepth - 1
+	end
+end
+
+function placeTorch()
+	-- Fail safe in case of gravel
+	if turtle.back() == false then
+		turtle.turnRight()
+		turtle.turnRight()
+		repeat
+			turtle.attack()
+			turtle.dig()
+		until turtle.forward()
+		turtle.turnLeft()
+		turtle.turnLeft()
+	end
+	
+	-- Place torch
+	turtle.select(1)
+	turtle.placeUp()
+	
+	-- Fail safe in case of gravel
+	repeat
+		turtle.attack()
+		turtle.dig()
+	until turtle.forward()
+end
+
+function digBranch()
+	--Config
+	x=1
+	--Start the program
+	for currentDepth = 1, depth do
+
+		-- Dig
+		turtle.dig()
+		repeat
+			turtle.attack()
+			turtle.dig()
+		until turtle.forward()
+		turtle.digUp()
+        turtle.digDown()
+		
+		-- Place torches every 8 blocks
+		if torches == 'Y' or torches == 'y' then
+			modulo = x % 16
+			if modulo == 0 then
+				placeTorch()
+			end
+		end
+		x=x+1
+		finalDepth = currentDepth
+	end
+	return finalDepth
+end
+
+function returnItems(currentBranch)
+	turtle.turnRight()
+
+	blocksToTravel = (currentBranch + offset - 1) * 3 + 1 -- +1 to get above the chest
+	for i = 1, blocksToTravel do
+		repeat
+			turtle.dig()
+			turtle.attack()
+		until turtle.forward()
+	end
+	
+	-- drop all items except slot 1 (torches)
+	for i = 2, 16 do
+		turtle.select(i)
+		turtle.dropDown()
+	end
+	turtle.select(1)
+	
+	-- return to next branch
+	turtle.turnLeft()
+	turtle.turnLeft()
+	turtle.forward() -- reset to first branch
+
+	for i = 1, blocksToTravel + 3 do
+		repeat
+			turtle.dig()
+			turtle.digUp()
+			turtle.digDown()
+			turtle.attack()
+		until turtle.forward()
+	end
+	turtle.turnLeft()
+end
+
+function run()
+	for currentBranch = 1, rows do
+	
+		-- Check for fuel, if low refuel with everything you have
+		if checkFuel() then
+			-- Dig branch and return depth
+			finalDepth = digBranch()
+			-- Back to the main tunnel
+			returnToMainPath(finalDepth)
+			-- return items and move to next branch
+			returnItems(currentBranch)
+		end
+	end
+	print("Finished digging!")
+end
+
+--Starten
+if start == 'Y' or start == 'y' then
+	shell.run("clear")
+	print("Started...")
+	run()
+else
+	shell.run("clear")
+	print("Abort!")
+	shell.run("exit")
+end
