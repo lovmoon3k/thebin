@@ -1,0 +1,154 @@
+--- a/RUSaCis/aCis_gameserver/java/net/sf/l2j/gameserver/handler/voicedcommandhandlers/Menu.java
++++ b/RUSaCis/aCis_gameserver/java/net/sf/l2j/gameserver/handler/voicedcommandhandlers/Menu.java
+@@ -4,7 +4,9 @@
+ import net.sf.l2j.gameserver.handler.IVoicedCommandHandler;
+ import net.sf.l2j.gameserver.model.World;
+ import net.sf.l2j.gameserver.model.actor.Player;
++import net.sf.l2j.gameserver.network.serverpackets.ExShowScreenMessage;
+ import net.sf.l2j.gameserver.network.serverpackets.NpcHtmlMessage;
++import net.sf.l2j.gameserver.taskmanager.AutoGoldBar;
+ import net.sf.l2j.util.CustomMessage;
+ 
+ public class Menu implements IVoicedCommandHandler
+@@ -12,7 +14,8 @@
+ 	private static final String[] VOICED_COMMANDS =
+ 	{
+ 		"menu",
+-		"mod_menu_"
++		"mod_menu_",
++		"AutoGb"
+ 	};
+ 	
+ 	@Override
+@@ -69,6 +72,27 @@
+ 				showHtm(player);
+ 				return true;
+ 			}
++			else if (addcmd.startsWith("AutoGb"))
++			{
++				if (player.isAutoGb())
++				{
++					player.setAutoGb(false);
++					AutoGoldBar.getInstance().remove(player);
++					player.sendMessage("Auto GoldBar Disabled");
++					player.sendPacket(new ExShowScreenMessage("Auto GoldBar Disabled", 2000));
++					}
++				else
++				{
++					player.setAutoGb(true);
++					AutoGoldBar.getInstance().add(player);
++					player.sendMessage("Auto GoldBar Enabled");
++					player.sendPacket(new ExShowScreenMessage("Auto GoldBar Enabled", 2000));
++				}
++				Menu.showHtm(player);
++			return true;
++			}
+ 			else if (addcmd.startsWith("lang_"))
+ 			{
+ 				player.setLang(addcmd.substring(5).trim());
+@@ -91,6 +115,7 @@
+ 		htm.replace("%gainexp%", player.isStopExp() ? ACTIVED : DESAСTIVED);
+ 		htm.replace("%trade%", player.isTradeRefusal() ? ACTIVED : DESAСTIVED);
+ 		htm.replace("%autoloot%", player.isAutoLoot() ? ACTIVED : DESAСTIVED);
++		htm.replace("%AutoGb%", player.isAutoGb() ? ACTIVED : DESAСTIVED);
+ 		
+ 		player.sendPacket(htm);
+ 	}
+diff --git a/RUSaCis/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/Player.java b/RUSaCis/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/Player.java
+index 588d728..33a10d8 100644
+--- a/RUSaCis/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/Player.java
++++ b/RUSaCis/aCis_gameserver/java/net/sf/l2j/gameserver/model/actor/Player.java
+@@ -8001,4 +8001,14 @@
+ 		
+ 		return gms;
+ 	}
++	public boolean _GoldBarForAdena;
++
++	public boolean isAutoGb() {
++		return _GoldBarForAdena;
++	}
++
++	public void setAutoGb(boolean b) {
++		_GoldBarForAdena = b;
++	}
+ }
+\ No newline at end of file
+diff --git a/RUSaCis/aCis_gameserver/java/net/sf/l2j/gameserver/taskmanager/AutoGoldBar.java b/RUSaCis/aCis_gameserver/java/net/sf/l2j/gameserver/taskmanager/AutoGoldBar.java
+new file mode 100644
+index 0000000..abae7f4
+--- /dev/null
++++ b/RUSaCis/aCis_gameserver/java/net/sf/l2j/gameserver/taskmanager/AutoGoldBar.java
+@@ -0,0 +1,63 @@
++package net.sf.l2j.gameserver.taskmanager;
++
++import java.util.Map;
++import java.util.concurrent.ConcurrentHashMap;
++
++import net.sf.l2j.Config;
++import net.sf.l2j.commons.pool.ThreadPool;
++import net.sf.l2j.gameserver.model.actor.Creature;
++import net.sf.l2j.gameserver.model.actor.Player;
++import net.sf.l2j.gameserver.network.serverpackets.ItemList;
++
++public class AutoGoldBar implements Runnable
++{
++	@Override
++	public final void run()
++	{
++		if (_players.isEmpty())
++			return;
++		
++		for (Map.Entry<Player, Long> entry : _players.entrySet())
++		{
++			final Player player = entry.getKey();
++	
++			if (player.getInventory().getItemCount(57, 0) >= Config.BANKING_SYSTEM_ADENA)
++			{
++				player.getInventory().reduceAdena("Goldbar", Config.BANKING_SYSTEM_ADENA, player, null);
++				player.getInventory().addItem("Goldbar", Config.BANKING_SYSTEM_GOLDBAR_ID, Config.BANKING_SYSTEM_GOLDBARS, player, null);
++				player.getInventory().updateDatabase();
++				player.sendPacket(new ItemList(player, false));
++				player.sendMessage("You Created a GoldBar");
++			}
++		}
++	}
++
++	private final Map<Player, Long> _players = new ConcurrentHashMap<>();
++	
++	protected AutoGoldBar()
++	{
++		// Run task each 30 second.
++		ThreadPool.scheduleAtFixedRate(this, 3000, 3000);
++	}
++	
++	public final void add(Player player)
++	{
++		_players.put(player, System.currentTimeMillis());
++	}
++	
++	public final void remove(Creature player)
++	{
++		_players.remove(player);
++	}
++	
++	public static final AutoGoldBar getInstance()
++	{
++		return SingletonHolder._instance;
++	}
++	
++	private static class SingletonHolder
++	{
++		protected static final AutoGoldBar _instance = new AutoGoldBar();
++	}
++}
+\ No newline at end of file
+
+HTML
+
+<tr>
+	<td width=2></td>
+	<td width=30>Auto GoldBar:</td>
+	<td width=30>%AutoGb%</td>
+	<td width=30><button width=65 height=21 back="L2UI_ch3.smallbutton2_over" fore="L2UI_ch3.smallbutton2" action="bypass -h mod_men_AutoGb" value="ON/OFF"></td>
+</tr>
+
