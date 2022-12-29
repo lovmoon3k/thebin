@@ -1,0 +1,88 @@
+const { createAudioResource, createAudioPlayer, joinVoiceChannel, NoSubscriberBehavior } = require('@discordjs/voice');
+const { EmbedBuilder } = require('discord.js');
+const ytdl = require('ytdl-core');
+const { musicChannelId } = require('../config.json')
+
+module.exports = async (client) => {
+    
+    const musicChannel = client.channels.cache.get(musicChannelId)
+
+    const connection = joinVoiceChannel({
+            channelId: musicChannel.id,
+            guildId: musicChannel.guild.id,
+            adapterCreator: musicChannel.guild.voiceAdapterCreator,
+        });
+        
+        const player = createAudioPlayer({
+            behaviors: {
+                noSubscriber: NoSubscriberBehavior.Pause
+            }
+        })
+
+    const trackList = ['Track 1', 'Track 2', 'Track 3', 'Track 4'];
+
+    const songList = ['https://www.youtube.com/watch?v=Track1', 'https://www.youtube.com/watch?v=Track2', 'https://www.youtube.com/watch?v=Track3', 'https://www.youtube.com/watch?v=-Track4'];
+
+    const artistList = ['Artist 1', 'Artist 2', 'Artist 3', 'Artist 4'];
+
+    let trackPosition = 0;
+
+    const playSongs = async () => {
+    
+        player.on('error', error => {
+            const time = new Date().toLocaleString();
+            console.error('Error at ' + time + ':', error);
+        });
+    
+        let currentSong = songList[trackPosition];
+        let currentTrack = trackList[trackPosition];
+        let currentArtist = artistList[trackPosition];
+
+        const videoId = currentSong.slice(32)
+
+        const trackImage = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+
+        const stream = ytdl(currentSong, {
+            filter: 'audioonly',
+            fmt: "mp3",
+            highWaterMark: 1 << 62,
+            liveBuffer: 1 << 62,
+            dlChunkSize: 0, //disabling chunking is recommended in discord bot
+            bitrate: 128,
+            quality: "lowestaudio"
+        });
+
+        const resource = createAudioResource(stream, { inlineVolume: true })
+        resource.volume.setVolume(0.1);
+        player.play(resource)
+
+        const nowPlaying = new EmbedBuilder()
+            .setColor('#4fbaf6')
+            .setTitle(`**Currently playing:**`)
+            .addFields({ name: 'Title:', value: currentTrack, inline: true })
+
+            if (artistList.length >= 1) {
+                nowPlaying.addFields({ name: 'Artist:', value: currentArtist, inline: true })
+            }
+
+            nowPlaying.addFields({ name: 'Link:', value: currentSong})
+
+        const previousMessages = await musicChannel.messages.fetch();
+        if (previousMessages) await musicChannel.bulkDelete(previousMessages).catch(console.error);
+
+        await musicChannel.send({ content: trackImage });
+        await musicChannel.send({ embeds: [nowPlaying] });
+
+        await trackPosition++;
+
+        if (trackPosition >= songList.length) trackPosition = 0;
+
+    }
+
+    connection.subscribe(player);
+
+    playSongs();
+
+    player.on('idle', playSongs);
+    
+};
