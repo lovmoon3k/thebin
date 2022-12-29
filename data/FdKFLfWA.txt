@@ -1,0 +1,162 @@
+<?php
+
+namespace App\Support\Geocoders;
+
+use App\Support\MapInformationAbstract;
+use Illuminate\Support\Facades\Cache;
+use Excel;
+
+/**
+ * United States Census Bureau Free Geocoder.
+ * @see https://geocoding.geo.census.gov/geocoder/
+ */
+class USCB extends MapInformationAbstract implements GeocoderInterface
+{
+    /**
+     * Methods:
+     * - 'address'        parse by array parts
+     * - 'onelineaddress' parse by a one-line address string
+     *
+     * @var string
+     */
+    protected $method = 'address';
+
+    /**
+     * Max rows of batch file.
+     *
+     * @var int
+     */
+    protected const BATCH_SIZE = 600;
+
+    /**
+     * Geocode an address.
+     *
+     * @param  array|string $address
+     * @return array
+     */
+    public function process($address)
+    {
+        if (is_array($address)) {
+            $address = [
+                'street' => $address['address1'] . ' ' . $address['address2'],
+                'city'   => $address['city'],
+                'state'  => $address['state'],
+                'zip'    => $address['zip'],
+            ];
+            $address_string = implode(' ', $address);
+
+            $query = $address;
+        } elseif (is_string($address)) {
+            $address_string = $address;
+
+            $this->method = 'onelineaddress';
+
+            $query = ['address' => $address];
+        }
+
+        if (Cache::has('geo:address:' . snake_case($address_string))) {
+            return Cache::get('geo:address:' . snake_case($address_string));
+        }
+
+        $query['format']    = 'json';
+        $query['benchmark'] = 'Public_AR_Current';
+
+        // make API request
+        $response = (new \GuzzleHttp\Client())->request(
+            'GET',
+            "https://geocoding.geo.census.gov/geocoder/locations/$this->method",
+            ['query' => $query]
+        );
+
+        $geocoder = json_decode($response->getBody()->getContents())->result;
+
+        if (isset($geocoder->addressMatches) && count($geocoder->addressMatches)) {
+            $coordinates    = $geocoder->addressMatches[0]->coordinates;
+            $address_string = $geocoder->addressMatches[0]->matchedAddress;
+
+            $params = [
+                'coords'         => ['x' => $coordinates->x, 'y' => $coordinates->y],
+                'address_string' => $address_string,
+            ];
+
+            Cache::put('geo:address:' . snake_case($address_string), $params, $this->cache);
+
+            return $params;
+        }
+
+        return [];
+    }
+
+    /**
+     * Geocode a batch of addresses.
+     *
+     * @param  array $addresses
+     * @return array
+     */
+    public function batch($addresses)
+    {
+        $output_path = storage_path('tmp/Output.csv');
+
+        // if (!file_exists($output_path)) {
+        $addresses = collect($addresses)->unique(0)->values()->chunk(self::BATCH_SIZE);
+
+        if (!$addresses->count()) {
+            return [];
+        }
+
+        $addresses->each(function ($address_set, $key) use ($output_path) {
+            $filename = 'Addresses';
+            Excel::create($filename, function ($excel) use ($address_set) {
+                $excel->sheet('Sheet1', function ($sheet) use ($address_set) {
+                    $sheet->fromArray($address_set, null, 'A1', false, false);
+                });
+            })->store('csv', storage_path('tmp'));
+
+            // make API request
+            $response = (new \GuzzleHttp\Client())->request(
+                'POST',
+                'https://geocoding.geo.census.gov/geocoder/locations/addressbatch',
+                [
+                    'multipart' => [
+                        [
+                            'name'     => 'benchmark',
+                            'contents' => 'Public_AR_Current',
+                        ],
+                        [
+                            'name'     => 'addressFile',
+                            'contents' => fopen(storage_path('tmp/' . $filename . '.csv'), 'r'),
+                        ],
+                    ],
+                    'sink' => fopen($output_path, 'a'),
+                ]
+            );
+
+            sleep(3);
+        });
+        // }
+
+        $items = Excel::load($output_path, function ($reader) {
+            return $reader->noHeading();
+        })->toArray();
+
+        return $items;
+    }
+}
+
+?>
+<?php
+
+namespace App\Support\Geocoders;
+
+use Illuminate\Support\Collection;
+
+interface GeocoderInterface
+{
+    /**
+     * Geocode an address
+     * @param Collection $original_address
+     * @return Collection
+     */
+    public function process($original_address): Collection;
+}
+?>
