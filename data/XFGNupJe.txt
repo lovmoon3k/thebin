@@ -1,0 +1,108 @@
+const fetch = require('node-fetch');
+
+exports.sendGrooLead = async (req, res) => {
+    try {
+        console.log('check IP start');
+        const response = await fetch('https://ifconfig.co/json');
+        const data = await response.json();
+        console.log('check IP response - ', data);
+    } catch (error) {
+        console.log('check IP failed');
+    }
+
+    const STAGE_ENDPOINT = 'https://externalprovider-subscriptions-dot-gcommerce-cms-stage.appspot.com/user/update-subscriptions';
+    const LIVE_ENDPOINT = 'https://ext-subscriptions.groo.co.il/user/update-subscriptions';
+    let endpointToWork = '';
+    let requestHeaders = {'Content-Type': 'application/json'};
+    let { email, websiteid, phone, city, sourcePage, userIp, userAgent, firstName, lastName, gender, liveMode } = req.query;
+
+    if (liveMode) {
+        endpointToWork = LIVE_ENDPOINT;
+        requestHeaders['Authorization'] = 'Basic Y***********dEd2M=';
+    } else {
+        endpointToWork = STAGE_ENDPOINT; 
+    }
+    if (!email || !email.includes('@')) {
+      return res.send('email is required');
+    }
+    if (!websiteid) {
+      return res.send('websiteid is required');
+    }
+    if (!sourcePage) {
+      return res.send('sourcePage is required');
+    }
+    if (!userIp) {
+      return res.send('userIp is required');
+    }
+    if (!userAgent) {
+      return res.send('userAgent is required');
+    }
+    websiteid = parseInt(websiteid);
+    if (websiteid <= 0 || websiteid > 2) {
+      return res.send('websiteid value can be 1 or 2');
+    }
+    let leadNewsletters = [              
+        {
+            name: 'News_Travel',
+            subscribe: true
+        },
+        {
+            name: 'News_Shopping',
+            subscribe: true
+        }
+    ];
+    if (websiteid == 1 && city) {
+        leadNewsletters.push({name: city, subscribe: true});
+    }
+    if ((websiteid == 1 && !city) || websiteid == 2) {
+        leadNewsletters.push({name: 'News_TelAviv', subscribe: true});
+    }
+
+    let leadData = {
+      data: {
+          email: email,
+          websiteId: websiteid,
+          newsletters: leadNewsletters,
+          notifications: {
+              alert: {
+                  email: true,
+                  sms: true
+              },
+              marketing: {
+                  email: true,
+                  sms: true
+              }
+          }
+      },
+      context: {
+          platform: 'Adoric',
+          screen: sourcePage,
+          ip: userIp,
+          userAgent: userAgent
+      }
+    };
+    if (phone) {
+        leadData.data['phone'] = phone;
+    }
+    if (gender) {
+        leadData.data['gender'] = gender;
+    }
+    if (lastName) {
+        leadData.data['lastName'] = lastName;
+    }
+    if (firstName) {
+        leadData.data['firstName'] = firstName;
+    }
+    try {
+        const response = await fetch(endpointToWork, {
+            method: 'POST',
+            body: JSON.stringify(leadData),
+            headers: requestHeaders,
+        });
+        const data = await response.json();
+        res.status(200).json(data);
+    } catch (error) {
+        res.status(500).send(error.message);
+    }
+
+};
