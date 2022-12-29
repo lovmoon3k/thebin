@@ -1,0 +1,37 @@
+import typing
+from typing import List
+import inspect
+
+def check_types(func):
+    def _wrapper(*args, **kwargs):
+        sig = inspect.signature(func)
+        hint_types = []
+        for arg, arg_type in func.__annotations__.items():
+            if typing.get_args(arg_type): #если у аргумента есть свои аргументы (типа int у List[int]), то надо получить основной тип
+                hint_types.append(typing.get_origin(arg_type))
+            else:
+                hint_types.append(arg_type) 
+        positional_arg_types = [type(arg) for arg in args] #типы позиционных аргументов
+        for i in range(len(args)):
+            if positional_arg_types[i] != hint_types[i]:
+                raise ValueError('Несоответствие типов позиционного аргумента')
+        
+        for arg_name, arg_value in kwargs.items():
+            arg_hint = func.__annotations__[arg_name]
+            arg_type = typing.get_origin(arg_hint) if typing.get_args(arg_hint) else arg_hint
+            if arg_type != type(arg_value):
+                raise ValueError(f'Несоответствие типов ключевого аргумента "{arg_name}"')
+
+        return_hint = func.__annotations__['return']
+        return_type = typing.get_origin(return_hint) if typing.get_args(return_hint) else return_hint
+        if return_type != type(func(*args, **kwargs)):
+            raise ValueError('Несоответствие типов возвращаемого результата')
+    return _wrapper
+
+@check_types
+def func(a: int, b: str) -> str:
+    return a * b
+
+func(5, 'a')
+func(b='a', a=5)
+func(5, b=['a','b'])

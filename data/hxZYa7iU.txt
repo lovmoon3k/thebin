@@ -1,0 +1,78 @@
+from os import walk
+from os.path import join as osjoin
+from string import punctuation
+import pickle
+
+class DirectoryIndex:
+    def __init__(self, dirpath: str, encoding: str='utf-8'):
+        self.dirpath = dirpath
+        self.encoding = encoding
+        self.__index = dict()
+        self.__filekeys = dict()
+        self.__filenames = []
+        
+    def find_documents(self, word: str) -> list:
+        documents = self.__index.get(word, 'Слово не найдено')
+        if type(documents) is set: #если по ключу word найдено множество документов, то сортируем его и возвращаем 
+            return sorted(documents)
+        return documents
+
+    def get_filekeys(self):
+        #приводим путь до файла в читаемый вид
+        return {key: osjoin(value[0], value[1]) for key, value in self.__filekeys.items()}
+
+    def update(self, filepath: str, encoding: str='utf-8'):
+        *path, file = filepath[3:].split('\\') #убираем из пути 3 символа с именем диска
+        next_idx = list(self.__filekeys.keys())[-1] + 1 #создаем новый индекс, который на 1 больше последнего (максимального)
+        self.__filenames.append((filepath[:3]+'\\'.join(path), file))
+        self.__filekeys[next_idx] = (filepath[:3]+'\\'.join(path), file)
+        words = self.__get_filtered_words(filepath)
+
+        for word in words:
+            if not self.__index.get(word): #если слово не встречается в индексе, создаём для него пустое множество
+                self.__index[word] = set()
+            self.__index.get(word).add(next_idx)
+    
+    def save(self):
+        #выгрузка индекса и ключей файлов с помощью pickle
+        with open(osjoin(self.dirpath, 'index.pickle'), 'wb') as f:
+            pickle.dump(self.__index, f)
+        with open(osjoin(self.dirpath, 'filekeys.pickle'), 'wb') as f:
+            pickle.dump(self.get_filekeys(), f)
+
+    def __get_files(self, path):
+        for root, dirs, files in walk(path):
+            self.__filenames.extend((path, file) for file in files)
+            if dirs:
+                for _dir in dirs:
+                    self.__get_files(osjoin(path, _dir))
+    
+    def __get_filtered_words(self, filepath):
+        with open(filepath, 'r') as f:
+            text = f.read()
+        text = text.lower().replace('\n', ' ').replace('\t', ' ') #делаем буквы строчными, заменяем переводы строки и табуляции на пробелы, чтобы убрать их
+        return filter(lambda x: len(x) > 0, (map(str.strip, text.translate(str.maketrans('', '', punctuation)).split())))
+
+    @property
+    def inverted_index(self):
+        if not self.__index:
+            self.__get_files(self.dirpath)
+            #нумеруем все имена файлов уникальными ключами
+            self.__filekeys = dict(enumerate(self.__filenames))
+            
+            for idx, (path, file) in self.__filekeys.items():
+                words = self.__get_filtered_words(osjoin(path, file))
+                for word in words:
+                    if not self.__index.get(word):
+                        self.__index[word] = set()
+                    self.__index.get(word).add(idx)
+        return self.__index
+
+index = DirectoryIndex('C:\\dataset')
+index.inverted_index
+print(index.find_documents(input('Введите слово для поиска по индексу: ')))
+print(f'Соответствие ключей и файлов: {index.get_filekeys()}')
+index.update('C:\\new\\newfile')
+print(index.find_documents('updating'))
+print(f'Соответствие ключей и файлов: {index.get_filekeys()}')
+index.save()
