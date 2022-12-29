@@ -1,0 +1,45 @@
+/**
+ * IMPORTANT: Please make a backup of your database that can be restored in case something goes wrong. 
+ * Do this before using the code snippet!
+ *
+ * You can use the Code Snippets plugin to run this snippet on your website. Once you have activated the snippet, 
+ * you can immediately deactivate it and remove it from your website (as it will run during the page reload).
+ *
+ * Also, make sure that the Site Reviews plugin is installed.
+ *
+ * This code snippet does the following:
+ *
+ * 1. Queries the database for all entries in the wp_term_relationships and wp_term_taxonomy tables.
+ * 2. Removes all entries from the wp_term_relationships and wp_term_taxonomy tables.
+ * 3. Repopulates the the wp_term_relationships and wp_term_taxonomy tables with the fixed term_taxonomy_id column values.
+ */
+add_action('plugins_loaded', function () {
+    if (!function_exists('glsr')) {
+        return;
+    }
+    if (get_transient('fixed_term_taxonomy_ids')) {
+        return;
+    }
+    global $wpdb;
+    $relationships = $wpdb->get_results("SELECT * FROM {$wpdb->term_relationships}", ARRAY_A);
+    $termTaxonomys = $wpdb->get_results("SELECT * FROM {$wpdb->term_taxonomy} ORDER BY term_id", ARRAY_A);
+    $termIds = wp_list_pluck($termTaxonomys, 'term_id', 'term_taxonomy_id');
+    array_walk($relationships, function (&$relationship) use ($termIds) {
+        $relationship['term_taxonomy_id'] = $termIds[$relationship['term_taxonomy_id']];
+    });
+    array_walk($termTaxonomys, function (&$term) {
+        $term['term_taxonomy_id'] = $term['term_id'];
+    });
+    if (!empty($relationships)) {
+        $columns = array_keys($relationships[0]);
+        $wpdb->query("TRUNCATE TABLE {$wpdb->term_relationships}");
+        glsr('Database')->insertBulk($wpdb->term_relationships, $relationships, $columns);
+    }
+    if (!empty($termTaxonomys)) {
+        $columns = array_keys($termTaxonomys[0]);
+        $wpdb->query("TRUNCATE TABLE {$wpdb->term_taxonomy}");
+        $wpdb->query("ALTER TABLE {$wpdb->term_taxonomy} AUTO_INCREMENT = 0");
+        glsr('Database')->insertBulk($wpdb->term_taxonomy, $termTaxonomys, $columns);
+    }
+    set_transient('fixed_term_taxonomy_ids', true);
+});
