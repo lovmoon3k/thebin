@@ -1,0 +1,128 @@
+"""
+Function signatures:
+__init__: (self, file_name) -> None
+add_stock: (self, new_inventory) -> None
+check_stock: (self, resource_name) -> int
+add_to_pool: (self, resource_name, team_id) -> None
+remove_from_pool: (self, resource_name, team_id) -> None
+check_pool: (self, team_id) -> Dict[str, int]
+"""
+
+import csv
+from collections import deque
+class TeamManager:
+    def __init__(self, file_name):
+        self.resource = {}
+        with open(file_name, 'r') as d:
+            for line in csv.DictReader(d):
+                x = line['resource_name']
+                y = line['quantity']
+                self.resource[x] = int(y)
+        self.pool = {}
+        self.buffer = deque(maxlen=3)
+        
+    def add_to_buffer(self, resource_name, team_id):
+        self.buffer.append((resource_name, team_id))
+    def check_buffer(self):
+        for req in self.buffer:
+            if req[0]:
+                if self.resource[req[0][0]] >= req[0][1]:
+                    self._add_to_pool(req[0], req[1])
+                    
+                
+        
+    def add_stock(self, new_inventory):
+        """ 
+        args:
+            new_inventory: tuple ("resource_name", quantity)
+        Return:
+            None 
+        """
+        if new_inventory[0] not in self.resource:
+            self.resource[new_inventory[0]] = int(new_inventory[1])
+        else:
+            self.resource[new_inventory[0]] += int(new_inventory[1])
+        self.check_buffer()
+        self.add_to_buffer(None, None)
+    
+    def check_stock(self, resource_name):
+        """ 
+        args:
+            resource_name: string
+        Return:
+            quantity: integer
+        """
+        self.add_to_buffer(None, None)
+        return self.resource[resource_name]
+        
+    def _add_to_pool(self, resource_name, team_id):
+        """ 
+        args:
+            resource_name: tuple ("resource_name", quantity)
+            team_id: number
+        Return:
+            None 
+        """
+        if team_id in self.pool:
+            if resource_name[0] in self.pool[team_id]:
+                self.pool[team_id][resource_name[0]]+= resource_name[1]
+            else:
+                self.pool[team_id][resource_name[0]] = resource_name[1]
+        else:
+            self.pool[team_id] = {}
+            self.pool[team_id][resource_name[0]] = resource_name[1]
+        self.resource[resource_name[0]]-=resource_name[1]
+
+    def add_to_pool(self, resource_name, team_id):
+        """ 
+        args:
+            resource_name: tuple ("resource_name", quantity)
+            team_id: number
+        Return:
+            None 
+        """
+        if self.resource[resource_name[0]] >= resource_name[1]:
+            if team_id in self.pool:
+                if resource_name[0] in self.pool[team_id]:
+                    self.pool[team_id][resource_name[0]]+= resource_name[1]
+                else:
+                    self.pool[team_id][resource_name[0]] = resource_name[1]
+            else:
+                self.pool[team_id] = {}
+                self.pool[team_id][resource_name[0]] = resource_name[1]
+            self.resource[resource_name[0]]-=resource_name[1]
+            self.add_to_buffer(None, None)
+        else:
+            self.add_to_buffer(resource_name, team_id)
+            
+                
+    def remove_from_pool(self, resource_name, team_id):
+        """ 
+        args:
+            resource_name: string
+            team_id: number
+        Return:
+            None 
+        """
+        if team_id not in self.pool:
+            return
+        if resource_name not in self.pool[team_id]:
+            return
+        existing_count = int(self.pool[team_id][resource_name])
+        self.pool[team_id][resource_name] = 0
+        self.resource[resource_name]+=existing_count
+        self.check_buffer()
+        self.add_to_buffer(None, None)
+        return
+        
+    def check_pool(self, team_id):
+        """ 
+        args:
+            team_id: number
+        Return:
+            contents of pool in format { "item": quantity } 
+        """
+        if team_id not in self.pool:
+            return {}
+        self.add_to_buffer(None, None)
+        return self.pool[team_id]
