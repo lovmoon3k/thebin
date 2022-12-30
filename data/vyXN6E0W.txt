@@ -1,0 +1,66 @@
+-- Import the CC: Tweaked API
+local cct = require("cctweaked")
+
+-- The unique ID of the host server
+local hostID = 12345
+
+-- Function to check if a disk is inserted into any of the computer drives
+function checkDisk()
+  local result = false
+  if cct.disk.isPresent("left") or cct.disk.isPresent("right") then
+    result = true
+  end
+  return result
+end
+
+-- Main program loop
+while true do
+  -- Check if a disk is inserted
+  if checkDisk() then
+    local drive = "left"
+    -- Check if a disk is inserted in the left drive
+    if not cct.disk.isPresent("left") then
+      -- If no disk is present in the left drive, check the right drive
+      drive = "right"
+    end
+    -- Open the "id" file on the disk
+    local file = cct.fs.open(drive.."/id", "r")
+    -- Read the contents of the file
+    local id = file.readAll()
+    -- Close the file
+    file.close()
+    -- Connect to the Computercraft server
+    local server = cct.rednet.open("top")
+    -- Send the contents of the "id" file to the server
+    cct.rednet.send(server, id)
+    -- Wait for a response from the server
+    local response, message = cct.rednet.receive()
+    -- Check the server's response
+    if message:match("access granted:") then
+      -- Extract the unique ID from the response message
+      local responseID = tonumber(message:match("access granted:(%d+)"))
+      -- Check if the response is from the host server
+      if responseID == hostID then
+        -- Extract the new code from the response message
+        local newCode = message:match("access granted:%d+(.+)")
+        -- Open the "id" file on the disk for writing
+        file = cct.fs.open(drive.."/id", "w")
+        -- Write the new code to the "id" file
+        file.write(newCode)
+        -- Close the file
+        file.close()
+        -- Send a temporary redstone signal
+        cct.redstone.setOutput("right", true)
+        cct.os.sleep(1)
+        cct.redstone.setOutput("right", false)
+      else
+        -- Print a message
+        print("access denied")
+      end
+    else
+      -- Print a message
+      print("access denied")
+    end
+    -- Eject the disk
+    cct.disk.eject(drive)
+  end
