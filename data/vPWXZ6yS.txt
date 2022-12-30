@@ -1,0 +1,119 @@
+<?php
+
+namespace App\Jobs;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Bus\Batchable;
+use Excel;
+use App\Imports\NgTier2Import;
+use App\Models\UploadModel;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
+use DB;
+use Throwable;
+
+class UploadNgTier2 implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, Batchable;
+
+    protected $file, $id, $supplierId;
+
+    public function __construct($file, $id, $supplierId) {
+        $this->file = $file;
+        $this->id = $id;
+        $this->supplierId = $supplierId;
+    }
+
+    public function handle() {
+
+        $data = UploadModel::find($this->id);
+        $data->upload_proses = $this->job->uuid();
+        $data->upload_status = _INPROGRESS;
+        $data->updated_at = Carbon::now();
+        $data->update();
+
+        try {
+            $import = Excel::import(new NgTier2Import($this->supplierId, $this->job->uuid()), public_path('excel-file/'.$this->file));
+
+            $dataTemp = DB::table('data_temp')
+                    ->where('upload_proses', $this->job->uuid())
+                    ->get();
+            
+            foreach($dataTemp as $value) {
+                $masterData = DB::table('master_data')
+                    ->where('master_data_pno', $value->pno)
+                    ->where('master_data_matrix', $value->matrix_code)
+                    ->update([
+                        'flg_tier2' => _NO,
+                        'flg_tier1' => _NO,
+                        'updated_at' => Carbon::now()
+                    ]);
+
+                $masterTier2 = DB::table('master_tier2')
+                    ->where('master_tier2_pno', $value->pno)
+                    ->where('master_tier2_matrix', $value->matrix_code)
+                    ->update([
+                        'flg_good' => _NO,
+                        'flg_scan' => _YES,
+                        'master_tier2_date' => Carbon::now()->format('Y-m-d'),
+                        'updated_at' => Carbon::now()
+                    ]);
+            }
+
+            $result = UploadModel::find($this->id);
+            $result->upload_status = _FINISH;
+            $result->upload_notifikasi = _NO;
+            $result->updated_at = Carbon::now();
+            $result->update();
+
+            $dataTemp = DB::table('data_temp')
+                    ->where('upload_proses', $result->upload_proses)
+                    ->delete();
+            
+        }catch (\Maatwebsite\Excel\Validators\ValidationException $e) {
+            $failures = $e->failures();
+            $error = [];
+            
+            foreach ($failures as $failure) {
+                $message = 'row '.$failure->row().' = '.$failure->errors()[0];
+                array_push($error, $message);
+            }
+
+            $upload = UploadModel::find($this->id);
+            $upload->upload_status = _ERROR;
+            $upload->upload_notifikasi = _NO;
+            $upload->error_message = json_encode($error);
+            $upload->updated_at = Carbon::now();
+            $upload->update();
+
+            $dataTemp = DB::table('data_temp')
+                    ->where('upload_proses', $upload->upload_proses)
+                    ->delete();
+
+            return $failures;
+        }
+
+    }
+
+    public function failed(Throwable $exception) {
+
+        $error = UploadModel::find($this->id);
+        $message = substr($exception , 0 ,500);
+
+        $dataTemp = DB::table('data_temp')
+                    ->where('upload_proses', $error->upload_proses)
+                    ->delete();
+
+        $error->upload_status = _ERROR;
+        $error->upload_notifikasi = _NO;
+        $error->error_message = $message;
+        $error->updated_at = Carbon::now();
+        $error->update();
+
+    }
+}

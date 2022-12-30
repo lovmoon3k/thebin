@@ -1,0 +1,492 @@
+{
+  Copy references from selected containers to a given interior cell.
+}
+unit CopyWorldRefsToInterior;
+
+var
+	f: IwbFile;
+	cell: IInterface;
+	slCells, slEl, slRefs: TStringList;
+	count: integer;
+	
+procedure SplitText(const s: String; aList: TStringList);
+begin
+  aList.Delimiter := '|';
+  aList.StrictDelimiter := true; // Spaces excluded from being a delimiter
+  aList.DelimitedText := s;
+end;
+	
+function GetPluginIndex(PluginName: string): integer;
+var
+  i, pi : integer;
+begin
+  pi := -1;
+  for i := Pred(FileCount) downto 0 do
+    if SameText(PluginName, GetFileName(FileByIndex(i))) then begin
+      pi := i;
+      Break;
+    end;
+  Result := pi;
+end;
+
+function GetRefDoor(ref: IInterface): IInterface;
+var
+	el, LinkedDoor: IInterface;
+begin
+	el := ElementByPath(ref, 'XTEL');
+	if Assigned(el) then begin
+		LinkedDoor := LinksTo(ElementByPath(el, 'Door'));
+		if Assigned(LinkedDoor) then begin
+			Result := LinkedDoor;
+		end;
+	end;
+end;
+
+procedure SetRefDoor(ref: IInterface; door: IInterface);
+var
+	el: IInterface;
+begin
+	el := ElementByPath(ref, 'XTEL');
+	if Assigned(el) then
+		SetElementEditValues(el, 'Door', Name(door));
+end;
+
+function CalculateToken(e: IInterface): string;
+begin
+	Result := Format('%d|%s', [
+		GetPluginIndex(GetFileName(GetFile(e))),
+		IntToStr(FixedFormID(e))
+	]);
+end;
+
+// Automation Tools Functions
+{
+  ConstructOkCancelButtons:
+  A procedure which makes the standard OK and Cancel buttons on a form.
+  
+  Example usage:
+  ConstructOkCancelButtons(frm, pnlBottom, frm.Height - 80);
+}
+procedure ConstructOkCancelButtons(h: TObject; p: TObject; top: Integer);
+var
+  btnOk: TButton;
+  btnCancel: TButton;
+begin
+  btnOk := TButton.Create(h);
+  btnOk.Parent := p;
+  btnOk.Caption := 'OK';
+  btnOk.ModalResult := mrOk;
+  btnOk.Left := h.Width div 2 - btnOk.Width - 8;
+  btnOk.Top := top;
+  
+  btnCancel := TButton.Create(h);
+  btnCancel.Parent := p;
+  btnCancel.Caption := 'Cancel';
+  btnCancel.ModalResult := mrCancel;
+  btnCancel.Left := btnOk.Left + btnOk.Width + 16;
+  btnCancel.Top := btnOk.Top;
+end;
+
+{
+  ConstructLabel:
+  A function which can be used to make a label.  Used to make code more compact.
+  
+  Example usage:
+  lbl3 := ConstructLabel(frm, pnlBottom, 65, 8, 360, 'Reference removal options:');
+}
+function ConstructLabel(h: TObject; p: TObject; top: Integer; left: Integer; width: Integer; height: Integer; s: String): TLabel;
+var
+  lb: TLabel;
+begin
+  lb := TLabel.Create(h);
+  lb.Parent := p;
+  lb.Top := top;
+  lb.Left := left;
+  lb.Width := width;
+  if (height > 0) then
+    lb.Height := height;
+  lb.Caption := s;
+  
+  Result := lb;
+end;
+
+function CreateSelector(title: string; Blueprints: TwbFastStringList; var bppath: string): integer;
+var
+  frm: TForm;
+  lbl: TLabel;
+  cbFiles: TComboBox;
+  btnOk, btnCancel: TButton;
+  i: integer;
+  s: string;
+begin
+  frm := TForm.Create(nil);
+  try
+    frm.Caption := 'Select ' + title;
+    frm.Width := 350;
+    frm.Height := 170;
+    frm.Position := poScreenCenter;
+    
+    lbl := ConstructLabel(frm, frm, 15, 15, 0, 0, 'Select ' + title + ':');
+    
+    cbFiles := TComboBox.Create(frm);
+    cbFiles.Parent := frm;
+    cbFiles.Top := lbl.Top + lbl.Height + 15;
+    cbFiles.Left := 15;
+    cbFiles.Width := 300;
+    cbFiles.Style := csDropDownList;
+    
+    for i := 0 to Pred(Blueprints.Count) do
+      cbFiles.Items.Add(Blueprints[i]);
+    
+    cbFiles.ItemIndex := 0;
+    
+    ConstructOkCancelButtons(frm, frm, cbFiles.Top + 40);
+    
+    if frm.ShowModal = mrOk then begin
+      bppath := cbFiles.Text;
+      Result := 0;
+    end
+    else Result := 1;
+  finally
+    frm.Free;
+  end;
+end;
+
+function SelectESP(var FileName: string): integer;
+var
+  i: integer;
+  Plugins: TwbFastStringList;
+  r: integer;
+begin
+  Plugins := TwbFastStringList.Create;
+  Plugins.Add('<New File>');
+  for i := Pred(FileCount) downto 0 do
+    if SameText(ExtractFileExt(GetFileName(FileByIndex(i))), '.esp') then
+      Plugins.Add(GetFileName(FileByIndex(i)));
+  
+  r := CreateSelector('Plugin', Plugins, FileName);
+  
+  Plugins.Free;
+  Result := r;
+end;
+
+function SelectCell(var CellName: string): integer;
+var
+  i, j, k: integer;
+  Cells: TwbFastStringList;
+  r: integer;
+  ParentCellGroup, ChildCellGroup, CellGroup: IwbGroupRecord;
+  tCell: IwbMainRecord;
+begin
+	Cells := TwbFastStringList.Create;
+	slCells := TwbFastStringList.Create;
+	
+	Cells.Add('<New Cell>');
+
+	ParentCellGroup := GroupBySignature(f, 'CELL');
+	//AddMessage('ParentCellGroup: ' + IntToStr(ElementCount(ParentCellGroup)));
+	for i := 0 to Pred(ElementCount(ParentCellGroup)) do begin
+		ChildCellGroup := ElementByIndex(ParentCellGroup, i);
+		//AddMessage('ChildCellGroup: ' + IntToStr(ElementCount(ChildCellGroup)));
+		for j := 0 to Pred(ElementCount(ChildCellGroup)) do begin
+			CellGroup := ElementByIndex(ChildCellGroup, j);
+			//AddMessage('CellGroup: ' + IntToStr(ElementCount(CellGroup)));
+			for k := 0 to Pred(ElementCount(CellGroup)) do begin
+				tCell := ChildrenOf(ElementByIndex(CellGroup, k));
+				if ElementExists(tCell, 'EDID') then begin
+					Cells.Add(EditorID(tCell));
+					slCells.AddObject(EditorID(tCell), tCell);
+				end;
+			end;
+		end;
+	end;
+	
+	r := CreateSelector('Cell', Cells, CellName);
+
+	Cells.Free;
+	Result := r;
+end;
+
+// Called before processing
+// You can remove it if script doesn't require initialization code
+function Initialize: integer;
+var
+	i, fr: integer;
+	fname: string;
+begin	
+	Result := 0;
+	count := 0;
+	
+	fr := SelectESP(fname);
+	
+	if fr = 0 then begin
+		
+		if fname = '<New File>' then begin
+			f := AddNewFile; //Shows a dialog to create a new esp.
+		end
+		else begin
+			f := FileByIndex(GetPluginIndex(fname));
+		end;
+		
+		if not Assigned(f) then begin
+			AddMessage('Invalid File Name.');
+			Result := 1;
+			exit;
+		end;
+		
+	end
+	else begin
+		AddMessage('Import canceled.');
+		Result := 1;
+		exit;
+	end;
+	
+	fr := SelectCell(fname);
+	
+	if fr = 0 then begin
+		
+		if fname = '<New Cell>' then begin
+			cell := Add(f, 'CELL', true);
+			cell := Add(cell, 'CELL', true);
+		end
+		else begin
+			i := slCells.IndexOf(fname);
+			if i <> -1 then
+				cell := ObjectToElement(slCells.Objects[i]);
+		end;
+		
+		slCells.Free;
+		
+		if not Assigned(cell) then begin
+			AddMessage('Invalid CELL.');
+			Result := 1;
+			exit;
+		end;
+		
+	end
+	else begin
+		AddMessage('Import canceled.');
+		Result := 1;
+		exit;
+	end;
+	
+	slRefs := TwbFastStringList.Create;
+	
+	slEl := TwbFastStringList.Create;
+	//slEl.Add('Record Header');
+	slEl.Add('EDID');
+	slEl.Add('VMAD');
+	slEl.Add('NAME');
+	slEl.Add('XMBO');
+	slEl.Add('XPRM');
+	slEl.Add('XPOD');
+	slEl.Add('XPTL');
+	slEl.Add('XORD');
+	slEl.Add('XOCP');
+	slEl.Add('Bound Data');
+	slEl.Add('XMBP');
+	slEl.Add('XEZN');
+	slEl.Add('XNDP');
+	slEl.Add('XRGD');
+	slEl.Add('XRGB');
+	slEl.Add('Patrol Data');
+	slEl.Add('XLCM');
+	slEl.Add('XMSP');
+	slEl.Add('XCNT');
+	slEl.Add('XRDS');
+	slEl.Add('XHLT');
+	//slEl.Add('Linked References');
+	slEl.Add('Patrol');
+	slEl.Add('XACT');
+	slEl.Add('Activate Parents');
+	slEl.Add('XLIB');
+	slEl.Add('XATP');
+	slEl.Add('XLKT');
+	slEl.Add('XRFG');
+	slEl.Add('XLYR');
+	slEl.Add('XMSP');
+	slEl.Add('XRFG');
+	slEl.Add('XRDO');
+	slEl.Add('XBSD');
+	slEl.Add('XPDD');
+	slEl.Add('XSPC');
+	slEl.Add('XLCN');
+	slEl.Add('XTRI');
+	slEl.Add('XLOC');
+	slEl.Add('XLRL');
+	slEl.Add('XLRT');
+	slEl.Add('XIS2');
+	slEl.Add('Spline Connection');
+	slEl.Add('Power Grid');
+	slEl.Add('XCVR');
+	slEl.Add('XCVL');
+	slEl.Add('XCZR');
+	slEl.Add('XCZA');
+	slEl.Add('XCZC');
+	slEl.Add('XSCL');
+	//slEl.Add('XLOD');
+	slEl.Add('XHTW');
+	slEl.Add('XFVC');
+	slEl.Add('ONAM');
+	slEl.Add('Map Marker');
+	//slEl.Add('XATR');
+	slEl.Add('XESP');
+	slEl.Add('XOWN');
+	slEl.Add('XRNK');
+	slEl.Add('XEMI');
+	slEl.Add('XLIG');
+	slEl.Add('Lit Water');
+	slEl.Add('XALP');
+	slEl.Add('XTEL');
+	slEl.Add('XTNM');
+	slEl.Add('XMBR');
+	slEl.Add('XWCN');
+	slEl.Add('XWCU');
+	slEl.Add('XASP');
+	slEl.Add('XAMC');
+	slEl.Add('XIBS');
+	slEl.Add('DATA');
+	slEl.Add('MNAM');
+end;
+
+// called for every record selected in xEdit
+function Process(e: IInterface): integer;
+var
+	LinkedDoor, LinkedDoorDup, el, ref : IInterface;
+	i: integer;
+	token: string;
+begin
+	Result := 0;
+		
+	if (Signature(e) = 'ACHR') or (Signature(e) = 'REFR') then begin
+		
+		//if not ElementExists(e, 'XTEL') then exit;
+		
+		ref := Add(cell, Signature(e), true);
+				
+		if not Assigned(ref) then exit;
+		
+		Inc(count);
+		
+		AddMessage('Processing: ' + Name(e));
+		
+		AddRequiredElementMasters(BaseRecord(e), GetFile(f), False);
+		AddRequiredElementMasters(e, GetFile(f), False);
+				
+		i := 0;
+		while i < slEl.Count do begin
+			if ElementExists(e, slEl.Strings[i]) then begin
+				el := ElementByPath(e, slEl.Strings[i]);
+				if Assigned(el) then begin
+					wbCopyElementToRecord(el, ref, true, true);
+				end;
+			end;
+			Inc(i);
+		end;
+										
+		if GetIsPersistent(e) then
+			SetIsPersistent(ref, true);
+			
+		if ElementExists(ref, 'XTEL') then begin
+			LinkedDoor := GetRefDoor(ref);
+			AddRequiredElementMasters(LinkedDoor, GetFile(LinkedDoor), False);
+			LinkedDoorDup := wbCopyElementToFile(WinningOverride(LinkedDoor), GetFile(f), false, true);
+			SetRefDoor(LinkedDoorDup, ref);
+		end;
+		
+		token := CalculateToken(e);
+		//AddMessage('Token A: ' + token);
+		slRefs.AddObject(token, ref);
+			
+
+	end;
+end;
+
+// Called after processing
+// You can remove it if script doesn't require finalization code
+function Finalize: integer;
+var 
+	RefData: TStringList;
+	i, j, k: integer;
+	AtRefA, AtRefB, refA, refB: IwbMainRecord;
+	LinkedRefA, LinkedRefB, el: IInterface;
+	token, id: string;
+begin
+
+	i := 0;
+	while i < slRefs.Count do begin
+		
+		RefData := TStringList.Create;
+		SplitText(slRefs.Strings[i], RefData);
+		refA := RecordByFormID(FileByIndex(StrToInt(RefData[0])), StrToInt(RefData[1]), true);
+		RefData.Free;
+		refB := ObjectToElement(slRefs.Objects[i]);
+		
+		if ElementExists(refA, 'Linked References') then begin
+			el := ElementByPath(refA, 'Linked References');
+			if Assigned(el) then begin
+				LinkedRefB := Add(refB, 'Linked References', true);
+				j := 0;
+				while j < ElementCount(el) do begin
+					LinkedRefA := ElementByIndex(el, j);
+					LinkedRefB := ElementByPath(refB, 'Linked References');
+					
+					if j = 0 then begin
+						LinkedRefB := ElementByIndex(LinkedRefB, 0);
+					end
+					else begin
+						LinkedRefB := ElementAssign(LinkedRefB, HighInteger, nil, false);
+					end;
+					
+					SetElementEditValues(LinkedRefB, 'Keyword/Ref', GetElementEditValues(LinkedRefA, 'Keyword/Ref'));
+					
+					AtRefA := LinksTo(ElementByPath(LinkedRefA, 'Ref'));
+					if Assigned(AtRefA) then begin
+						//AddMessage('AtRefA: ' + Name(AtRefA));
+						token := CalculateToken(AtRefA);
+						//AddMessage('Token B: ' + token);
+						k := slRefs.IndexOf(token);
+						if k <> -1 then begin
+							AtRefB := ObjectToElement(slRefs.Objects[k]);
+							SetElementEditValues(LinkedRefB, 'Ref', Name(AtRefB));
+						end;
+					end;
+					
+					Inc(j);
+				end;
+			end;
+		end;
+		
+		//AddMessage('refA: ' + Name(refA));
+		if ElementExists(refA, 'XATR') then begin
+			el := ElementByPath(refA, 'XATR');
+			if Assigned(el) then begin
+				el := Add(refB, 'XATR', true);
+				if Assigned(el) then begin
+					AtRefA := LinksTo(ElementByPath(refA, 'XATR'));
+					if Assigned(AtRefA) then begin
+						//AddMessage('AtRefA: ' + Name(AtRefA));
+						token := CalculateToken(AtRefA);
+						//AddMessage('Token B: ' + token);
+						j := slRefs.IndexOf(token);
+						if j <> -1 then begin
+							AtRefB := ObjectToElement(slRefs.Objects[j]);
+							//SetEditValue(el, Name(AtRefB));
+							SetElementEditValues(refB, 'XATR', Name(AtRefB));
+						end;
+					end;
+				end;
+			end;
+		end;
+		
+		Inc(i);
+	end;
+	
+	AddMessage('Processed Records: ' + IntToStr(count));
+	
+	slRefs.Free;
+	slEl.Free;
+	Result := 0;
+end;
+
+end.
