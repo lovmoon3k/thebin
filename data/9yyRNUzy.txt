@@ -1,0 +1,459 @@
+from selenium import webdriver
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import Select
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.by import By
+from tel import TelegramMessager
+import undetected_chromedriver.v2 as uc
+import time
+import datetime
+
+
+countries = {
+    "Australia": "🇦🇺",
+    "Belgium": "🇧🇪",
+    "Canada": "🇨🇦",
+    "France": "🇫🇷",
+    "Germany":"🇩🇪",
+    "Italy": "🇮🇹",
+    "Japan": "🇯🇵",
+    "Mexico": "🇲🇽",
+    "New Zealand": "🇳🇿",
+    "South Africa": "🇿🇦",
+    "Spain": "🇪🇸",
+    "Switzerland": "🇨🇭",
+    "United Kingdom": "🇬🇧",
+    "United States": "🇺🇸",
+    "East Timor": "🇹🇱",
+    "Ireland": "🇮🇪",
+    "El Salvador": "🇸🇻",
+    "Portugal": "🇵🇹",
+    "Slovenia": "🇸🇮",
+    "Kosovo": "🇽🇰",
+    "Malta": "🇲🇹",
+    "Greece": "🇬🇷",
+    "Netherlands": "🇳🇱",
+    "Euro Area":"🇪🇺",
+    "Lithuania":"🇱🇹",
+    "Luxembourg":"🇱🇺",
+    "Austria":"🇦🇹",
+    "Cyprus":"🇨🇾",
+    "Ecuador":"🇪🇨",
+    "Estonia":"🇪🇪",
+    "Finland":"🇫🇮",
+    "Latvia":"🇱🇻",
+    "Slovakia":"🇸🇰",
+}
+
+currencies = ["EUR", "CAD", "CHF", "USD", "JPY", "NZD", "GBP", "AUD"]
+
+class MyFxBookScrapper():
+    
+    current_month = "December"
+    current_month_short = "Dec"
+    
+    # Start the browser and set the webdriver wait
+    def __init__(self):
+        self.chrome_options = webdriver.ChromeOptions()
+        self.chrome_options.headless = True
+        self.driver =  uc.Chrome(options=self.chrome_options)
+        self.WebDriverWait = WebDriverWait(self.driver, 15)
+    
+    # Maximise the browser
+    def max_browser(self):
+        self.driver.maximize_window()
+    
+    # Open the webpage
+    def open_webpage(self):
+        self.driver.get("https://www.myfxbook.com/forex-economic-calendar")
+    
+    # Close the browser
+    def close_browser(self):
+        self.driver.quit()
+        
+    # Refresh Page
+    def refresh_page(self):
+        self.driver.refresh()
+    
+    # Close useless pop ups
+    def close_pop_ups(self):
+        try:
+            time.sleep(10)
+            self.WebDriverWait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '#blockWebNotification'))).click()
+        except TimeoutException:
+            pass
+        
+        try:
+            time.sleep(5)
+            self.WebDriverWait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '#popupAdContainer > div > div > div.continue-text > a'))).click()
+        except TimeoutException:
+            pass
+    # Press on filter calendar settings
+    def click_on_filters(self):
+        time.sleep(5)
+        self.WebDriverWait.until(EC.element_to_be_clickable((By.ID, 'filterButton'))).click()
+        time.sleep(5)
+    
+    # Disable no impact and low impact events from filters
+    def disable_useless_impacts(self):
+        self.WebDriverWait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, '#impact-checkboxes-container > div > label:nth-child(3) > span'))).click()
+        self.WebDriverWait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, '#impact-checkboxes-container > div > label:nth-child(4) > span'))).click()
+        self.WebDriverWait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#calendar-tab-panel-currencies-all > ul:nth-child(1) > li:nth-child(4) > label > span"))).click()
+        time.sleep(5)
+        save_filters_btn = self.WebDriverWait.until(EC.element_to_be_clickable((By.ID, 'calendar-settings-apply')))
+        self.driver.execute_script("arguments[0].click();", save_filters_btn)
+    
+    # # Get get events
+    # def get_events(self):
+    #     events = self.WebDriverWait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "tr[id^='calRow']")))
+        
+    #     all_events = [event.text for event in events]
+    #     self.all_events = []
+    #     for event in all_events:
+    #         for currency in currencies:
+    #             if currency in event:
+    #                 self.all_events.append(event.replace(currency, f"{currency}\n", 1).split('\n'))
+    #                 print(event.replace(currency, f"{currency}\n", 1).split('\n'))
+        
+    #     return self.all_events
+    #     # print(self.all_events)
+        
+    # Itterate over date
+    def find_dates(self):
+        dates = self.WebDriverWait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div[class='align-center calendarDateTd']")))
+        all_dates = [x.text for x in dates]
+        return all_dates
+
+    # Itterate over flags
+    def find_flags(self):
+        flags = self.WebDriverWait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "i[id^='calendarTip']")))
+        all_flags = [x.get_attribute('title') for x in flags]
+        return all_flags
+
+    # Itterate over currency
+    def find_currencies(self):
+        currencies = self.WebDriverWait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "td:nth-child(4)")))
+        # Get the elements between 4 and -7 because those are not the elements we want, are fodders
+        all_curencies = [x.text for x in currencies[4:-7]]
+        return all_curencies
+
+    # Itterate over the event names
+    def get_event_name(self):
+        events = self.WebDriverWait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "td[class='calendarToggleCell text-left']")))
+        all_events = [x.text for x in events]
+        return all_events
+
+    # Itterate over impacts
+    def get_impacts(self):
+        impacts = self.WebDriverWait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "td:nth-child(6) > div")))
+        all_impacts = [x.text for x in impacts]
+        return all_impacts
+
+    # Itterate over previous values
+    def get_previous_values(self):
+        previous_values = self.WebDriverWait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "td:nth-child(7)")))
+        all_previous_values = [x.text for x in previous_values]
+        return all_previous_values
+    
+    # Itterate over consensus values
+    def get_consensus_values(self):
+        consensus_values = self.WebDriverWait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "td:nth-child(8)")))
+        all_consensus_values = [x.text for x in consensus_values]
+        return all_consensus_values
+
+    # Itterate over actual values
+    def get_actual_values(self):
+        actual_values = self.WebDriverWait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "td:nth-child(9)")))
+        all_actual_values = [x.text for x in actual_values]
+        return all_actual_values
+
+    # Merge values into a data frame
+    def merge_event_details(self, date, time_left, flag, currencie, event_name, impact, previous_value, consensus_value, actual_value):
+        return [date, time_left, flag, currencie, event_name, impact, previous_value, consensus_value, actual_value]
+    
+    # Get the event time before the 15 min
+    def get_event_before_15(self, event):
+        # Full month format
+        full_month_format = "%B %d %H:%M"
+        # Convert the string into a datetime object
+        current_date = datetime.datetime.strptime(event[0].replace(",", "").replace(self.current_month_short, self.current_month), full_month_format)
+        event_before_15 = str(current_date - datetime.timedelta(minutes=15))[5:-3]
+        # print(event_before_15, str(datetime.datetime.now())[5:-10])
+        # print(str(event_before_15) == str(datetime.datetime.now())[5:-10])
+        return str(event_before_15) == str(datetime.datetime.now())[5:-10]
+
+    # Get the event actual
+    def get_event_actual(self, event):
+        # Full month format
+        full_month_format = "%B %d %H:%M"
+        # Convert the string into a datetime object
+        current_date = datetime.datetime.strptime(event[0].replace(",", "").replace(self.current_month_short, self.current_month), full_month_format)
+        event_actual_after_5_min = str(current_date + datetime.timedelta(minutes=15))[5:-3]
+        # print(event_before_15, str(datetime.datetime.now())[5:-10])
+        # print(str(event_before_15) == str(datetime.datetime.now())[5:-10])
+        return str(event_actual_after_5_min) >= str(datetime.datetime.now())[5:-10]
+
+    # Format message 15 min remaining
+    def format_15_min_message(self, event):
+        date = event[0]
+        flag = event[1]
+        currency = event[2]
+        event_name = event[3]
+        impact = event[4]
+        previous_value = event[5]
+        consensus_value = event[6]
+        
+        for country_key, country_value in countries.items():
+            if country_key == flag:
+                flag = country_value
+        
+        if "Speech" not in event_name:
+                    
+            if previous_value != "" and consensus_value != "":
+                if impact == "MEDIUM":
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\nPrevious: {previous_value}\nForecast: {consensus_value}\nActual: will be calculated after the news⏳\n\n" 
+                elif impact == "HIGH":
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\nPrevious: {previous_value}\nForecast: {consensus_value}\nActual: will be calculated after the news⏳\n\n"
+                # REMOVE WHEN NOT INTERESTED IN LOW IMPACT
+                else:
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\nPrevious: {previous_value}\nForecast: {consensus_value}\nActual: will be calculated after the news⏳\n\n" 
+           
+            elif previous_value != "" and consensus_value == "":
+                if impact == "MEDIUM":
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\nPrevious: {previous_value}\nActual: will be calculated after the news⏳\n\n" 
+                elif impact == "HIGH":
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\nPrevious: {previous_value}\nActual: will be calculated after the news⏳\n\n"
+                # REMOVE WHEN NOT INTERESTED IN LOW IMPACT
+                else:
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\nPrevious: {previous_value}\nActual: will be calculated after the news⏳\n\n" 
+                    
+            elif previous_value == "" and consensus_value != "":
+                if impact == "MEDIUM":
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\nForecast: {consensus_value}\nActual: will be calculated after the news⏳\n\n" 
+                elif impact == "HIGH":
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\nForecast: {consensus_value}\nActual: will be calculated after the news⏳\n\n"
+                # REMOVE WHEN NOT INTERESTED IN LOW IMPACT
+                else:
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\nForecast: {consensus_value}\nActual: will be calculated after the news⏳\n\n"
+                    
+            
+            else:
+                if impact == "MEDIUM":
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\n\n" 
+                elif impact == "HIGH":
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\n\n"
+                # REMOVE WHEN NOT INTERESTED IN LOW IMPACT
+                else:
+                    messages_15_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\n\n" 
+        
+        elif "Speech" in event_name:
+            event_name = f"{event_name}📢"
+                    
+            if impact == "MEDIUM":
+                messages_15_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\n\n"
+                        
+            elif impact == "HIGH":
+                messages_15_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\n\n"
+            # REMOVE WHEN NOT INTERESTED IN LOW IMPACT
+            else:
+                messages_15_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\n\n"
+        
+        return messages_15_min.replace(".0%", "%")
+
+    # Format actual messages
+    def format_actual_message(self, event):
+        date = event[0]
+        flag = event[1]
+        currency = event[2]
+        event_name = event[3]
+        impact = event[4]
+        previous_value = event[5]
+        consensus_value = event[6]
+        actual_value = event[7]
+        
+        ####################################### DEPRECATED ACTUAL ARROW SYMBOL
+        
+        # possible_value_endings = "B¥%£CHFMK€$C¢NZ"
+        
+        # compare_consensus_value = event[6]
+        # compare_actual_value = event[7]
+        
+        # for val_endings in possible_value_endings:
+        #     if val_endings in compare_consensus_value:
+        #         compare_consensus_value = compare_consensus_value.replace(val_endings, "")
+        #     if val_endings in compare_actual_value:
+        #         compare_actual_value = compare_actual_value.replace(val_endings, "")
+
+        
+        # if compare_actual_value != "" and compare_consensus_value != "":
+        #     if float(compare_actual_value) < float(compare_consensus_value):
+        #         high_or_low = "🔻"
+        #     elif float(compare_actual_value) > float(compare_consensus_value):
+        #         high_or_low = "🔺"
+        #     else:
+        #         high_or_low = ""
+        # else:
+        #     high_or_low = ""
+
+        ####################################### DEPRECATED ACTUAL ARROW SYMBOL
+
+        for country_key, country_value in countries.items():
+            if country_key == flag:
+                flag = country_value
+        
+        if "Speech" not in event_name and actual_value != "":
+            if previous_value != "" and consensus_value != "":
+                if impact == "MEDIUM":
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\nPrevious: {previous_value}\nForecast: {consensus_value}\nActual: {actual_value}\n\n"
+                elif impact == "HIGH":
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\nPrevious: {previous_value}\nForecast: {consensus_value}\nActual: {actual_value}\n\n"
+                # REMOVE WHEN NOT INTERESTED IN LOW IMPACT
+                else:
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\nPrevious: {previous_value}\nForecast: {consensus_value}\nActual: {actual_value}\n\n"
+            
+            elif previous_value == "" and consensus_value != "":
+                if impact == "MEDIUM":
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\nForecast: {consensus_value}\nActual: {actual_value}\n\n"
+                elif impact == "HIGH":
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\nForecast: {consensus_value}\nActual: {actual_value}\n\n"
+                # REMOVE WHEN NOT INTERESTED IN LOW IMPACT
+                else:
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\nForecast: {consensus_value}\nActual: {actual_value}\n\n"
+                    
+            elif previous_value != "" and consensus_value == "":
+                if impact == "MEDIUM":
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\nPrevious: {previous_value}\nActual: {actual_value}\n\n"
+                elif impact == "HIGH":
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\nPrevious: {previous_value}\nActual: {actual_value}\n\n"
+                # REMOVE WHEN NOT INTERESTED IN LOW IMPACT
+                else:
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\nPrevious: {previous_value}\nActual: {actual_value}\n\n"
+            else:
+                if impact == "MEDIUM":
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: Medium 🟧\nTime: {date[8:]}\nActual: {actual_value}\n\n"
+                elif impact == "HIGH":
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\nActual: {actual_value}\n\n"
+                # REMOVE WHEN NOT INTERESTED IN LOW IMPACT
+                else:
+                    messages_1_min = f"{flag} {currency}-{event_name}\nImpact: High 🟥\nTime: {date[8:]}\nActual: {actual_value}\n\n"
+        else:
+            return None
+        
+        return messages_1_min.replace(".0%", "%")
+        
+    
+if __name__ == "__main__":
+    
+    events_happened_15_min = []
+    events_happened_1_min = []
+    sended_events = []
+    time_until_refresh = 3600
+    
+    # See if the past event has been sended
+    previous_sended_events_actual = []
+    previous_sended_events_15_min = []
+    
+    myfxbook = MyFxBookScrapper()
+    telgram = TelegramMessager()
+    myfxbook.max_browser()
+    myfxbook.open_webpage()
+    time.sleep(10)
+    myfxbook.refresh_page()
+    myfxbook.close_pop_ups()
+    myfxbook.click_on_filters()
+    # time.sleep(1000)
+    myfxbook.disable_useless_impacts()
+    # time.sleep(1000)
+    while True:
+        time.sleep(5)
+        myfxbook.refresh_page()
+        time.sleep(15)
+        # events = myfxbook.get_events()
+        
+        try:
+            dates = myfxbook.find_dates()
+            # time_lefts = myfx.find_time_left()
+            flags = myfxbook.find_flags()
+            currencies = myfxbook.find_currencies()
+            event_names = myfxbook.get_event_name()
+            impacts = myfxbook.get_impacts()
+            previous_values = myfxbook.get_previous_values()
+            consensus_values = myfxbook.get_consensus_values()
+            actual_values = myfxbook.get_actual_values()
+        except TimeoutException:
+            continue
+        
+        events = []
+        for date, flag, currency, event_name, impact, previous_value, consensus_value, actual_values in zip(dates, flags, currencies, event_names, impacts, previous_values, consensus_values, actual_values):
+            events.append([date, flag, currency, event_name, impact, previous_value, consensus_value, actual_values])
+
+
+        for event in events:
+            event_time_15_min = myfxbook.get_event_before_15(event)
+            if event_time_15_min == True:
+                if event not in events_happened_15_min:
+                    events_happened_15_min.append(event)
+            
+            # Events actual message part
+            event_actual = myfxbook.get_event_actual(event)
+            if event_actual == True and event[-1] != '':
+                if event not in events_happened_1_min:
+                    events_happened_1_min.append(event)
+                    
+        # 15 MIN WARNING MESSAGE
+        
+        event_15_min = ""
+    
+        for event in events_happened_15_min:
+            if event not in previous_sended_events_15_min:
+                # event_15_min += " ".join(event)
+                event_15_min += myfxbook.format_15_min_message(event)
+                previous_sended_events_15_min.append(event)
+           
+        if event_15_min != '':
+            telgram.send(event_15_min)
+            print(event_15_min[:-1]) 
+            # print(event_15_min[:-2]) 
+        
+        #######################
+        
+        
+        # ACTUAL MESSAGE MERGE 
+        
+        event_actual = ""
+    
+        for event in events_happened_1_min:
+            if event not in previous_sended_events_actual:
+                # event_actual += " ".join(event)
+                try:
+                    event_actual += myfxbook.format_actual_message(event)
+                except TypeError:
+                    pass
+                finally:
+                    previous_sended_events_actual.append(event)
+           
+        if event_actual != '':
+            telgram.send(event_actual)
+            print(event_actual[:-1]) 
+            # print(event_actual[:-2]) 
+            
+        #######################
+        
+        # print(events_happened_15_min)
+        # print(events_happened_1_min)
+        
+        
+        # empty event lists once every 30 min
+        if time_until_refresh == 0:
+            time_until_refresh = 1800
+            events_happened_15_min = []
+            events_happened_1_min = []
+            previous_sended_events_actual = []
+            previous_sended_events_15_min = []
+            sended_events = []
+        else:
+            time_until_refresh -= 1
+    
+    
+    myfxbook.close_browser()
