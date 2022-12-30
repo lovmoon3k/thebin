@@ -1,0 +1,251 @@
+<?php
+
+namespace App\Jobs;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Bus\Batchable;
+use Excel;
+use App\Imports\GoodTier2Import;
+use App\Models\UploadModel;
+use App\Models\FailedJobModel;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
+use DB;
+use Throwable;
+
+class UploadGoodTier2 implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, Batchable;
+
+    protected $file, $id, $supplierDestination, $supplierId;
+
+    public function __construct($file, $id, $supplierDestination, $supplierId)
+    {
+        $this->file = $file;
+        $this->id = $id;
+        $this->supplierDestination = $supplierDestination;
+        $this->supplierId = $supplierId;
+    }
+
+    public function handle()
+    {
+        $dateNow = Carbon::now()->format('Y-m-d');
+
+        $data = UploadModel::find($this->id);
+        $data->upload_proses = $this->job->uuid();
+        $data->upload_status = _INPROGRESS;
+        $data->updated_at = Carbon::now();
+        $data->update();
+
+        try {
+            $import = Excel::import(new GoodTier2Import($this->supplierDestination, $this->supplierId, $this->job->uuid()), public_path('excel-file/'.$this->file));
+
+            $dataTemp = DB::table('data_temp')
+                    ->where('upload_proses', $this->job->uuid())
+                    ->get();
+
+            // $count = 0;
+
+            foreach($dataTemp as $value) {
+                // Log::debug($value->pno);
+                // Log::debug($count+1);
+                $setting = $this->isSettingTier1($value->pno, $this->supplierDestination);
+                // Log::debug(json_encode($setting));
+                if($setting['exists']) {
+
+                    $dataSetting = $setting['data'];
+                    // Log::debug(json_encode($dataSetting->supplier_tier_1));
+                    // Log::debug($this->supplierId);
+                    if($this->supplierDestination == $dataSetting->supplier_tier_1) {
+                        if($dataSetting->status_tier_1 == _YES) {
+                            if($dataSetting->status_approval == _FINISH && $dateNow >= $dataSetting->active_date) {
+                                $masterData = DB::table('master_data')
+                                ->where('master_data_pno', $value->pno)
+                                ->where('master_data_matrix', $value->matrix_code)
+                                ->update([
+                                    'flg_tier2' => _YES,
+                                    'flg_tier1' => _NO,
+                                    'updated_at' => Carbon::now()
+                                ]);
+                            }else {
+                                $masterData = DB::table('master_data')
+                                ->where('master_data_pno', $value->pno)
+                                ->where('master_data_matrix', $value->matrix_code)
+                                ->update([
+                                    'flg_tier2' => _YES,
+                                    'flg_tier1' => _YES,
+                                    'updated_at' => Carbon::now()
+                                ]);
+                            }
+                        }
+
+                        if($dataSetting->status_tier_1 == _NO) {
+                            if($dataSetting->status_approval == _FINISH && $dateNow >= $dataSetting->active_date) {
+                                $masterData = DB::table('master_data')
+                                ->where('master_data_pno', $value->pno)
+                                ->where('master_data_matrix', $value->matrix_code)
+                                ->update([
+                                    'flg_tier2' => _YES,
+                                    'flg_tier1' => _YES,
+                                    'updated_at' => Carbon::now()
+                                ]);
+                            }else {
+                                $masterData = DB::table('master_data')
+                                ->where('master_data_pno', $value->pno)
+                                ->where('master_data_matrix', $value->matrix_code)
+                                ->update([
+                                    'flg_tier2' => _YES,
+                                    'flg_tier1' => _NO,
+                                    'updated_at' => Carbon::now()
+                                ]);
+                            }
+                        }
+
+                        // if($dataSetting->status_tier_1 == _YES && $dataSetting->status_approval == _FINISH && $dateNow >= $dataSetting->active_date) {
+                        //     // Log::debug("line66");
+                        //     $masterData = DB::table('master_data')
+                        //         ->where('master_data_pno', $value->pno)
+                        //         ->where('master_data_matrix', $value->matrix_code)
+                        //         ->update([
+                        //             'flg_tier2' => _YES,
+                        //             'flg_tier1' => _NO,
+                        //             'updated_at' => Carbon::now()
+                        //         ]);
+                        // }else {
+                        //     // Log::debug("line76");
+                        //     $masterData = DB::table('master_data')
+                        //         ->where('master_data_pno', $value->pno)
+                        //         ->where('master_data_matrix', $value->matrix_code)
+                        //         ->update([
+                        //             'flg_tier2' => _YES,
+                        //             'flg_tier1' => _YES,
+                        //             'updated_at' => Carbon::now()
+                        //         ]);
+                        // }
+                    }
+                
+                }else {
+                    // Log::debug("line89");
+                    $masterData = DB::table('master_data')
+                            ->where('master_data_pno', $value->pno)
+                            ->where('master_data_matrix', $value->matrix_code)  
+                            ->update([
+                                'flg_tier2' => _YES,
+                                'flg_tier1' => _YES,
+                                'updated_at' => Carbon::now()
+                            ]);
+                }
+                // Log::debug("line99");
+                $masterTier2 = DB::table('master_tier2')
+                    ->where('master_tier2_pno',$value->pno)
+                    ->where('master_tier2_matrix', $value->matrix_code)
+                    ->update([
+                        'flg_good' => _YES,
+                        'flg_scan' => _YES,
+                        'master_tier2_date' => $dateNow,
+                        'updated_at' => Carbon::now()
+                    ]);
+
+                $masterTier1 = DB::table('master_tier1')->insert([
+                    'master_tier1_pno'      => $value->pno,
+                    'master_tier1_matrix'   => $value->matrix_code,
+                    'supplier_id'           => $value->supplier_id,
+                    'flg_good'              => _EMPTY_STRING,
+                    'flg_scan'              => _NO,
+                    'created_at'            => Carbon::now(),
+                    ]);
+            }
+
+            $result = UploadModel::find($this->id);
+            $result->upload_status = _FINISH;
+            $result->upload_notifikasi = _NO;
+            $result->updated_at = Carbon::now();
+            $result->update();
+
+            $dataTemp = DB::table('data_temp')
+                    ->where('upload_proses', $result->upload_proses)
+                    ->delete();
+
+
+        }catch (\Maatwebsite\Excel\Validators\ValidationException $e) {
+            // Log::debug("masuk51");
+            $failures = $e->failures();
+            $error = [];
+            
+            foreach ($failures as $failure) {
+                $message = 'row '.$failure->row().' = '.$failure->errors()[0];
+                array_push($error, $message);
+            }
+
+            // DB::table('users')->where('votes', '>', 100)->delete()
+            
+
+            $upload = UploadModel::find($this->id);
+            $upload->upload_status = _ERROR;
+            $upload->upload_notifikasi = _NO;
+            $upload->error_message = json_encode($error);
+            $upload->updated_at = Carbon::now();
+            $upload->update();
+
+            $dataTemp = DB::table('data_temp')
+                    ->where('upload_proses', $upload->upload_proses)
+                    ->delete();
+
+            // Log::debug($dataTemp);
+
+            return $failures;
+        }
+
+        
+    }
+
+    public function failed(Throwable $exception) {
+        // Log::debug("masuk73");
+        $message = substr($exception , 0 ,500);
+        $error = UploadModel::find($this->id);
+        // Log::debug($error);
+
+        $dataTemp = DB::table('data_temp')
+                    ->where('upload_proses', $error->upload_proses)
+                    ->delete();
+        
+                    // Log::debug($dataTemp);
+        // Log::debug($message);
+        $error->upload_status = _ERROR;
+        $error->upload_notifikasi = _NO;
+        $error->error_message = $message;
+        $error->updated_at = Carbon::now();
+        $error->update();
+        
+
+    }
+
+    private function isSettingTier1($pno, $supplier) {
+
+        $tier1 = DB::table('setting_tier_1')
+                ->where('produk_pno', $pno)
+                ->where('supplier_tier_1', $supplier)
+                ->first();
+        
+        // $tier1 = SettingTier1Model::where('produk_pno', $pno)->first();
+
+        $output = [
+          "exists" => false,
+          "data" => ''
+        ];
+  
+        if (!is_null($tier1)) {
+              $output = [
+                "exists" => true,
+                "data" => $tier1,
+              ];
+          }
+  
+        return $output;
+    }
+}

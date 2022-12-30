@@ -1,0 +1,131 @@
+<?php
+
+namespace App\Imports;
+
+use App\Models\MasterTier1Model;
+use Maatwebsite\Excel\Concerns\ToModel;
+use Maatwebsite\Excel\Concerns\WithHeadingRow;
+use Illuminate\Support\Collection;
+use Maatwebsite\Excel\Concerns\ToCollection;
+use Carbon\Carbon;
+use App\Models\SettingTier1Model;
+use Illuminate\Support\Facades\Log;
+use App\Models\MasterDataModel;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Maatwebsite\Excel\Concerns\WithChunkReading;
+use Maatwebsite\Excel\Concerns\WithValidation;
+use DB;
+use App\Models\MasterTier2Model;
+use App\Models\ProdukModel;
+use App\Models\DataTempModel;
+
+class NgTier2Import implements ToModel, WithHeadingRow, WithValidation
+{
+
+    private $supplierId, $uploadProses;
+
+    public function __construct($supplierId, $uploadProses) {
+        $this->supplierId = $supplierId;
+        $this->uploadProses = $uploadProses;
+    }
+
+    public function model(array $rows)
+    {
+        // Log::debug($rows);
+        // $masterData = DB::table('master_data')
+        //             ->where('master_data_pno', $rows['pno'])
+        //             ->where('master_data_matrix', $rows['matrix_code'])
+        //             ->update([
+        //                 'flg_tier2' => _NO,
+        //                 'flg_tier1' => _NO,
+        //                 'updated_at' => Carbon::now()
+        //             ]);
+
+        // $masterData = MasterDataModel::where("master_data_pno", $rows['pno'])->where("master_data_matrix", $rows['matrix_code'])->first();
+        // $masterData->flg_tier2 = _NO;
+        // $masterData->flg_tier1 = _NO;
+        // $masterData->updated_at = Carbon::now();
+        // $masterData->update();
+
+        // $masterTier2 = MasterTier2Model::where('master_tier2_pno', $rows['pno'])
+        //                 ->where('master_tier2_matrix', $rows['matrix_code'])
+        //                 ->first();
+        
+        // if(!is_null($masterTier2)) {
+        //     $masterTier2->flg_good = _NO;
+        //     $masterTier2->flg_scan = _YES;
+        //     $masterTier2->master_tier2_date = Carbon::now()->format('Y-m-d');
+        //     $masterTier2->updated_at = Carbon::now();
+
+        //     return $masterTier2;
+        // }
+
+        return new DataTempModel([
+            'upload_proses'      => $this->uploadProses,
+            'supplier_id'   => $this->supplierId,
+            'pno'           => $rows['pno'],
+            'matrix_code'              => $rows['matrix_code'],
+        ]);
+    }
+
+    public function rules(): array
+    {
+
+        return [
+            'matrix_code' => [
+                '1' => 'required',
+                '2' => function($attribute, $value, $onFailure) {
+
+                        $dataTier2 = DB::table('master_tier2')
+                                    ->where('master_tier2_matrix', $value)
+                                    ->where('supplier_id', $this->supplierId)
+                                    ->first();
+
+                        // $dataTier2 = MasterTier2Model::where('master_tier2_matrix', $value)->first();
+
+                        if(is_null($dataTier2)) {
+                            $message = 'Matrix '.$value.' not found in master tier 2';
+                            $onFailure($message);
+                        }
+                    },
+            ],
+            'pno' => [
+                '1' => 'required',
+                '2' => function($attribute, $value, $onFailure) {
+
+                    $produk = DB::table('m_produk')
+                            ->where('produk_pno', $value)
+                            ->first();
+
+                    $dataTier2 = DB::table('master_tier2')
+                                ->where('master_tier2_pno', $value)
+                                ->where('supplier_id', $this->supplierId)
+                                ->first();
+
+                    // $produk = ProdukModel::where("produk_pno", $value)->first();
+                    // $dataTier2 = MasterTier2Model::where('master_tier2_pno', $value)->first();
+
+                    if(is_null($produk)) {
+                        $message = 'Pno '.$value.' not found in master produk';
+                        $onFailure($message);
+                    }
+
+                    if(is_null($dataTier2)) {
+                        $message = 'Pno '.$value.' not found in master tier 2';
+                        $onFailure($message);
+                    }
+              },
+            ],
+        ];
+    }
+
+    public function customValidationMessages() {
+
+        return [
+            'matrix_code.required' => 'matrix code not found',
+            'pno.required' => 'pno not found',
+        ];
+
+    }
+
+}
