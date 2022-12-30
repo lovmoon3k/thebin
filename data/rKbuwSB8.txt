@@ -1,0 +1,64 @@
+-- The key and IV used for encryption and decryption
+local key = "a secret key"
+local iv = "an initialization vector"
+
+-- Function to check if a disk is inserted into any of the computer drives
+function checkDisk()
+  local result = false
+  if disk.isPresent("left") or disk.isPresent("right") then
+    result = true
+  end
+  return result
+end
+
+-- Main program loop
+while true do
+  -- Prompt the user to insert a disk into the left drive
+  print("Insert a disk into the left drive.")
+  -- Wait for a disk to be inserted into the left drive
+  while not checkDisk() do
+    os.sleep(1)
+  end
+  -- Prompt the user to insert an admin disk into the right drive
+  print("Insert an admin disk into the right drive.")
+  -- Wait for a disk to be inserted into the right drive
+  while not checkDisk() do
+    os.sleep(1)
+  end
+  -- Open the "admin" file on the left disk
+  local file = fs.open("left/admin", "r")
+  -- Read the contents of the file
+  local admin = file.readAll()
+  -- Close the file
+  file.close()
+  -- Check if the left disk is an admin disk
+  if admin == "true" then
+    -- Prompt the user for the new user's access level
+    print("Enter the new user's access level (admin, employee, guest):")
+    local accessLevel = read()
+    -- Connect to the Computercraft server
+    local server = rednet.open("top")
+    -- Encrypt and send the "add user" message to the server
+    local encryptedMessage = encrypt("aes-256-cbc", key, iv, "add user")
+    rednet.send(server, encryptedMessage)
+    -- Send the new user's access level to the server
+    encryptedMessage = encrypt("aes-256-cbc", key, iv, accessLevel)
+    rednet.send(server, encryptedMessage)
+    -- Wait for a response from the server
+    local response, message = rednet.receive()
+    -- Decrypt the message from the server
+    local decryptedMessage = decrypt("aes-256-cbc", key, iv, message)
+    -- Open the "id" file on the right disk
+    file = fs.open("right/id", "w")
+    -- Write the new user's ID to the file
+    file.write(decryptedMessage)
+    -- Close the file
+    file.close()
+  else
+    -- Print an error message
+    print("The left disk is not an admin disk.")
+  end
+  -- Eject both disks
+  disk.eject("left")
+  disk.eject("right")
+end
