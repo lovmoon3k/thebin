@@ -1,0 +1,201 @@
+from dataclasses import dataclass
+from collections import namedtuple
+
+
+@dataclass
+class Patient:
+    name: str
+    address: str
+    age: int
+    sex: str
+    disease: str
+    room: int
+    date: str = None
+
+    def __str__(self):  # string representation of a Patient record
+        return (f"\nName: {self.name}\n"
+                f"\taddress: {self.address}\n"
+                f"\tage: {self.age}, sex: {self.sex}\n"
+                f"\tdisease: {self.disease}, room: {self.room}"
+                f"{'-' * 30}\n")
+
+    def __lt__(self, other):  # less than method provides basis for sorting
+        return self.name.casefold() < other.name.casefold()
+
+def display_menu(menu, prompt='What option would you like? '):
+    print('\n\n')
+    for option, details in menu.items():
+        print(f'{option:2} - {details.desc}')
+    print()
+    while True:
+        option = input(prompt)
+        if option.lower() in menu.keys():
+            return menu[option.lower()].func
+        if option.upper() in menu.keys():
+            return menu[option.upper()].func
+        print('Sorry, that option is not available, please make another selection')
+
+
+Menu = namedtuple('Menu', ['desc', 'func'])  # use dot notation instead of indexing
+
+def get_patient_details(prompt="", edit=False):
+    if prompt:
+        print(prompt)
+    prefix = 'Enter revised' if edit else 'Enter'
+    name = input(f"{prefix} name: ")
+    address = input(f"{prefix} address: ")
+    age = input(f"{prefix} age: ")
+    sex = input(f"{prefix} sex: ")
+    disease = input(f"{prefix} disease description: ")
+    room = input(f"{prefix} specialist room number: ")
+    try:
+        return Patient(name, address, int(age), sex, disease, int(room))
+    except ValueError:
+        return None
+
+
+def add_record_OPD():
+    patient = get_patient_details('Details for OPD patient required\n')
+    if patient:
+        OPD.append(patient)
+        print("Added:", patient)
+    else:
+        print('Sorry, data could not be processed - unexpected value(s)')
+
+def add_record_emergency():
+    patient = get_patient_details('Details for emergency patient required\n')
+    if patient:
+        emergency.append(patient)
+        print("Added:", patient)
+    else:
+        print('Sorry, data could not be processed - unexpected value(s)')
+
+def add_record():
+    while True:
+        option = display_menu(add_record_menu)
+        if option:
+            status = option()
+            rebuild_records()  # rebuild combined list
+        else:
+            return
+
+def find_patient_by_name():
+    name = input("Enter the patient's name: ")
+    chosen = None
+    for idx, patient in enumerate(patients):
+        if name.casefold() == patient.name.casefold():
+            chosen = idx  # assumes unique names are used
+            break
+    return chosen
+
+def search_record():
+    chosen = find_patient_by_name()
+
+    if chosen is None:
+        print("\n No records were available!")
+        return
+
+    nxt = input("Press enter to view next record or 2 to edit record: ")
+    if nxt == '':
+        chosen += 1
+        if chosen <= (len(patients) -1):
+            print(patients[chosen])
+        else:
+            print('Sorry, no more records')
+    elif nxt == '2':
+        patient = get_patient_details("Editing details", edit=True)
+        if patient:
+            patients[chosen] = patient
+        else:
+            print('Sorry, data could not be processed - unexpected value(s) - no details changed')
+    else:
+        print("Press Enter or 2!")
+
+
+def list_record():
+    choice = display_menu(list_records_menu)
+    if choice == 1:
+        x = sorted(patients)
+        print(*x, sep='\n')
+    elif choice == 2:
+        print(*emergency, sep='\n')
+    elif choice == 3:
+        print(*OPD, sep='\n')
+    elif choice == 4:
+        date = input("Enter month & year (mm-yyyy): ")
+        for patient in patients:
+            if patient.date == date:
+                print(patient)
+                break
+        else:
+            print("No patients in this date!")
+
+
+def rebuild_records(remove_idx=None):  # remove record idx in relation to patients list
+    global OPD
+    global emergency
+    global patients
+    if remove_idx is not None:
+        opd_max_idx = len(OPD) - 1
+        if 0 <= remove_idx <= opd_max_idx:
+            OPD = OPD[:remove_idx] + OPD[remove_idx + 1:]
+        elif opd_max_idx < remove_idx < (len(emergency) - 1):
+            remove_idx -= opd_max_idx
+            emergency = emergency[:remove_idx] + emergency[remove_idx + 1:]
+        else:
+            raise IndexError(f'Trying to remove record with invalid index of {remove_idx}')
+    patients = OPD + emergency
+
+def delete_record():
+    chosen = find_patient_by_name()
+
+    if chosen is None:
+        print("\n No records were available!")
+        return
+
+    x = input("Press enter to delete record: ")
+    if x == '':
+        rebuild_records(chosen)
+
+def menu():
+    while True:
+        option = display_menu(main_menu)
+        if option is None:
+            break
+        status = option()
+
+
+
+main_menu = {'1': Menu('Add new patient record', add_record),
+             '2': Menu('Search or edit patient record', search_record),
+             '3': Menu('list record of patients', list_record),
+             '4': Menu('Delete patient records', delete_record),
+             'Q': Menu('Quit', None),
+             }
+
+add_record_menu = {'1': Menu("Add OPD patient record", add_record_OPD),
+                   '2': Menu("Add emergency patient record", add_record_emergency),
+                   'B': Menu('back to previous menu', None),
+                   }
+
+list_records_menu = {"1": Menu("Records of patients in alphabetical order ", 1),
+                     "2": Menu("Records of Emergency patients ", 2),
+                     "3": Menu("Records of O.P.D. patients ", 3),
+                     "4": Menu("Records of patients in a particular date", 4),
+                     "B": Menu("back to previous menu", None),
+                     }
+OPD = [Patient("john", "850-922-5797", 25, "male", "Sore throat", 205),
+       Patient("mike", "850-342-6593", 63, "female", "stomachache", 205),
+       Patient("sarah", "850-773-6537", 36, "female", "Fever", 205),
+       Patient("chen", "850-754-7533", 39, "male", "sprained ankle", 205),
+       ]
+emergency = [Patient("ben", "850-922-5797", 53, "male", "Malaria", 308),
+             Patient("jake", "850-922-5797", 38, "male", "heart attack", 102),
+             Patient("alex", "850-922-5797", 29, "male", "Salmonella", 265),
+             Patient("chong", "850-922-5797", 44, "male", "Chemical burns", 304),
+             ]
+
+patients = OPD + emergency
+
+
+menu()
