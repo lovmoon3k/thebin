@@ -1,0 +1,88 @@
+import subprocess
+ 
+ 
+def check_path_exists(path):
+    cmd_line = f'hdfs dfs -test -e {path}'
+    proc = subprocess.Popen(cmd_line, shell=True)
+    proc.wait()
+    result = proc.returncode
+    if result == 0:
+        return True
+    else:
+        return False
+ 
+ 
+def path_is_directory(path):
+    cmd_line = f'hdfs dfs -test -d {path}'
+    proc = subprocess.Popen(cmd_line, shell=True)
+    proc.wait()
+    result = proc.returncode
+    if result == 0:
+        return True
+    else:
+        return False
+ 
+ 
+def path_is_file(path):
+    cmd_line = f'hdfs dfs -test -f {path}'
+    proc = subprocess.Popen(cmd_line, shell=True)
+    proc.wait()
+    result = proc.returncode
+    if result == 0:
+        return True
+    else:
+        return False
+ 
+ 
+def get_content_list(root_path):
+    path_is_exists=check_path_exists(path=root_path)
+    if not path_is_exists:
+        return []
+ 
+    is_file=path_is_file(root_path)
+    if is_file:
+        return []
+ 
+    cmd_line = f'hdfs dfs -ls "{root_path}"'
+    proc = subprocess.Popen(cmd_line, shell=True, stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE)
+    result = []
+    while True:
+        output = proc.stdout.readline()
+        if not output and proc.poll is not None:
+            break
+        if output:
+            line = output.rstrip().decode('utf-8')
+            t = [x for x in line.split(' ') if len(x) > 0]
+            if len(t)==8:
+                result.append(t[7])
+    return result
+ 
+ 
+root_path='/test_folder'
+items=get_content_list(root_path=root_path)
+filtered_items=[]
+for item in items:
+    if path_is_directory(item):
+        filtered_items.append(item)
+ 
+result={root_path:filtered_items}
+seen_keys=set()
+while True:
+    is_changed = False
+    for key in result:
+        if key in seen_keys:
+            continue
+        for item in result[key]:
+            new_children=get_folders_list(root_path=item)
+            filtered_items=[]
+            for child in new_children:
+                if path_is_directory(child):
+                    filtered_items.append(child)
+            if len(filtered_items)>0:
+                result[item]=filtered_items
+                is_changed=True
+        seen_keys.add(key)
+    if not is_changed:
+        break
+print(result)
