@@ -1,0 +1,75 @@
+const { guildId, ccAnnouncementChannelId, nowLiveRoleId, contentCreatorRoleId, ccAnnouncementRoleId } = require('../config.json')
+
+module.exports = async (client) => {
+
+    let guild = client.guilds.cache.get(guildId);
+
+    const nowLiveRole = guild.roles.cache.find(role => role.id === nowLiveRoleId);
+    const ccAnnouncementRole = guild.roles.cache.find(role => role.id === ccAnnouncementRoleId)
+    const ccAnnouncementChannel = client.channels.cache.get(ccAnnouncementChannelId);
+
+    try {
+        await guild.members.fetch();
+
+    	client.on('presenceUpdate', (oldMember, newMember) => {
+
+        	const contentCreator = newMember.member.roles.cache.some(r => contentCreatorRoleId.includes(r.id));
+
+        	ccAnnouncementChannel.send({ content: `Saw the presence update`})
+
+        	try {
+
+            	if (oldMember === null) {
+                	ccAnnouncementChannel.send({ content: `Old member was null`})
+                	return
+            	}
+
+            	if (newMember.member === null) {
+                	ccAnnouncementChannel.send({ content: `New member was null`})
+                	return
+            	}
+
+            	const oldStream = oldMember.activities ? oldMember.activities.find(activity => activity.type === 'Streaming') : false;
+            	const newStream = newMember.activities ? newMember.activities.find(activity => activity.type === 'Streaming') : false;
+
+	            if (contentCreator) {    
+
+    	            if (!oldStream && newStream) {      // Started streaming.
+
+        	            const category = newMember.activities.find(activity => activity.type === 'STREAMING').state;
+            	        if (category != 'Software and Game Development') return
+
+                	    newMember.member.roles.add(nowLiveRole)
+	                        .then(() => console.log(`${nowLiveRole.name} added to ${newMember.user.tag}.`))
+	                        .catch(console.error);
+
+	                        const url = newMember.activities.find(activity => activity.type === 'Streaming').url;
+	                        const platform = newMember.activities.find(activity => activity.type === 'Streaming').name;
+	                        const streamTitle = newMember.activities.find(activity => activity.type === 'Streaming').details;
+
+	                    ccAnouncementChannel.send(`${ccAnnouncementRole}, ${newMember.member} is streaming on ${platform}! Go check it out!\n${streamTitle}\n${url}`);
+	                    console.log(newMember.activities);
+	                } 
+
+	                else if (oldStream && !newStream) {     // Stopped streaming.
+	                    if (newMember.member.roles.cache.some(role => role.id === nowLiveRoleId)) {
+
+	                        newMember.member.roles.remove(nowLiveRole)
+		                        .then(() => console.log(`${nowLiveRole.name} removed from ${newMember.user.tag}.`))
+		                        .catch(console.error);
+                        
+	                    } else {
+	                        return
+	                    }                
+	                }
+	            }
+
+	        } catch (err) {
+	            console.error(err)
+	        }
+	    });
+
+	} catch (err) {
+	    console.error(err);
+	}
+}
