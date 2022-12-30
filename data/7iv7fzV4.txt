@@ -1,0 +1,56 @@
+-- The key and IV used for encryption and decryption
+local key = "a secret key"
+local iv = "an initialization vector"
+
+-- The ledger of IDs and permissions
+local ledger = {
+  ["client1"] = {
+    permissions = "admin",
+  },
+  ["client2"] = {
+    permissions = "employee",
+  },
+  ["client3"] = {
+    permissions = "guest",
+  },
+}
+
+-- Function to check if a user has sufficient permissions for the requested door
+function checkPermissions(user, door)
+  local result = false
+  if ledger[user] then
+    if ledger[user].permissions == "admin" then
+      result = true
+    elseif ledger[user].permissions == "employee" and door == "employee" then
+      result = true
+    elseif ledger[user].permissions == "guest" and door == "guest" then
+      result = true
+    end
+  end
+  return result
+end
+
+-- Main program loop
+while true do
+  -- Wait for a message from a client computer
+  local sender, message = rednet.receive()
+  -- Decrypt the message from the client computer
+  local decryptedMessage = decrypt("aes-256-cbc", key, iv, message)
+  -- Check if the message matches a ledger entry
+  if ledger[decryptedMessage] then
+    -- Check if the user has sufficient permissions for the requested door
+    if checkPermissions(decryptedMessage, "employee") then
+      -- Encrypt and send the "access granted" message
+      local encryptedMessage = encrypt("aes-256-cbc", key, iv, "access granted")
+      rednet.send(sender, encryptedMessage)
+    else
+      -- Encrypt and send the "access denied" message
+      local encryptedMessage = encrypt("aes-256-cbc", key, iv, "access denied")
+      rednet.send(sender, encryptedMessage)
+    end
+  else
+    -- Encrypt and send the "access denied" message
+    local encryptedMessage = encrypt("aes-256-cbc", key, iv, "access denied")
+    rednet.send(sender, encryptedMessage)
+  end
+end
