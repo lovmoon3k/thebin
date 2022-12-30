@@ -1,0 +1,26 @@
+#!/bin/bash
+domain="$1"
+selector="$2"
+yum --nogpgcheck -y install dkim-milter
+cd /etc/mail/dkim-milter/keys
+mkdir $domain
+cd $domain
+dkim-genkey -r -d $domain -s $selector
+cd ..
+chown -R dkim-milter:dkim-milter $domain
+chmod -R 600 ${domain}/*
+echo *:${domain}:/etc/mail/dkim-milter/keys/${domain}/${selector} >> /etc/mail/dkim-milter/keys/keylist
+sed -i "s/Socket/#Socket/g" /etc/mail/dkim-milter/dkim-filter.conf
+echo Syslog yes >> /etc/mail/dkim-milter/dkim-filter.conf
+echo SyslogFacility mail >> /etc/mail/dkim-milter/dkim-filter.conf
+echo Socket inet:8891@localhost >> /etc/mail/dkim-milter/dkim-filter.conf
+echo 127.0.0.1 > /etc/mail/dkim-milter/hosts
+echo InternalHosts /etc/mail/dkim-milter/hosts >> /etc/mail/dkim-milter/dkim-filter.conf
+echo milter_default_action = accept >> /etc/postfix/main.cf
+echo milter_protocol = 2 >> /etc/postfix/main.cf
+echo smtpd_milters = inet:localhost:8891 >> /etc/postfix/main.cf
+echo non_smtpd_milters = inet:localhost:8891 >> /etc/postfix/main.cf
+service dkim-milter restart
+service postfix restart
+echo "Use the following information to your DNS records:"
+cat /etc/mail/dkim-milter/keys/${domain}/${selector}.txt
