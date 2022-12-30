@@ -1,0 +1,68 @@
+const { createSecureContext } = require('tls');
+const { Http2Session, Http2Stream } = require('http2');
+
+const context = createSecureContext({
+  key: fs.readFileSync('key.pem'),
+  cert: fs.readFileSync('cert.pem')
+});
+
+const session = new Http2Session(context);
+
+const urls = [
+  'https://example.com/file1.txt',
+  'https://example.com/file2.txt',
+  'https://example.com/file3.txt'
+  // add more URLs here
+];
+
+const semaphore = {
+  active: 0,
+  queue: [],
+};
+
+function acquire() {
+  return new Promise((resolve) => {
+    semaphore.queue.push(resolve);
+    processQueue();
+  });
+}
+
+function release() {
+  semaphore.active--;
+  processQueue();
+}
+
+function processQueue() {
+  while (semaphore.queue.length > 0 && semaphore.active < 5) {
+    semaphore.active++;
+    semaphore.queue.shift()();
+  }
+}
+
+async function download(url) {
+  await acquire();
+
+  const request = {
+    ':method': 'GET',
+    ':path': url,
+  };
+
+  const stream = session.request(request);
+
+  stream.on('response', (headers) => {
+    console.log(headers);
+  });
+
+  stream.on('data', (chunk) => {
+    // do something with the data chunk
+  });
+
+  stream.on('end', () => {
+    console.log('stream ended');
+    release();
+  });
+}
+
+for (const url of urls) {
+  download(url);
+}
