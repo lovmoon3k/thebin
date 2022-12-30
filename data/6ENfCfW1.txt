@@ -1,0 +1,86 @@
+<?php
+
+functio dump_tgm($version, $type = 'full', $platform = 'android', $year_celebration = '_2020') {
+	$url = 'http://mafia2cdn.yottagames.com/res/';
+	$uri = 'version_' . $platform . $version . $year_celebration '.json';
+	$final_url = $url . $uri;
+	
+	$options = array(
+    'http'  => array(
+                'method' => "GET",
+                'header' => "Access-language: en\r\n" .
+                            "User-Agent: " . // i.e. An iPad 
+                                "Mozilla/5.0 (iPad; U; CPU OS 3_2 like Mac OS X; en-us) " .
+                                "AppleWebKit/531.21.10 (KHTML, like Gecko) " .
+                                "Version/4.0.4 Mobile/7B334b Safari/531.21.102011-10-16 20:23:10\r\n"
+                )
+	);
+
+	$context = stream_context_create($options);
+	$version_json = file_get_contents($final_url, false, $context);
+	$version_data = json_decode($version_json);	
+	
+	$download_type = 0 + $argv[1];
+
+foreach($version_data->resources as $resource) {
+	echo	'Type: ' . $resource->type .
+			' | Size: ' . $resource->size .
+			' | Path: ' . $resource->path . PHP_EOL;
+
+	$uri = $resource->res . '.' . $resource->md5;
+	$file_data = file_get_contents($url . $uri, false, $context);
+
+	switch($download_type) {
+		default:
+		case 'full':
+			$download_type = 0;
+			_file_put_contents($resource->path, $file_data);
+			break;
+
+		case 'res':
+		case 'resource':
+			if(!str_contains($resource->path, '.lua'))
+				_file_put_contents($resource->path, $file_data);
+			break;
+
+		case 'lua':
+		case 'luajcode':
+			if(str_contains($resource->path, '.lua'))
+				_file_put_contents($resource->path, $file_data);
+			break;
+	}
+}
+
+foreach($version_data->resources as $resource) {
+    if(str_contains($resource->path, '.lua')) {
+        echo 'Type: ' . $resource->type .
+            ' | Path: ' . $resource->path .
+            ' | Size: ' . $resource->size . PHP_EOL;
+
+        $uri = $resource->res . '.' . $resource->md5;
+        $file_data = file_get_contents($url . $uri, false, $context);
+
+        _file_put_contents($resource->path, $file_data);
+    }
+}
+
+/**
+ * Create file with content, and create folder structure if doesn't exist 
+ * @param String $filepath
+ * @param String $message
+ */
+function _file_put_contents($filepath, $message){
+    try {
+        $isInFolder = preg_match("/^(.*)\/([^\/]+)$/", $filepath, $filepathMatches);
+        if($isInFolder) {
+            $folderName = $filepathMatches[1];
+            $fileName = $filepathMatches[2];
+            if (!is_dir($folderName)) {
+                mkdir($folderName, 0777, true);
+            }
+        }
+        file_put_contents($filepath, $message);
+    } catch (Exception $e) {
+        echo "ERR: error writing '$message' to '$filepath', ". $e->getMessage();
+    }
+}
