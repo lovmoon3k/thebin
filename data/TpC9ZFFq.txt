@@ -1,0 +1,840 @@
+repeat task.wait() until game:IsLoaded()
+
+local UILib = loadstring(game:GetObjects("rbxassetid://7657867786")[1].Source)()
+
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Player = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local WTVP = Camera.WorldToViewportPoint
+local LastRender = tick()
+local Mouse = Player:GetMouse()
+local Direction = Vector3.new(0,0,0)
+local InterpolatedDir = Direction
+local Tilt = 0
+local InterpolatedTilt = Tilt
+local CameraPos = game.Workspace.CurrentCamera.CFrame.Position
+local Data
+local GameMeta = getrawmetatable(game)
+local OldIndex = GameMeta.__index
+local OldNameCall = GameMeta.__namecall
+
+setreadonly(GameMeta,false)
+
+local DataHandler = {}
+DataHandler.__index = DataHandler
+
+local ESPHandler = {}
+ESPHandler.__index = ESPHandler
+
+local ESPObjects = {}
+
+local ESPTypes = {
+	["MobESP"] = "Mob ESP";
+	["PlayerESP"] = "Player ESP";
+	["BagESP"] = "Bag ESP";
+	["ChestESP"] = "Chest ESP";
+	["IngredientESP"] = "Ingredient ESP";
+    ["NpcESP"] = "NPC ESP";
+    ["LocationESP"] = "Location ESP";
+}
+
+function WTS(Position)
+	local VP,bool = WTVP(Camera,Position)
+	return Vector2.new(VP.x, VP.y),bool,math.round(VP.Z)
+end
+
+function GetStringForKeycode(Keycode)
+	local Full = tostring(Keycode)
+	return string.sub(Full,14,#Full)
+end
+
+function ESPHandler:Destroy()
+	if self.Destroyed then return end
+	self.Destroyed = true
+	self.Properties.Enabled = false
+
+	for i,v in pairs(self.TextObjects) do
+		v:Remove()
+	end
+end
+
+function ESPHandler:Render()
+	if self.Destroyed then return end
+
+	local Position,OnScreen,Distance = WTS(self.Part.Position)
+	Position -= Vector2.new(0,Data.Contents.ESPYOffset)
+
+	for i,v in pairs(self.Texts) do
+		local TextObject = self.TextObjects[i] or Drawing.new("Text")
+		if self.Properties.Enabled and Distance < self.Properties.MaxDistance then
+			TextObject.Size = self.Properties.Size
+			TextObject.Outline = true
+			TextObject.Center = true
+			TextObject.Visible = OnScreen
+            local NewText,SetColor = v(self.Part)
+			TextObject.Text = NewText
+			TextObject.Color = SetColor or self.Properties.Color
+			local Scale = self.Properties.Size
+			local Amt = #self.Texts-1
+			TextObject.Position = Position-Vector2.new(0,((Scale*Amt)-(Scale*(i-1))))
+
+			self.TextObjects[i] = TextObject
+		else
+			TextObject.Visible = false
+		end
+	end
+end
+
+function ESPHandler.new(TargetPart,Texts,Properties)
+	local self = setmetatable({
+		Part = TargetPart;
+		Texts = Texts;
+		TextObjects = {};
+		Properties = Properties;
+	},ESPHandler)
+
+    Texts[#Texts+1] = function(Part)
+        local Position,OnScreen,Distance = WTS(Part.Position)
+        return "["..Distance.."s]",Color3.new(1,1,1)
+    end
+
+	for i,v in pairs(Texts) do
+		local NewText = v(self.Part)
+		local TextObject = Drawing.new("Text")
+		TextObject.Size = self.Properties.Size
+		TextObject.Outline = true
+		TextObject.Center = true
+		TextObject.Visible = self.Properties.Enabled
+		TextObject.Text = NewText
+		TextObject.Color = self.Properties.Color
+		self.TextObjects[i] = TextObject
+	end
+
+	return self
+end
+
+function DataHandler:Save()
+    local SaveTable = {}
+
+    for i,v in pairs(self.Contents) do
+        SaveTable[i] = v
+    end
+
+    for i,v in pairs(SaveTable) do
+        if typeof(v) == "Color3" then
+            SaveTable[i] = {
+                R = v.R;
+                G = v.G;
+                B = v.B;
+            }
+        end
+    end
+
+	writefile(self.FileName,HttpService:JSONEncode(SaveTable))
+end
+
+function DataHandler:SetValue(Key,Value)
+	self.Contents[Key] = Value
+	self:Save()
+
+	if self.ChangedCallbacks[Key] then
+		self.ChangedCallbacks[Key](Value)
+	end
+end
+
+function DataHandler:Changed(Key,Callback)
+	self.ChangedCallbacks[Key] = Callback
+end
+
+function DataHandler.new(FileName)
+	local DataTable = isfile(FileName) and HttpService:JSONDecode(readfile(FileName)) or {}
+
+    for i,v in pairs(DataTable) do
+        if typeof(v) == "table" and (v.R and v.G and v.B) then
+            DataTable[i] = Color3.new(v.R,v.G,v.B)
+        end
+    end
+
+	local self = setmetatable({
+		Contents = DataTable;
+		FileName = FileName;
+		ChangedCallbacks = {};
+	},DataHandler)
+
+	self:Save()
+
+	return self
+end
+
+Data = DataHandler.new("fusionwoken_data.txt")
+
+local Window = UILib:CreateWindow({
+	Name = "Fusionwoken [ALPHA]";
+	Themeable = false;
+})
+
+local ESPTab = Window:CreateTab({
+	Name = "ESP"
+})
+
+local CharacterTab = Window:CreateTab({
+    Name = "Character"
+})
+
+local WorldTab = Window:CreateTab({
+    Name = "World"
+})
+
+local ESPTabGeneralSection = ESPTab:CreateSection({
+	Name = "General";
+})
+
+ESPTabGeneralSection:AddSlider({
+	Name = "Refresh Rate";
+	Flag = "ESPGeneralSection_RefreshRate";
+	Value = Data.Contents.ESPRefreshRate or 40;
+	Min = 5;
+	Max = 180;
+	Callback = function(Value)
+		Data:SetValue("ESPRefreshRate",Value)
+	end;
+})
+
+ESPTabGeneralSection:AddSlider({
+    Name = "Y Offset";
+    Flag = "ESPGeneralSection_YOffset";
+    Value = Data.Contents.ESPYOffset or 20;
+    Min = 0;
+    Max = 40;
+    Callback = function(Value)
+        Data:SetValue("ESPYOffset",Value)
+    end;
+})
+
+local ESPIndex = 0
+for i,v in pairs(ESPTypes) do
+    ESPIndex += 1
+	local Section = ESPTab:CreateSection({
+		Name = v;
+        Side = ESPIndex % 2 == 0 and "Left" or "Right";
+	})
+
+	local DefaultColors = {
+		["MobESP"] = Color3.new(1,0,0);
+		["PlayerESP"] = Color3.new(1,0,1);
+		["BagESP"] = Color3.new(0,1,1);
+		["ChestESP"] = Color3.new(1,1,0);
+		["IngredientESP"] = Color3.new(0,1,0);
+        ["NpcESP"] = Color3.new(0,0,1);
+        ["LocationESP"] = Color3.new(.5,1,0);
+	}
+
+	local function Update()
+		for _,Object in ipairs(ESPObjects) do
+			if Object.Properties.Name == i then
+				Object.Properties.Enabled = Data.Contents[i.."Enabled"] or false
+				Object.Properties.Color = Data.Contents[i.."Color"] or DefaultColors[i]
+				Object.Properties.Size = Data.Contents[i.."Size"] or 16
+                Object.Properties.MaxDistance = Data.Contents[i.."Distance"] or 20000
+			end
+		end
+	end
+
+	local EnabledToggle = Section:AddToggle({
+		Name = "Enabled";
+		Flag = i.."Section_Enabled";
+		Value = Data.Contents[i.."Enabled"] or false;
+		Callback = function(Value)
+			Data:SetValue(i.."Enabled",Value)
+			Update()
+		end;
+		Keybind = {
+			Value = Data.Contents[i.."Bind"] and Enum.KeyCode[Data.Contents[i.."Bind"]];
+			Callback = function(NewBind)
+				Data:SetValue(i.."Bind",NewBind and GetStringForKeycode(NewBind))
+			end;
+		}
+	})
+
+	local SizeSlider = Section:AddSlider({
+		Name = "Size";
+		Flag = i.."Section_Size";
+		Value = Data.Contents[i.."Size"] or 16;
+		Min = 10;
+		Max = 25;
+		Callback = function(Value)
+			Data:SetValue(i.."Size",Value)
+			Update()
+		end;
+	})
+
+    local DistanceSlider = Section:AddSlider({
+        Name = "Distance";
+        Flag = i.."Section_Distance";
+        Value = Data.Contents[i.."Distance"] or 20000;
+        Min = 100;
+        Max = 60000;
+        Callback = function(Value)
+            Data:SetValue(i.."Distance",Value)
+            Update()
+        end;
+    })
+
+	local ColorPicker = Section:AddColorpicker({
+		Name = "Color";
+		Flag = i.."Section_Color";
+		Value = Data.Contents[i.."Color"] or DefaultColors[i];
+		Callback = function(Value)
+			Data:SetValue(i.."Color",Value)
+			Update()
+		end;
+	})
+
+	Update()
+end
+
+local function ConnectPlayerToESP(Plr)
+	if Plr == Player then return end
+
+	local function ConnectCharacter(Character)
+		local HRoot = Character:WaitForChild("HumanoidRootPart")
+
+		local Object = ESPHandler.new(HRoot,{
+			[1] = function(Part)
+				local Humanoid = Part.Parent and Part.Parent:FindFirstChildWhichIsA("Humanoid")
+				local Position,OnScreen,Distance = WTS(Part.Position)
+				if Humanoid then
+					return Plr.Name.." [HP: |"..math.round(Humanoid.Health).."/"..math.round(Humanoid.MaxHealth).."| ("..math.round((Humanoid.Health/Humanoid.MaxHealth)*100) .."%)"
+				else
+					return ""
+				end
+			end;
+			[2] = function(Part)
+				local Oath
+				local Bell
+				if Plr:FindFirstChild("Backpack") then
+					for i,v in ipairs(Plr.Backpack:GetChildren()) do
+						if string.find(v.Name,"Talent:Oath:") then
+							Oath = string.sub(v.Name,14,#v.Name)
+						elseif string.find(v.Name,"Resonance:") then
+							Bell = string.sub(v.Name,11,#v.Name)
+						end
+					end
+				end
+
+				return "Oath: "..(Oath or "None").." | Bell: "..(Bell or "None")
+			end;
+		},{
+			Name = "PlayerESP";
+			Color = Data.Contents["PlayerESPColor"];
+			Size = Data.Contents["PlayerESPSize"];
+			Enabled = Data.Contents["PlayerESPEnabled"];
+            MaxDistance = Data.Contents["PlayerESPDistance"];
+		})
+
+		table.insert(ESPObjects,Object)
+
+		local Connections = {}
+
+		local function Disconnect()
+			for i,v in ipairs(Connections) do
+				v:Disconnect()
+			end
+			Object:Destroy()
+		end
+
+		table.insert(Connections,Plr.CharacterAdded:Connect(function()
+			Disconnect()
+		end))
+
+		table.insert(Connections,Players.PlayerRemoving:Connect(function(WhoLeft)
+			if WhoLeft == Plr then
+				Disconnect()
+			end
+		end))
+	end
+
+	ConnectCharacter(Plr.Character or Plr.CharacterAdded:Wait())
+	Plr.CharacterAdded:Connect(ConnectCharacter)
+end
+
+local function ConnectChestToChestESP(Model)
+    local Object
+
+    local Connection
+    Connection = Model.AncestryChanged:Connect(function()
+        if not Model:IsDescendantOf(workspace) then
+            Connection:Disconnect()
+            if Object then
+                Object:Destroy()
+            end
+        end
+    end)
+
+    local Part = Model:WaitForChild("RootPart")
+    
+    Object = ESPHandler.new(Part,{
+        [1] = function(Part)
+            if Part.Parent == nil then return "" end
+            local Position,OnScreen,Distance = WTS(Part.Position)
+            return "Chest ["..Distance.."s]"
+        end;
+    },{
+        Name = "ChestESP";
+        Color = Data.Contents["ChestESPColor"];
+        Size = Data.Contents["ChestESPSize"];
+        Enabled = Data.Contents["ChestESPEnabled"];
+        MaxDistance = Data.Contents["ChestESPDistance"];
+    })
+
+    table.insert(ESPObjects,Object)
+end
+
+local function ConnectMobToMobESP(Model)
+    local Object
+
+    local Connection
+    Connection = Model.AncestryChanged:Connect(function()
+        if Model.Parent ~= workspace.Live then
+            Connection:Disconnect()
+            if Object then
+                Object:Destroy()
+            end
+        end
+    end)
+
+    Part = Model:WaitForChild("HumanoidRootPart")
+    local Humanoid = Model:FindFirstChildWhichIsA("Humanoid")
+
+    Object = ESPHandler.new(Part,{
+        [1] = function(Part)
+            return Model.Name
+        end;
+        [2] = function(Part)
+            local Humanoid = Part.Parent and Part.Parent:FindFirstChildWhichIsA("Humanoid")
+            if not Humanoid then return "" end
+            return "HP: "..math.round(Humanoid.Health).."/"..math.round(Humanoid.MaxHealth).." ("..math.round((Humanoid.Health/Humanoid.MaxHealth)*100).."%)"
+        end;
+    },{
+        Name = "MobESP";
+        Color = Data.Contents["MobESPColor"];
+        Size = Data.Contents["MobESPSize"];
+        Enabled = Data.Contents["MobESPEnabled"];
+        MaxDistance = Data.Contents["MobESPDistance"];
+    })
+
+    table.insert(ESPObjects,Object)
+end
+
+local function ConnectNpcToNpcESP(Model)
+    local Object
+
+    local Connection
+    Connection = Model.AncestryChanged:Connect(function()
+        if not Model:IsDescendantOf(workspace) then
+            Connection:Disconnect()
+            if Object then
+                Object:Destroy()
+            end
+        end
+    end)
+
+    repeat task.wait() until Model.PrimaryPart
+    Part = Model.PrimaryPart
+    
+    Object = ESPHandler.new(Part,{
+        [1] = function(Part)
+            if Part.Parent == nil then return "" end
+            return Model.Name
+        end;
+    },{
+        Name = "NpcESP";
+        Color = Data.Contents["NpcESPColor"];
+        Size = Data.Contents["NpcESPSize"];
+        Enabled = Data.Contents["NpcESPEnabled"];
+        MaxDistance = Data.Contents["NpcESPDistance"];
+    })
+
+    table.insert(ESPObjects,Object)
+end
+
+local function ConnectBagToBagESP(Part)
+    local Object
+
+    local Connection
+    Connection = Part.AncestryChanged:Connect(function()
+        if not Part:IsDescendantOf(workspace) then
+            Connection:Disconnect()
+            if Object then
+                Object:Destroy()
+            end
+        end
+    end)
+    
+    Object = ESPHandler.new(Part,{
+        [1] = function(Part)
+            if Part.Parent == nil then return "" end
+            return "Bag"
+        end;
+    },{
+        Name = "BagESP";
+        Color = Data.Contents["BagESPColor"];
+        Size = Data.Contents["BagESPSize"];
+        Enabled = Data.Contents["BagESPEnabled"];
+        MaxDistance = Data.Contents["BagESPDistance"];
+    })
+
+    table.insert(ESPObjects,Object)
+end
+
+local function ConnectIngredientToIngredientESP(Part)
+    local Object
+
+    local Connection
+    Connection = Part.AncestryChanged:Connect(function()
+        if not Part:IsDescendantOf(workspace) then
+            Connection:Disconnect()
+            if Object then
+                Object:Destroy()
+            end
+        end
+    end)
+    
+    Object = ESPHandler.new(Part,{
+        [1] = function(Part)
+            if Part.Parent == nil then return "" end
+            return Part.Name
+        end;
+    },{
+        Name = "IngredientESP";
+        Color = Data.Contents["IngredientESPColor"];
+        Size = Data.Contents["IngredientESPSize"];
+        Enabled = Data.Contents["IngredientESPEnabled"];
+        MaxDistance = Data.Contents["IngredientESPDistance"];
+    })
+
+    table.insert(ESPObjects,Object)
+end
+
+Players.PlayerAdded:Connect(ConnectPlayerToESP)
+for i,v in ipairs(Players:GetPlayers()) do
+	task.spawn(ConnectPlayerToESP,v)
+end
+
+if workspace:FindFirstChild("Thrown") then
+    local Connected = {}
+
+    task.spawn(function()
+        while true do
+            for i,v in ipairs(workspace.Thrown:GetChildren()) do
+                if table.find(Connected,v) then continue end
+                if v:FindFirstChild("Pick") then
+                    table.insert(Connected,v)
+                    task.spawn(ConnectChestToChestESP,v)
+                elseif v.Name == "BagDrop" then
+                    table.insert(Connected,v)
+                    ConnectBagToBagESP(v)
+                end
+            end
+            task.wait(1)
+        end
+    end)
+end
+
+if workspace:FindFirstChild("Ingredients") then
+    workspace.Ingredients.ChildAdded:Connect(ConnectIngredientToIngredientESP)
+
+    for i,v in ipairs(workspace.Ingredients:GetChildren()) do
+        task.spawn(ConnectIngredientToIngredientESP,v)
+    end
+end
+
+if workspace:FindFirstChild("Live") then
+    workspace.Live.ChildAdded:Connect(function(Model)
+        if string.sub(Model.Name,1,1) == "." then
+            ConnectMobToMobESP(Model)
+        end
+    end)
+
+    for i,v in ipairs(workspace.Live:GetChildren()) do
+        if string.sub(v.Name,1,1) == "." then
+            task.spawn(ConnectMobToMobESP,v)
+        end
+    end
+end
+
+if workspace:FindFirstChild("NPCs") then
+    workspace.NPCs.ChildAdded:Connect(ConnectNpcToNpcESP)
+
+    for i,v in ipairs(workspace.NPCs:GetChildren()) do
+        task.spawn(ConnectNpcToNpcESP,v)
+    end
+end
+
+if ReplicatedStorage:FindFirstChild("MarkerWorkspace") then
+    for i,v in ipairs(ReplicatedStorage.MarkerWorkspace.AreaMarkers:GetChildren()) do
+        local AreaMarker = v:FindFirstChild("AreaMarker")
+        if AreaMarker then
+            local Object = ESPHandler.new(AreaMarker,{
+                [1] = function(Part)
+                    return v.Name
+                end;
+            },{
+                Name = "LocationESP";
+                Color = Data.Contents["LocationESPColor"];
+                Size = Data.Contents["LocationESPSize"];
+                Enabled = Data.Contents["LocationESPEnabled"];
+                MaxDistance = Data.Contents["LocationESPDistance"];
+            })
+        
+            table.insert(ESPObjects,Object)
+        end
+    end
+end
+
+local CharacterMovementSection = CharacterTab:CreateSection({
+    Name = "Movement";
+    Side = "Left";
+})
+
+local CharacterConditionSection = CharacterTab:CreateSection({
+    Name = "Condition";
+    Side = "Right";
+})
+
+local ResetButton = CharacterConditionSection:AddButton({
+    Name = "Reset Character";
+    Callback = function()
+        if Player.Character then
+            Player.Character:BreakJoints()
+        end
+    end;
+})
+
+local NofallToggle = CharacterConditionSection:AddToggle({
+    Name = "Nofall";
+    Flag = "ConditionSection_NofallEnabled";
+    Value = Data.Contents["NofallEnabled"] or false;
+    Callback = function(Value)
+        Data:SetValue("NofallEnabled",Value)
+    end;
+    Keybind = {
+        Value = Data.Contents["NofallBind"] and Enum.KeyCode[Data.Contents["NofallBind"]];
+		Callback = function(NewBind)
+			Data:SetValue("NofallBind",NewBind and GetStringForKeycode(NewBind))
+		end;
+    }
+})
+
+local FlyEnabledToggle = CharacterMovementSection:AddToggle({
+    Name = "Fly Enabled";
+	Flag = "MovementSection_FlyEnabled";
+	Value = Data.Contents["FlyEnabled"] or false;
+	Callback = function(Value)
+        if Value then
+            LastPos = Player.Character.HumanoidRootPart.Position
+        else
+            LastPos = nil
+        end
+		Data:SetValue("FlyEnabled",Value)
+	end;
+	Keybind = {
+		Value = Data.Contents["FlyBind"] and Enum.KeyCode[Data.Contents["FlyBind"]];
+		Callback = function(NewBind)
+			Data:SetValue("FlyBind",NewBind and GetStringForKeycode(NewBind))
+		end;
+	}
+})
+
+local FlySpeedSlider = CharacterMovementSection:AddSlider({
+    Name = "Fly Speed";
+    Flag = "MovementSection_FlySpeed";
+    Value = Data.Contents["FlySpeed"] or 6;
+    Min = 0;
+    Max = 20;
+    Callback = function(Value)
+        Data:SetValue("FlySpeed",Value)
+    end;
+})
+
+local FlySprintBind = CharacterMovementSection:AddKeybind({
+    Name = "Fly Sprint Bind";
+    Flag = "MovementSection_FlySprintBind";
+    Value = Data.Contents["FlySprintBind"] and Enum.KeyCode[Data.Contents["FlySprintBind"]];
+	Callback = function(NewBind)
+		Data:SetValue("FlySprintBind",NewBind and GetStringForKeycode(NewBind))
+	end;
+})
+
+local FlySprintSpeedSlider = CharacterMovementSection:AddSlider({
+    Name = "Fly Sprint Speed";
+    Flag = "MovementSection_FlySprintSpeed";
+    Value = Data.Contents["FlySprintSpeed"] or 18;
+    Min = 0;
+    Max = 20;
+    Callback = function(Value)
+        Data:SetValue("FlySprintSpeed",Value)
+    end;
+})
+
+local NoclipEnabledToggle = CharacterMovementSection:AddToggle({
+    Name = "Noclip Enabled";
+    Flag = "MovementSection_NoclipEnabled";
+    Value = Data.Contents["NoclipEnabled"] or false;
+    Callback = function(Value)
+        Data:SetValue("NoclipEnabled",Value)
+    end;
+    Keybind = {
+		Value = Data.Contents["NoclipBind"] and Enum.KeyCode[Data.Contents["NoclipBind"]];
+		Callback = function(NewBind)
+			Data:SetValue("NoclipBind",NewBind and GetStringForKeycode(NewBind))
+		end;
+	}
+})
+
+local NoclipParts = {}
+
+local function ConnectNoclipPart(Part)
+    table.insert(NoclipParts,Part)
+    local Connection
+    Connection = RunService.RenderStepped:Connect(function()
+        if not Part or not Part:IsDescendantOf(workspace) then
+            Connection:Disconnect()
+            return
+        end
+        if Data.Contents.NoclipEnabled then
+            Part.CanCollide = false
+        end
+    end)
+end
+
+local function ConnectCharacter(Character)
+    for i,v in ipairs(Character:GetDescendants()) do
+        if v:IsA("BasePart") and not table.find(NoclipParts,v) then
+            ConnectNoclipPart(v)
+        end
+    end
+
+    Character.DescendantAdded:Connect(function(Inst)
+        if Inst:IsA("BasePart") and not table.find(NoclipParts,Inst) then
+            ConnectNoclipPart(Inst)
+        end
+    end)
+end
+
+RunService.RenderStepped:Connect(function()
+	local CanRender = math.abs(tick()-LastRender)
+	if CanRender > 1/Data.Contents.ESPRefreshRate then
+		LastRender = tick()
+		for i,v in ipairs(ESPObjects) do
+			v:Render()
+		end
+	end
+end)
+
+local FlySettings = { 
+    ForwardKey = Enum.KeyCode.W,
+    LeftKey = Enum.KeyCode.A,
+    BackwardKey = Enum.KeyCode.S,
+    RightKey = Enum.KeyCode.D,
+    UpKey = Enum.KeyCode.E,
+    DownKey = Enum.KeyCode.Q,
+}
+
+GameMeta.__namecall = newcclosure(function(Self,...)
+    local Args = {...}
+    local Method = getnamecallmethod()
+    if Method == "FireServer" and typeof(Args[1]) == "number" and typeof(Args[2]) == "boolean" and (Data.Contents.NofallEnabled or Data.Contents.FlyEnabled) then
+        return
+    end
+    return OldNameCall(Self,...)
+end)
+    
+function Lerp(a, b, t)
+    return a + (b - a) * t
+end
+    
+local LastPos = nil
+    
+function KeyHandler(actionName, userInputState)
+    if true and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+        if actionName == "Forward" then
+            Tilt = userInputState == Enum.UserInputState.Begin and -20 or 0
+            Direction = Vector3.new(Direction.x,Direction.y,userInputState == Enum.UserInputState.Begin and -1 or 0)
+        elseif actionName == "Left" then
+            Direction = Vector3.new(userInputState == Enum.UserInputState.Begin and -1 or 0,Direction.y,Direction.z)
+        elseif actionName == "Backward" then
+            Tilt = userInputState == Enum.UserInputState.Begin and 20 or 0
+            Direction = Vector3.new(Direction.x,Direction.y,userInputState == Enum.UserInputState.Begin and 1 or 0)
+        elseif actionName == "Right" then
+            Direction = Vector3.new(userInputState == Enum.UserInputState.Begin and 1 or 0,Direction.y,Direction.z)
+        elseif actionName == "Up" then
+            Direction = Vector3.new(Direction.x,userInputState == Enum.UserInputState.Begin and 1 or 0,Direction.z)
+        elseif actionName == "Down" then
+            Direction = Vector3.new(Direction.x,userInputState == Enum.UserInputState.Begin and -1 or 0,Direction.z)
+        end
+    end
+end 
+    
+game:GetService("UserInputService").InputBegan:connect(function(inputObject, gameProcessedEvent)
+    if gameProcessedEvent then return end
+    if inputObject.KeyCode == FlySettings.ToggleKey then
+        KeyHandler("Toggle", Enum.UserInputState.Begin, inputObject)
+    elseif inputObject.KeyCode == FlySettings.ForwardKey then
+        KeyHandler("Forward", Enum.UserInputState.Begin, inputObject)
+    elseif inputObject.KeyCode == FlySettings.LeftKey then
+        KeyHandler("Left", Enum.UserInputState.Begin, inputObject)
+    elseif inputObject.KeyCode == FlySettings.BackwardKey then
+        KeyHandler("Backward", Enum.UserInputState.Begin, inputObject)
+    elseif inputObject.KeyCode == FlySettings.RightKey then
+        KeyHandler("Right", Enum.UserInputState.Begin, inputObject)
+    elseif inputObject.KeyCode == FlySettings.UpKey then	
+        KeyHandler("Up", Enum.UserInputState.Begin, inputObject)
+    elseif inputObject.KeyCode == FlySettings.DownKey then
+        KeyHandler("Down", Enum.UserInputState.Begin, inputObject)
+    elseif inputObject.KeyCode == FlySettings.SprintKey then
+        KeyHandler("Sprint", Enum.UserInputState.Begin, inputObject)
+    end
+end)
+    
+    
+game:GetService("UserInputService").InputEnded:connect(function(inputObject, gameProcessedEvent)
+    if inputObject.KeyCode == FlySettings.ForwardKey then
+        KeyHandler("Forward", Enum.UserInputState.End, inputObject)
+    elseif inputObject.KeyCode == FlySettings.LeftKey then
+        KeyHandler("Left", Enum.UserInputState.End, inputObject)
+    elseif inputObject.KeyCode == FlySettings.BackwardKey then
+        KeyHandler("Backward", Enum.UserInputState.End, inputObject)
+    elseif inputObject.KeyCode == FlySettings.RightKey then
+        KeyHandler("Right", Enum.UserInputState.End, inputObject)
+    elseif inputObject.KeyCode == FlySettings.UpKey then	
+        KeyHandler("Up", Enum.UserInputState.End, inputObject)
+    elseif inputObject.KeyCode == FlySettings.DownKey then
+        KeyHandler("Down", Enum.UserInputState.End, inputObject)
+    elseif inputObject.KeyCode == FlySettings.SprintKey then
+        KeyHandler("Sprint", Enum.UserInputState.End, inputObject)
+    end
+end)
+    
+    
+RunService.RenderStepped:Connect(function()
+    if Data.Contents.FlyEnabled and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")  then
+        for i,v in pairs(Player.Character:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.Velocity = Vector3.new(0,0,0)
+            end
+        end
+        local RootPart = game.Players.LocalPlayer.Character.HumanoidRootPart
+        InterpolatedDir = InterpolatedDir:Lerp((Direction * ((Data.Contents.FlySprintBind and UIS:IsKeyDown(Enum.KeyCode[Data.Contents.FlySprintBind])) and Data.Contents.FlySprintSpeed or Data.Contents.FlySpeed)),.2)
+        InterpolatedTilt = Lerp(InterpolatedTilt ,Tilt* ((Data.Contents.FlySprintBind and UIS:IsKeyDown(Enum.KeyCode[Data.Contents.FlySprintBind])) and 2 or 1),Tilt == 0 and .2 or .1)
+        RootPart.CFrame = RootPart.CFrame:Lerp(CFrame.new(RootPart.Position,RootPart.Position + Mouse.UnitRay.Direction) * CFrame.Angles(0,math.rad(00),0) * CFrame.new(InterpolatedDir)  * CFrame.Angles(math.rad(InterpolatedTilt),0,0),.2)
+    end	
+end)
+
+ConnectCharacter(Player.Character or Player.CharacterAdded:Wait())
+Player.CharacterAdded:Connect(ConnectCharacter)
