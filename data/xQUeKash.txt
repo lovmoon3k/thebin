@@ -1,0 +1,596 @@
+ -- Locals & Requirements
+	local component = require("component")
+	local event = require("event")
+	local term = require("term")
+	local gpu = component.gpu
+	local screen = component.screen
+	local unicode= require("unicode")
+	local ideal_strength = 15
+	local ideal_temp = 8000
+	local cutoff_temp = 9005
+	local chaosmode = 0
+	local cvar = " "
+	local tArgs = {...}
+	local reactorOutputMultiplier = tonumber(tArgs[1]) or 1
+	local ratioX, ratioY = screen.getAspectRatio()
+	local maxX, maxY = gpu.maxResolution()
+	gpu.setResolution(math.min(ratioX*55, maxX), math.min(ratioY*25,maxY))
+ -- Components
+	if not component.isAvailable("draconic_reactor") then
+		print("Reactor not connected. Please connect computer to reactor with an Adapter block.")
+		os.exit()
+	end
+	local reactor = component.draconic_reactor
+	local info = reactor.getReactorInfo()
+	local flux_gates = {}
+	for x,y in pairs(component.list("flux_gate")) do
+		flux_gates[#flux_gates+1] = x
+	end
+	if #flux_gates < 2 then
+		print("Not enough flux gates connected; please connect inflow and outflow flux gates with Adapter blocks.")
+		os.exit()
+	end
+	local inputFlux = component.proxy(flux_gates[1])
+	local outputFlux = component.proxy(flux_gates[2])
+	if not inputFlux or not outputFlux then
+		print("Not enough flux gates connected; please connect inflow and outflow flux gates with Adapter blocks.")
+		os.exit()
+	end
+ -- First Cycle
+	reactor.chargeReactor()
+	os.sleep(0.1)
+	reactor.stopReactor()
+ -- Functions
+function exit_msg(msg)
+	term.clear()
+	print(msg)
+	os.exit()
+end
+function modify_temp(offset)
+	local new_temp = ideal_temp + offset
+	if new_temp > 8000 then
+		new_temp = 8000
+	elseif new_temp < 2000 then
+		new_temp = 2000
+	end
+		ideal_temp = new_temp
+	end
+function modify_field(offset)
+	local new_strength = ideal_strength + offset
+	if new_strength > 99 then
+		new_strength = 99
+	elseif new_strength < 75 and chaosmode == 1 then
+		new_strength = 75
+	elseif new_strength < 0.5 then
+		new_strength = 0.5
+	end
+		ideal_strength = new_strength
+	end
+ -- Buttons
+	local adj_button_width = 19
+	local temp_adjust_x_offset = 62
+	local temp_adjust_y_offset = 2
+	local field_adjust_x_offset = temp_adjust_x_offset + adj_button_width + 2
+	local field_adjust_y_offset = 2
+	local status = "PeFi"
+	local lowest_field = 100
+	local lowest_fuel = 100
+	local highest_temp = 0
+	local highest_sat = 0
+	local highest_outflow = 0
+	local cutoff_field = 0.75
+	highest_use = 0.1
+	local buttons = {
+	startButton={
+    x=2,
+    y=20,
+    width=18,
+    height=1,
+    text="Start",
+	textcolor = 0x0000AA,
+    action=function()
+      if info.status == "cooling" or info.status == "cold" then
+			chaosmode = 0
+			ideal_strength = 15
+			cutoff_field = 0.4
+			ideal_temp = 8000
+        reactor.chargeReactor()
+      elseif info.status == "stopping" then
+			chaosmode = 0
+			ideal_strength = 15
+			cutoff_field = 0.4
+			ideal_temp = 8000
+        reactor.activateReactor()
+      end
+    end,
+	condition=function() return info.status ~= "running" and info.status ~= "warming_up" end
+  },
+  shutdownButton={
+    x=2,
+    y=20,
+    width=18,
+    height=1,
+    text="Shutdown",
+	textcolor = 0xAA0000,
+    action=function()
+    cutoff_temp = 8001
+    ideal_temp = 8000
+    ideal_strength = 15
+    cutoff_field = 0.75
+	chaosmode = 0
+      state = "MASD"
+      reactor.stopReactor()
+    end,
+	condition=function() return info.status == "running" or info.status == "warming_up" end
+  },
+  chaosMode={
+    x=2,
+    y=22,
+    width=18,
+    height=1,
+    text=" Chaos Mode",
+	textcolor = 0xDD00DD,
+    action=function()
+		if chaosmode == 0 then
+			chaosmode = 1
+			cutoff_temp = 19750
+			ideal_strength = 99
+			cutoff_field = 20
+			ideal_temp = 55537.78
+		elseif chaosmode == 1 then
+			chaosmode = 0
+			ideal_strength = 15
+			cutoff_field = 0.4
+			ideal_temp = 8000
+			lowest_field = 99
+		end
+    end,
+    condition=function() return info.status == "running" or info.status == "warming_up" end
+  },
+  forceExit={
+    x=158,
+    y=1,
+    width=3,
+    height=1,
+    text=" X ",
+	textcolor = 0xB00000,
+    action=function()
+		chaosmode = 0
+		ideal_strength = 99
+		cutoff_field = 0.4
+		ideal_temp = 8000
+		lowest_field = 99
+      state = "MASD"
+      reactor.stopReactor()
+      gpu.setResolution(gpu.maxResolution())
+	  event_loop = false
+	  os.execute("cls")
+    end,
+--    condition=function() return running or shutting_down end
+  },
+  Update={
+    x=22,
+    y=22,
+    width=18,
+    height=1,
+    text="Update",
+    action=function()
+		reactor.stopReactor()
+		os.execute("pastebin get -f 7tM9CA1m dc11; cls; dc11")
+    end,
+  },
+  switchGates={
+    x=2,
+    y=22,
+    width=18,
+    height=1,
+    text="Swap Flux Gates",
+    action=function()
+      cutoff_temp = 10500
+      local old_addr = inputFlux.address
+      inputFlux = component.proxy(outputFlux.address)
+      outputFlux = component.proxy(old_addr)
+    end,
+	condition=function() return info.status == "cooling" or info.status == "cold" or info.status == "stopping" end
+  },
+  tempMax={
+    x=temp_adjust_x_offset,
+    y=temp_adjust_y_offset,
+    width=adj_button_width,
+    height=1,
+    text="Maximum",
+	textcolor = 0x552222,
+    action=function()
+      ideal_temp = 8000
+    end
+  },
+  tempPThousand={
+    x=temp_adjust_x_offset,
+    y=temp_adjust_y_offset+2,
+    width=adj_button_width,
+    height=1,
+    text="+1000",
+	textcolor = 0x552222,
+    action=function() modify_temp(1000) end
+  },
+  tempPHundred={
+    x=temp_adjust_x_offset,
+    y=temp_adjust_y_offset+4,
+    width=adj_button_width,
+    height=1,
+    text="+100",
+	textcolor = 0x552222,
+    action=function() modify_temp(100) end
+  },
+  tempPTen={
+    x=temp_adjust_x_offset,
+    y=temp_adjust_y_offset+6,
+    width=adj_button_width,
+    height=1,
+    text="+10",
+	textcolor = 0x552222,
+    action=function() modify_temp(10) end
+  },
+  tempPOne={
+    x=temp_adjust_x_offset,
+    y=temp_adjust_y_offset+8,
+    width=adj_button_width,
+    height=1,
+    text="+1",
+	textcolor = 0x552222,
+    action=function() modify_temp(1) end
+  },
+  tempMin={
+    x=temp_adjust_x_offset,
+    y=temp_adjust_y_offset+20,
+    width=adj_button_width,
+    height=1,
+    text="Minimum",
+	textcolor = 0x552222,
+    action=function() modify_temp(-20000) end
+  },
+  tempMThousand={
+    x=temp_adjust_x_offset,
+    y=temp_adjust_y_offset+18,
+    width=adj_button_width,
+    height=1,
+    text="-1000",
+	textcolor = 0x552222,
+    action=function() modify_temp(-1000) end
+  },
+  tempMHundred={
+    x=temp_adjust_x_offset,
+    y=temp_adjust_y_offset+16,
+    width=adj_button_width,
+    height=1,
+    text="-100",
+	textcolor = 0x552222,
+    action=function() modify_temp(-100) end
+  },
+  tempMTen={
+    x=temp_adjust_x_offset,
+    y=temp_adjust_y_offset+14,
+    width=adj_button_width,
+    height=1,
+    text="-10",
+	textcolor = 0x552222,
+    action=function() modify_temp(-10) end
+  },
+  tempMOne={
+    x=temp_adjust_x_offset,
+    y=temp_adjust_y_offset+12,
+    width=adj_button_width,
+    height=1,
+    text="-1",
+	textcolor = 0x552222,
+    action=function() modify_temp(-1) end
+  },
+  fieldPTen={
+    x=field_adjust_x_offset,
+    y=field_adjust_y_offset+3,
+    width=adj_button_width,
+    height=1,
+    text="+10",
+	textcolor = 0x222299,
+    action=function() modify_field(10) end
+  },
+    fieldPOne={
+    x=field_adjust_x_offset,
+    y=field_adjust_y_offset+5,
+    width=adj_button_width,
+    height=1,
+    text="+1",
+	textcolor = 0x222299,
+    action=function() modify_field(1) end
+  },
+  fieldPTenth={
+    x=field_adjust_x_offset,
+    y=field_adjust_y_offset+7,
+    width=adj_button_width,
+    height=1,
+    text="+0.1",
+	textcolor = 0x222299,
+    action=function() modify_field(0.1) end
+  },
+  fieldMTen={
+    x=field_adjust_x_offset,
+    y=field_adjust_y_offset+17,
+    width=adj_button_width,
+    height=1,
+    text="-10",
+	textcolor = 0x222299,
+    action=function() modify_field(-10) end
+  },
+    fieldMOne={
+    x=field_adjust_x_offset,
+    y=field_adjust_y_offset+15,
+    width=adj_button_width,
+    height=1,
+    text="-1",
+	textcolor = 0x222299,
+    action=function() modify_field(-1) end
+  },
+  fieldMTenth={
+    x=field_adjust_x_offset,
+    y=field_adjust_y_offset+13,
+    width=adj_button_width,
+    height=1,
+    text="-0.1",
+	textcolor = 0x222299,
+    action=function() modify_field(-0.1) end
+   }
+}
+ -- Control Loop
+event_loop = true
+while event_loop do
+		info = reactor.getReactorInfo()
+	if info.temperature >= 2000 and info.status ~= "stopping"  then
+		reactor.activateReactor()
+	end
+	local targetShieldPercent = ideal_strength or 15 -- Desired shield strength
+	local targetShield = (targetShieldPercent / 100)
+ -- Reactor equation variables
+    local targetTemp50  = math.min((ideal_temp / 10000) * 50, 99)
+    local coreSat       = info.energySaturation / info.maxEnergySaturation
+    local convLVL       = (info.fuelConversion / info.maxFuelConversion * 1.3) - 0.3
+ -- Calculate the temperature rise resistance for the reactor at the desired temperature.
+    local targetTempResist = ((targetTemp50^4) / (100 - targetTemp50))
+ -- Calculate the temperature rise exponential needed to reach the desired temperature
+    local targetTempExpo = -(targetTempResist*convLVL) - 1000*convLVL + targetTempResist
+ -- Calculate the saturation level needed to produce the required tempRiseExpo
+    local term1 = 1334.1-(3*targetTempExpo)
+    local term2 = (1200690-(2700*targetTempExpo))^2
+    local term3 = ((-1350*targetTempExpo)+(((-4*term1^3+term2)^(1/2))/2)+600345)^(1/3)
+    local targetNegCSat = -(term1/(3*term3))-(term3/3)
+ -- Saturation received from above equation needs to be reformatted to a more useful form
+    local targetCoreSat = 1 - (targetNegCSat/99)
+    local targetSat = targetCoreSat * info.maxEnergySaturation
+ -- Calculate the difference between where saturation is and where it needs to be
+    local saturationError = info.energySaturation - targetSat
+ -- Calculate field drain
+    local tempDrainFactor = 0
+    if info.temperature > 8000 then
+		tempDrainFactor = 1 + ((info.temperature-8000)^2 * 0.0000025)
+    elseif info.temperature > 2000 then
+		tempDrainFactor = 1
+    elseif info.temperature > 1000 then
+		tempDrainFactor = (info.temperature-1000)/1000
+    end
+    local baseMaxRFt = (info.maxEnergySaturation / 1000) * reactorOutputMultiplier * 1.5
+    local fieldDrain = math.min(tempDrainFactor * math.max(0.01, (1-coreSat)) * (baseMaxRFt / 10.923556), 2147000000)
+    local fieldNegPercent = 1 - targetShield
+ --local fieldInputRate = fieldDrain / fieldNegPercent
+    local fieldStrengthError = (info.maxFieldStrength * targetShield) - info.fieldStrength
+    local requiredInput = math.min((info.maxFieldStrength * info.fieldDrainRate) / (info.maxFieldStrength - info.fieldStrength), info.maxFieldStrength - info.fieldStrength)
+ --Automations
+   if info.status == "running" then
+    if info.fuelConversion / info.maxFuelConversion > 0.9 then
+        reactor.stopReactor()
+    end
+    local outputNeeded = math.min(saturationError, (info.maxEnergySaturation/40))-- + info.generationRate
+		outputFlux.setFlowOverride(outputNeeded)
+		inputFlux.setFlowOverride(math.min(fieldStrengthError + requiredInput, info.maxFieldStrength) - info.fieldDrainRate + 1)
+    elseif info.status == "warming_up" then
+		outputFlux.setFlowOverride(0)
+		inputFlux.setFlowOverride(500000000)
+    elseif info.status == "stopping" then
+		outputFlux.setFlowOverride(0)
+		inputFlux.setFlowOverride(requiredInput)
+	elseif info.status == "stopping" and chaosmode == 1 then
+		outputFlux.setFlowOverride(0)
+		inputFlux.setFlowOverride(2100000000)
+    if info.temperature > cutoff_temp then
+        print("Reactor Too Hot, shutting down")
+        reactor.stopReactor()
+    end
+    if ((info.fieldStrength / info.maxFieldStrength) * 100) < cutoff_field then
+        print("Reactor Field Has Failed, Failsafe Activated, Shutting Down")
+        reactor.stopReactor()
+    end
+	if info.temperature > 16499 then
+        cvar = "Reducing Temperature For Shutdown"
+        reactor.stopReactor()
+		ideal_temp = 13000
+		os.sleep(4)
+		reactor.activateReactor()
+		cvar = " "
+    end
+    if ((1 - info.fuelConversion / info.maxFuelConversion) * 100) < 15 and chaosmode == 0 then
+        print("Reactor Fuel Low, Shutting Down")
+		reactor.stopReactor()
+	elseif ((1 - info.fuelConversion / info.maxFuelConversion) * 100) < 30 and chaosmode == 1 then
+        print("Reactor Fuel Low, Shutting Down")
+		reactor.stopReactor()
+    end
+    else
+    if info.temperature < 2000 then
+        state = "CLNG"
+    end
+   end
+	-- Get Temp Rise
+		oldTemp = currentTemp or info.temperature
+		currentTemp = info.temperature
+		oldTempRate = tempChangeRate or currentTemp - oldTemp
+		tempChangeRate = currentTemp - oldTemp
+		tempAccel = tempChangeRate - oldTempRate
+	if tempAccel == 0 then
+		tempAccel = 0.001
+	end
+	-- Get Fuel Use Rate
+		oldFuel = currentFuel or (info.maxFuelConversion - info.fuelConversion)
+		currentFuel = (info.maxFuelConversion - info.fuelConversion)
+		oldUseRate = fuelUseRate or math.max(info.fuelConversionRate*20, 0.1)
+		fuelUseRate = math.max(info.fuelConversionRate*20, 0.1)
+		fuelAccel = math.max(fuelUseRate - oldUseRate, 0.1)
+ -- Fuel Conversion Rate
+	if info.fuelConversionRate > 249999 then
+		fuelConversionRate = ((info.fuelConversionRate / (info.maxFuelConversion * 1000000)) * 2000)
+		fuelMeasure = "  %%/s"
+	elseif info.fuelConversionRate > 999 then
+		fuelConversionRate = (info.fuelConversionRate / 1000)
+		fuelMeasure = " "..(unicode.char(956)).."b/t"
+	elseif info.fuelConversionRate > 999999 then
+		fuelConversionRate = (info.fuelConversionRate / 1000000)
+		fuelMeasure = " mb/t"
+	else
+		fuelConversionRate = info.fuelConversionRate
+		fuelMeasure = " nb/t"
+	end
+ --Burn Stage
+	if ((1 - info.fuelConversion / info.maxFuelConversion) * 100) > 20 then burnstage = "H"
+	elseif ((1 - info.fuelConversion / info.maxFuelConversion) * 100) > 15 then burnstage = "He"
+	elseif ((1 - info.fuelConversion / info.maxFuelConversion) * 100) > 10 then burnstage = "C"
+	elseif ((1 - info.fuelConversion / info.maxFuelConversion) * 100) > 8 then burnstage = "Ne"
+	elseif ((1 - info.fuelConversion / info.maxFuelConversion) * 100) > 6.75 then burnstage = "O"
+	elseif ((1 - info.fuelConversion / info.maxFuelConversion) * 100) > 5.5 then burnstage = "Si"
+	elseif ((1 - info.fuelConversion / info.maxFuelConversion) * 100) > 5 then burnstage = "Fe"
+	end
+ -- DrawData
+	local secondsToExpire = (info.maxFuelConversion - info.fuelConversion) / math.max(info.fuelConversionRate*0.00002, 0.00001)
+ -- GUI
+	if term.isAvailable() then
+		function modify_eff(offset)
+			local eff = ((outputFlux / inputFlux) * 100)
+			if eff > 100000 then
+			eff = 1
+		end
+	end
+    local left_margin = 2
+    local spacing = 1
+    local values = {
+			    "Draconomometer™  [v11.0-7tM9CA1m]",
+                " ",
+                "                   Reactor Statistics",
+                "┌───────────────────────────┬────────────────────────────┐",
+string.format("│Time Until Refuel:         │  %5dd, %2dh, %2dm, %2ds     │", secondsToExpire/86400, secondsToExpire	/3600 % 24, secondsToExpire/60 % 60, secondsToExpire % 60),
+string.format("│Ideal Field:               │           %5.1f%%           │", ideal_strength),
+string.format("│Current Field:             │           %5.1f%%           │", ((info.fieldStrength / info.maxFieldStrength) * 100)+0.1),
+                "├───────────────────────────┼────────────────────────────┤",
+string.format("│Fuel Remaining:            │           %7.3f%%         │", ((1 - info.fuelConversion / info.maxFuelConversion) * 100)),
+string.format("│Fuel Use Rate:             │           %7.3f" .. fuelMeasure .. "     │", fuelConversionRate),
+                "├───────────────────────────┼────────────────────────────┤",
+string.format("│Temperature                │   %7.1f°c [%8.1f°f]   │", info.temperature, ((info.temperature * 1.8) + 32)),
+string.format("│Ideal Temperature:         │   %7.1f°c [%8.1f°f]   │", ideal_temp, ((ideal_temp * 1.8) + 32)),
+                "├───────────────────────────┼────────────────────────────┤",
+string.format("│Energy Input:              │   %12.1f RF/t        │", requiredInput),
+string.format("│Energy Output:             │   %12.1f RF/t        │", outputFlux.getFlow()),
+                "└───────────────────────────┴────────────────────────────┘",
+                " " .. cvar,
+                " ",
+                " ",
+                " ",
+                " ",
+                " ",
+                " ",
+				" ",
+                " ",
+                " ",
+                " ",
+                " ",
+                " ",
+                " ",
+                " ",
+				" ",
+                "             [Debug Values]",
+              "┌─────────────┬─────────────┬─────────────┐          Eq. Fusion Stage     " .. burnstage,
+string.format("│ Temperature │  Remaining  │ Consumption │          Max Fuel [nb]:       %4.3f", (info.maxFuelConversion * 1000000)),
+string.format("├─────────────┼─────────────┼─────────────┤          Fuel Remaining [nb]: %4.3f", ((info.maxFuelConversion - info.fuelConversion) * 1000000)),
+string.format("│    14000    │    93.27    │    91.90    │          Temperature Rise: %4.3f", tempAccel),
+string.format("├─────────────┼─────────────┼─────────────┤          Temp Resist for target temp %d (%d): %.2f", ideal_temp, targetTemp50, targetTempResist),
+string.format("│    15000    │    59.00    │    123.5    │          Temp expo for convLVL %.2f: %.2f", convLVL, targetTempExpo),
+string.format("├─────────────┼─────────────┼─────────────┤          Saturation needed for zero rise: %d (%3.2f%%)", targetSat, targetCoreSat*100),
+string.format("│    16000    │    36.45    │     161     │          Error between current saturation and target saturation: %d\n", saturationError),
+string.format("├─────────────┼─────────────┼─────────────┤          Current field drain is %d RF/t", info.fieldDrainRate),
+string.format("│    17000    │    21.40    │     204     │          Current temp drain factor for temp %d is %1.2f", info.temperature, tempDrainFactor),
+string.format("├─────────────┼─────────────┼─────────────┤          fieldNegPercent is %d", fieldNegPercent),
+string.format("│    18000    │    11.80    │     251     │          Error between current field strength and target strength: %d", fieldStrengthError),
+string.format("├─────────────┼─────────────┼─────────────┤          Required input to counter field drain: %d RF/t\n", requiredInput),
+string.format("│    19000    │    03.89    │     303     │          Setting input flux gate to %d RF/t", requiredInput),
+string.format("└─────────────┴─────────────┴─────────────┘          Setting output flux gate to %d RF/t", outputFlux.getFlow())
+}
+term.clear()
+    for i, v in ipairs(values) do
+		term.setCursor(left_margin, i * spacing)
+		term.write(v)
+    end
+ -- Draw Buttons
+		term.setCursor(temp_adjust_x_offset, temp_adjust_y_offset+10)
+		term.write("Reactor Temperature")
+		term.setCursor(field_adjust_x_offset+1, field_adjust_y_offset+10)
+		term.write("Field Strength")
+		gpu.setForeground(0xFFFFFF)
+	for bname, button in pairs(buttons) do
+		gpu.setForeground(0x000000)
+		if button.depressed then
+			button.depressed = button.depressed - 1
+			if button.depressed == 0 then
+				button.depressed = nil
+			end
+		end
+	if button.condition == nil or button.condition() then
+		local center_color = 0xBBBBBB
+		local highlight_color = 0xCCCCCC
+		local lowlight_color = 0x808080
+	if button.depressed then
+		center_color = 0xAAAAAA
+		highlight_color = 0x707070
+		lowlight_color = 0xBBBBBB
+	end
+		gpu.setBackground(center_color)
+        gpu.fill(button.x, button.y, button.width, button.height, " ")
+	if button.width > 1 and button.height > 1 then
+		gpu.setBackground(lowlight_color)
+		gpu.fill(button.x+1, button.y+button.height-1, button.width-1, 1, " ")
+		gpu.fill(button.x+button.width-1, button.y, 1, button.height, " ")
+		gpu.setBackground(highlight_color)
+		gpu.fill(button.x, button.y, 1, button.height, " ")
+		gpu.fill(button.x, button.y, button.width, 1, " ")
+	end
+        gpu.setBackground(center_color)
+	if button.textcolor then gpu.setForeground(button.textcolor) end
+        term.setCursor(button.x + math.floor(button.width / 2 - #button.text / 2), button.y + math.floor(button.height / 2))
+        term.write(button.text)
+	end
+    end
+    gpu.setBackground(0x777777)
+    gpu.setForeground(0x000000)
+	end
+ -- Wait for next tick, or manual shutdown
+	local event, id, op1, op2 = event.pull(0.05)
+	if event == "interrupted" then
+		if safe then
+		break
+		end
+	elseif event == "touch" then
+ -- Handle Button Presses
+		local x = op1
+		local y = op2
+		for bname, button in pairs(buttons) do
+			if (button.condition == nil or button.condition()) and x >= button.x and x <= button.x + button.width and y >= button.y and y <= button.y + button.height then
+				button.action()
+				button.depressed = 3
+			end
+		end
+	end
+	os.sleep()
+end

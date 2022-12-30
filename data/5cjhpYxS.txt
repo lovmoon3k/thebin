@@ -1,0 +1,180 @@
+from csv import reader
+from math import floor
+import re
+from collections import Counter
+import numpy as np
+
+
+def print_vacancies_by_salaries(list_vacancies: list, is_high_salary: bool):
+    list_vacancies = sorted(list_vacancies,
+                            key=lambda x: x['avg_salary'],
+                            reverse=is_high_salary)
+    print('Самые высокие зарплаты:' if is_high_salary else 'Самые низкие зарплаты:')
+    counter = 0
+    for index, value in enumerate(list_vacancies):
+        if value['salary_currency'] != 'RUR':
+            continue
+        if counter == 10:
+            break
+        counter += 1
+        print(
+            f'    {counter}) {value["name"]} в компании \"{value["employer_name"]}\" - {value["avg_salary"]} '
+            f'{get_ruble_suffix(value["avg_salary"])} (г. {value["area_name"]})')
+    print()
+
+
+def get_vacancies_suffix(count: int) -> str:
+    if 11 <= count % 100 <= 19:
+        return "вакансий"
+    elif count % 10 == 0 or 5 <= count % 10 <= 9:
+        return "вакансий"
+    elif 2 <= count % 10 <= 4:
+        return "вакансии"
+    else:
+        return "вакансия"
+
+
+def get_times_suffix(count: int) -> str:
+    if 11 <= count % 100 <= 19:
+        return "раз"
+    elif 2 <= count % 10 <= 4:
+        return "раза"
+    else:
+        return "раз"
+
+
+def get_ruble_suffix(count: int) -> str:
+    if count % 10 == 0 or \
+            5 <= count % 10 <= 9 or \
+            10 <= count % 100 <= 19:
+        return 'рублей'
+    elif 2 <= count % 10 <= 4:
+        return 'рубля'
+    else:
+        return 'рубль'
+
+
+def print_top_skills(list_vacancies: list):
+    list_with_right_vacancies = list()
+    for index, value in enumerate(list_vacancies):
+        for second_index, second_value in enumerate(value["key_skills"]):
+            list_with_right_vacancies.append(second_value.strip())
+    counter = Counter(list_with_right_vacancies).most_common()
+    print(f'Из {len(dict(counter))} скиллов, самыми популярными являются:')
+    dict_with_right_skills, count = dict(counter), 0
+    for key, value in dict(dict_with_right_skills).items():
+        if count == 10:
+            break
+        count += 1
+        print(f'    {count}) {key} - упоминается {value} {get_times_suffix(value)}')
+    print()
+
+
+def to_dictionary(titles, vacancies_list):
+    dictionary = dict()
+    for index, headline in enumerate(titles):
+        dictionary[headline] = vacancies_list[index]
+    dictionary['avg_salary'] = floor((float(dictionary['salary_to']) + float(dictionary['salary_from'])) / 2)
+    return dictionary
+
+
+def print_cities_by_salaries(input_list: list):
+    list_vacancies = sorted([vacancy for vacancy in input_list if vacancy['salary_currency'] == 'RUR'],
+                            key=lambda x: x["area_name"])
+    temporal_list, cities_dictionary, counter = list(), dict(), 0
+
+    for i in range(len(list_vacancies) + 1):
+        if i == 0:
+            continue
+        if i == len(list_vacancies):
+            temporal_list.append(float(list_vacancies[i - 1]["avg_salary"]))
+            counter += 1
+            if counter <= 0:
+                cities_dictionary[list_vacancies[i - 1]["area_name"]] = \
+                    (list_vacancies[i - 1]["avg_salary"], counter)
+            else:
+                cities_dictionary[list_vacancies[i - 1]["area_name"]] = \
+                    (floor(np.average(temporal_list)), counter)
+            temporal_list, counter = list(), 0
+        else:
+            if i == len(list_vacancies) - 1:
+                if counter <= 0:
+                    cities_dictionary[list_vacancies[i - 1]["area_name"]] = \
+                        (list_vacancies[i - 1]["avg_salary"], counter)
+                else:
+                    cities_dictionary[list_vacancies[i - 1]["area_name"]] = \
+                        (floor(np.average(temporal_list)), counter)
+                temporal_list, counter = list(), 0
+            if list_vacancies[i - 1]["area_name"] != list_vacancies[i]["area_name"]:
+                temporal_list.append(float(list_vacancies[i - 1]["avg_salary"]))
+                counter += 1
+                if counter > 0:
+                    cities_dictionary[list_vacancies[i - 1]["area_name"]] = \
+                        (floor(np.average(temporal_list)), counter)
+                else:
+                    cities_dictionary[list_vacancies[i - 1]["area_name"]] = \
+                        (list_vacancies[i - 1]["avg_salary"], counter)
+                temporal_list, counter = list(), 0
+            else:
+                temporal_list.append(float(list_vacancies[i - 1]["avg_salary"]))
+                counter += 1
+
+    big_cities_dictionary = dict()
+    for key, value in cities_dictionary.items():
+        if value[1] * 100 / len(list_vacancies) >= 0.9:
+            big_cities_dictionary[key] = value
+
+    sorted_tuple = sorted(big_cities_dictionary.items(),
+                          key=lambda x: (x[1][0], x[0]),
+                          reverse=True)
+
+    for index, value in enumerate(sorted_tuple):
+        try:
+            if sorted_tuple[index - 1][1][0] == sorted_tuple[index][1][0]:
+                temp1, temp2 = sorted_tuple[index - 1], sorted_tuple[index]
+                sorted_tuple[index - 1] = temp2
+                sorted_tuple[index] = temp1
+        except:
+            pass
+
+    print(f'Из {len(cities_dictionary)} городов, самые высокие средние ЗП:')
+    index = 0
+    for key, value in sorted_tuple:
+        if index >= 10:
+            break
+        print(f'    {index + 1}) {key} - средняя зарплата {value[0]} {get_ruble_suffix(value[0])} '
+              f'({value[1]} {get_vacancies_suffix(value[1])})')
+        index += 1
+    print()
+
+
+def make_final_list_with_dictionaries(csv_file):
+    with open(csv_file, encoding='utf-8-sig') as f:
+        csv_reader = reader(f, delimiter=',')
+        all_vacancies_list, headline = list(), next(csv_reader)
+        html_tags = re.compile('<.*?>')
+        for current_vacancy in csv_reader:
+            if current_vacancy[headline.index('salary_currency')] != 'RUR':
+                continue
+            try:
+                current_vacancy.remove('')
+            except ValueError:
+                pass
+            for i in range(len(current_vacancy)):
+                if i == headline.index('key_skills'):
+                    current_vacancy[i] = current_vacancy[i].strip()
+                    current_vacancy[i] = re.split("\n|\n\r", current_vacancy[i])
+                else:
+                    current_vacancy[i] = re.sub(html_tags, '', current_vacancy[i]).strip()
+                    current_vacancy[i] = ' '.join(current_vacancy[i].split())
+
+            if len(current_vacancy) == len(headline):
+                all_vacancies_list.append(to_dictionary(headline, current_vacancy))
+
+    print_vacancies_by_salaries(all_vacancies_list, True)
+    print_vacancies_by_salaries(all_vacancies_list, False)
+    print_top_skills(list_vacancies=all_vacancies_list)
+    print_cities_by_salaries(input_list=all_vacancies_list)
+
+
+make_final_list_with_dictionaries(input())
