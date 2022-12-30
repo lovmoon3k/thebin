@@ -1,0 +1,2380 @@
+xyd = xyd or {}
+xyd.db = xyd.db or {}
+local socket = require("socket")
+local gettime = socket.gettime
+local json = require("cjson")
+local string_find = string.find
+local Application = UnityEngine.Application
+local PlayerPrefs = UnityEngine.PlayerPrefs
+local SetString = PlayerPrefs.SetString
+local GetString = PlayerPrefs.GetString
+local SetInt = PlayerPrefs.SetInt
+local GetInt = PlayerPrefs.GetInt
+local HasKey = PlayerPrefs.HasKey
+local Save = PlayerPrefs.Save
+local DeleteKey = PlayerPrefs.DeleteKey
+local LoadSceneMode = UnityEngine.SceneManagement.LoadSceneMode
+local ANDROID_FILE = "Android"
+local VERSION_FILE = "version.json"
+local VERSION_FILE_32 = "version_32.json"
+local SAVE_VERSION = "__version__"
+local SAVE_TMP_VERSION = "__tmp__version__"
+local TMP_RES_PATH = "__tmp__res__"
+local SAVE_FAILED_URL_TYPE = "__save_failed_url_type_%s_%s__"
+local SAVE_ERROR_VERSION = "__error_version__"
+local SAVE_CHANGE_ROUTE = "__save_change_route__"
+local OS_ANDROID = 1
+local OS_IOS = 2
+local ADD_COUNTER = 0
+local DOWNLOAD_THREADS_NUM = 8
+local LAZY_LUA_DOWNLOAD_PREFIX = XYDDef.LazyLuaDownloadPrefix
+local LAZY_LZ4_DOWNLOAD_PREFIX = XYDDef.LazyLz4DownloadPrefix
+local LAZY_WEB_DOWNLOAD_PREFIX = XYDDef.LazyWebDownloadPrefix
+local BACK_UPDATE_WEB_DOWNLOAD_PREFIX = "__back_update_web_download__"
+local STANDBY_URL_EFFECT_TIME = 86400
+
+local function isPkgVersionUp(versionB)
+	local versionA = UnityEngine.Application.version
+
+	return XYDUtils.CompVersion(versionA, versionB) > 0
+end
+
+local function is3rdPkg()
+	local pkgName = XYDDef.PkgName
+
+	return pkgName == "com.yottagames.tgmafia"
+end
+
+local function xpcall2(func, ...)
+	xpcall(func, function (err)
+		print(err)
+	end, ...)
+end
+
+local GM_CHAT_ENABLED = isPkgVersionUp("1.1.18")
+local CDN_URLS_ENABLED = isPkgVersionUp("1.1.105")
+local THIRD_AUTO_UPDATE = isPkgVersionUp("1.1.105") and is3rdPkg()
+local GM_CHAT_PLAYER_ID_ENABLED = isPkgVersionUp("1.1.195")
+local UrlUsageType = {
+	CDN = "cdn",
+	GATE = "gate",
+	BACKEND = "backend"
+}
+local UrlType = {
+	AKAMAI = 2,
+	GCP = 3,
+	NORMAL = 1
+}
+local BACKEND_URLS = {
+	[UrlType.NORMAL] = "http://mafia2back.yottagames.com",
+	[UrlType.AKAMAI] = "https://mafia2back-aka.yottagames.com",
+	[UrlType.GCP] = "https://mafia2back-gc.yottagames.com"
+}
+local GATE_URLS = {
+	[UrlType.NORMAL] = "mafia2gate.yottagames.com",
+	[UrlType.AKAMAI] = "mafia2gate-aka.yottagames.com",
+	[UrlType.GCP] = "mafia2gate-gc.yottagames.com"
+}
+local CDN_URLS = {
+	[UrlType.NORMAL] = "http://mafia2cdn.yottagames.com",
+	[UrlType.AKAMAI] = "https://yottacdn.akamaized.net/mafia2ycdn",
+	[UrlType.GCP] = "https://mafia2cdn-gc.yottagames.com"
+}
+local URLS = {
+	[UrlUsageType.BACKEND] = BACKEND_URLS,
+	[UrlUsageType.CDN] = CDN_URLS,
+	[UrlUsageType.GATE] = GATE_URLS
+}
+xyd.package2Language = {
+	["com.yottagames.gameofmafia"] = {
+		en_us = 1,
+		zh_tw = 1
+	},
+	["com.yottagames.tgmafia"] = {
+		en_us = 1,
+		zh_tw = 1
+	},
+	["com.yottagames.gameofmafiatest"] = {
+		en_us = 1,
+		zh_tw = 1
+	},
+	["com.yottagames.gameofmafiatr"] = {
+		en_us = 1
+	},
+	["com.yottagames.gameofmafiajp"] = {
+		en_us = 1,
+		ja_jp = 1,
+		zh_tw = 1
+	},
+	["com.yottagames.gameofmafiakr"] = {
+		en_us = 1,
+		ko_kr = 1
+	}
+}
+xyd.package2LineID = {
+	["com.yottagames.gameofmafiatr"] = "TheGrandMafia",
+	["com.yottagames.gameofmafia"] = "TheGrandMafia",
+	["com.yottagames.gameofmafiajp"] = "TheGrandMafia",
+	["com.yottagames.gameofmafiatest"] = "TheGrandMafia",
+	["com.yottagames.tgmafia"] = "TheGrandMafia",
+	["com.yottagames.gameofmafiakr"] = "TheGrandMafia"
+}
+
+if GetInt("__IS__UPDATING__", 0) <= 0 then
+	require("base.functions")
+	require("app.xinyoudi")
+end
+
+local sqlite3 = require("sqlite3")
+local DownloadInfo = class("DownloadInfo")
+
+function DownloadInfo:ctor()
+end
+
+function DownloadInfo:createTable()
+	self.db:exec([[
+        CREATE TABLE IF NOT EXISTS downloadinfo (
+            path TEXT NOT NULL PRIMARY KEY,
+            version TEXT NOT NULL,
+            size INT NOT NULL DEFAULT 0,
+            downloadedSize INT NOT NULL DEFAULT 0
+        );
+    ]])
+end
+
+function DownloadInfo:openDB(dbName)
+	if self.dbName ~= dbName and self.db then
+		self:close()
+	end
+
+	if self.db == nil or not self.db:isopen() then
+		self.dbName = dbName
+		local dbfile = XYDDef.DatabasePath .. dbName
+		self.db = sqlite3.open(dbfile)
+
+		if self.db == nil then
+			os.remove(dbfile)
+
+			self.db = sqlite3.open(dbfile)
+		end
+
+		self.db:exec("            PRAGMA synchronous=OFF;\n            PRAGMA temp_store = 2;\n        ")
+		self:createTable()
+	end
+end
+
+function DownloadInfo:getAll()
+	local stmt = self.db:prepare("SELECT * FROM downloadinfo")
+	local downloads = {}
+
+	for row in stmt:nrows() do
+		local path = row.path
+		downloads[path] = row
+	end
+
+	stmt:finalize()
+
+	return downloads
+end
+
+function DownloadInfo:add(downloadInfo)
+	if downloadInfo == nil then
+		return
+	end
+
+	local db = self.db
+
+	if self.addStmt == nil then
+		self.addStmt = db:prepare("            INSERT OR REPLACE INTO downloadinfo (path, version, size, downloadedSize) VALUES (?, ?, ?, ?)\n        ")
+	end
+
+	local stmt = self.addStmt
+
+	stmt:bind_values(downloadInfo.path, downloadInfo.version, downloadInfo.size, downloadInfo.downloadedSize)
+
+	local res = stmt:step()
+
+	if db:errcode() ~= 101 then
+		print(db:errcode())
+		print(db:errmsg())
+	end
+
+	stmt:reset()
+end
+
+function DownloadInfo:begin()
+	self.db:exec("        BEGIN;\n    ")
+
+	self.inTransaction = true
+end
+
+function DownloadInfo:commit()
+	if not self.inTransaction then
+		return
+	end
+
+	self.db:exec("        COMMIT;\n    ")
+
+	self.inTransaction = false
+end
+
+function DownloadInfo:truncate()
+	self.db:exec("        DROP TABLE downloadinfo;\n    ")
+	self:createTable()
+end
+
+function DownloadInfo:close()
+	if self.addStmt ~= nil then
+		self.addStmt:finalize()
+
+		self.addStmt = nil
+	end
+
+	if self.db and self.db:isopen() then
+		self.db:close()
+	end
+
+	self.db = nil
+end
+
+local LocalMd5Info = class("LocalMd5Info")
+
+function LocalMd5Info:ctor()
+end
+
+function LocalMd5Info:createTable()
+	self.db:exec([[
+        CREATE TABLE IF NOT EXISTS res_md5 (
+            path TEXT NOT NULL,
+            md5 TEXT NOT NULL,
+            PRIMARY KEY (path)
+        );
+    ]])
+end
+
+function LocalMd5Info:openDB(dbName)
+	if self.dbName ~= dbName and self.db then
+		self:close()
+	end
+
+	if self.db == nil or not self.db:isopen() then
+		self.dbName = dbName
+		local dbfile = XYDDef.DatabasePath .. dbName
+		self.db = sqlite3.open(dbfile)
+
+		if self.db == nil then
+			os.remove(dbfile)
+
+			self.db = sqlite3.open(dbfile)
+		end
+
+		self.db:exec("            PRAGMA synchronous=OFF;\n            PRAGMA temp_store = 2;\n        ")
+		self:createTable()
+	end
+end
+
+function LocalMd5Info:getAllLocalMd5s()
+	local result = {}
+
+	local function func()
+		local stmt = self.db:prepare("            SELECT * FROM res_md5\n        ")
+		local count = 0
+
+		for row in stmt:nrows() do
+			result[row.path] = row.md5
+			count = count + 1
+		end
+
+		stmt:finalize()
+	end
+
+	xpcall2(func)
+
+	return result
+end
+
+function LocalMd5Info:removeLocalMd5(path)
+	local function func()
+		local stmt = self.db:prepare("            DELETE FROM res_md5 WHERE path = ?\n        ")
+
+		stmt:bind_values(path)
+		stmt:step()
+
+		if self.db:errcode() ~= 101 then
+			print(self.db:errcode())
+			print(self.db:errmsg())
+		end
+
+		stmt:reset()
+	end
+
+	xpcall2(func)
+end
+
+function LocalMd5Info:setLocalMd5(path, md5)
+	local function func()
+		local stmt = self.db:prepare("            INSERT OR REPLACE INTO res_md5 (path, md5) VALUES (?, ?)\n        ")
+
+		stmt:bind_values(path, md5)
+		stmt:step()
+
+		if self.db:errcode() ~= 101 then
+			print(self.db:errcode())
+			print(self.db:errmsg())
+		end
+
+		stmt:reset()
+	end
+
+	xpcall2(func)
+end
+
+function LocalMd5Info:getLocalMd5(path)
+	local r = nil
+
+	local function func()
+		local stmt = self.db:prepare("            SELECT md5 FROM res_md5 WHERE path = ?\n        ")
+
+		stmt:bind_values(path)
+
+		for row in stmt:nrows() do
+			r = row.md5
+
+			break
+		end
+
+		stmt:finalize()
+	end
+
+	xpcall2(func)
+
+	return r
+end
+
+function LocalMd5Info:close()
+	if self.db and self.db:isopen() then
+		self.db:close()
+	end
+
+	self.db = nil
+end
+
+local UpdateController = {
+	run = function (self)
+		xyd.isLoadingFinish = false
+		self.urls_ = {}
+		self.urlTypes_ = {}
+		self.urlFailedTimes_ = {}
+		self.urlUsageSucceed_ = {}
+		self.usedUrlTypes_ = {}
+
+		self:initVersion()
+		self:initLastAccountInfo()
+
+		if UNITY_ANDROID or UNITY_IOS then
+			self:waitShowAutoRepairWindow("UpdateController:run")
+		end
+
+		self:initRecommendedUrlTypes()
+		self:initTranslation()
+
+		if xyd.db.downloadInfo == nil then
+			xyd.db.downloadInfo = DownloadInfo.new()
+			xyd.db.backDownloadInfo = DownloadInfo.new()
+
+			print("xyd.db.backDownloadInfo is nil?:", xyd.db.backDownloadInfo == nil)
+		end
+
+		if xyd.db.localMd5Info == nil then
+			xyd.db.localMd5Info = LocalMd5Info.new()
+
+			xyd.db.localMd5Info:openDB("local_md5.db")
+		end
+
+		if UNITY_ANDROID or UNITY_IOS then
+			self:checkUpdate()
+		else
+			xyd.isLoadingFinish = true
+			xyd.res_version = "1.0.657"
+			xyd.backendurl = "mafia2back.xunmenginc.com:80"
+
+			self:startGame(false)
+		end
+	end,
+	initVersion = function (self)
+		if not self.packageVersion_ or self.packageVersion_ == "" then
+			self.packageVersion_ = UnityEngine.Application.version
+		end
+
+		if not self.savedVersion_ or self.savedVersion_ == "" then
+			self.savedVersion_ = GetString(SAVE_VERSION, "")
+		end
+
+		if self.savedVersion_ ~= "" and not FileUtils.IsResInData(VERSION_FILE) then
+			self.savedVersion_ = ""
+
+			SetString(SAVE_VERSION, "")
+			FileUtils.DeleteResDirectory("src")
+			FileUtils.DeleteResDirectory("sdkchat")
+		end
+
+		if not self.resourceVersion_ or self.resourceVersion_ == "" then
+			if self.savedVersion_ and self.savedVersion_ ~= "" then
+				self.resourceVersion_ = self.savedVersion_
+			else
+				self.resourceVersion_ = self.packageVersion_
+			end
+
+			xyd.res_version = self.resourceVersion_
+		end
+	end,
+	roundNum = function (self, value)
+		value = tonumber(value) or 0
+
+		return math.floor(value + 0.5)
+	end,
+	checkUpdate = function (self)
+		self:logGameLoginEvent("checkUpdate, will check version", 101)
+		UIManager.SetLoadingProgress(0.3, 0.05, false)
+		UIManager.SetLoadingVersion(self:getResourceVersion())
+		self:retrieveVersionInfo()
+	end,
+	clearTmpVersionFiles = function (self, tmp)
+		DeleteKey(SAVE_TMP_VERSION)
+		Save()
+		FileUtils.DeleteFileDirectory(TMP_RES_PATH)
+	end,
+	retrieveVersionInfo = function (self)
+		local os_id = OS_ANDROID
+		local device_id = XYDSDK.Instance:GetDeviceID()
+
+		if UNITY_ANDROID then
+			os_id = OS_ANDROID
+		elseif UNITY_IOS then
+			os_id = OS_IOS
+		end
+
+		print("retrieveVersionInfo:", os_id, device_id)
+
+		self.backendRequestUrl_ = self:getBackendRequestUrl()
+		local params = {
+			mid = 2,
+			test_id = 1,
+			os_id = os_id,
+			device_id = device_id,
+			app_v = self:getPackageVersion(),
+			res_v = self:getResourceVersion(),
+			bundle_id = XYDDef.PkgName
+		}
+
+		if UNITY_2020 then
+			params.test_id = 2
+			params.u_v = 2020
+		end
+
+		local backendRequestUrl = self.backendRequestUrl_
+
+		self:webRequest(self.backendRequestUrl_, params, function (response, success, httpCode)
+			if backendRequestUrl == self.backendRequestUrl_ then
+				if success then
+					local payload = response.payload
+					local errorCode = payload.error_code
+
+					if errorCode ~= nil then
+						print("error_code: " .. errorCode)
+						self:recordUrlFailed(UrlUsageType.BACKEND)
+						self:onWebRequestCheckVersionError(httpCode, response)
+					else
+						self:clearUrlFailed(UrlUsageType.BACKEND)
+						self:onWebRequestCheckVersionSuccess(response)
+					end
+				else
+					self:recordUrlFailed(UrlUsageType.BACKEND)
+					self:onWebRequestCheckVersionError(httpCode, response)
+				end
+			end
+		end)
+	end,
+	onWebRequestCheckVersionSuccess = function (self, response)
+		local payload = response.payload
+		local serverVersion = payload.curr_version
+		local minPkgVersion = payload.min_version
+		local minHotVersion = payload.min_hot_version or "0.1.68"
+		self.serverVersion_ = serverVersion
+		self.isMaintenance_ = payload.is_maintenance
+
+		self:logGameLoginEvent("checkUpdate, get server version", 102)
+		print("backendurl", payload.backendurl)
+
+		xyd.backendurl = payload.backendurl
+		self.updateTitle_ = payload.title or ""
+		self.updateContent_ = payload.content or ""
+		local versionUrl = self:getServerVersionUrl(serverVersion)
+		local currentVersion = self:getResourceVersion()
+		local pkgVersion = self:getPackageVersion()
+
+		print("currentVersion: " .. currentVersion .. ",  serverVersion: " .. serverVersion .. ", pkgVersion: " .. pkgVersion .. ", minPkgVersion: " .. minPkgVersion .. ", minHotVersion: " .. minHotVersion .. ", versionUrl: " .. versionUrl)
+
+		xyd.os_id = tonumber(payload.os_id)
+		xyd.test_id = tonumber(payload.test_id)
+
+		if self.savedVersion_ == "" then
+			self:setPackageLazyDownloadInfos()
+			self:setResourceVersion(pkgVersion)
+		else
+			self:setLocalLazyDownloadInfos()
+		end
+
+		self:waitShowAutoRepairWindow("UpdateController:onWebRequestCheckVersionSuccess")
+
+		if XYDUtils.CompVersion(currentVersion, serverVersion) >= 0 then
+			self:onCheckVersionComplete(false)
+		elseif XYDUtils.CompVersion(minPkgVersion, pkgVersion) > 0 then
+			if THIRD_AUTO_UPDATE then
+				UIManager.ShowConfirmAlert(__("FRIEND_TIP"), __("NEED_UPDATE_PACKAGE"), __("OK"), false, function ()
+					XYDSDK.Instance:UpdateAppBySDK()
+				end)
+			else
+				UIManager.ShowConfirmAlert(__("FRIEND_TIP"), __("NEED_GO_APPSTORE"), __("OK"), false, function ()
+					Application.OpenURL(xyd.pkgUpdateURL)
+				end)
+			end
+		else
+			local tmpVersion = self:getTmpVersion()
+			local tmpVersionPath = self:getTmpFilePath(VERSION_FILE)
+			local isTmpVersionExist = FileUtils.IsFileInData(tmpVersionPath)
+
+			if XYDUtils.CompVersion(tmpVersion, currentVersion) > 0 and isTmpVersionExist then
+				self:copyTmpVersionFiles()
+			elseif XYDUtils.CompVersion(currentVersion, minHotVersion) >= 0 then
+				local errorVersion = self:getErrorVersion()
+
+				if XYDUtils.CompVersion(serverVersion, errorVersion) ~= 0 then
+					SetString(SAVE_ERROR_VERSION, "")
+					Save()
+
+					xyd.needBackUpdate = true
+					xyd.backUpdateParams = {
+						curr_version = serverVersion,
+						min_version = minPkgVersion
+					}
+				end
+
+				self:onCheckVersionComplete(false)
+			else
+				self:waitShowAutoRepairWindow("UpdateController:forceDownloadVersionFile")
+				self:forceDownloadVersionFile()
+			end
+		end
+	end,
+	getServerVersionUrl = function (self, serverVersion)
+		local versionUrl = ""
+
+		if UNITY_2020 then
+			if UNITY_IOS then
+				if jit.arch == "arm" then
+					versionUrl = XYDUtils.CdnUrl() .. "version_ios" .. serverVersion .. "_32_2020.json"
+				else
+					versionUrl = XYDUtils.CdnUrl() .. "version_ios" .. serverVersion .. "_2020.json"
+				end
+			elseif UNITY_ANDROID then
+				if jit.arch == "arm" then
+					versionUrl = XYDUtils.CdnUrl() .. "version_android" .. serverVersion .. "_32_2020.json"
+				else
+					versionUrl = XYDUtils.CdnUrl() .. "version_android" .. serverVersion .. "_2020.json"
+				end
+			end
+		elseif UNITY_IOS then
+			if jit.arch == "arm" then
+				versionUrl = XYDUtils.CdnUrl() .. "version_ios" .. serverVersion .. "_32.json"
+			else
+				versionUrl = XYDUtils.CdnUrl() .. "version_ios" .. serverVersion .. ".json"
+			end
+		elseif UNITY_ANDROID then
+			if jit.arch == "arm" then
+				versionUrl = XYDUtils.CdnUrl() .. "version_android" .. serverVersion .. "_32.json"
+			else
+				versionUrl = XYDUtils.CdnUrl() .. "version_android" .. serverVersion .. ".json"
+			end
+		end
+
+		return versionUrl
+	end,
+	setCurrentVersionInfos = function (self, versionInfos)
+		if self.currentVersionInfos_ == nil then
+			self.currentVersionInfos_ = versionInfos
+			self.allLocalMd5s_ = xyd.db.localMd5Info:getAllLocalMd5s()
+		elseif self.currentVersionInfos_ ~= versionInfos then
+			self.currentVersionInfos_ = versionInfos
+			local usedMd5s = {}
+			local path, md5 = nil
+
+			for _, versionInfo in ipairs(versionInfos.resources) do
+				path = versionInfo.path
+				md5 = self.allLocalMd5s_[path]
+
+				if md5 then
+					usedMd5s[path] = md5
+					self.allLocalMd5s_[path] = nil
+				end
+			end
+
+			local unusedMd5s = self.allLocalMd5s_
+			self.allLocalMd5s_ = usedMd5s
+
+			for path, md5 in pairs(unusedMd5s) do
+				xyd.db.localMd5Info:removeLocalMd5(path)
+			end
+		end
+	end,
+	getCurrentVersionInfos = function (self)
+		if not self.currentVersionInfos_ and FileUtils.IsResInData(VERSION_FILE) then
+			local str = FileUtils.ReadResStringInData(VERSION_FILE)
+			local status, versionInfos = pcall(json.decode, str)
+
+			if status then
+				self:setCurrentVersionInfos(versionInfos)
+			end
+		end
+
+		return self.currentVersionInfos_
+	end,
+	getTmpVersion = function (self)
+		return GetString(SAVE_TMP_VERSION, "")
+	end,
+	getTmpFilePath = function (self, path)
+		return TMP_RES_PATH .. "/" .. path
+	end,
+	setTmpVersion = function (self, version, versionStr)
+		FileUtils.WriteFile(self:getTmpFilePath(VERSION_FILE), versionStr)
+		SetString(SAVE_TMP_VERSION, version)
+		Save()
+	end,
+	copyTmpVersionFiles = function (self, serverVersionInfos, updateVersionInfos)
+		local afterForceDownload = serverVersionInfos ~= nil
+		local tmpVersion = self:getTmpVersion()
+		local tmpVersionPath = self:getTmpFilePath(VERSION_FILE)
+
+		if not serverVersionInfos and not updateVersionInfos then
+			local jsonStr = FileUtils.ReadFileStringInData(tmpVersionPath)
+			serverVersionInfos = json.decode(jsonStr)
+			updateVersionInfos = self:getUpdateVersionInfos(serverVersionInfos)
+		end
+
+		SetInt("__IS__UPDATING__", 1)
+		Save()
+		self:updateTmpRes(updateVersionInfos, function ()
+			FileUtils.CopyFile2Res(tmpVersionPath, VERSION_FILE)
+			self:setCurrentVersionInfos(serverVersionInfos)
+			self:setResourceVersion(tmpVersion)
+			self:clearTmpVersionFiles()
+			UIManager.SetLoadingVersion(tmpVersion)
+			SetInt("__IS__UPDATING__", 0)
+			Save()
+			self:onCheckVersionComplete(true)
+		end, afterForceDownload)
+	end,
+	getUpdateVersionInfos = function (self, newVersionInfos)
+		local currentVersionInfos = self:getCurrentVersionInfos()
+		local updateVersionInfos = {}
+		local currentVersionTable = {}
+		local path, md5, type, downloadInfo = nil
+
+		for _, versionInfo in pairs(currentVersionInfos.resources) do
+			path = versionInfo.path
+			md5 = versionInfo.md5
+			currentVersionTable[path .. md5] = versionInfo
+		end
+
+		local newVersion = newVersionInfos.version
+
+		for _, versionInfo in pairs(newVersionInfos.resources) do
+			path = versionInfo.path
+			type = versionInfo.type
+			md5 = versionInfo.md5
+
+			if currentVersionTable[path .. md5] == nil then
+				downloadInfo = {
+					path = path,
+					type = type,
+					md5 = md5,
+					res = versionInfo.res,
+					size = versionInfo.size,
+					version = newVersion
+				}
+
+				if type == 1 or type == 2 or type == 3 then
+					table.insert(updateVersionInfos, downloadInfo)
+				elseif type == 4 then
+					if HasKey(BACK_UPDATE_WEB_DOWNLOAD_PREFIX .. path) then
+						table.insert(updateVersionInfos, downloadInfo)
+					else
+						SetString(LAZY_WEB_DOWNLOAD_PREFIX .. path, json.encode(downloadInfo))
+					end
+				end
+			end
+		end
+
+		Save()
+
+		return updateVersionInfos
+	end,
+	setLocalLazyDownloadInfos = function (self)
+		local currentVersionInfos = self:getCurrentVersionInfos()
+
+		if not currentVersionInfos then
+			print("=======checkLocalLazyDownloadInfos==json=====failed=====")
+
+			return
+		end
+
+		local time1 = gettime()
+		local path, type, md5, downloadInfo = nil
+		local version = currentVersionInfos.version
+
+		for _, versionInfo in pairs(currentVersionInfos.resources) do
+			path = versionInfo.path
+			type = versionInfo.type
+			md5 = versionInfo.md5
+
+			if type == 4 then
+				if not HasKey(LAZY_WEB_DOWNLOAD_PREFIX .. path) and not FileUtils.IsResInData(path) then
+					downloadInfo = {
+						path = path,
+						type = type,
+						md5 = md5,
+						res = versionInfo.res,
+						size = versionInfo.size,
+						version = version
+					}
+
+					SetString(LAZY_WEB_DOWNLOAD_PREFIX .. path, json.encode(downloadInfo))
+				end
+			elseif type == 3 and not HasKey(LAZY_WEB_DOWNLOAD_PREFIX .. path) and not FileUtils.IsResInData(path) and not FileUtils.IsResInApp(path) then
+				downloadInfo = {
+					path = path,
+					type = type,
+					md5 = md5,
+					res = versionInfo.res,
+					size = versionInfo.size,
+					version = version
+				}
+
+				SetString(LAZY_WEB_DOWNLOAD_PREFIX .. path, json.encode(downloadInfo))
+			end
+		end
+
+		local time2 = gettime()
+
+		print("set local lazy time", time2 - time1)
+	end,
+	setPackageLazyDownloadInfos = function (self)
+		local fileName = jit.arch == "arm" and VERSION_FILE_32 or VERSION_FILE
+
+		if not FileUtils.IsResInApp(fileName) then
+			print("error no version file in app!!")
+
+			return
+		end
+
+		local currentVersionStr = FileUtils.ReadResStringInApp(fileName)
+
+		FileUtils.WriteRes(VERSION_FILE, currentVersionStr)
+
+		local currentVersionInfos = json.decode(currentVersionStr)
+
+		self:setCurrentVersionInfos(currentVersionInfos)
+
+		local time1 = gettime()
+		local path, type, md5, downloadInfo = nil
+		local version = currentVersionInfos.version
+
+		for _, versionInfo in pairs(currentVersionInfos.resources) do
+			path = versionInfo.path
+			type = versionInfo.type
+			md5 = versionInfo.md5
+
+			if type == 2 or type == 3 or type == 4 then
+				downloadInfo = {
+					path = path,
+					type = type,
+					md5 = md5,
+					res = versionInfo.res,
+					size = versionInfo.size,
+					version = version
+				}
+
+				if type == 2 then
+					if not FileUtils.IsResInApp(path) then
+						SetString(LAZY_LUA_DOWNLOAD_PREFIX .. path, json.encode(downloadInfo))
+					end
+				elseif type == 3 then
+					if not FileUtils.IsResInApp(path) then
+						SetString(LAZY_WEB_DOWNLOAD_PREFIX .. path, json.encode(downloadInfo))
+					end
+				elseif type == 4 then
+					SetString(LAZY_WEB_DOWNLOAD_PREFIX .. path, json.encode(downloadInfo))
+				end
+			end
+		end
+
+		local time2 = gettime()
+
+		print("set package lazy time", time2 - time1)
+	end,
+	onLanguageLoaded = function (self, restart, reloadLang)
+		if self.isMaintenance_ == 1 then
+			if self.updateTitle_ == "" or self.updateContent_ == "" then
+				UIManager.ShowConfirmAlert(__("FRIEND_TIP"), __("SERVER_MAINTENANCE"), __("OK"), false, function ()
+					XYDUtils.QuitGame()
+				end)
+			else
+				self:showAnnounce(function ()
+					XYDUtils.QuitGame()
+				end)
+			end
+		elseif restart then
+			self:restartGame()
+		else
+			self:logGameLoginEvent("checkUpdate, start preload", 105)
+
+			local time1 = gettime()
+
+			print("start preloadAbs")
+			ResManager.PreloadABsAsync(function (success, obj)
+				xyd.isLoadingFinish = true
+
+				self:logGameLoginEvent("checkUpdate, finish preload", 106)
+
+				local time2 = gettime()
+
+				print("finish preloadAbs", time2 - time1)
+
+				if xyd.isLoginInfoReceived then
+					xyd.EventDispatcher.inner():dispatchEvent({
+						name = xyd.event.GAME_START
+					})
+				end
+			end)
+			self:startGame(reloadLang)
+		end
+	end,
+	onCheckVersionComplete = function (self, needRestart)
+		local pkgName = XYDDef.PkgName
+		local languages = xyd.package2Language[pkgName]
+		local languageKey = LAZY_LUA_DOWNLOAD_PREFIX .. "src/data/tables/translation_" .. xyd.lang .. ".lua"
+
+		if not languages[xyd.lang] and HasKey(languageKey) then
+			local updateVersions = {}
+			local languageVersionStr = GetString(languageKey, "")
+
+			if languageVersionStr ~= "" then
+				local downloadInfo = json.decode(languageVersionStr)
+
+				table.insert(updateVersions, downloadInfo)
+			end
+
+			self:logGameLoginEvent("checkUpdate, start download translation", 103)
+			self:downloadTranslation(updateVersions, function ()
+				self:logGameLoginEvent("checkUpdate, translation downloaded", 104)
+				self:onLanguageLoaded(needRestart, true)
+			end)
+		else
+			self:onLanguageLoaded(needRestart, false)
+		end
+	end,
+	forceDownloadVersionFile = function (self)
+		local versionUrl = self:getServerVersionUrl(self.serverVersion_)
+
+		print("versionUrl:", versionUrl)
+		ResManager.DownloadString(versionUrl, function (status, response)
+			if status == DownloadStatus.Success then
+				self:clearUrlFailed(UrlUsageType.CDN)
+				SetInt("__IS__UPDATING__", 1)
+				Save()
+
+				local serverVersionInfos = json.decode(response)
+				local updateVersionInfos = self:getUpdateVersionInfos(serverVersionInfos)
+
+				self:updateRes(updateVersionInfos, __("UPDATING"), function ()
+					self:setTmpVersion(self.serverVersion_, response)
+					SetInt("__IS__UPDATING__", 0)
+					Save()
+					self:copyTmpVersionFiles(serverVersionInfos, updateVersionInfos)
+				end, true)
+
+				return
+			end
+
+			if status == DownloadStatus.Failed then
+				self:recordUrlFailed(UrlUsageType.CDN)
+
+				local failedTimes = self:getUrlFailedTimes(UrlUsageType.CDN) + 1
+
+				print("===Update Error===: download version json failed(e:002) -- url:" .. versionUrl .. " failedTimes:" .. failedTimes)
+
+				failedTimes = self:setUrlFailedTimes(UrlUsageType.CDN, failedTimes)
+
+				local function callbackTodo()
+					self:forceDownloadVersionFile()
+				end
+
+				if failedTimes >= 2 then
+					self:showAutoRepairWindow({
+						strErrorCode = "(e:002)",
+						urlUsageType = "cdn",
+						callbackTodo = callbackTodo
+					})
+				else
+					callbackTodo()
+				end
+			end
+		end)
+	end,
+	getUrlFailedTimes = function (self, urlUsageType)
+		return self.urlFailedTimes_[urlUsageType] or 0
+	end,
+	setUrlFailedTimes = function (self, urlUsageType, failedTimes)
+		self.urlFailedTimes_[urlUsageType] = failedTimes
+
+		if failedTimes >= 2 then
+			if not self.urlUsageSucceed_[urlUsageType] then
+				if urlUsageType ~= UrlUsageType.CDN or CDN_URLS_ENABLED then
+					local currentUrlType = self:getUrlType(urlUsageType)
+					local urlType = self:getRecommendedUrlType(urlUsageType)
+
+					if currentUrlType ~= urlType then
+						self:setUrlType(urlUsageType, urlType)
+
+						self.urlFailedTimes_[urlUsageType] = 0
+
+						print("change url:", urlUsageType, currentUrlType, urlType)
+					end
+				end
+			else
+				print("this url usage type was succeed, can not change", self.urlUsageSucceed_[urlUsageType])
+			end
+		end
+
+		return self.urlFailedTimes_[urlUsageType]
+	end,
+	recordUrlFailed = function (self, urlUsageType)
+		local urlType = self:getUrlType(urlUsageType)
+		local failedTime = os.time()
+
+		SetInt(string.format(SAVE_FAILED_URL_TYPE, urlUsageType, urlType), failedTime)
+		print("recordUrlFailed", urlUsageType, urlType)
+	end,
+	clearUrlFailed = function (self, urlUsageType)
+		local succeedUrlType = self:getUrlType(urlUsageType)
+
+		self:setUrlFailedTimes(urlUsageType, 0)
+
+		if not self.urlUsageSucceed_[urlUsageType] or self.urlUsageSucceed_[urlUsageType] ~= succeedUrlType then
+			self.urlUsageSucceed_[urlUsageType] = succeedUrlType
+
+			SetInt(string.format(SAVE_FAILED_URL_TYPE, urlUsageType, succeedUrlType), 0)
+			print("clearUrlFailed", urlUsageType, succeedUrlType)
+		end
+	end,
+	getFailedUrlType = function (self, urlUsageType, urlType)
+		return GetInt(string.format(SAVE_FAILED_URL_TYPE, urlUsageType, urlType), 0)
+	end,
+	initRecommendedUrlTypes = function (self)
+		local setUsage = {}
+		local savedRoute = GetInt(SAVE_CHANGE_ROUTE, 0)
+
+		if savedRoute <= 0 or savedRoute >= 4 then
+			savedRoute = 1
+		end
+
+		local currentTime = os.time()
+		local defaultType = UrlType.NORMAL
+
+		for _, usage in pairs(UrlUsageType) do
+			local num = self:getFailedUrlType(usage, defaultType)
+
+			if num <= 0 or STANDBY_URL_EFFECT_TIME <= currentTime - num then
+				print("init default url", usage, defaultType)
+				self:setUrlType(usage, defaultType)
+
+				setUsage[usage] = true
+			end
+		end
+
+		for _, usage in pairs(UrlUsageType) do
+			if not setUsage[usage] then
+				local num = self:getFailedUrlType(usage, savedRoute)
+
+				if num <= 0 then
+					print("init saved url", usage, savedRoute)
+					self:setUrlType(usage, savedRoute)
+
+					setUsage[usage] = true
+				end
+			end
+		end
+
+		for _, usage in pairs(UrlUsageType) do
+			if not setUsage[usage] then
+				local targetType = UrlType.NORMAL
+
+				for urlType = UrlType.AKAMAI, UrlType.GCP do
+					local num = self:getFailedUrlType(usage, urlType)
+
+					if num <= 0 then
+						targetType = urlType
+
+						break
+					end
+				end
+
+				print("init url", usage, targetType)
+				self:setUrlType(usage, targetType)
+			end
+		end
+	end,
+	getRecommendedUrlType = function (self, urlUsageType)
+		local urls = URLS[urlUsageType]
+
+		for urlType, url in pairs(urls) do
+			local num = self:getFailedUrlType(urlUsageType, urlType)
+
+			if num <= 0 then
+				return urlType
+			end
+		end
+
+		local usedUrlTypes = self.usedUrlTypes_[urlUsageType] or {}
+
+		for urlType, url in pairs(urls) do
+			if not usedUrlTypes[urlType] then
+				return urlType
+			end
+		end
+
+		return self:getUrlType(urlUsageType) or UrlType.NORMAL
+	end,
+	onWebRequestCheckVersionError = function (self, httpCode, response)
+		self:delayWaitShowAutoRepairWindow()
+		self:logGameLoginEvent("checkUpdate, get server version, " .. self.backendRequestUrl_, 107)
+
+		local failedTimes = self:getUrlFailedTimes(UrlUsageType.BACKEND) + 1
+
+		print("===Update Error===: check version failed(e:001), failed times: " .. failedTimes .. ", url: " .. self.backendRequestUrl_)
+
+		failedTimes = self:setUrlFailedTimes(UrlUsageType.BACKEND, failedTimes)
+
+		local function callbackTodo()
+			self:retrieveVersionInfo()
+		end
+
+		if failedTimes >= 2 then
+			self:reportMessageToBackupPlatform("001", httpCode, response.payload, self.backendRequestUrl_)
+			self:showAutoRepairWindow({
+				strErrorCode = "(e:001)",
+				urlUsageType = "backend",
+				callbackTodo = callbackTodo
+			})
+		else
+			callbackTodo()
+		end
+	end,
+	waitShowAutoRepairWindow = function (self, event, time)
+		self.waitShowAutoRepairWindowEvent_ = event
+		self.waitShowAutoRepairWindowTime_ = time or 30
+
+		XYDCo.StopWait("WaitShowAutoRepair")
+		XYDCo.WaitForTime(self.waitShowAutoRepairWindowTime_, function ()
+			local windows = {
+				"ui_alert",
+				"ui_account_banned",
+				"ui_update_announce",
+				"ui_auto_repair",
+				"ui_auto_repair_res",
+				"ui_chat_sdk_window"
+			}
+
+			for _, window in ipairs(windows) do
+				if UIManager.IsOpen(window) then
+					print("wait show auto repair:", window .. " window is open")
+
+					return
+				end
+			end
+
+			print("wait show auto repair event:", self.waitShowAutoRepairWindowEvent_)
+
+			local params = {
+				strErrorCode = "(e:009)",
+				urlUsageType = "backend",
+				callbackTodo = function ()
+					print("wait show auto repair error!!")
+				end
+			}
+
+			self:showAutoRepairWindow(params)
+
+			self.waitShowAutoRepairWindowEvent_ = nil
+			self.waitShowAutoRepairWindowTime_ = nil
+		end, "WaitShowAutoRepair")
+	end,
+	delayWaitShowAutoRepairWindow = function (self)
+		if self.waitShowAutoRepairWindowEvent_ and self.waitShowAutoRepairWindowTime_ then
+			self:waitShowAutoRepairWindow(self.waitShowAutoRepairWindowEvent_, self.waitShowAutoRepairWindowTime_)
+		end
+	end,
+	stopWaitShowAutoRepairWindow = function (self, event)
+		print("stop wait show auto repair event:", event)
+		XYDCo.StopWait("WaitShowAutoRepair")
+	end,
+	showAutoRepairWindow = function (self, params)
+		params = params or {}
+		local callbackTodo = params.callbackTodo
+		local strErrorCode = params.strErrorCode
+		local globalPlayerID = params.globalPlayerID
+		local urlUsageType = params.urlUsageType
+		local urls = params.urls
+		local gameLoginEvents = params.gameLoginEvents or {}
+
+		UIManager.ShowAlert(__("FRIEND_TIP"), __("NOT_CONNECTED") .. strErrorCode, __("RETRY"), __("AUTO_REPAIR"), false, function (yes)
+			if yes then
+				self:tryLogGameLoginEvent(gameLoginEvents[1])
+				callbackTodo(yes)
+			else
+				self:tryLogGameLoginEvent(gameLoginEvents[2])
+
+				local title = __("AUTO_REPAIR")
+				local tip = __("AUTO_REPAIR_TIP")
+
+				if urls == nil then
+					if urlUsageType ~= nil then
+						urls = URLS[urlUsageType] or {}
+					else
+						urls = {}
+					end
+				end
+
+				local strUrls = json.encode({
+					inGame = false,
+					urls = urls
+				})
+				local strPlayerID = "-1"
+
+				if globalPlayerID and globalPlayerID > 0 then
+					strPlayerID = tostring(globalPlayerID)
+				elseif self.lastPlayerID_ and self.lastPlayerID_ > 0 then
+					strPlayerID = tostring(self.lastPlayerID_)
+				end
+
+				local logPath = XYDDef.DataPath .. "/Logs"
+
+				print("show auto repair: urls", strUrls)
+				UIManager.ShowAutoRepair(title, tip, strUrls, false, strPlayerID, logPath, true, function (strResult)
+					print("auto repair result", strResult)
+
+					local isE009 = strErrorCode == "(e:009)"
+
+					if self.lastPlayerID_ > 0 then
+						self:tryLogGameLoginEvent(gameLoginEvents[3])
+
+						local info = {
+							player_name = __("LOGIN_NICK_NAME"),
+							player_id = __("LOGIN_PLAYER_ID"),
+							kingdom_id = __("LOGIN_CITY"),
+							player_level = __("LOGIN_PLAYER_LEVEL"),
+							castle_level = __("LOGIN_CASTLE_LEVEL"),
+							player_name_v = self.lastPlayerName_,
+							player_id_v = self.lastPlayerID_,
+							kingdom_id_v = self.lastKingdomID_,
+							player_level_v = self.lastPlayerLevel_,
+							castle_level_v = self.lastCastleLevel_,
+							message = __("AUTO_REPAIR_RES_MSG1"),
+							message2 = __("AUTO_REPAIR_RES_MSG2"),
+							message3 = __("LOGIN_OFFICIAL_LINE", self:getLineID()),
+							yes_text = isE009 and __("AUTO_REPAIR_REVERT") or __("OK"),
+							no_text = __("GM_CONTACT_ENTRANCE")
+						}
+
+						local function callbackCopy(str)
+							if str == "link" then
+								if xyd.lang == "en_us" then
+									Application.OpenURL("https://discord.gg/wx5KbpF")
+								elseif xyd.lang == "pt_pt" then
+									Application.OpenURL("https://wa.me/message/KHYHKQ5NRSHRL1")
+								end
+							else
+								self:setClipboard(self:getLineID())
+								UIManager.ShowTip(__("COPY_SUCCESS"))
+							end
+						end
+
+						local function callbackTodo2()
+							self:tryLogGameLoginEvent(gameLoginEvents[4])
+
+							if isE009 then
+								self:clearErrorVersion()
+							else
+								callbackTodo()
+							end
+						end
+
+						if GM_CHAT_ENABLED then
+							local function callbackSetGmChat()
+								if GM_CHAT_PLAYER_ID_ENABLED then
+									UIManager.SetGmChat(strErrorCode, tostring(self.originLastPlayerID_), self.lastPlayerName_, strPlayerID)
+								else
+									UIManager.SetGmChat(strErrorCode)
+								end
+							end
+
+							UIManager.ShowAutoRepairRes(__("AUTO_REPAIR"), json.encode(info), callbackTodo2, callbackSetGmChat, callbackCopy)
+						else
+							UIManager.ShowAutoRepairRes(__("AUTO_REPAIR"), json.encode(info), callbackTodo2, callbackCopy)
+						end
+					else
+						self:tryLogGameLoginEvent(gameLoginEvents[5])
+
+						local deviceID = XYDSDK.Instance:GetDeviceID()
+
+						print("device id:", deviceID)
+
+						local title = __("AUTO_REPAIR")
+						local msg = __("AUTO_REPAIR_RES") .. "\n" .. __("LOGIN_OFFICIAL_LINE", self:getLineID()) .. "\n" .. "Device ID:" .. deviceID
+
+						if isE009 then
+							UIManager.ShowAlert(title, msg, __("AUTO_REPAIR_REVERT"), __("OK"), false, function (yes)
+								self:tryLogGameLoginEvent(gameLoginEvents[6])
+
+								if yes then
+									self:clearErrorVersion()
+								else
+									callbackTodo()
+								end
+							end)
+						else
+							UIManager.ShowConfirmAlert(title, msg, __("OK"), false, function ()
+								self:tryLogGameLoginEvent(gameLoginEvents[6])
+								callbackTodo()
+							end)
+						end
+					end
+				end, function ()
+					self:tryLogGameLoginEvent(gameLoginEvents[7])
+					callbackTodo()
+				end)
+			end
+		end)
+	end,
+	initLastAccountInfo = function (self)
+		self.lastPlayerID_ = GetInt("__player_id_key__", -1)
+		self.lastPlayerName_ = GetString("__player_name_key__", "")
+		self.lastPlayerLevel_ = GetInt("__player_level_key__", 1)
+		self.lastKingdomID_ = GetInt("__kingdom_id_key__", 1)
+		self.lastCastleLevel_ = GetInt("__castle_level_key__", 1)
+
+		if self.lastPlayerID_ > 0 then
+			self.originLastPlayerID_ = self.lastPlayerID_
+			self.lastPlayerID_ = self:encryptPlayerID(self.lastPlayerID_)
+		end
+	end,
+	encryptPlayerID = function (self, num1)
+		local num2 = 66666666666.0
+		local num3 = 0
+		local digit = 0
+
+		while num1 > 0 or num2 > 0 do
+			local t1 = num1 % 2
+			local t2 = num2 % 2
+			local t3 = t1 ~= t2 and 1 or 0
+			num3 = num3 + t3 * math.pow(2, digit)
+			digit = digit + 1
+			num1 = math.floor(num1 / 2)
+			num2 = math.floor(num2 / 2)
+		end
+
+		return num3
+	end,
+	getLineID = function (self)
+		local res = "TheGrandMafia"
+		local pkgName = XYDDef.PkgName
+
+		if pkgName == "com.yottagames.gameofmafia" or pkgName == "com.yottagames.tgmafia" or pkgName == "com.yottagames.gameofmafiatest" or pkgName == "com.yottagames.gameofmafiatr" or pkgName == "com.yottagames.gameofmafiajp" or pkgName == "com.yottagames.gameofmafiakr" then
+			if xyd.lang == "zh_tw" then
+				res = "@grandmafiatw"
+			elseif xyd.lang == "fr_fr" then
+				res = "@grandmafiafr"
+			elseif xyd.lang == "de_de" then
+				res = "@grandmafiade"
+			elseif xyd.lang == "ru_ru" then
+				res = "thegrandmafia"
+			elseif xyd.lang == "es_es" then
+				res = "grandmafiaes"
+			elseif xyd.lang == "tr_tr" then
+				res = "grandmafiatr"
+			elseif xyd.lang == "ja_jp" then
+				res = "@grandmafiajp"
+			elseif xyd.lang == "it_it" then
+				res = "grandmafiait"
+			elseif xyd.lang == "pt_pt" then
+				res = "Secretária Nat"
+			elseif xyd.lang == "ar_ae" then
+				res = "@grandmafiaar"
+			elseif xyd.lang == "ko_kr" then
+				res = "더 그랜드 마피아"
+			else
+				res = xyd.package2LineID[pkgName]
+			end
+		else
+			res = xyd.package2LineID[pkgName]
+		end
+
+		return res or "TheGrandMafia"
+	end,
+	setUrlType = function (self, urlUsageType, urlType)
+		if urlUsageType == UrlUsageType.CDN then
+			if CDN_URLS_ENABLED then
+				self.urlTypes_[urlUsageType] = urlType
+				self.urls_[urlUsageType] = URLS[urlUsageType][urlType]
+
+				XYDUtils.SetCdnUrl(self:getCdnResUrl())
+				self:addUsedUrlType(urlUsageType, urlType)
+			else
+				self.urlTypes_[urlUsageType] = UrlType.NORMAL
+				self.urls_[urlUsageType] = UrlType.NORMAL
+
+				self:addUsedUrlType(urlUsageType, urlType)
+			end
+		else
+			self.urlTypes_[urlUsageType] = urlType
+			self.urls_[urlUsageType] = URLS[urlUsageType][urlType]
+
+			self:addUsedUrlType(urlUsageType, urlType)
+		end
+	end,
+	addUsedUrlType = function (self, urlUsageType, urlType)
+		self.usedUrlTypes_[urlUsageType] = self.usedUrlTypes_[urlUsageType] or {}
+		self.usedUrlTypes_[urlUsageType][urlType] = true
+	end,
+	getUrlType = function (self, urlUsageType)
+		return self.urlTypes_[urlUsageType]
+	end,
+	getBackendUrl = function (self)
+		return self.urls_[UrlUsageType.BACKEND]
+	end,
+	getGateUrl = function (self)
+		return self.urls_[UrlUsageType.GATE]
+	end,
+	getCdnUrl = function (self)
+		return self.urls_[UrlUsageType.CDN]
+	end,
+	getCdnResUrl = function (self)
+		return self:getCdnUrl() .. "/res/"
+	end,
+	isCheckServer = function (self)
+		if xyd.backendurl == "mafia2backreview.xunmenginc.com" or xyd.backendurl == "mafia2backreview.yottagames.com" then
+			return true
+		end
+
+		return false
+	end,
+	getBackendRequestUrl = function (self)
+		if self:isCheckServer() or UNITY_EDITOR then
+			return "http://" .. xyd.backendurl .. "/api/v1"
+		end
+
+		return self:getBackendUrl() .. "/api/v1"
+	end,
+	webRequest = function (self, url, params, callback)
+		local function complete(response, success)
+			if callback ~= nil then
+				callback(response or {}, success)
+			end
+		end
+
+		local payload = json.encode(params or {})
+		local request = HttpRequest.Request(url, "POST")
+
+		request:AddField("payload", payload)
+		print(string.format("Request web %s, post data %s", url, payload))
+		request:SetTimeout(10)
+		request:AddCallback(function (response)
+			if not response.IsSuccess then
+				local state = response.ReqState
+				local status = response.StatusCode
+
+				print("webRequest not success:", state, status)
+				complete({}, false)
+
+				return
+			end
+
+			local code = response.StatusCode
+			local text = response.DataAsText
+
+			print(string.format("Received from web code(%d) -- %s", code, text))
+
+			if code ~= 200 and code ~= 400 then
+				complete({}, false, code)
+
+				return
+			end
+
+			local ok, result = pcall(json.decode, text)
+
+			if ok and type(result) == "table" then
+				complete(result, true, code)
+			else
+				complete({}, false, code)
+			end
+		end)
+		request:Send()
+	end,
+	clearDownloadInfos = function (self)
+		self.downloadInfos_ = nil
+
+		xyd.db.downloadInfo:commit()
+		xyd.db.downloadInfo:truncate()
+		xyd.db.downloadInfo:close()
+	end,
+	saveDownloadInfo = function (self, downloadInfo)
+		if ADD_COUNTER % 10 == 0 then
+			xyd.db.downloadInfo:commit()
+			xyd.db.downloadInfo:begin()
+		end
+
+		ADD_COUNTER = ADD_COUNTER + 1
+
+		xyd.db.downloadInfo:add(downloadInfo)
+	end,
+	isDownloadFinished = function (self, downloadInfo)
+		return downloadInfo ~= nil and downloadInfo.downloadedSize == downloadInfo.size
+	end,
+	isDownloaded = function (self, downloadInfo, versionInfo)
+		return downloadInfo ~= nil and versionInfo ~= nil and downloadInfo.version == versionInfo.version and downloadInfo.size == versionInfo.size
+	end,
+	recoverDownloadProgress = function (self, versionInfos)
+		if self.downloadInfos_ == nil then
+			xyd.db.downloadInfo:openDB("download.db")
+
+			self.downloadInfos_ = xyd.db.downloadInfo:getAll()
+		end
+
+		local totalBytes = 0
+		local totalDownloadBytes = 0
+		local path, size, downloadInfo = nil
+
+		for _, versionInfo in ipairs(versionInfos) do
+			path = versionInfo.path
+			size = versionInfo.size
+			totalBytes = totalBytes + size
+			downloadInfo = self.downloadInfos_[path]
+
+			if self:isDownloaded(downloadInfo, versionInfo) then
+				totalDownloadBytes = totalDownloadBytes + (downloadInfo.downloadedSize or 0)
+			end
+		end
+
+		return totalDownloadBytes, totalBytes
+	end,
+	getDownloadInfo = function (self, versionInfo)
+		local path = versionInfo.path
+		local downloadInfo = self.downloadInfos_[path]
+
+		if downloadInfo == nil or not self:isDownloaded(downloadInfo, versionInfo) then
+			downloadInfo = downloadInfo or {}
+			downloadInfo.version = versionInfo.version
+			downloadInfo.size = versionInfo.size
+			downloadInfo.path = versionInfo.path
+			downloadInfo.downloadedSize = 0
+		end
+
+		return downloadInfo
+	end,
+	downloadVersion = function (self, downloadInfo, versionInfo, callback, isTmpPath)
+		local path = downloadInfo.path
+		local md5 = versionInfo.md5
+		local res = versionInfo.res
+
+		if isTmpPath then
+			ResManager.DownloadFile(XYDUtils.CdnUrl() .. res .. "." .. md5, md5, path, self:getTmpFilePath(path), function (status)
+				if status == DownloadStatus.Success then
+					downloadInfo.downloadedSize = versionInfo.size
+
+					self:saveDownloadInfo(downloadInfo)
+				end
+
+				callback(status)
+			end, function (status, progress)
+				callback(status, progress)
+			end)
+		else
+			ResManager.DownloadRes(XYDUtils.CdnUrl() .. res .. "." .. md5, md5, path, path, function (status)
+				if status == DownloadStatus.Success then
+					self:finishLazyDownload(versionInfo.type, path, md5)
+
+					downloadInfo.downloadedSize = versionInfo.size
+
+					self:saveDownloadInfo(downloadInfo)
+				end
+
+				callback(status)
+			end, function (status, progress)
+				callback(status, progress)
+			end)
+		end
+	end,
+	getLocalMd5 = function (self, path)
+		return self.allLocalMd5s_[path]
+	end,
+	finishLazyDownload = function (self, type, path, md5)
+		self.allLocalMd5s_[path] = md5
+
+		xyd.db.localMd5Info:setLocalMd5(path, md5)
+
+		if type == 2 then
+			DeleteKey(LAZY_LUA_DOWNLOAD_PREFIX .. path)
+		elseif type == 3 then
+			DeleteKey(LAZY_WEB_DOWNLOAD_PREFIX .. path)
+		elseif type == 4 then
+			DeleteKey(LAZY_WEB_DOWNLOAD_PREFIX .. path)
+		end
+	end,
+	downloadTranslation = function (self, versionInfos, callback)
+		self:updateRes(versionInfos, __("LOADING"), callback)
+	end,
+	updateRes = function (self, versionInfos, desc, callback, isTmpPath)
+		if #versionInfos <= 0 then
+			return callback()
+		end
+
+		local totalDownloadBytes, totalBytes = self:recoverDownloadProgress(versionInfos)
+
+		local function complete()
+			self:clearDownloadInfos()
+
+			if isTmpPath then
+				XYDCo.WaitForFrame(1, function ()
+					callback()
+				end, nil)
+			else
+				XYDCo.WaitForFrame(60, function ()
+					UIManager.SetLoadingProgress(0, false)
+					UIManager.SetLoadingProgress("")
+					callback()
+				end, nil)
+			end
+		end
+
+		local gindex = 0
+		local complete_count = 0
+		local totalPercent = 1
+		local targetPercent = 0.6
+
+		if isTmpPath then
+			totalPercent = 0.8
+			targetPercent = 0.4
+		end
+
+		local function download(index)
+			if index > #versionInfos then
+				complete_count = complete_count + 1
+
+				if DOWNLOAD_THREADS_NUM <= complete_count then
+					UIManager.SetLoadingProgress(totalPercent, 0.6, false)
+					UIManager.SetLoadingProgress(desc .. " " .. self:roundNum(totalPercent * 100) .. "%")
+
+					return complete()
+				end
+
+				return
+			end
+
+			local versionInfo = versionInfos[index]
+			local downloadInfo = self:getDownloadInfo(versionInfo)
+			local progress = totalDownloadBytes / totalBytes * targetPercent + 0.4
+
+			UIManager.SetLoadingProgress(progress, 0.4, false)
+			UIManager.SetLoadingProgress(desc .. " " .. self:roundNum(progress * 100) .. "%")
+
+			if self:isDownloadFinished(downloadInfo) then
+				gindex = gindex + 1
+
+				return download(gindex)
+			end
+
+			local tmpDownloadBytes = 0
+
+			self:downloadVersion(downloadInfo, versionInfo, function (status, progress)
+				if status == DownloadStatus.Success then
+					totalDownloadBytes = totalDownloadBytes - tmpDownloadBytes
+					totalDownloadBytes = totalDownloadBytes + versionInfo.size
+					local progress2 = totalDownloadBytes / totalBytes * targetPercent + 0.4
+
+					UIManager.SetLoadingProgress(progress2, 0.4, false)
+					UIManager.SetLoadingProgress(desc .. " " .. self:roundNum(progress2 * 100) .. "%")
+
+					gindex = gindex + 1
+
+					download(gindex)
+					self:delayWaitShowAutoRepairWindow()
+					self:clearUrlFailed(UrlUsageType.CDN)
+				elseif status == DownloadStatus.Progress then
+					totalDownloadBytes = totalDownloadBytes - tmpDownloadBytes
+					tmpDownloadBytes = versionInfo.size * progress
+					totalDownloadBytes = totalDownloadBytes + tmpDownloadBytes
+					local progress2 = totalDownloadBytes / totalBytes * targetPercent + 0.4
+
+					UIManager.SetLoadingProgress(progress2, 0.4, false)
+					UIManager.SetLoadingProgress(desc .. " " .. self:roundNum(progress2 * 100) .. "%")
+				elseif status == DownloadStatus.Failed then
+					self:recordUrlFailed(UrlUsageType.CDN)
+
+					local function onDownloadFailed()
+						totalDownloadBytes = totalDownloadBytes - tmpDownloadBytes
+
+						download(index)
+					end
+
+					local failedTimes = self:getUrlFailedTimes(UrlUsageType.CDN) + 1
+
+					print("===Update Error===: download resource failed(e:003) -- version:" .. versionInfo.version .. ", res:" .. versionInfo.res .. "." .. versionInfo.md5 .. " url:" .. XYDUtils.CdnUrl() .. " failedTimes:" .. failedTimes)
+
+					failedTimes = self:setUrlFailedTimes(UrlUsageType.CDN, failedTimes)
+
+					if failedTimes >= 2 then
+						self:reportMessageToBackupPlatform("003", "", "", XYDUtils.CdnUrl())
+						self:showAutoRepairWindow({
+							strErrorCode = "(e:003)",
+							urlUsageType = "cdn",
+							callbackTodo = onDownloadFailed
+						})
+					else
+						onDownloadFailed()
+					end
+				end
+			end, isTmpPath)
+		end
+
+		for i = 1, DOWNLOAD_THREADS_NUM do
+			gindex = gindex + 1
+
+			download(gindex)
+		end
+	end,
+	updateTmpRes = function (self, versionInfos, callback, afterForceDownload)
+		local desc = afterForceDownload and __("UPDATING") or __("LOADING")
+
+		if #versionInfos <= 0 then
+			return callback()
+		end
+
+		local function complete()
+			XYDCo.WaitForFrame(60, function ()
+				UIManager.SetLoadingProgress(0, false)
+				UIManager.SetLoadingProgress("")
+				callback()
+			end, nil)
+		end
+
+		local function copyFile(index)
+			if index > #versionInfos then
+				UIManager.SetLoadingProgress(1, 0.6, false)
+				UIManager.SetLoadingProgress(desc .. " 100%")
+
+				return complete()
+			end
+
+			local progress = nil
+
+			if afterForceDownload then
+				progress = index / #versionInfos * 0.2 + 0.8
+			else
+				progress = index / #versionInfos * 0.6 + 0.4
+			end
+
+			UIManager.SetLoadingProgress(progress, 0.4, false)
+			UIManager.SetLoadingProgress(desc .. " " .. self:roundNum(progress * 100) .. "%")
+
+			local versionInfo = versionInfos[index]
+			local type = versionInfo.type
+			local path = versionInfo.path
+			local md5 = versionInfo.md5
+
+			FileUtils.CopyFile2Res(self:getTmpFilePath(path), path)
+
+			if type == 4 then
+				DeleteKey(BACK_UPDATE_WEB_DOWNLOAD_PREFIX .. path)
+			end
+
+			self:finishLazyDownload(type, path, md5)
+
+			if index % 10 == 0 then
+				XYDCo.WaitForEndOfFrame(function ()
+					copyFile(index + 1)
+				end, "")
+			else
+				copyFile(index + 1)
+			end
+		end
+
+		copyFile(1)
+	end,
+	initTranslation = function (self)
+		if not __ then
+			local infos = {}
+			local data = require("data.tables.translation_" .. xyd.lang)
+
+			for _, row in ipairs(data.rows) do
+				local key = row[1]
+				local value = string.gsub(row[2], "|", "\n")
+				local ordinals = {}
+
+				for num in value:gmatch("{(%d+)}") do
+					table.insert(ordinals, tonumber(num))
+				end
+
+				infos[key] = {
+					format = value:gsub("{%d+}", "%%s"),
+					ordinals = ordinals
+				}
+			end
+
+			function __(name, ...)
+				name = tostring(name)
+				local info = infos[name]
+
+				if info == nil then
+					return name
+				end
+
+				local inargs = {
+					...
+				}
+				local args = {}
+
+				for _, index in ipairs(info.ordinals) do
+					table.insert(args, inargs[index] or "")
+				end
+
+				return string.format(info.format, unpack(args))
+			end
+		end
+
+		local playerID = GetInt("__player_id_key__", -1)
+		local allianceCalendarStr = GetString("__alliance_calendar__" .. playerID, "")
+		local savedAllianceCalendarInfos = {}
+		local extraLoadingStr = GetString("__extra_loading_tip__" .. playerID, "")
+		local savedExtraLoadingInfos = {}
+		local allInfos = {}
+		local loadingMessage1, loadingMessage2 = nil
+		local leftInfos = {}
+		local infoWeight = 0
+		local saveInfo1, saveInfo2 = nil
+
+		if allianceCalendarStr ~= "" or extraLoadingStr ~= "" then
+			savedAllianceCalendarInfos = allianceCalendarStr ~= "" and json.decode(allianceCalendarStr) or {}
+			savedExtraLoadingInfos = extraLoadingStr ~= "" and json.decode(extraLoadingStr) or {}
+
+			for _, info in ipairs(savedExtraLoadingInfos) do
+				local newInfo = {
+					id = info.id,
+					time = info.time,
+					showed = info.showed,
+					weight = info.weight,
+					trans = info.trans,
+					transParams = info.transParams,
+					source = info,
+					saveTable = savedExtraLoadingInfos,
+					saveKey = "__extra_loading_tip__" .. playerID
+				}
+
+				table.insert(allInfos, newInfo)
+			end
+
+			for _, info in ipairs(savedAllianceCalendarInfos) do
+				local newInfo = {
+					id = info.id,
+					time = info.time,
+					showed = info.showed,
+					weight = info.weight,
+					trans = info.trans,
+					transParams = info.transParams,
+					source = info,
+					saveTable = savedAllianceCalendarInfos,
+					saveKey = "__alliance_calendar__" .. playerID
+				}
+
+				table.insert(allInfos, newInfo)
+			end
+
+			local osTime = os.time()
+			local osDate = os.date("*t", osTime)
+			local maxOsTime = os.time({
+				hour = 0,
+				min = 0,
+				sec = 0,
+				year = osDate.year,
+				month = osDate.month,
+				day = osDate.day + 2
+			})
+
+			for _, info in ipairs(allInfos) do
+				if info.id and info.time and osTime < info.time and info.time < maxOsTime then
+					local infoDate = os.date("*t", info.time)
+					local transKey = nil
+					local trans = info.trans or {}
+
+					if infoDate.day == osDate.day then
+						transKey = trans[1] or ""
+					else
+						transKey = trans[2] or ""
+					end
+
+					local transParams = info.transParams or {}
+					local transParams2 = {}
+
+					for i, transParam in ipairs(transParams) do
+						transParams2[i] = __(transParam)
+					end
+
+					local lang = __(transKey, unpack(transParams2))
+					local showed = nil
+
+					if info.showed == 0 then
+						if not loadingMessage1 then
+							loadingMessage1 = lang
+							info.source.showed = 1
+							saveInfo1 = info
+							showed = true
+						elseif not loadingMessage2 then
+							loadingMessage2 = lang
+							saveInfo2 = info
+							showed = true
+						end
+					end
+
+					if not showed and info.showed == 1 then
+						local weight = info.weight or 0
+						local messageInfo = {
+							lang = lang,
+							weight = weight
+						}
+						infoWeight = infoWeight + weight
+
+						table.insert(leftInfos, messageInfo)
+					end
+				end
+			end
+		end
+
+		local prompts = {
+			{
+				index = 1,
+				lv_limit = 10,
+				lang = __("LOADING_PROMPT1")
+			},
+			{
+				index = 2,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT2")
+			},
+			{
+				index = 3,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT3")
+			},
+			{
+				index = 4,
+				lv_limit = 3,
+				lang = __("LOADING_PROMPT4")
+			},
+			{
+				index = 5,
+				lv_limit = 3,
+				lang = __("LOADING_PROMPT5")
+			},
+			{
+				index = 6,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT6")
+			},
+			{
+				index = 7,
+				lv_limit = 3,
+				lang = __("LOADING_PROMPT7")
+			},
+			{
+				index = 8,
+				lv_limit = 10,
+				lang = __("LOADING_PROMPT8")
+			},
+			{
+				index = 9,
+				lv_limit = 3,
+				lang = __("LOADING_PROMPT9")
+			},
+			{
+				index = 10,
+				lv_limit = 3,
+				lang = __("LOADING_PROMPT10")
+			},
+			{
+				index = 11,
+				lv_limit = 3,
+				lang = __("LOADING_PROMPT11")
+			},
+			{
+				index = 12,
+				lv_limit = 10,
+				lang = __("LOADING_PROMPT12")
+			},
+			{
+				index = 13,
+				lv_limit = 10,
+				lang = __("LOADING_PROMPT13")
+			},
+			{
+				index = 14,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT14")
+			},
+			{
+				index = 15,
+				lv_limit = 10,
+				lang = __("LOADING_PROMPT15")
+			},
+			{
+				index = 16,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT16")
+			},
+			{
+				index = 17,
+				lv_limit = 3,
+				lang = __("LOADING_PROMPT17")
+			},
+			{
+				index = 18,
+				lv_limit = 10,
+				lang = __("LOADING_PROMPT18")
+			},
+			{
+				index = 19,
+				lv_limit = 10,
+				lang = __("LOADING_PROMPT19")
+			},
+			{
+				index = 20,
+				lv_limit = 10,
+				lang = __("LOADING_PROMPT20")
+			},
+			{
+				index = 21,
+				lv_limit = 3,
+				lang = __("LOADING_PROMPT21")
+			},
+			{
+				index = 22,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT22")
+			},
+			{
+				index = 23,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT23")
+			},
+			{
+				index = 24,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT24")
+			},
+			{
+				index = 25,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT25")
+			},
+			{
+				index = 26,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT26")
+			},
+			{
+				index = 27,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT27")
+			},
+			{
+				index = 28,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT28")
+			},
+			{
+				index = 29,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT29")
+			},
+			{
+				index = 30,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT30")
+			},
+			{
+				index = 31,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT31")
+			},
+			{
+				index = 32,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT32")
+			},
+			{
+				index = 33,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT33")
+			},
+			{
+				index = 34,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT34")
+			},
+			{
+				index = 35,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT35")
+			},
+			{
+				index = 36,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT36")
+			},
+			{
+				index = 37,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT37")
+			},
+			{
+				index = 38,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT38")
+			},
+			{
+				index = 39,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT39")
+			},
+			{
+				index = 40,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT40")
+			},
+			{
+				index = 41,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT41")
+			},
+			{
+				index = 42,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT42")
+			},
+			{
+				index = 43,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT43")
+			},
+			{
+				index = 44,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT44")
+			},
+			{
+				index = 45,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT45")
+			},
+			{
+				index = 46,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT46")
+			},
+			{
+				index = 47,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT47")
+			},
+			{
+				index = 48,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT48")
+			},
+			{
+				index = 49,
+				lv_limit = 1,
+				lang = __("LOADING_PROMPT49")
+			}
+		}
+
+		math.randomseed(os.time())
+
+		local castleLevel = GetInt("__castle_level_key__", 1)
+
+		if castleLevel <= 0 then
+			castleLevel = 1
+		end
+
+		local canPicks = {}
+		local lastPicks = {}
+		local device_id = XYDUtils.GetDeviceID2Int()
+		local isNew = device_id % 2 == 1
+
+		for _, tmp in ipairs(prompts) do
+			if isNew then
+				if tmp.index >= 22 and tmp.lv_limit <= castleLevel then
+					table.insert(canPicks, tmp)
+				end
+			elseif tmp.index <= 21 and tmp.lv_limit <= castleLevel then
+				table.insert(canPicks, tmp)
+			end
+		end
+
+		if loadingMessage1 then
+			UIManager.SetLoadingMessage(loadingMessage1)
+
+			local savedStr = json.encode(saveInfo1.saveTable)
+
+			SetString(saveInfo1.saveKey, savedStr)
+
+			loadingMessage1 = nil
+			saveInfo1 = nil
+		else
+			local rd = math.random(1, #canPicks + infoWeight)
+
+			if rd <= #canPicks then
+				UIManager.SetLoadingMessage(canPicks[rd].lang)
+			else
+				local deltaRd = rd - #canPicks
+				local weights = 0
+
+				for _, allianceCalendarShowed in ipairs(leftInfos) do
+					local weight = allianceCalendarShowed.weight or 0
+					weights = weights + weight
+
+					if deltaRd <= weights then
+						local lang = allianceCalendarShowed.lang or ""
+
+						UIManager.SetLoadingMessage(lang)
+
+						break
+					end
+				end
+			end
+		end
+
+		xyd.promptTimer = Timer.New(function ()
+			if loadingMessage2 then
+				UIManager.SetLoadingMessage(loadingMessage2)
+
+				saveInfo2.source.showed = 1
+				local savedStr = json.encode(saveInfo2.saveTable)
+
+				SetString(saveInfo2.saveKey, savedStr)
+
+				loadingMessage2 = nil
+				saveInfo2 = nil
+			else
+				local rd2 = math.random(1, #canPicks + infoWeight)
+
+				if rd2 <= #canPicks then
+					UIManager.SetLoadingMessage(canPicks[rd2].lang)
+				else
+					local deltaRd = rd2 - #canPicks
+					local weights = 0
+
+					for _, allianceCalendarShowed in ipairs(leftInfos) do
+						local weight = allianceCalendarShowed.weight or 0
+						weights = weights + weight
+
+						if deltaRd <= weights then
+							local lang = allianceCalendarShowed.lang or ""
+
+							UIManager.SetLoadingMessage(lang)
+
+							break
+						end
+					end
+				end
+			end
+		end, 5, -1, false)
+
+		xyd.promptTimer:Start()
+	end,
+	showAnnounce = function (self, callback)
+		local message = self.updateTitle_ .. "\n\n"
+
+		for _, content in ipairs(self.updateContent_) do
+			message = message .. content .. "\n"
+		end
+
+		UIManager.ShowUpdateAnnounce(__("UPDATE_ANNOUNCE"), message, "Textures/Banner_web/update_banner", __("CONFIRM_EXIT"), callback)
+	end,
+	getResourceVersion = function (self)
+		return self.resourceVersion_
+	end,
+	getPackageVersion = function (self)
+		return self.packageVersion_
+	end,
+	setResourceVersion = function (self, version)
+		SetString(SAVE_VERSION, version)
+		Save()
+
+		self.savedVersion_ = version
+		self.resourceVersion_ = version
+		xyd.res_version = version
+	end,
+	getErrorVersion = function (self)
+		return GetString(SAVE_ERROR_VERSION)
+	end,
+	setClipboard = function (self, str)
+		UniClipBoard.SetText(str)
+	end,
+	startGame = function (self, reloadLang)
+		UIManager.SetLoadingProgress(0.9, 1, false)
+		self:cleanUp()
+		self:stopWaitShowAutoRepairWindow("UpdateController:startGame")
+		print("=-=-=-=-=-=-=-=-=-=start loadScene-=-=-=-=-=-=-=-=-=-=-=")
+		SceneUtils.LoadScene("GuiScene", LoadSceneMode.Additive, function (scene, mode)
+			print("=-=-=-=-=-=-=-=-=-=complete loadScene-=-=-=-=-=-=-=-=-=-=-=")
+
+			if scene.name == "GuiScene" then
+				if UNITY_2020 then
+					XYDUtils.SetChildCameraActive("LNgui", false)
+				end
+
+				require("app.Game").new():run(reloadLang)
+			end
+		end)
+	end,
+	restartGame = function (self)
+		XYDApp.NeedRestart = true
+	end,
+	cleanUp = function (self)
+		package.loaded["data.tables.translation_" .. xyd.lang] = nil
+		package.loaded.UpdateController = nil
+	end
+}
+local tryTimesOfCode = {}
+
+function UpdateController:reportMessageToBackupPlatform(eCode, responseCode, responseBody, url)
+	if UNITY_ANDROID and XYDUtils.CompVersion(Application.version, "1.0.913") > 0 then
+		tryTimesOfCode[eCode] = (tryTimesOfCode[eCode] or 0) + 1
+
+		if tryTimesOfCode[eCode] == 3 then
+			XYDSDK.Instance:ReportMessageToBackupPlatform(json.encode({
+				e = eCode,
+				response_code = responseCode,
+				response_body = responseBody
+			}), url)
+		end
+	end
+end
+
+function UpdateController:logGameLoginEvent(desc, stageId)
+	if UNITY_ANDROID and XYDUtils.CompVersion(Application.version, "1.0.913") > 0 and XYDUtils.IsFirstStart then
+		XYDUtils.LogGameLoginEvent(desc, stageId, Application.version)
+	end
+end
+
+function UpdateController:tryLogGameLoginEvent(event)
+	if event then
+		self:logGameLoginEvent(event.desc, event.stageId)
+	end
+end
+
+function UpdateController:clearErrorVersion(inGame)
+	local pkgVersion = self:getPackageVersion()
+	local resVersion = self:getResourceVersion()
+
+	if XYDUtils.CompVersion(pkgVersion, resVersion) >= 0 then
+		return false
+	end
+
+	local fileName = jit.arch == "arm" and VERSION_FILE_32 or VERSION_FILE
+
+	if not FileUtils.IsResInApp(fileName) then
+		print("error no version file in app!!")
+
+		return false
+	end
+
+	local pkgVersionStr = FileUtils.ReadResStringInApp(fileName)
+	local pkgVersionInfos = json.decode(pkgVersionStr)
+	local map = {}
+	local currentVersionInfos = self:getCurrentVersionInfos()
+
+	for _, versionInfo in pairs(currentVersionInfos.resources) do
+		map[versionInfo.path] = versionInfo.md5
+	end
+
+	local path, type, md5, currentVersionMd5, downloadInfo = nil
+
+	for _, versionInfo in pairs(pkgVersionInfos.resources) do
+		type = versionInfo.type
+		path = versionInfo.path
+		md5 = versionInfo.md5
+
+		if type == 3 or type == 4 then
+			currentVersionMd5 = map[path]
+
+			if currentVersionMd5 and currentVersionMd5 ~= md5 then
+				if FileUtils.IsResInData(path) then
+					FileUtils.DeleteRes(path)
+				end
+
+				DeleteKey(LAZY_WEB_DOWNLOAD_PREFIX .. path)
+
+				if type == 4 then
+					downloadInfo = {
+						path = path,
+						type = type,
+						md5 = md5,
+						res = versionInfo.res,
+						size = versionInfo.size,
+						version = pkgVersion
+					}
+
+					SetString(LAZY_WEB_DOWNLOAD_PREFIX .. path, json.encode(downloadInfo))
+				end
+			end
+		elseif type == 2 and not FileUtils.IsResInApp(path) then
+			downloadInfo = {
+				path = path,
+				type = type,
+				md5 = md5,
+				res = versionInfo.res,
+				size = versionInfo.size,
+				version = pkgVersion
+			}
+
+			SetString(LAZY_LUA_DOWNLOAD_PREFIX .. path, json.encode(downloadInfo))
+		end
+	end
+
+	FileUtils.DeleteRes(ANDROID_FILE)
+	FileUtils.DeleteRes(VERSION_FILE)
+	FileUtils.DeleteResDirectory("src")
+	FileUtils.DeleteResDirectory("sdkchat")
+	FileUtils.WriteRes(VERSION_FILE, pkgVersionStr)
+	SetString(SAVE_VERSION, pkgVersion)
+	SetString(SAVE_ERROR_VERSION, resVersion)
+	Save()
+
+	if not inGame then
+		self:restartGame()
+	end
+
+	return true
+end
+
+return UpdateController
