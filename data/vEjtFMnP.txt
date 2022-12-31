@@ -1,0 +1,1310 @@
+### Eclipse Workspace Patch 1.0
+#P aCis_gameserver
+Index: config/en/rus_acis.properties
+===================================================================
+--- config/en/rus_acis.properties	(revision 20)
++++ config/en/rus_acis.properties	(working copy)
+@@ -237,6 +237,23 @@
+ BuyPremiumDays28Price = 28
+ 
+ #=============================================================
++#                          Newbie System
++#=============================================================
++# If True newbie system will be enabled
++NewbieSystemEnabled = True
++
++# Value 81 for 80 lvl & 100%
++NewbieSystemSetLevel = 81
++
++#Set of fighter buffs
+++NewbieSystemFighterSet = 1087,1243,1204,1068,1388,1040,1036,1035,1048,1045,1077,1242,1086,1043,1268,1036,1363,1240,1062,271,274,275,310,304,308,306,264,267,269,349,364,268,270,1416
++#Set of Mage buffs
++NewbieSystemMageSet = 1087,1243,1204,1040,1036,1048,1045,1389,1062,1363,1085,1059,1303,1304,273,276,365,268,270,349,264,267,268,306,308,1416
++
++# Telepot to location
++NewbieSystemTeleToLocation = 83480,148614,-3407
++
++#=============================================================
+ #                        DressMe system
+ #=============================================================
+ AllowDressMeSystem = True
+Index: java/net/sf/l2j/gameserver/model/actor/Player.java
+===================================================================
+--- java/net/sf/l2j/gameserver/model/actor/Player.java	(revision 20)
++++ java/net/sf/l2j/gameserver/model/actor/Player.java	(working copy)
+@@ -484,6 +484,10 @@
+ 	private final CachedDataValueInt _setTitleColor = _cachedData.newInt("titleColor");
+ 	private final CachedDataValueBoolean _stopExp = _cachedData.newBoolean("stopexp");
+ 	private final CachedDataValueBoolean _tradeRefusal = _cachedData.newBoolean("traderefusal");
++	private final CachedDataValueBoolean _isNewbieChar = _cachedData.newBoolean("isNewbieChar");
++	private final CachedDataValueBoolean _isNewbieEquip = _cachedData.newBoolean("isNewbieEquip");
++	private final CachedDataValueBoolean _isNewbieWeaponEquip = _cachedData.newBoolean("isNewbieWeaponEquip");
++	private final CachedDataValueBoolean _isNewbieTeleport = _cachedData.newBoolean("isNewbieTeleport");
+ 	private final CachedDataValueBoolean _hairSkin = _cachedData.newBoolean("hair_skin");
+ 	
+ 	public int _activeBoxes = -1;
+@@ -7819,6 +7823,46 @@
+ 		
+ 		return gms;
+ 	}
++		
++	public boolean isNewbieChar()
++	{
++		return _isNewbieChar.get();
++	}
++		
++	public void setNewbieChar(boolean value)
++	{
++		_isNewbieChar.set(value);
++	}
++		
++	public boolean isNewbieEquip()
++	{
++		return _isNewbieEquip.get();
++	}
++		
++	public void setNewbieEquip(boolean value)
++	{
++		_isNewbieEquip.set(value);
++	}
++		
++	public boolean isNewbieWeaponEquip()
++	{
++		return _isNewbieWeaponEquip.get();
++	}
++		
++	public void setNewbieWeaponEquip(boolean value)
++	{
++		_isNewbieWeaponEquip.set(value);
++	}
++		
++	public boolean isNewbieTeleport()
++	{
++		return _isNewbieTeleport.get();
++	}
++		
++	public void setNewbieTeleport(boolean value)
++	{
++		_isNewbieTeleport.set(value);
++	}
+ 	
+ 	public final void dispelSkillEffect(int skillId, int skillLevel)
+ 	{
+Index: java/net/sf/l2j/gameserver/data/manager/NewbieSystemManager.java
+===================================================================
+--- java/net/sf/l2j/gameserver/data/manager/NewbieSystemManager.java	(nonexistent)
++++ java/net/sf/l2j/gameserver/data/manager/NewbieSystemManager.java	(working copy)
+@@ -0,0 +1,1053 @@
++package net.sf.l2j.gameserver.data.manager;
++
++import java.util.Arrays;
++import java.util.List;
++
++import net.sf.l2j.commons.pool.ThreadPool;
++
++import net.sf.l2j.Config;
++import net.sf.l2j.gameserver.data.SkillTable;
++import net.sf.l2j.gameserver.data.xml.PlayerLevelData;
++import net.sf.l2j.gameserver.enums.SayType;
++import net.sf.l2j.gameserver.enums.actors.ClassId;
++import net.sf.l2j.gameserver.model.PlayerLevel;
++import net.sf.l2j.gameserver.model.actor.Player;
++import net.sf.l2j.gameserver.model.item.instance.ItemInstance;
++import net.sf.l2j.gameserver.network.serverpackets.CreatureSay;
++import net.sf.l2j.gameserver.network.serverpackets.ExShowScreenMessage;
++import net.sf.l2j.gameserver.network.serverpackets.HennaInfo;
++import net.sf.l2j.gameserver.network.serverpackets.ItemList;
++import net.sf.l2j.gameserver.network.serverpackets.NpcHtmlMessage;
++import net.sf.l2j.gameserver.network.serverpackets.SocialAction;
++import net.sf.l2j.gameserver.skills.L2Skill;
++
++/**
++ * @author Baggos
++ */
++public class NewbieSystemManager
++{
++	public static void onEnterNewChar(Player player)
++	{
++		NpcHtmlMessage html = new NpcHtmlMessage(1);
++		switch (player.getClassId().getId())
++		{
++			case 0:
++				html.setFile("data/html/mods/newbie/classes/humanclasses.htm");
++				player.sendPacket(html);
++				break;
++			case 10:
++				html.setFile("data/html/mods/newbie/classes/humanmageclasses.htm");
++				player.sendPacket(html);
++				break;
++			case 18:
++				html.setFile("data/html/mods/newbie/classes/elfclasses.htm");
++				player.sendPacket(html);
++				break;
++			case 25:
++				html.setFile("data/html/mods/newbie/classes/elfmageclasses.htm");
++				player.sendPacket(html);
++				break;
++			case 31:
++				html.setFile("data/html/mods/newbie/classes/darkelfclasses.htm");
++				player.sendPacket(html);
++				break;
++			case 38:
++				html.setFile("data/html/mods/newbie/classes/darkelfmageclasses.htm");
++				player.sendPacket(html);
++				break;
++			case 44:
++				html.setFile("data/html/mods/newbie/classes/orcclasses.htm");
++				player.sendPacket(html);
++				break;
++			case 49:
++				html.setFile("data/html/mods/newbie/classes/orcmageclasses.htm");
++				player.sendPacket(html);
++				break;
++			case 53:
++				html.setFile("data/html/mods/newbie/classes/dwarfclasses.htm");
++				player.sendPacket(html);
++				break;
++		}
++		
++		player.setIsParalyzed(true);
++		player.getAppearance().setVisible(false);
++		ThreadPool.schedule(() -> player.sendPacket(new ExShowScreenMessage("Complete your character and get ready for RUSaCis world!", 10000)), 2000);
++	}
++	
++	public void MageClasses(String command, Player player)
++	{
++		String params = command.substring(command.indexOf("_") + 1);
++		switch (params)
++		{
++			case "necromancer":
++				player.setClassId(13);
++				player.setBaseClass(13);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Necromancer!", 3000));
++				break;
++			case "sorceror":
++				player.setClassId(12);
++				player.setBaseClass(12);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Sorceror!", 3000));
++				break;
++			case "warlock":
++				player.setClassId(14);
++				player.setBaseClass(14);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Warlock!", 3000));
++				break;
++			case "cleric":
++				player.setClassId(15);
++				player.setBaseClass(15);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Cleric!", 3000));
++				break;
++			case "bishop":
++				player.setClassId(16);
++				player.setBaseClass(16);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Bishop!", 3000));
++				break;
++			case "prophet":
++				player.setClassId(17);
++				player.setBaseClass(17);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Prophet!", 3000));
++				break;
++			case "spellsinger":
++				player.setClassId(27);
++				player.setBaseClass(27);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Spellsinger!", 3000));
++				break;
++			case "elemental":
++				player.setClassId(28);
++				player.setBaseClass(28);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Elemental Summoner!", 3000));
++				break;
++			case "elder":
++				player.setClassId(30);
++				player.setBaseClass(30);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Elven Elder!", 3000));
++				break;
++			case "spellhowler":
++				player.setClassId(40);
++				player.setBaseClass(40);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Spellhowler!", 3000));
++				break;
++			case "shilliene":
++				player.setClassId(43);
++				player.setBaseClass(43);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Shillien Elder!", 3000));
++				break;
++			case "overlord":
++				player.setClassId(51);
++				player.setBaseClass(51);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Overlord!", 3000));
++				break;
++			case "warcryer":
++				player.setClassId(52);
++				player.setBaseClass(52);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Warcryer!", 3000));
++				break;
++		}
++		
++		final PlayerLevel pl = PlayerLevelData.getInstance().getPlayerLevel(Config.NEWBIE_SYSTEM_SET_LVL);
++		player.addExpAndSp(pl.getRequiredExpToLevelUp(), 0);
++		player.broadcastPacket(new SocialAction(player, 3));
++		player.refreshWeightPenalty();
++		player.sendPacket(new HennaInfo(player));
++		player.store();
++		player.setNewbieChar(false);
++		NpcHtmlMessage html = new NpcHtmlMessage(1);
++		html.setFile("data/html/mods/newbie/armors/magearmors.htm");
++		player.sendPacket(html);
++	}
++	
++	public void FighterClasses(String command, Player player)
++	{
++		ClassId classes = player.getClassId();		
++		String params = command.substring(command.indexOf("_") + 1);
++		switch (params)
++		{
++			case "gladiator":
++				player.setClassId(2);
++				player.setBaseClass(2);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Gladiator!", 3000));
++				break;
++			case "warlord":
++				player.setClassId(3);
++				player.setBaseClass(3);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Warlord!", 3000));
++				break;
++			case "paladin":
++				player.setClassId(5);
++				player.setBaseClass(5);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Paladin!", 3000));
++				break;
++			case "darkavenger":
++				player.setClassId(6);
++				player.setBaseClass(6);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Dark Avenger!", 3000));
++				break;
++			case "temple":
++				player.setClassId(20);
++				player.setBaseClass(20);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Temple Knight!", 3000));
++				break;
++			case "swordsinger":
++				player.setClassId(21);
++				player.setBaseClass(21);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Swordsinger!", 3000));
++				break;
++			case "shillien":
++				player.setClassId(33);
++				player.setBaseClass(33);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Shillien Knight!", 3000));
++				break;
++			case "bladedancer":
++				player.setClassId(34);
++				player.setBaseClass(34);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Bladedancer!", 3000));
++				break;
++			case "phantoms":
++				player.setClassId(41);
++				player.setBaseClass(41);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Phantom Summoner!", 3000));
++				break;
++			case "destroyer":
++				player.setClassId(46);
++				player.setBaseClass(46);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Destroyer!", 3000));
++				break;
++			case "tyrant":
++				player.setClassId(48);
++				player.setBaseClass(48);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Tyrant!", 3000));
++				break;
++			case "bounty":
++				player.setClassId(55);
++				player.setBaseClass(55);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Bounty Hunter!", 3000));
++				break;
++			case "warsmith":
++				player.setClassId(57);
++				player.setBaseClass(57);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Warsmith!", 3000));
++				break;
++		}
++		
++		final PlayerLevel pl = PlayerLevelData.getInstance().getPlayerLevel(Config.NEWBIE_SYSTEM_SET_LVL);
++		player.addExpAndSp(pl.getRequiredExpToLevelUp(), 0);
++		player.broadcastPacket(new SocialAction(player, 3));
++		player.refreshWeightPenalty();
++		player.sendPacket(new HennaInfo(player));
++		player.store();
++		player.setNewbieChar(false);
++		NpcHtmlMessage html = new NpcHtmlMessage(1);
++		if (classes == ClassId.TREASURE_HUNTER || classes == ClassId.HAWKEYE || classes == ClassId.PLAINS_WALKER || classes == ClassId.SILVER_RANGER || classes == ClassId.ABYSS_WALKER || classes == ClassId.PHANTOM_RANGER)
++			html.setFile("data/html/mods/newbie/armors/lightarmors.htm");
++		html.setFile("data/html/mods/newbie/armors/fighterarmors.htm");
++		player.sendPacket(html);
++	}
++	
++	public void LightClasses(String command, Player player)
++	{
++		String params = command.substring(command.indexOf("_") + 1);
++		switch (params)
++		{
++			case "treasurehunter":
++				player.setClassId(8);
++				player.setBaseClass(8);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Treasure Hunter!", 3000));
++				break;
++			case "hawkeye":
++				player.setClassId(9);
++				player.setBaseClass(9);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Hawkeye!", 3000));
++				break;
++			case "plain":
++				player.setClassId(23);
++				player.setBaseClass(23);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Plainswalker!", 3000));
++				break;
++			case "silver":
++				player.setClassId(24);
++				player.setBaseClass(24);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Silver Ranger!", 3000));
++				break;
++			case "abyss":
++				player.setClassId(36);
++				player.setBaseClass(36);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Abyss Walker!", 3000));
++				break;
++			case "phantom":
++				player.setClassId(37);
++				player.setBaseClass(37);
++				player.sendPacket(new ExShowScreenMessage("Your class has changed to Phantom Ranger!", 3000));
++				break;
++		}
++		
++		final PlayerLevel pl = PlayerLevelData.getInstance().getPlayerLevel(Config.NEWBIE_SYSTEM_SET_LVL);
++		player.addExpAndSp(pl.getRequiredExpToLevelUp(), 0);
++		player.broadcastPacket(new SocialAction(player, 3));
++		player.refreshWeightPenalty();
++		player.sendPacket(new HennaInfo(player));
++		player.store();
++		player.setNewbieChar(false);
++		NpcHtmlMessage html = new NpcHtmlMessage(1);
++		html.setFile("data/html/mods/newbie/armors/lightarmors.htm");
++		player.sendPacket(html);
++	}
++	
++	public static void onEnterEquip(Player activeChar)
++	{
++		ClassId classes = activeChar.getClassId();		
++		if (activeChar.isMageClass())
++		{
++			activeChar.setIsParalyzed(true);
++			activeChar.getAppearance().setVisible(false);
++			NpcHtmlMessage html = new NpcHtmlMessage(1);
++			html.setFile("data/html/mods/newbie/armors/magearmors.htm");
++			activeChar.sendPacket(html);
++		}
++		else if (classes == ClassId.TREASURE_HUNTER || classes == ClassId.HAWKEYE || classes == ClassId.PLAINS_WALKER || classes == ClassId.SILVER_RANGER || classes == ClassId.ABYSS_WALKER || classes == ClassId.PHANTOM_RANGER)
++		{
++			activeChar.setIsParalyzed(true);
++			activeChar.getAppearance().setVisible(false);
++			NpcHtmlMessage html = new NpcHtmlMessage(1);
++			html.setFile("data/html/mods/newbie/armors/lightarmors.htm");
++			activeChar.sendPacket(html);
++		}
++		else
++		{
++			activeChar.setIsParalyzed(true);
++			activeChar.getAppearance().setVisible(false);
++			NpcHtmlMessage html = new NpcHtmlMessage(1);
++			html.setFile("data/html/mods/newbie/armors/fighterarmors.htm");
++			activeChar.sendPacket(html);
++		}
++	}
++	
++	public static void onEnterWepEquip(Player activeChar)
++	{
++		if (activeChar.isMageClass())
++		{
++			activeChar.setIsParalyzed(true);
++			activeChar.getAppearance().setVisible(false);
++			NpcHtmlMessage html = new NpcHtmlMessage(1);
++			html.setFile("data/html/mods/newbie/weapons/weapons.htm");
++			activeChar.sendPacket(html);
++		}
++		else
++		{
++			activeChar.setIsParalyzed(true);
++			activeChar.getAppearance().setVisible(false);
++			NpcHtmlMessage html = new NpcHtmlMessage(1);
++			html.setFile("data/html/mods/newbie/weapons/weapons.htm");
++			activeChar.sendPacket(html);
++		}
++	}
++	
++	public void Classes(String command, Player player)
++	{
++		String params = command.substring(command.indexOf("_") + 1);
++		ItemInstance items = null;
++		if (params.startsWith("tlh"))
++		{
++			List<Integer> TallumH = Arrays.asList(2382, 547, 5768, 5780, 924, 862, 893, 871, 902, 8185);
++			for (int id : TallumH)
++			{
++				if (TallumH.contains(id))
++				{
++					player.getInventory().addItem("Armors", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieEquip(false);
++					NpcHtmlMessage html = new NpcHtmlMessage(1);
++					html.setFile("data/html/mods/newbie/weapons/weapons.htm");
++					player.sendPacket(html);
++				}
++			}
++		}
++		else if (params.startsWith("majheavy"))
++		{
++			List<Integer> MAJH = Arrays.asList(2383, 2419, 5774, 5786, 924, 862, 893, 871, 902, 8185);
++			for (int id : MAJH)
++			{
++				if (MAJH.contains(id))
++				{
++					player.getInventory().addItem("Armors", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieEquip(false);
++					NpcHtmlMessage html = new NpcHtmlMessage(1);
++					html.setFile("data/html/mods/newbie/weapons/weapons.htm");
++					player.sendPacket(html);
++				}
++			}
++		}
++		else if (params.startsWith("mjlight"))
++		{
++			List<Integer> MJL = Arrays.asList(2395, 2419, 5775, 5787, 924, 862, 893, 871, 902, 8185);
++			for (int id : MJL)
++			{
++				if (MJL.contains(id))
++				{
++					player.getInventory().addItem("Armors", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieEquip(false);
++					NpcHtmlMessage html = new NpcHtmlMessage(1);
++					html.setFile("data/html/mods/newbie/weapons/weapons.htm");
++					player.sendPacket(html);
++				}
++			}
++		}
++		else if (params.startsWith("nightlight"))
++		{
++			List<Integer> MJL = Arrays.asList(2418, 2394, 5772, 5784, 924, 862, 893, 871, 902, 8185);
++			for (int id : MJL)
++			{
++				if (MJL.contains(id))
++				{
++					player.getInventory().addItem("Armors", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieEquip(false);
++					NpcHtmlMessage html = new NpcHtmlMessage(1);
++					html.setFile("data/html/mods/newbie/weapons/weapons.htm");
++					player.sendPacket(html);
++				}
++			}
++		}
++		else if (params.startsWith("tll"))
++		{
++			List<Integer> TLL = Arrays.asList(2393, 547, 5769, 5781, 924, 862, 893, 871, 902, 8185);
++			for (int id : TLL)
++			{
++				if (TLL.contains(id))
++				{
++					player.getInventory().addItem("Armors", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieEquip(false);
++					NpcHtmlMessage html = new NpcHtmlMessage(1);
++					html.setFile("data/html/mods/newbie/weapons/weapons.htm");
++					player.sendPacket(html);
++				}
++			}
++		}
++		else if (params.startsWith("dc"))
++		{
++			List<Integer> MageArmorDC = Arrays.asList(2407, 512, 5767, 5779, 924, 862, 893, 871, 902, 8563);
++			for (int id : MageArmorDC)
++			{
++				if (MageArmorDC.contains(id))
++				{
++					player.getInventory().addItem("Armors", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieEquip(false);
++					NpcHtmlMessage html = new NpcHtmlMessage(1);
++					html.setFile("data/html/mods/newbie/weapons/weapons.htm");
++					player.sendPacket(html);
++				}
++			}
++		}
++		else if (params.startsWith("tl"))
++		{
++			List<Integer> MageArmorTL = Arrays.asList(2400, 2405, 547, 5770, 5782, 924, 862, 893, 871, 902, 8563);
++			for (int id : MageArmorTL)
++			{
++				if (MageArmorTL.contains(id))
++				{
++					player.getInventory().addItem("Armors", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieEquip(false);
++					NpcHtmlMessage html = new NpcHtmlMessage(1);
++					html.setFile("data/html/mods/newbie/weapons/weapons.htm");
++					player.sendPacket(html);
++				}
++			}
++		}
++		else if (params.startsWith("darkheavy"))
++		{
++			List<Integer> darkheavy = Arrays.asList(365, 388, 512, 5765, 5777, 924, 862, 893, 871, 902, 8185);
++			for (int id : darkheavy)
++			{
++				if (darkheavy.contains(id))
++				{
++					player.getInventory().addItem("Armors", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieEquip(false);
++					NpcHtmlMessage html = new NpcHtmlMessage(1);
++					html.setFile("data/html/mods/newbie/weapons/weapons.htm");
++					player.sendPacket(html);
++				}
++			}
++		}
++		else if (params.startsWith("nmh"))
++		{
++			List<Integer> NMH = Arrays.asList(374, 2418, 5771, 5783, 924, 862, 893, 871, 902, 8185);
++			for (int id : NMH)
++			{
++				if (NMH.contains(id))
++				{
++					player.getInventory().addItem("Armors", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieEquip(false);
++					NpcHtmlMessage html = new NpcHtmlMessage(1);
++					html.setFile("data/html/mods/newbie/weapons/weapons.htm");
++					player.sendPacket(html);
++				}
++			}
++		}
++		else if (params.startsWith("darkhealth"))
++		{
++			List<Integer> darkhealth = Arrays.asList(5648, 2498);
++			for (int id : darkhealth)
++			{
++				if (darkhealth.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("darkcdmg"))
++		{
++			List<Integer> darkcdmg = Arrays.asList(5647, 2498);
++			for (int id : darkcdmg)
++			{
++				if (darkcdmg.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("darkrfocus"))
++		{
++			List<Integer> darkrfocus = Arrays.asList(5649, 2498);
++			for (int id : darkrfocus)
++			{
++				if (darkrfocus.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("dragonhealth"))
++		{
++			List<Integer> dragonhealth = Arrays.asList(5644);
++			for (int id : dragonhealth)
++			{
++				if (dragonhealth.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("dragoncbleed"))
++		{
++			List<Integer> dragoncbleed = Arrays.asList(5645);
++			for (int id : dragoncbleed)
++			{
++				if (dragoncbleed.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("dragoncdrain"))
++		{
++			List<Integer> dragoncdrain = Arrays.asList(5646);
++			for (int id : dragoncdrain)
++			{
++				if (dragoncdrain.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("doomanger"))
++		{
++			List<Integer> doomanger = Arrays.asList(8136);
++			for (int id : doomanger)
++			{
++				if (doomanger.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("doomhealth"))
++		{
++			List<Integer> doomhealth = Arrays.asList(8135);
++			for (int id : doomhealth)
++			{
++				if (doomhealth.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("doomrhaste"))
++		{
++			List<Integer> doomrhaste = Arrays.asList(8137);
++			for (int id : doomrhaste)
++			{
++				if (doomrhaste.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("sepacdamage"))
++		{
++			List<Integer> sepacdamage = Arrays.asList(5618);
++			for (int id : sepacdamage)
++			{
++				if (sepacdamage.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("sepaguidance"))
++		{
++			List<Integer> sepaguidance = Arrays.asList(5617);
++			for (int id : sepaguidance)
++			{
++				if (sepaguidance.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("separhaste"))
++		{
++			List<Integer> separhaste = Arrays.asList(5619);
++			for (int id : separhaste)
++			{
++				if (separhaste.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("soulshot"))
++		{
++			List<Integer> soulshot = Arrays.asList(5611, 1344);
++			for (int id : soulshot)
++			{
++				if (soulshot.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("soulpoison"))
++		{
++			List<Integer> soulpoison = Arrays.asList(5613, 1344);
++			for (int id : soulpoison)
++			{
++				if (soulpoison.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("soulrecov"))
++		{
++			List<Integer> soulrecov = Arrays.asList(5612, 1344);
++			for (int id : soulrecov)
++			{
++				if (soulrecov.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("grindergui"))
++		{
++			List<Integer> grindergui = Arrays.asList(5624);
++			for (int id : grindergui)
++			{
++				if (grindergui.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("grinderhealth"))
++		{
++			List<Integer> grinderhealth = Arrays.asList(5625);
++			for (int id : grinderhealth)
++			{
++				if (grinderhealth.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("grinderrevas"))
++		{
++			List<Integer> grinderrevas = Arrays.asList(5623);
++			for (int id : grinderrevas)
++			{
++				if (grinderrevas.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("tallumguid"))
++		{
++			List<Integer> tallumguid = Arrays.asList(5632);
++			for (int id : tallumguid)
++			{
++				if (tallumguid.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("tallumhealth"))
++		{
++			List<Integer> tallumhealth = Arrays.asList(5633);
++			for (int id : tallumhealth)
++			{
++				if (tallumhealth.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("tallumblow"))
++		{
++			List<Integer> tallumblow = Arrays.asList(5634);
++			for (int id : tallumblow)
++			{
++				if (tallumblow.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("somacume"))
++		{
++			List<Integer> somacume = Arrays.asList(5643, 2498);
++			for (int id : somacume)
++			{
++				if (somacume.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("sompower"))
++		{
++			List<Integer> sompower = Arrays.asList(5641, 2498);
++			for (int id : sompower)
++			{
++				if (sompower.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("somsilence"))
++		{
++			List<Integer> somsilence = Arrays.asList(5642, 2498);
++			for (int id : somsilence)
++			{
++				if (somsilence.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("elysiananger"))
++		{
++			List<Integer> elysiananger = Arrays.asList(5603, 2498);
++			for (int id : elysiananger)
++			{
++				if (elysiananger.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("elysiacdrain"))
++		{
++			List<Integer> elysiacdrain = Arrays.asList(5604, 2498);
++			for (int id : elysiacdrain)
++			{
++				if (elysiacdrain.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("elysiahealth"))
++		{
++			List<Integer> elysiahealth = Arrays.asList(5602, 2498);
++			for (int id : elysiahealth)
++			{
++				if (elysiahealth.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("damascusdual"))
++		{
++			List<Integer> damascusdual = Arrays.asList(5706);
++			for (int id : damascusdual)
++			{
++				if (damascusdual.contains(id))
++				{
++					player.getInventory().addItem("Weapon", id, 1, player, null);
++					items = player.getInventory().getItemByItemId(id);
++					player.getInventory().equipItemAndRecord(items);
++					getEnchantEffect(player);
++					player.sendPacket(new ItemList(player, false));
++					player.setNewbieWeaponEquip(false);
++					onNewbieBuff(player);
++				}
++			}
++		}
++		else if (params.startsWith("teleport"))
++		{
++			ThreadPool.schedule(() -> player.sendPacket(new ExShowScreenMessage(player.getName() + " you are ready to play!", 5000)), 1000);
++			ThreadPool.schedule(() -> NewbieSystemManager.onNewbieTeleport(player), 5000);			
++		}
++	}
++	
++	public void getEnchantEffect(Player player)
++	{
++		final ItemInstance wpn = player.getActiveWeaponInstance();
++		if (wpn == null)
++			return;
++		wpn.setEnchantLevel(4);
++	}
++	
++	public static void onNewbieBuff(Player player)
++	{
++		NpcHtmlMessage html = new NpcHtmlMessage(1);
++		for (int id : (player.isMageClass() || player.getClassId() == ClassId.DOMINATOR || player.getClassId() == ClassId.DOOMCRYER) ? Config.NEWBIE_SYSTEM_MAGE_BUFFS : Config.NEWBIE_SYSTEM_FIGHTER_BUFFS)
++		{
++			L2Skill buff = SkillTable.getInstance().getInfo(id, SkillTable.getInstance().getMaxLevel(id));
++			buff.getEffects(player, player);
++			player.getStatus().setHp(player.getStatus().getMaxHp());
++			player.getStatus().setCp(player.getStatus().getMaxCp());
++			player.getStatus().setMp(player.getStatus().getMaxMp());
++			player.broadcastPacket(new SocialAction(player, 9));
++		}
++		html.setFile("data/html/mods/newbie/teleport.htm");
++		player.sendPacket(html);
++	}
++	
++	public static void onEnterNewbieTeleport(Player activeChar)
++	{
++		activeChar.setIsParalyzed(true);
++		activeChar.getAppearance().setVisible(false);
++		NpcHtmlMessage html = new NpcHtmlMessage(1);
++		html.setFile("data/html/mods/newbie/teleport.htm");
++		activeChar.sendPacket(html);
++	}
++	
++	public static void onNewbieTeleport(Player player)
++	{
++		NpcHtmlMessage html = new NpcHtmlMessage(1);
++		player.getAppearance().setVisible(true);
++		player.setIsParalyzed(false);
++		player.setInvul(false);
++		player.teleportTo(Config.NEWBIE_SYSTEM_TELE_TO_LOCATION[0], Config.NEWBIE_SYSTEM_TELE_TO_LOCATION[1], Config.NEWBIE_SYSTEM_TELE_TO_LOCATION[2], 40);
++		player.setNewbieTeleport(false);
++		ThreadPool.schedule(() ->
++		{
++			player.sendPacket(new CreatureSay(0, SayType.PARTYROOM_COMMANDER, player.getName(), "welcome to RUSaCis server!"));
++			html.setFile("data/html/mods/newbie/servnews.htm");
++			player.sendPacket(html);
++		}, 1000 * 2);
++	}
++	
++	public static final NewbieSystemManager getInstance()
++	{
++		return SingletonHolder.INSTANCE;
++	}
++	
++	private static class SingletonHolder
++	{
++		protected static final NewbieSystemManager INSTANCE = new NewbieSystemManager();
++	}
++}
+\ No newline at end of file
+Index: config/rus_acis.properties
+===================================================================
+--- config/rus_acis.properties	(revision 20)
++++ config/rus_acis.properties	(working copy)
+@@ -237,6 +237,23 @@
+ BuyPremiumDays28Price = 28
+ 
+ #=============================================================
++#                          Newbie System
++#=============================================================
++# Если True система новичков будет включена
++NewbieSystemEnabled = True
++
++# Значение 81 для 80 уровня и 100%
++NewbieSystemSetLevel = 81
++
++# Набор баффов истребителя
++NewbieSystemFighterSet = 1087,1243,1204,1068,1388,1040,1036,1035,1048,1045,1077,1242,1086,1043,1268,1036,1363,1240,1062,271,274,275,310,304,308,306,264,267,269,349,364,268,270,1416
++# Набор баффов Мага
++NewbieSystemMageSet = 1087,1243,1204,1040,1036,1048,1045,1389,1062,1363,1085,1059,1303,1304,273,276,365,268,270,349,264,267,268,306,308,1416
++
++# Телепорт в локацию
++NewbieSystemTeleToLocation = 83480,148614,-3407
++
++#=============================================================
+ #                        DressMe system
+ #=============================================================
+ AllowDressMeSystem = True
+Index: java/net/sf/l2j/gameserver/network/GameClient.java
+===================================================================
+--- java/net/sf/l2j/gameserver/network/GameClient.java	(revision 20)
++++ java/net/sf/l2j/gameserver/network/GameClient.java	(working copy)
+@@ -65,6 +65,7 @@
+ 	private static final String DELETE_CHAR_ITEMS = "DELETE FROM items WHERE owner_id=?";
+ 	private static final String DELETE_CHAR_RBP = "DELETE FROM character_raid_points WHERE char_id=?";
+ 	private static final String DELETE_CHAR = "DELETE FROM characters WHERE obj_Id=?";
++	private static final String DELETE_CHAR_CACHE = "DELETE FROM character_data WHERE charId=?";
+ 	
+ 	public enum GameClientState
+ 	{
+@@ -572,6 +573,12 @@
+ 				ps.setInt(1, objectId);
+ 				ps.execute();
+ 			}
++			
++			try (PreparedStatement ps = con.prepareStatement(DELETE_CHAR_CACHE))
++			{
++				ps.setInt(1, objectId);
++				ps.execute();
++			}
+ 		}
+ 		catch (Exception e)
+ 		{
+Index: java/net/sf/l2j/Config.java
+===================================================================
+--- java/net/sf/l2j/Config.java	(revision 20)
++++ java/net/sf/l2j/Config.java	(working copy)
+@@ -781,6 +781,15 @@
+ 	public static int BUY_PREMIUM_DAYS_28;
+ 	public static int BUY_PREMIUM_DAYS_28_PRICE;
+ 	
++	/** Newbie System */
++	public static boolean NEWBIE_SYSTEM_ENABLED;
++	public static int NEWBIE_SYSTEM_SET_LVL;
++	public static String NEWBIE_SYSTEM_MAGE_SET;
++	public static int[] NEWBIE_SYSTEM_MAGE_BUFFS;
++	public static String NEWBIE_SYSTEM_FIGHTER_SET;
++	public static int[] NEWBIE_SYSTEM_FIGHTER_BUFFS;	
++	public static int[] NEWBIE_SYSTEM_TELE_TO_LOCATION = new int[3];
++	
+ 	public static boolean CABAL_BUFFER;
+ 	public static int[] NO_DROP_ITEMS;
+ 	
+@@ -1654,6 +1663,27 @@
+ 		BUY_PREMIUM_DAYS_28 = rusacis.getProperty("BuyPremiumDays28", 28);
+ 		BUY_PREMIUM_DAYS_28_PRICE = rusacis.getProperty("BuyPremiumDays28Price", 28);
+ 		
++		NEWBIE_SYSTEM_ENABLED = rusacis.getProperty("NewbieSystemEnabled", true);
++		NEWBIE_SYSTEM_SET_LVL = Integer.parseInt(rusacis.getProperty("NewbieSystemSetLevel", "81"));
++		NEWBIE_SYSTEM_FIGHTER_SET = rusacis.getProperty("NewbieSystemFighterSet", "2375,3500,3501,3502,4422,4423,4424,4425,6648,6649,6650");
++		NEWBIE_SYSTEM_MAGE_SET = rusacis.getProperty("NewbieSystemMageSet", "2375,3500,3501,3502,4422,4423,4424,4425,6648,6649,6650");
++		
++		String[] NewFighterList = NEWBIE_SYSTEM_FIGHTER_SET.split(",");
++		NEWBIE_SYSTEM_FIGHTER_BUFFS = new int[NewFighterList.length];
++		for (int i = 0; i < NewFighterList.length; i++)
++			NEWBIE_SYSTEM_FIGHTER_BUFFS[i] = Integer.parseInt(NewFighterList[i]);
++		
++		String[] NewMageList = NEWBIE_SYSTEM_MAGE_SET.split(",");
++		NEWBIE_SYSTEM_MAGE_BUFFS = new int[NewMageList.length];
++		for (int i = 0; i < NewMageList.length; i++)
++			NEWBIE_SYSTEM_MAGE_BUFFS[i] = Integer.parseInt(NewMageList[i]);
++		
++		String[] TelepropertySplit = rusacis.getProperty("NewbieSystemTeleToLocation", "0,0,0").split(",");
++
++		NEWBIE_SYSTEM_TELE_TO_LOCATION[0] = Integer.parseInt(TelepropertySplit[0]);
++		NEWBIE_SYSTEM_TELE_TO_LOCATION[1] = Integer.parseInt(TelepropertySplit[1]);
++		NEWBIE_SYSTEM_TELE_TO_LOCATION[2] = Integer.parseInt(TelepropertySplit[2]);
++		
+ 		CABAL_BUFFER = rusacis.getProperty("CabalBuffer", false);
+ 		NO_DROP_ITEMS = rusacis.getProperty("NoDropItems", new int[0]);
+Index: java/net/sf/l2j/gameserver/network/clientpackets/EnterWorld.java
+===================================================================
+--- java/net/sf/l2j/gameserver/network/clientpackets/EnterWorld.java	(revision 22)
++++ java/net/sf/l2j/gameserver/network/clientpackets/EnterWorld.java	(working copy)
+@@ -12,7 +12,6 @@
+ import net.sf.l2j.gameserver.data.manager.DimensionalRiftManager;
+ import net.sf.l2j.gameserver.data.manager.PetitionManager;
+ import net.sf.l2j.gameserver.data.manager.SevenSignsManager;
++import net.sf.l2j.gameserver.data.manager.NewbieSystemManager;
+ import net.sf.l2j.gameserver.data.xml.AdminData;
+ import net.sf.l2j.gameserver.data.xml.AnnouncementData;
+ import net.sf.l2j.gameserver.data.xml.MapRegionData.TeleportType;
+@@ -286,19 +285,6 @@
+ 		
+ 		player.onPlayerEnter();
+ 		
++		// Starting Newbie System
++		if (Config.NEWBIE_SYSTEM_ENABLED)
++		{
++			if (player.isNewbieChar())
++				NewbieSystemManager.onEnterNewChar(player);
++			else if (player.isNewbieEquip())
++				NewbieSystemManager.onEnterEquip(player);		
++			else if (player.isNewbieWeaponEquip())
++				NewbieSystemManager.onEnterWepEquip(player);		
++			else if (player.isNewbieTeleport())
++				NewbieSystemManager.onEnterNewbieTeleport(player);
++		}
++		
+ 		activeSkin(player);
+ 		
+ 		sendPacket(new SkillCoolTime(player));
+ Index: java/net/sf/l2j/gameserver/network/clientpackets/RequestBypassToServer.java
+===================================================================
+--- java/net/sf/l2j/gameserver/network/clientpackets/RequestBypassToServer.java	(revision 22)
++++ java/net/sf/l2j/gameserver/network/clientpackets/RequestBypassToServer.java	(working copy)
+@@ -13,7 +13,6 @@
+ import net.sf.l2j.gameserver.communitybbs.CommunityBoard;
+ import net.sf.l2j.gameserver.data.manager.BotsPreventionManager;
+ import net.sf.l2j.gameserver.data.manager.HeroManager;
++import net.sf.l2j.gameserver.data.manager.NewbieSystemManager;
+ import net.sf.l2j.gameserver.data.xml.AdminData;
+ import net.sf.l2j.gameserver.data.xml.DressMeData;
+ import net.sf.l2j.gameserver.data.xml.ItemData;
+@@ -116,14 +115,6 @@
+ 			html.disableValidation();
+ 			player.sendPacket(html);
+ 		}
++		else if (_command.startsWith("mageclass"))
++			NewbieSystemManager.getInstance().MageClasses(_command, player);
++		else if (_command.startsWith("fighterclass"))
++			NewbieSystemManager.getInstance().FighterClasses(_command, player);
++		else if (_command.startsWith("lightclass"))
++			NewbieSystemManager.getInstance().LightClasses(_command, player);
++		else if (_command.startsWith("class"))
++			NewbieSystemManager.getInstance().Classes(_command, player);
+ 		else if (_command.startsWith("npc_"))
+ 		{
+ 			if (!player.validateBypass(_command))
