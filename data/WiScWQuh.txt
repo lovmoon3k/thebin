@@ -1,0 +1,122 @@
+package main
+
+import (
+	"fmt"
+	"github.com/BurntSushi/toml"
+	"io/ioutil"
+	"github.com/bwmarrin/discordgo"
+	"os"
+	"log"
+	"net/http"
+)
+
+
+type Config struct {
+	Bot struct {
+		Token 	string `toml:"token"`
+		GuildID string `toml:"guild_id"`
+	} `toml:"Bot"`
+}
+
+
+
+func main() {
+
+	content, err := ioutil.ReadFile("config.toml")     // the file is inside the local directory
+	if err != nil { fmt.Println(err); os.Exit(1) }
+
+	var conf Config
+	_, err = toml.Decode(string(content), &conf)
+	if err != nil { fmt.Println(err); os.Exit(1) }
+
+
+	dg, err := discordgo.New("Bot " + conf.Bot.Token)
+	if err != nil { fmt.Println(err); os.Exit(1) }
+
+
+	dg.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate){
+
+		/* err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		})
+		if err != nil {
+			fmt.Println("1. InteractionRespond -> ", err)
+			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: "Something went wrong",
+			})
+		} */
+
+
+		resp, err := http.Get("https://honbra.com/api/cat/random")
+		if err != nil { log.Println(err); os.Exit(1) }
+
+		defer resp.Body.Close()
+
+
+		embed := discordgo.MessageEmbed{
+			Description: "C T A",
+			Color: 0x1d5cff,
+			Image: &discordgo.MessageEmbedImage{
+				URL: "attachment://image.webp",
+			},
+		}
+
+		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Embeds: []*discordgo.MessageEmbed{
+					&embed,
+				},
+				Files: []*discordgo.File {
+					{
+						Name:   "image.webp",
+						Reader: resp.Body,
+						ContentType: "webp",
+					},
+				},
+			},
+		})
+		if err != nil {
+			fmt.Println("InteractionRespond -> ", err)
+
+			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Content: "Something went wrong",
+			})
+		}
+
+	})
+
+
+	dg.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
+		log.Printf("Logged in as: %v#%v", s.State.User.Username, s.State.User.Discriminator)
+	})
+
+	err = dg.Open()
+	if err != nil { fmt.Println(err); os.Exit(1) }
+
+
+	registerCommands(dg, conf)
+
+
+	defer func(){
+		err := dg.Close()
+		if err != nil { fmt.Println(err); os.Exit(1) }
+	}()
+
+	fmt.Println("Bot is now running. Press CTRL-C to exit.")
+	<-make(chan struct{})
+	return
+
+}
+
+
+
+func registerCommands(dg *discordgo.Session, conf Config) {
+	cmd := &discordgo.ApplicationCommand{
+		Name: "cta",
+		Description: "CTA",
+	}
+
+	_, err := dg.ApplicationCommandCreate(dg.State.User.ID, "", cmd)
+	if err != nil { fmt.Println(err); os.Exit(1) }
+}
