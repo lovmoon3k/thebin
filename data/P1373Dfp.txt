@@ -1,0 +1,114 @@
+;
+;
+;
+;
+; mem lib
+; a faire
+flaghautbas dc.b 0
+ptrbufferadr	dc.l pointe en haut ou en bas du buffer ou il y'a 16 adresses
+
+; exemple de programme
+
+
+	move.l #buffer,d0
+	move.l #8*65536,d1
+	jsr getmem1
+	lea -16*4(a0),a0
+	nop
+	nop
+	nop
+	nop
+
+
+
+
+	; FIN CODE
+	; plus d'autre code apres c'est la memoire bss
+
+
+toto:
+; depart du bss = toto
+nop
+getmem1
+; d0 = adresse segment 64k non aligné
+; d1 = nombre de segment a la suite*64k
+; retour: a0 = liste d'adresse
+; (a0)+ = 32k buffer
+; (a0)+ = 16k buffer
+; (a0)+ = 8k buffer
+; (a0)+ = 4k buffer
+; (a0)+ = 2k
+; (a0)+ = 1k
+; (a0)+ = 512
+; (a0)+ = 256
+; (a0)+ = 128
+; (a0)+ = 64 octet
+; 
+; a0: 64 octet = 16 adresses
+
+
+	moveq.l #1,d3
+	swap d3			d3 = 64k
+	move.l d0,d2
+	clr.w d2
+	; d2 = adresse buffer aligné sur 64k
+	move.l d2,d4
+	add.l d1,d4			= d1 = nombre multiple de 64k
+	
+	
+	
+	; entre d2 et d4 la zone de 64k*x aligné sur la page 64k
+	; d2<=d0<=d4<=d4+d0.w
+	
+	
+	lea ram,a0
+	moveq #0,d5
+	move.w #$8000,d5
+	
+	move.l d0,d7
+	sub.l d3,d7			; d7 = adresse 64k non aligné en bas
+	
+	
+.loop
+	move.w d5,d6
+	and.w d0,d6
+	; bit 15 a 0 ?
+	beq.s .before
+	move.l d4,(a0)+			; d4 = fin du buffer 
+	add.l d5,d4				; ajoute 32k a d4 pour la prochaine fois
+	bra.s .suite
+.before
+	move.l d7,(a0)+
+	add.l d5,d7
+.suite
+	lsr #1,d5
+	bne.s .loop
+
+	lea ram,a0
+;	move.l   '0     4     8    12 16   20   24       28      32      36   40     44  48'
+;                  32k 16k 8k 4k   2k   1k  512o  256o  128o  64o  32o  16    8
+
+	move.l 36(a0),a1			; 64 octet reservé
+	move.l a1,ptr16adr
+	moveq #15,d1
+	cmp.l a0,a1  a0 apres a1 ? a1 risque d'ecraser a0
+	; on copie donc par la fin jusqu'au debut
+	blt.s .reversecopy
+; a0 liste d'adresse  <a1	adresse de 64 octet
+loopcpadr
+	move.l (a0)+,(a1)+
+	dbf d1,.loopcpadr
+	
+	
+
+                     	
+	rts
+ram		ds.l 16				; il s'agit bien d'un ds dans la section code c'est fait expres
+fingetmem1
+tlmem1	equ (*-getmem1)
+ ;; le bss tout de suite apres doit etre la reservation de 64k - la taille de la routine en fin de code (qui suit bss selon le tos je supose)
+	BSS
+;ram	ds.l 16
+	ds.b 65536-tlmem1
+buffer	ds.l 65536*2    8*64k
+fin
