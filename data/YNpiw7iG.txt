@@ -1,0 +1,361 @@
+-- MINOR FUNCTIONS
+
+local floor = math.floor;
+
+local function round(value)
+    return floor(value + 0.5)
+end
+
+-- Written by ChatGPT
+function wrap(text, line_length)
+    -- Split the text into a list of words
+    local words = {}
+    for word in string.gmatch(text, '%S+') do
+        table.insert(words, word)
+    end
+
+    local lines = {}
+    local line = ""
+    for i, word in ipairs(words) do
+        if #line + #word + 1 <= line_length then
+        -- Add the word to the line
+        line = line .. word .. " "
+        else
+        -- The line is full, so add it to the list of lines
+        -- and start a new line
+        table.insert(lines, string.sub(line, 1, #line - 1))
+        line = word .. " "
+        end
+    end
+    -- Add the final line to the list of lines
+    table.insert(lines, string.sub(line, 1, #line - 1))
+    return lines
+end
+
+-- CLASSES --
+
+------------------------
+------- INSTANCE -------
+------------------------
+
+local Instance = {
+    ["name"] = "",
+    ["screen"] = nil,
+    ["text"] = nil,
+    ["backgroundColor"] = colors.black,
+    ["textColor"] = colors.white,
+    ["x"] = 0,
+    ["y"] = 0,
+    ["visible"] = true,
+    ["justifyText"] = "center",
+    ["alignText"] = "center",
+    ["width"] = 0,
+    ["height"] = 3
+}
+Instance.__index = Instance
+
+function Instance.new(o)
+    o = o or {};
+    setmetatable(o, Instance)
+    return o
+end
+
+function Instance:display()
+    if (not self.visible) then return end
+
+    local frame = self.screen.frame
+    local x = self.x + frame.x;
+    local y = self.y + frame.y;
+    local periph = frame.device.peripheral
+
+    periph.setBackgroundColor(self.backgroundColor)
+    periph.setTextColor(self.textColor)
+
+    for i = 0, self.width - 1 do
+        for j = 0, self.height - 1 do
+            if (frame:contains(x + i, y + j)) then
+                periph.setCursorPos(x + i, y + j)
+                periph.write(" ");
+            end
+        end
+    end
+
+    local lines = wrap(self.text, self.width)
+    local startY = y;
+
+    if (self.alignText == "center") then
+        startY = startY + floor(self.height / 2) - floor(#lines / 2) 
+    elseif (self.alignText == "bottom") then
+        startY = startY + self.height - #lines
+    end
+
+    for i, line in ipairs(lines) do
+        local startX = x;
+
+        if (self.justifyText == "center") then
+            startX = startX + round(self.width / 2) - round(#line / 2);
+        elseif (self.justifyText == "right") then
+            startX = startX + self.width - #line
+        end
+        
+        local currY = startY + (i - 1);
+        local currX = startX
+
+        for i = 1, #line do
+            local char = line:sub(i,i)
+            
+            if (frame:contains(currX, currY)) then
+                periph.setCursorPos(currX, currY)
+                periph.write(char)
+            end
+
+            currX = currX + 1
+         end
+    end
+end
+
+local Label = Instance.new();
+Label.__index = Label
+
+function Label.new(o)
+    o = o or {};
+    setmetatable(o, Label)
+    return o
+end
+
+local Button = Instance.new({
+    ["callback"] = nil;
+});
+Button.__index = Button
+
+function Button.new(o)
+    o = o or {};
+    setmetatable(o, Button)
+    return o
+end
+
+local Textinput = Instance.new();
+Textinput.__index = Textinput
+
+function Textinput.new(o)
+    o = o or {};
+    setmetatable(o, Textinput)
+    return o
+end
+
+local instances = {
+    ["label"] = Label;
+    ["button"] = Button;
+    ["Textinput"] = Textinput;
+}
+
+----------------------
+------- SCREEN -------
+----------------------
+
+local Screen = {
+    ["name"] = "",
+    ["backgroundColor"] = colors.black,
+    ["onDisplay"] = nil,
+    ["onUpdate"] = nil,
+    ["frame"] = nil,
+    ["children"] = {},
+    ["width"] = 0,
+    ["height"] = 0
+}
+Screen.__index = Screen
+
+function Screen.new(o)
+    o = o or {};
+    setmetatable(o, Screen)
+    return o
+end
+
+function Screen:newInstance(name, instanceType, props)
+    props = props or {};
+
+    local newInstance = instances[instanceType].new(props);
+    newInstance.name = name
+    newInstance.screen = self
+    
+    self.children[name] = newInstance;
+
+    return newInstance
+end
+
+function Screen:display()
+    if (self.onUpdate) then
+        self.onUpdate();
+    end
+
+    local frame = self.frame
+    local periph = frame.device.peripheral
+
+    periph.setBackgroundColor(self.backgroundColor)
+    
+    for i = frame.x, frame.x + self.width do
+        for j = frame.y, frame.y + self.height do
+            periph.setCursorPos(i, j)
+            periph.write(" ")
+        end
+    end
+
+    for name, instance in pairs(self.children) do
+        instance:display();
+    end
+end
+
+---------------------
+------- FRAME -------
+---------------------
+
+local Frame = {
+    ["name"] = "",
+    ["x"] = 1,
+    ["y"] = 1,
+    ["width"] = 0,
+    ["height"] = 0,
+    ["device"] = nil,
+    ["currentScreen"] = nil,
+    ["draggable"] = false,
+    ["screens"] = {}
+}
+Frame.__index = Frame
+
+function Frame.new(o)
+    o = o or {};
+    setmetatable(o, Frame)
+    return o
+end
+
+function Frame:newScreen(name, props)
+    props = props or {};
+    
+    local newScreen = Screen.new(props)
+    
+    newScreen.name = name;
+    newScreen.width = self.width
+    newScreen.height = self.height
+
+    newScreen.frame = self;
+    self.screens[name] = newScreen;
+
+    return newScreen
+end
+
+function Frame:contains(x, y)
+    if (x < self.x or x > self.x + self.width) then
+        return false
+    end
+
+    if (y < self.y or y > self.y + self.height) then
+        return false
+    end
+
+    return true
+end
+
+function Frame:render()
+    self.currentScreen:display()
+end
+
+function Frame:setScreen(screen)
+    self.currentScreen = screen;
+
+    if (screen.onDisplay) then
+        screen.onDisplay();
+    end
+end
+
+----------------------
+------- DEVICE -------
+----------------------
+
+local Device = {
+    ["peripheral"] = term,
+    ["frames"] = {},
+    ["framerate"] = 20
+}
+Device.__index = Device
+
+function Device.new(o)
+    o = o or {};
+    setmetatable(o, Device)
+
+    local width, height = o.peripheral.getSize();
+    o.width = width;
+    o.height = height;
+
+    return o
+end
+
+function Device:newFrame(name, props)
+    props = props or {};
+    local newFrame = Frame.new(props);
+    newFrame.device = self
+    newFrame.name = name;   
+
+    if (props.width == 0) then
+        newFrame.width = self.width
+    end
+
+    if (props.height == 0) then
+        newFrame.height = self.height
+    end
+
+    self.frames[name] = newFrame;
+
+    return newFrame;
+end
+
+function Device:rerender()
+    self.peripheral.setBackgroundColor(colors.black)
+    self.peripheral.clear()
+
+    for key, frame in pairs(self.frames) do
+        frame:render()
+    end
+end
+
+local Term = Device.new({
+    ["framerate"] = 10,
+    ["peripheral"] = peripheral.wrap("left")
+})
+
+local TestFrame = Term:newFrame("testFrame", {
+    ["width"] = 30,
+    ["height"] = 15,
+    ["x"] = 5,
+    ["y"] = 3
+})
+
+local TestScreen = TestFrame:newScreen("testScreen", {
+    ["backgroundColor"] = colors.gray
+})
+
+local NewInstance = TestScreen:newInstance("testInstance", "label", {
+    ["backgroundColor"] = colors.green,
+    ["width"] = 20,
+    ["height"] = 3,
+    ["y"] = 3,
+    ["text"] = "MONKE IS EPIC",
+})
+local Instance2 = TestScreen:newInstance("newInstance", "label", {
+    ["backgroundColor"] = colors.red,
+    ["width"] = 13,
+    ["height"] = 5,
+    ["y"] = 7,
+    ["text"] = "SO IS JBONE",
+})
+
+TestFrame:setScreen(TestScreen);
+
+local i = 0;
+
+while true do
+    i = i + 0.1
+    os.sleep(1 / Term.framerate)
+    NewInstance.x = floor(math.sin(i) * 15) + 10
+    Instance2.x = floor(math.cos(i * 5) * 15) + 10
+    Term:rerender()
+end
