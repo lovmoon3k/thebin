@@ -1,0 +1,2960 @@
+### Eclipse Workspace Patch 1.0
+#P aCis_gameserver
+Index: java/net/sf/l2j/gameserver/model/actor/Player.java
+===================================================================
+--- java/net/sf/l2j/gameserver/model/actor/Player.java	(revision 15)
++++ java/net/sf/l2j/gameserver/model/actor/Player.java	(working copy)
+@@ -486,6 +486,8 @@
+ 	public int _activeBoxes = -1;
+ 	public List<String> _activeBoxesCharacters = new ArrayList<>();
+ 	
++	private String _hwid;
++	
+ 	/**
+ 	 * Constructor of Player (use Creature constructor).
+ 	 * <ul>
+@@ -7761,4 +7763,14 @@
+ 		
+ 		return gms;
+ 	}
++	
++	public String getHWid()
++	{
++		if (getClient() == null)
++		{
++			return _hwid;
++		}
++		_hwid = getClient().getHWID();
++		return _hwid;
++	}
+ }
+\ No newline at end of file
+Index: java/hwid/hwidmanager/hwidAdminBan.java
+===================================================================
+--- java/hwid/hwidmanager/hwidAdminBan.java	(nonexistent)
++++ java/hwid/hwidmanager/hwidAdminBan.java	(working copy)
+@@ -0,0 +1,40 @@
++package hwid.hwidmanager;
++
++import net.sf.l2j.Config;
++import net.sf.l2j.gameserver.handler.IAdminCommandHandler;
++import net.sf.l2j.gameserver.model.WorldObject;
++import net.sf.l2j.gameserver.model.actor.Player;
++
++public class hwidAdminBan implements IAdminCommandHandler
++{
++	private static final String[] ADMIN_COMMANDS =
++	{
++		"admin_hwid_ban"
++	};
++
++	@Override
++	public void useAdminCommand(final String command, final Player player)
++    {
++        if (!Config.ALLOW_GUARD_SYSTEM || player == null)
++            return;
++		
++		if (command.startsWith("admin_hwid_ban"))
++        {
++            final WorldObject playerTarget = player.getTarget();
++            if (!(playerTarget instanceof Player))
++            {
++            	player.sendMessage("Target is empty");
++                return;
++            }
++            final Player target = (Player)playerTarget;
++            hwidBan.addHWIDBan(target.getClient());
++            player.sendMessage(target.getName() + " banned in HWID");
++        }
++    }
++    
++	@Override
++	public String[] getAdminCommandList()
++	{
++		return ADMIN_COMMANDS;
++	}
++}
+\ No newline at end of file
+Index: java/hwid/hwidmanager/hwidBan.java
+===================================================================
+--- java/hwid/hwidmanager/hwidBan.java	(nonexistent)
++++ java/hwid/hwidmanager/hwidBan.java	(working copy)
+@@ -0,0 +1,98 @@
++package hwid.hwidmanager;
++
++import java.sql.Connection;
++import java.sql.PreparedStatement;
++import java.sql.ResultSet;
++import java.util.HashMap;
++import java.util.Map;
++
++import net.sf.l2j.commons.logging.CLogger;
++import net.sf.l2j.commons.pool.ConnectionPool;
++
++import net.sf.l2j.gameserver.network.GameClient;
++
++public class hwidBan
++{
++    protected static CLogger LOGGER = new CLogger(hwidBan.class.getName());
++    private static hwidBan INSTANCE;
++    private static Map<Integer, hwidBanList> _lists = new HashMap<>();
++    
++    public hwidBan()
++    {
++        load();
++        LOGGER.info("Loaded " + hwidBan._lists.size() + " banned(s) HWID(s)");
++    }
++    
++    public static hwidBan getInstance()
++    {
++        if (INSTANCE == null)
++        	INSTANCE = new hwidBan();
++        return INSTANCE;
++    }
++    
++    private static void load()
++    {
++        String HWID = "";
++        int counterHWIDBan = 0;
++        try (Connection con = ConnectionPool.getConnection();
++        	PreparedStatement statement = con.prepareStatement("SELECT * FROM hwid_bans");
++        	ResultSet rset = statement.executeQuery())
++        {
++            while (rset.next())
++            {
++                HWID = rset.getString("HWID");
++                final hwidBanList hb = new hwidBanList(counterHWIDBan);
++                hb.setHWIDBan(HWID);
++                _lists.put(counterHWIDBan, hb);
++                ++counterHWIDBan;
++            }
++        }
++        catch (Exception e)
++        {
++            e.printStackTrace();
++        }
++    }
++    
++    public static void reload()
++    {
++    	INSTANCE = new hwidBan();
++    }
++    
++    public boolean checkFullHWIDBanned(final GameClient client)
++    {
++        if (_lists.size() == 0)
++        {
++            return false;
++        }
++        for (int i = 0; i < _lists.size(); ++i)
++        {
++            if (_lists.get(i).getHWID().equals(client.getHWID()))
++                return true;
++        }
++        return false;
++    }
++    
++    public static int getCountHWIDBan()
++    {
++        return _lists.size();
++    }
++    
++    public static void addHWIDBan(final GameClient client)
++    {
++        final String HWID = client.getHWID();
++        final int counterHwidBan = _lists.size();
++        final hwidBanList hb = new hwidBanList(counterHwidBan);
++        hb.setHWIDBan(HWID);
++        _lists.put(counterHwidBan, hb);
++        try (Connection con = ConnectionPool.getConnection();
++        	PreparedStatement statement = con.prepareStatement("INSERT INTO hwid_bans SET HWID=?"))
++        {
++            statement.setString(1, HWID);
++            statement.execute();
++        }
++        catch (Exception e)
++        {
++            e.printStackTrace();
++        }
++    }
++}
+\ No newline at end of file
+Index: java/hwid/hwidmanager/hwidBanList.java
+===================================================================
+--- java/hwid/hwidmanager/hwidBanList.java	(nonexistent)
++++ java/hwid/hwidmanager/hwidBanList.java	(working copy)
+@@ -0,0 +1,27 @@
++package hwid.hwidmanager;
++
++public class hwidBanList
++{
++    private final int _id;
++    private String _hwid;
++    
++    public hwidBanList(final int id)
++    {
++        _id = id;
++    }
++    
++    public int getId()
++    {
++        return _id;
++    }
++    
++    public String getHWID()
++    {
++        return _hwid;
++    }
++    
++    public void setHWIDBan(final String hwid)
++    {
++    	_hwid = hwid;
++    }
++}
+Index: java/hwid/hwidmanager/hwidInfoClient.java
+===================================================================
+--- java/hwid/hwidmanager/hwidInfoClient.java	(nonexistent)
++++ java/hwid/hwidmanager/hwidInfoClient.java	(working copy)
+@@ -0,0 +1,69 @@
++package hwid.hwidmanager;
++
++public class hwidInfoClient
++{
++    private String _playerName;
++    private String _loginName;
++    private int _playerId;
++    private String _hwid;
++    private int _revision;
++    
++    public hwidInfoClient()
++    {
++        _playerName = "";
++        _loginName = "";
++        _playerId = 0;
++        _hwid = "";
++        _revision = 0;
++    }
++    
++    public final String getPlayerName()
++    {
++        return _playerName;
++    }
++    
++    public void setPlayerName(final String name)
++    {
++        _playerName = name;
++    }
++    
++    public void setPlayerId(final int plId)
++    {
++        _playerId = plId;
++    }
++    
++    public int getPlayerId()
++    {
++        return _playerId;
++    }
++    
++    public final String getHWID()
++    {
++        return _hwid;
++    }
++    
++    public void setHWID(final String hwid)
++    {
++        _hwid = hwid;
++    }
++    
++    public void setRevision(final int revision)
++    {
++        _revision = revision;
++    }
++    
++    public int getRevision()
++    {
++        return _revision;
++    }
++    
++    public final String getLoginName()
++    {
++        return _loginName;
++    }
++    
++    public void setLoginName(final String name)
++    {
++        _loginName = name;
++    }
++}
+\ No newline at end of file
+Index: java/hwid/hwidmanager/hwidInfoList.java
+===================================================================
+--- java/hwid/hwidmanager/hwidInfoList.java	(nonexistent)
++++ java/hwid/hwidmanager/hwidInfoList.java	(working copy)
+@@ -0,0 +1,78 @@
++package hwid.hwidmanager;
++
++public class hwidInfoList
++{
++    private final int _id;
++    private String _hwid;
++    private int _count;
++    private int _playerID;
++    private String _login;
++    private LockType _lockType;
++    
++    public hwidInfoList(final int id)
++    {
++        _id = id;
++    }
++    
++    public int get_id()
++    {
++        return _id;
++    }
++    
++    public int getCount()
++    {
++        return _count;
++    }
++    
++    public void setCount(final int count)
++    {
++        _count = count;
++    }
++    
++    public int getPlayerID()
++    {
++        return _playerID;
++    }
++    
++    public void setPlayerID(final int playerID)
++    {
++        _playerID = playerID;
++    }
++    
++    public String getHWID()
++    {
++        return _hwid;
++    }
++    
++    public void setHWID(final String hwid)
++    {
++    	_hwid = hwid;
++    }
++    
++    public String getLogin()
++    {
++        return _login;
++    }
++    
++    public void setLogin(final String login)
++    {
++        _login = login;
++    }
++    
++    public LockType getLockType()
++    {
++        return _lockType;
++    }
++    
++    public void setLockType(final LockType lockType)
++    {
++        _lockType = lockType;
++    }
++    
++    public enum LockType
++    {
++        PLAYER_LOCK, 
++        ACCOUNT_LOCK, 
++        NONE;
++    }
++}
+\ No newline at end of file
+Index: java/hwid/hwidmanager/hwidManager.java
+===================================================================
+--- java/hwid/hwidmanager/hwidManager.java	(nonexistent)
++++ java/hwid/hwidmanager/hwidManager.java	(working copy)
+@@ -0,0 +1,117 @@
++package hwid.hwidmanager;
++
++import java.util.ArrayList;
++import java.util.Collection;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++
++import net.sf.l2j.commons.logging.CLogger;
++
++import net.sf.l2j.Config;
++import net.sf.l2j.gameserver.model.actor.Player;
++import net.sf.l2j.gameserver.network.GameClient;
++import net.sf.l2j.gameserver.network.serverpackets.NpcHtmlMessage;
++
++public class hwidManager
++{
++    private static final CLogger LOGGER = new CLogger(hwidManager.class.getName());
++    
++    public hwidManager()
++    {
++    }
++    
++    private static boolean multiboxKickTask(final Player activeChar, final Integer numberBox, final Collection<Player> world)
++    {
++        final Map<String, List<Player>> hwidMap = new HashMap<>();
++        for (final Player player : world)
++        {
++            if (player.getClient() != null)
++            {
++                if (player.getClient().isDetached())
++                    continue;
++
++                final String hwid = activeChar.getHWid();
++                final String playerHwid = player.getHWid();
++                if (!hwid.equals(playerHwid))
++                    continue;
++
++                if (hwidMap.get(hwid) == null)
++                    hwidMap.put(hwid, new ArrayList<Player>());
++
++                hwidMap.get(hwid).add(player);
++                if (hwidMap.get(hwid).size() >= numberBox)
++                    return true;
++
++                continue;
++            }
++        }
++        return false;
++    }
++    
++    public boolean validBox(final Player activeChar, final Integer numberBox, final Collection<Player> world, final Boolean forcedLogOut)
++    {
++        if (multiboxKickTask(activeChar, numberBox, world))
++        {
++            if (forcedLogOut)
++            {
++                final GameClient client = activeChar.getClient();
++                LOGGER.warn("Dualbox Protection: " + client.getHWID() + " was trying to use over " + numberBox + " clients!");
++                activeChar.sendMessage("SYS: You have exceeded the PC connection limit = " + Config.PROTECT_WINDOWS_COUNT + " box per PC.");
++                activeChar.sendMessage("SYS: You will be disconnected in 30 seconds.");
++                activeChar.setIsImmobilized(true);
++                activeChar.setInvul(true);
++                activeChar.disableAllSkills();
++                showChatWindow(activeChar, 0);
++                waitSecs(30);
++                activeChar.getClient().closeNow();
++            }
++            return true;
++        }
++        return false;
++    }
++    
++    public void showChatWindow(final Player player, final int val)
++    {
++        final NpcHtmlMessage msg = new NpcHtmlMessage(5);
++        msg.setHtml(ExcedLimit(player));
++        player.sendPacket(msg);
++    }
++    
++    private static String ExcedLimit(final Player player)
++    {
++        final StringBuilder tb = new StringBuilder();
++        tb.append("<html><body><center>");
++        tb.append("<img src=\"L2UI_CH3.herotower_deco\" width=256 height=32>HWID<font color=LEVEL> Dual Box </font>'- Manager");
++        tb.append("<br><table><tr><td height=7><img src=\"L2UI.SquareGray\" width=220 height=1></td></tr></table>");
++        tb.append("<img src=\"L2UI.SquareGray\" width=295 height=1><table width=295 border=0 bgcolor=000000><tr><td align=center>");
++        tb.append("<br>You have exceeded the PC connection limit.<br1>Server have limit to <font color=LEVEL>" + Config.PROTECT_WINDOWS_COUNT + "</font> per PC.<br><br>You will be disconnected in '<font color=LEVEL>30 seconds</font>'.<br1>" + player.getName() + ", Thanks for following the server rules.<br1>Thanks.<br>");
++        tb.append("<br><img src=\"l2ui.squarewhite\" width=\"150\" height=\"1\"><br>");
++        tb.append("<br></td></tr></table><img src=\"L2UI.SquareGray\" width=295 height=1>");
++        tb.append("<table><tr><td height=7><img src=\"L2UI.SquareGray\" width=220 height=1></td></tr></table><br>");
++        tb.append("<br><br><font color=333333>Respect the rules</font>");
++        return tb.toString();
++    }
++
++    public static void waitSecs(final int i)
++    {
++        try
++        {
++            Thread.sleep(i * 1000);
++        }
++        catch (InterruptedException ie)
++        {
++            ie.printStackTrace();
++        }
++    }
++    
++    public static final hwidManager getInstance()
++    {
++        return SingletonHolder.INSTANCE;
++    }
++    
++    private static class SingletonHolder
++    {
++        protected static final hwidManager INSTANCE = new hwidManager();
++    }
++}
+\ No newline at end of file
+Index: java/hwid/hwidmanager/hwidPlayer.java
+===================================================================
+--- java/hwid/hwidmanager/hwidPlayer.java	(nonexistent)
++++ java/hwid/hwidmanager/hwidPlayer.java	(working copy)
+@@ -0,0 +1,199 @@
++package hwid.hwidmanager;
++
++import java.sql.Connection;
++import java.sql.PreparedStatement;
++import java.sql.ResultSet;
++import java.util.HashMap;
++import java.util.Map;
++
++import net.sf.l2j.commons.logging.CLogger;
++import net.sf.l2j.commons.pool.ConnectionPool;
++
++import net.sf.l2j.gameserver.network.GameClient;
++
++import hwid.hwidmanager.hwidInfoList.LockType;
++
++public class hwidPlayer
++{
++    protected static CLogger LOGGER = new CLogger(hwidPlayer.class.getName());
++    private static hwidPlayer INSTANCE;
++    private static Map<Integer, hwidInfoList> _list = new HashMap<>();
++    private static Map<Integer, Integer> _sessions = new HashMap<>();
++    
++    public hwidPlayer()
++    {     
++        load();
++        LOGGER.info("Loaded " + _list.size() + " player(s) HWID(s)");
++    }
++    
++    public static hwidPlayer getInstance()
++    {
++        if (INSTANCE == null)
++        	INSTANCE = new hwidPlayer();
++        return INSTANCE;
++    }
++    
++    private static void load()
++    {
++        try (Connection con = ConnectionPool.getConnection();
++        	PreparedStatement statement = con.prepareStatement("SELECT * FROM hwid_info");
++        	ResultSet rset = statement.executeQuery())
++        {
++            int counterHWIDInfo = 0;
++            while (rset.next())
++            {
++                final hwidInfoList hInfo = new hwidInfoList(counterHWIDInfo);
++                hInfo.setHWID(rset.getString("HWID"));
++                hInfo.setLogin(rset.getString("Account"));
++                hInfo.setPlayerID(rset.getInt("PlayerID"));
++                hInfo.setLockType(LockType.valueOf(rset.getString("LockType")));
++                _list.put(counterHWIDInfo, hInfo);
++                ++counterHWIDInfo;
++            }
++        }
++        catch (Exception e)
++        {
++            e.printStackTrace();
++        }
++    }
++    
++    public static void reload()
++    {
++    	INSTANCE = new hwidPlayer();
++    }
++    
++	public static int startSession(int WindowsCount)
++	{
++		synchronized (_list)
++		{
++			if (_sessions.get(WindowsCount) == null)
++				_sessions.put(WindowsCount, 0);
++			_sessions.put(WindowsCount, _sessions.get(WindowsCount) + 1);
++		}
++		return _sessions.get(WindowsCount);
++	}
++	
++	public static void updateHWIDInfo(GameClient client)
++	{
++		updateHWIDInfo(client, LockType.NONE);
++	}
++    
++    public static void updateHWIDInfo(final GameClient client, final LockType lockType)
++    {
++    	int counterHwidInfo = _list.size();
++        boolean isFound = false;
++        for (int i = 0; i < _list.size(); ++i)
++        {
++            if (_list.get(i).getHWID().equals(client.getHWID()))
++            {
++            	isFound = true;      	
++            	counterHwidInfo = i;
++                break;
++            }
++        }
++        final hwidInfoList hInfo = new hwidInfoList(counterHwidInfo);
++        hInfo.setHWID(client.getHWID());
++        hInfo.setLogin(client.getAccountName());
++        hInfo.setPlayerID(client.getPlayerId());
++        hInfo.setLockType(lockType);
++        _list.put(counterHwidInfo, hInfo);
++        if (isFound)
++        {
++        	try (Connection con = ConnectionPool.getConnection();
++            	PreparedStatement statement = con.prepareStatement("UPDATE hwid_info SET Account=?,PlayerID=?,LockType=? WHERE HWID=?"))
++            {
++                statement.setString(1, client.getAccountName());
++                statement.setInt(2, client.getPlayerId());
++                statement.setString(3, lockType.toString());
++                statement.setString(4, client.getHWID());
++                statement.execute();
++            }
++            catch (Exception e)
++            {
++                e.printStackTrace();
++            }
++        }
++        else
++        {
++            try (Connection con = ConnectionPool.getConnection();
++            	PreparedStatement statement = con.prepareStatement("INSERT INTO hwid_info (HWID, Account, PlayerID, LockType) values (?,?,?,?)"))
++            {
++                statement.setString(1, client.getHWID());
++                statement.setString(2, client.getAccountName());
++                statement.setInt(3, client.getPlayerId());
++                statement.setString(4, lockType.toString());
++                statement.execute();
++            }
++            catch (Exception e)
++            {
++                e.printStackTrace();
++            }
++        }
++    }
++    
++    public static boolean checkLockedHWID(final GameClient client)
++    {
++        if (_list.size() == 0)
++            return false;
++
++        boolean result = false;
++        for (int i = 0; i < _list.size(); ++i)
++        {
++            switch (_list.get(i).getLockType().ordinal())
++            {
++                case 2:
++                {
++                    if (client.getPlayerId() == 0)
++                        break;
++
++                    if (_list.get(i).getPlayerID() != client.getPlayerId())
++                        break;
++
++                    if (_list.get(i).getHWID().equals(client.getHWID()))
++                        return false;
++
++                    result = true;
++                    break;
++                }
++                case 3:
++                {
++                    if (!_list.get(i).getLogin().equals(client.getLoginName()))
++                        break;
++
++                    if (_list.get(i).getHWID().equals(client.getHWID()))
++                        return false;
++
++                    result = true;
++                    break;
++                }
++            }
++        }
++        return result;
++    }
++    
++    public static int getAllowedWindowsCount(final GameClient client)
++    {
++        if (_list.size() == 0)
++            return -1;
++
++        int i = 0;
++        while (i < _list.size())
++        {
++            if (!_list.get(i).getHWID().equals(client.getHWID()))
++                ++i;
++            else
++            {
++                if (_list.get(i).getHWID().equals(""))
++                    return -1;
++
++                return _list.get(i).getCount();
++            }
++        }
++        return -1;
++    }
++    
++    public static int getCountHwidInfo()
++    {
++        return _list.size();
++    }
++}
+\ No newline at end of file
+Index: config/hwid.properties
+===================================================================
+--- config/hwid.properties	(nonexistent)
++++ config/hwid.properties	(working copy)
+@@ -0,0 +1,28 @@
++#=============================================================
++#                    Hwid System Manager
++#=============================================================
++# Allow Guard Protection System
++AllowGuardSystem = True
++
++# Installing client HWID
++# 1 = HWID HDD
++# 2 = HWID MAC
++# 3 = HWID CPU
++UseClientHWID = 2
++KickWithEmptyHWID = True
++KickWithLastErrorHWID = True
++
++# What is the criterion to prohibit the launch of multiple windows? 
++# IP - to IP, HWID - client on HWID
++ClientWindowsCountSec = HWID
++
++# Configure the number of open windows client 
++# If 0 = Unlimited
++AllowedWindowsCount = 2
++
++# Enable log on Console Server - Player, HWID, NAME, ID
++EnableConsoleLog = True
++EnableHWIDBans = True
++EnableHWIDBonus = True
++StoreHWID = True
++LogHWIDs = True
+Index: java/hwid/crypt/GameCrypt.java
+===================================================================
+--- java/hwid/crypt/GameCrypt.java	(nonexistent)
++++ java/hwid/crypt/GameCrypt.java	(working copy)
+@@ -0,0 +1,55 @@
++package hwid.crypt;
++
++import net.sf.l2j.Config;
++
++import hwid.crypt.impl.L2Client;
++import hwid.crypt.impl.L2Server;
++import hwid.crypt.impl.VMPC;
++
++public class GameCrypt
++{
++    private ProtectionCrypt _client;
++    private ProtectionCrypt _server;
++    private boolean _isEnabled;
++    private boolean _isProtected;
++    
++    public GameCrypt()
++    {
++        _isEnabled = false;
++        _isProtected = false;
++    }
++    
++    public void setProtected(final boolean state)
++    {
++        _isProtected = state;
++    }
++    
++    public void setKey(final byte[] key)
++    {
++        if (_isProtected)
++        {
++            (_client = new VMPC()).setup(key, Config.GUARD_CLIENT_CRYPT);
++            (_server = new L2Server()).setup(key, null);
++            (_server = new VMPC()).setup(key, Config.GUARD_SERVER_CRYPT);
++        }
++        else
++        {
++            (_client = new L2Client()).setup(key, null);
++            (_server = new L2Server()).setup(key, null);
++        }
++    }
++    
++    public void decrypt(final byte[] raw, final int offset, final int size)
++    {
++        if (_isEnabled)
++            _client.crypt(raw, offset, size);
++    }
++    
++    public void encrypt(final byte[] raw, final int offset, final int size)
++    {
++        if (_isEnabled)
++            _server.crypt(raw, offset, size);
++        else
++            _isEnabled = true;
++    }
++}
+\ No newline at end of file
+Index: build.xml
+===================================================================
+--- build.xml	(revision 15)
++++ build.xml	(working copy)
+@@ -41,6 +41,7 @@
+ 		<fixcrlf srcdir="${build.dist.game}" eol="crlf" eof="remove" includes="**/*.bat" />
+ 		<fixcrlf srcdir="${build.dist.login}" eol="crlf" eof="remove" includes="**/*.bat" />
+ 		<mkdir dir="${build.dist.game}/log" />
++		<mkdir dir="${build.dist.game}/log/hwid" />
+ 		<mkdir dir="${build.dist.login}/log" />
+ 		<mkdir dir="${build.dist.game}/config" />
+ 		<mkdir dir="${build.dist.game}/config/customs" />
+Index: java/hwid/crypt/ProtectionPackets.java
+===================================================================
+--- java/hwid/crypt/ProtectionPackets.java	(nonexistent)
++++ java/hwid/crypt/ProtectionPackets.java	(working copy)
+@@ -0,0 +1,49 @@
++package hwid.crypt;
++
++import net.sf.l2j.commons.random.Rnd;
++
++public class ProtectionPackets
++{
++    public static int readB(final byte[] raw, int offset, final byte[] data, final int size)
++    {
++        for (int i = 0; i < size; ++i)
++        {
++            data[i] = (byte)(raw[offset] ^ raw[0]);
++            offset += (raw[offset + 1] & 0xFF);
++        }
++        return offset;
++    }
++    
++    public static int readS(final byte[] raw, int offset, final byte[] data, final int size)
++    {
++        for (int i = 0; i < size; ++i)
++        {
++            data[i] = (byte)(raw[offset] ^ raw[0]);
++            offset += (raw[offset + 1] & 0xFF);
++            if (data[i] == 0)
++                break;
++        }
++        return offset;
++    }
++    
++    public static int writeB(final byte[] raw, int offset, final byte[] data, final int size)
++    {
++        for (int i = 0; i < size; ++i)
++        {
++            raw[offset] = (byte)(data[i] ^ raw[0]);
++            raw[offset + 1] = (byte)(2 + Rnd.nextInt(10));
++            offset += (raw[offset + 1] & 0xFF);
++        }
++        return offset;
++    }
++    
++    public static byte ck(final byte[] raw, final int offset, final int size)
++    {
++        byte c = -1;
++        for (int i = 0; i < size; ++i)
++        {
++            c ^= raw[offset + i];
++        }
++        return c;
++    }
++}
+\ No newline at end of file
+Index: java/hwid/crypt/BlowfishEngine.java
+===================================================================
+--- java/hwid/crypt/BlowfishEngine.java	(nonexistent)
++++ java/hwid/crypt/BlowfishEngine.java	(working copy)
+@@ -0,0 +1,172 @@
++package hwid.crypt;
++
++import java.io.IOException;
++
++public class BlowfishEngine
++{
++    private static final int[] KP = new int[] { 608135816, -2052912941, 320440878, 57701188, -1542899678, 698298832, 137296536, -330404727, 1160258022, 953160567, -1101764913, 887688300, -1062458953, -914599715, 1065670069, -1253635817, -1843997223, -1988494565 };
++    private static final int[] KS0 = new int[] { -785314906, -1730169428, 805139163, -803545161, -1193168915, 1780907670, -1166241723, -248741991, 614570311, -1282315017, 134345442, -2054226922, 1667834072, 1901547113, -1537671517, -191677058, 227898511, 1921955416, 1904987480, -2112533778, 2069144605, -1034266187, -1674521287, 720527379, -976113629, 677414384, -901678824, -1193592593, -1904616272, 1614419982, 1822297739, -1340175810, -686458943, -1120842969, 2024746970, 1432378464, -430627341, -1437226092, 1464375394, 1676153920, 1439316330, 715854006, -1261675468, 289532110, -1588296017, 2087905683, -1276242927, 1668267050, 732546397, 1947742710, -832815594, -1685613794, -1344882125, 1814351708, 2050118529, 680887927, 999245976, 1800124847, -994056165, 1713906067, 1641548236, -81679983, 1216130144, 1575780402, -276538019, -377129551, -601480446, -345695352, 596196993, -745100091, 258830323, -2081144263, 772490370, -1534844924, 1774776394, -1642095778, 566650946, -152474470, 1728879713, -1412200208, 1783734482, -665571480, -1777359064, -1420741725, 1861159788, 326777828, -1170476976, 2130389656, -1578015459, 967770486, 1724537150, -2109534584, -1930525159, 1164943284, 2105845187, 998989502, -529566248, -2050940813, 1075463327, 1455516326, 1322494562, 910128902, 469688178, 1117454909, 936433444, -804646328, -619713837, 1240580251, 122909385, -2137449605, 634681816, -152510729, -469872614, -1233564613, -1754472259, 79693498, -1045868618, 1084186820, 1583128258, 426386531, 1761308591, 1047286709, 322548459, 995290223, 1845252383, -1691314900, -863943356, -1352745719, -1092366332, -567063811, 1712269319, 422464435, -1060394921, 1170764815, -771006663, -1177289765, 1434042557, 442511882, -694091578, 1076654713, 1738483198, -81812532, -1901729288, -617471240, 1014306527, -43947243, 793779912, -1392160085, 842905082, -48003232, 1395751752, 1040244610, -1638115397, -898659168, 445077038, -552113701, -717051658, 679411651, -1402522938, -1940957837, 1767581616, -1144366904, -503340195, -1192226400, 284835224, -48135240, 1258075500, 768725851, -1705778055, -1225243291, -762426948, 1274779536, -505548070, -1530167757, 1660621633, -823867672, -283063590, 913787905, -797008130, 737222580, -1780753843, -1366257256, -357724559, 1804850592, -795946544, -1345903136, -1908647121, -1904896841, -1879645445, -233690268, -2004305902, -1878134756, 1336762016, 1754252060, -774901359, -1280786003, 791618072, -1106372745, -361419266, -1962795103, -442446833, -1250986776, 413987798, -829824359, -1264037920, -49028937, 2093235073, -760370983, 375366246, -2137688315, -1815317740, 555357303, -424861595, 2008414854, -950779147, -73583153, -338841844, 2067696032, -700376109, -1373733303, 2428461, 544322398, 577241275, 1471733935, 610547355, -267798242, 1432588573, 1507829418, 2025931657, -648391809, 545086370, 48609733, -2094660746, 1653985193, 298326376, 1316178497, -1287180854, 2064951626, 458293330, -1705826027, -703637697, -1130641692, 727753846, -2115603456, 146436021, 1461446943, -224990101, 705550613, -1235000031, -407242314, -13368018, -981117340, 1404054877, -1449160799, 146425753, 1854211946 };
++    private static final int[] KS1 = new int[] { 1266315497, -1246549692, -613086930, -1004984797, -1385257296, 1235738493, -1662099272, -1880247706, -324367247, 1771706367, 1449415276, -1028546847, 422970021, 1963543593, -1604775104, -468174274, 1062508698, 1531092325, 1804592342, -1711849514, -1580033017, -269995787, 1294809318, -265986623, 1289560198, -2072974554, 1669523910, 35572830, 157838143, 1052438473, 1016535060, 1802137761, 1753167236, 1386275462, -1214491899, -1437595849, 1040679964, 2145300060, -1904392980, 1461121720, -1338320329, -263189491, -266592508, 33600511, -1374882534, 1018524850, 629373528, -603381315, -779021319, 2091462646, -1808644237, 586499841, 988145025, 935516892, -927631820, -1695294041, -1455136442, 265290510, -322386114, -1535828415, -499593831, 1005194799, 847297441, 406762289, 1314163512, 1332590856, 1866599683, -167115585, 750260880, 613907577, 1450815602, -1129346641, -560302305, -644675568, -1282691566, -590397650, 1427272223, 778793252, 1343938022, -1618686585, 2052605720, 1946737175, -1130390852, -380928628, -327488454, -612033030, 1661551462, -1000029230, -283371449, 840292616, -582796489, 616741398, 312560963, 711312465, 1351876610, 322626781, 1910503582, 271666773, -2119403562, 1594956187, 70604529, -677132437, 1007753275, 1495573769, -225450259, -1745748998, -1631928532, 504708206, -2031925904, -353800271, -2045878774, 1514023603, 1998579484, 1312622330, 694541497, -1712906993, -2143385130, 1382467621, 776784248, -1676627094, -971698502, -1797068168, -1510196141, 503983604, -218673497, 907881277, 423175695, 432175456, 1378068232, -149744970, -340918674, -356311194, -474200683, -1501837181, -1317062703, 26017576, -1020076561, -1100195163, 1700274565, 1756076034, -288447217, -617638597, 720338349, 1533947780, 354530856, 688349552, -321042571, 1637815568, 332179504, -345916010, 53804574, -1442618417, -1250730864, 1282449977, -711025141, -877994476, -288586052, 1617046695, -1666491221, -1292663698, 1686838959, 431878346, -1608291911, 1700445008, 1080580658, 1009431731, 832498133, -1071531785, -1688990951, -2023776103, -1778935426, 1648197032, -130578278, -1746719369, 300782431, 375919233, 238389289, -941219882, -1763778655, 2019080857, 1475708069, 455242339, -1685863425, 448939670, -843904277, 1395535956, -1881585436, 1841049896, 1491858159, 885456874, -30872223, -293847949, 1565136089, -396052509, 1108368660, 540939232, 1173283510, -1549095958, -613658859, -87339056, -951913406, -278217803, 1699691293, 1103962373, -669091426, -2038084153, -464828566, 1031889488, -815619598, 1535977030, -58162272, -1043876189, 2132092099, 1774941330, 1199868427, 1452454533, 157007616, -1390851939, 342012276, 595725824, 1480756522, 206960106, 497939518, 591360097, 863170706, -1919713727, -698356495, 1814182875, 2094937945, -873565088, 1082520231, -831049106, -1509457788, 435703966, -386934699, 1641649973, -1452693590, -989067582, 1510255612, -2146710820, -1639679442, -1018874748, -36346107, 236887753, -613164077, 274041037, 1734335097, -479771840, -976997275, 1899903192, 1026095262, -244449504, 356393447, -1884275382, -421290197, -612127241 };
++    private static final int[] KS2 = new int[] { -381855128, -1803468553, -162781668, -1805047500, 1091903735, 1979897079, -1124832466, -727580568, -737663887, 857797738, 1136121015, 1342202287, 507115054, -1759230650, 337727348, -1081374656, 1301675037, -1766485585, 1895095763, 1721773893, -1078195732, 62756741, 2142006736, 835421444, -1762973773, 1442658625, -635090970, -1412822374, 676362277, 1392781812, 170690266, -373920261, 1759253602, -683120384, 1745797284, 664899054, 1329594018, -393761396, -1249058810, 2062866102, -1429332356, -751345684, -830954599, 1080764994, 553557557, -638351943, -298199125, 991055499, 499776247, 1265440854, 648242737, -354183246, 980351604, -581221582, 1749149687, -898096901, -83167922, -654396521, 1161844396, -1169648345, 1431517754, 545492359, -26498633, -795437749, 1437099964, -1592419752, -861329053, -1713251533, -1507177898, 1060185593, 1593081372, -1876348548, -34019326, 69676912, -2135222948, 86519011, -1782508216, -456757982, 1220612927, -955283748, 133810670, 1090789135, 1078426020, 1569222167, 845107691, -711212847, -222510705, 1091646820, 628848692, 1613405280, -537335645, 526609435, 236106946, 48312990, -1352249391, -892239595, 1797494240, 859738849, 992217954, -289490654, -2051890674, -424014439, -562951028, 765654824, -804095931, -1783130883, 1685915746, -405998096, 1414112111, -2021832454, -1013056217, -214004450, 172450625, -1724973196, 980381355, -185008841, -1475158944, -1578377736, -1726226100, -613520627, -964995824, 1835478071, 660984891, -590288892, -248967737, -872349789, -1254551662, 1762651403, 1719377915, -824476260, -1601057013, -652910941, -1156370552, 1364962596, 2073328063, 1983633131, 926494387, -871278215, -2144935273, -198299347, 1749200295, -966120645, 309677260, 2016342300, 1779581495, -1215147545, 111262694, 1274766160, 443224088, 298511866, 1025883608, -488520759, 1145181785, 168956806, -653464466, -710153686, 1689216846, -628709281, -1094719096, 1692713982, -1648590761, -252198778, 1618508792, 1610833997, -771914938, -164094032, 2001055236, -684262196, -2092799181, -266425487, -1333771897, 1006657119, 2006996926, -1108824540, 1430667929, -1084739999, 1314452623, -220332638, -193663176, -2021016126, 1399257539, -927756684, -1267338667, 1190975929, 2062231137, -1960976508, -2073424263, -1856006686, 1181637006, 548689776, -1932175983, -922558900, -1190417183, -1149106736, 296247880, 1970579870, -1216407114, -525738999, 1714227617, -1003338189, -396747006, 166772364, 1251581989, 493813264, 448347421, 195405023, -1584991729, 677966185, -591930749, 1463355134, -1578971493, 1338867538, 1343315457, -1492745222, -1610435132, 233230375, -1694987225, 2000651841, -1017099258, 1638401717, -266896856, -1057650976, 6314154, 819756386, 300326615, 590932579, 1405279636, -1027467724, -1144263082, -1866680610, -335774303, -833020554, 1862657033, 1266418056, 963775037, 2089974820, -2031914401, 1917689273, 448879540, -744572676, -313240200, 150775221, -667058989, 1303187396, 508620638, -1318983944, -1568336679, 1817252668, 1876281319, 1457606340, 908771278, -574175177, -677760460, -1838972398, 1729034894, 1080033504 };
++    private static final int[] KS3 = new int[] { 976866871, -738527793, -1413318857, 1522871579, 1555064734, 1336096578, -746444992, -1715692610, -720269667, -1089506539, -701686658, -956251013, -1215554709, 564236357, -1301368386, 1781952180, 1464380207, -1131123079, -962365742, 1699332808, 1393555694, 1183702653, -713881059, 1288719814, 691649499, -1447410096, -1399511320, -1101077756, -1577396752, 1781354906, 1676643554, -1702433246, -1064713544, 1126444790, -1524759638, -1661808476, -2084544070, -1679201715, -1880812208, -1167828010, 673620729, -1489356063, 1269405062, -279616791, -953159725, -145557542, 1057255273, 2012875353, -2132498155, -2018474495, -1693849939, 993977747, -376373926, -1640704105, 753973209, 36408145, -1764381638, 25011837, -774947114, 2088578344, 530523599, -1376601957, 1524020338, 1518925132, -534139791, -535190042, 1202760957, -309069157, -388774771, 674977740, -120232407, 2031300136, 2019492241, -311074731, -141160892, -472686964, 352677332, -1997247046, 60907813, 90501309, -1007968747, 1016092578, -1759044884, -1455814870, 457141659, 509813237, -174299397, 652014361, 1966332200, -1319764491, 55981186, -1967506245, 676427537, -1039476232, -1412673177, -861040033, 1307055953, 942726286, 933058658, -1826555503, -361066302, -79791154, 1361170020, 2001714738, -1464409218, -1020707514, 1222529897, 1679025792, -1565652976, -580013532, 1770335741, 151462246, -1281735158, 1682292957, 1483529935, 471910574, 1539241949, 458788160, -858652289, 1807016891, -576558466, 978976581, 1043663428, -1129001515, 1927990952, -94075717, -1922690386, -1086558393, -761535389, 1412390302, -1362987237, -162634896, 1947078029, -413461673, -126740879, -1353482915, 1077988104, 1320477388, 886195818, 18198404, -508558296, -1785185763, 112762804, -831610808, 1866414978, 891333506, 18488651, 661792760, 1628790961, -409780260, -1153795797, 876946877, -1601685023, 1372485963, 791857591, -1608533303, -534984578, -1127755274, -822013501, -1578587449, 445679433, -732971622, -790962485, -720709064, 54117162, -963561881, -1913048708, -525259953, -140617289, 1140177722, -220915201, 668550556, -1080614356, 367459370, 261225585, -1684794075, -85617823, -826893077, -1029151655, 314222801, -1228863650, -486184436, 282218597, -888953790, -521376242, 379116347, 1285071038, 846784868, -1625320142, -523005217, -744475605, -1989021154, 453669953, 1268987020, -977374944, -1015663912, -550133875, -1684459730, -435458233, 266596637, -447948204, 517658769, -832407089, -851542417, 370717030, -47440635, -2070949179, -151313767, -182193321, -1506642397, -1817692879, 1456262402, -1393524382, 1517677493, 1846949527, -1999473716, -560569710, -2118563376, 1280348187, 1908823572, -423180355, 846861322, 1172426758, -1007518822, -911584259, 1655181056, -1155153950, 901632758, 1897031941, -1308360158, -1228157060, -847864789, 1393639104, 373351379, 950779232, 625454576, -1170726756, -146354570, 2007998917, 544563296, -2050228658, -1964470824, 2058025392, 1291430526, 424198748, 50039436, 29584100, -689184263, -1865090967, -1503863136, 1057563949, -1039604065, -1219600078, -831004069, 1469046755, 985887462 };
++    private static final int ROUNDS = 16;
++    private static final int BLOCK_SIZE = 8;
++    private static final int SBOX_SK = 256;
++    private static final int P_SZ = 18;
++    private final int[] S0;
++    private final int[] S1;
++    private final int[] S2;
++    private final int[] S3;
++    private final int[] P;
++    private boolean encrypting;
++    private byte[] workingKey;
++    
++    public BlowfishEngine()
++    {
++        encrypting = false;
++        workingKey = null;
++        S0 = new int[SBOX_SK];
++        S1 = new int[SBOX_SK];
++        S2 = new int[SBOX_SK];
++        S3 = new int[SBOX_SK];
++        P = new int[P_SZ];
++    }
++    
++    public void init(final boolean pEncrypting, final byte[] key)
++    {
++        encrypting = pEncrypting;
++        setKey(workingKey = key);
++    }
++    
++    public String getAlgorithmName()
++    {
++        return "Blowfish";
++    }
++    
++    public final int processBlock(final byte[] in, final int inOff, final byte[] out, final int outOff) throws IOException
++    {
++        if (workingKey == null)
++        {
++            throw new IllegalStateException("Blowfish not initialised");
++        }
++        if (inOff + BLOCK_SIZE > in.length)
++        {
++            throw new IOException("input buffer too short");
++        }
++        if (outOff + BLOCK_SIZE > out.length)
++        {
++            throw new IOException("output buffer too short");
++        }
++        if (encrypting)
++        {
++            encryptBlock(in, inOff, out, outOff);
++        }
++        else
++        {
++            decryptBlock(in, inOff, out, outOff);
++        }
++        return BLOCK_SIZE;
++    }
++    
++    public void reset() {}
++    
++    public int getBlockSize()
++    {
++        return BLOCK_SIZE;
++    }
++    
++    private int F(final int x)
++    {
++        return (S0[x >>> 24] + S1[x >>> ROUNDS & 0xFF] ^ S2[x >>> BLOCK_SIZE & 0xFF]) + S3[x & 0xFF];
++    }
++    
++    private void processTable(int xl, int xr, final int[] table)
++    {
++        for (int size = table.length, s = 0; s < size; s += 2)
++        {
++            xl ^= P[0];
++            for (int i = 1; i < ROUNDS; i += 2)
++            {
++                xr ^= (F(xl) ^ P[i]);
++                xl ^= (F(xr) ^ P[i + 1]);
++            }
++            xr ^= P[17];
++            table[s] = xr;
++            table[s + 1] = xl;
++            xr = xl;
++            xl = table[s];
++        }
++    }
++    
++    private void setKey(final byte[] key)
++    {
++        System.arraycopy(BlowfishEngine.KS0, 0, S0, 0, SBOX_SK);
++        System.arraycopy(BlowfishEngine.KS1, 0, S1, 0, SBOX_SK);
++        System.arraycopy(BlowfishEngine.KS2, 0, S2, 0, SBOX_SK);
++        System.arraycopy(BlowfishEngine.KS3, 0, S3, 0, SBOX_SK);
++        System.arraycopy(BlowfishEngine.KP, 0, P, 0, P_SZ);
++        final int keyLength = key.length;
++        int keyIndex = 0;
++        for (int i = 0; i < P_SZ; ++i)
++        {
++            int data = 0;
++            for (int j = 0; j < 4; ++j)
++            {
++                data = (data << BLOCK_SIZE | (key[keyIndex++] & 0xFF));
++                if (keyIndex >= keyLength)
++                    keyIndex = 0;
++            }
++            final int[] p = P;
++            final int n = i;
++            p[n] ^= data;
++        }
++        processTable(0, 0, P);
++        processTable(P[ROUNDS], P[17], S0);
++        processTable(S0[254], S0[255], S1);
++        processTable(S1[254], S1[255], S2);
++        processTable(S2[254], S2[255], S3);
++    }
++    
++    public void encryptBlock(final byte[] src, final int srcIndex, final byte[] dst, final int dstIndex)
++    {
++        int xl = BytesTo32bits(src, srcIndex);
++        int xr = BytesTo32bits(src, srcIndex + 4);
++        xl ^= P[0];
++        for (int i = 1; i < ROUNDS; i += 2)
++        {
++            xr ^= (F(xl) ^ P[i]);
++            xl ^= (F(xr) ^ P[i + 1]);
++        }
++        xr ^= P[17];
++        Bits32ToBytes(xr, dst, dstIndex);
++        Bits32ToBytes(xl, dst, dstIndex + 4);
++    }
++    
++    public void decryptBlock(final byte[] src, final int srcIndex, final byte[] dst, final int dstIndex)
++    {
++        int xl = BytesTo32bits(src, srcIndex);
++        int xr = BytesTo32bits(src, srcIndex + 4);
++        xl ^= P[17];
++        for (int i = ROUNDS; i > 0; i -= 2)
++        {
++            xr ^= (F(xl) ^ P[i]);
++            xl ^= (F(xr) ^ P[i - 1]);
++        }
++        xr ^= P[0];
++        Bits32ToBytes(xr, dst, dstIndex);
++        Bits32ToBytes(xl, dst, dstIndex + 4);
++    }
++    
++    private static int BytesTo32bits(final byte[] b, final int i)
++    {
++        return (b[i + 3] & 0xFF) << 24 | (b[i + 2] & 0xFF) << ROUNDS | (b[i + 1] & 0xFF) << BLOCK_SIZE | (b[i] & 0xFF);
++    }
++    
++    private static void Bits32ToBytes(final int in, final byte[] b, final int offset)
++    {
++        b[offset] = (byte)in;
++        b[offset + 1] = (byte)(in >> BLOCK_SIZE);
++        b[offset + 2] = (byte)(in >> ROUNDS);
++        b[offset + 3] = (byte)(in >> 24);
++    }
++}
+\ No newline at end of file
+Index: java/hwid/crypt/impl/VMPC.java
+===================================================================
+--- java/hwid/crypt/impl/VMPC.java	(nonexistent)
++++ java/hwid/crypt/impl/VMPC.java	(working copy)
+@@ -0,0 +1,64 @@
++package hwid.crypt.impl;
++
++import hwid.crypt.ProtectionCrypt;
++
++public class VMPC implements ProtectionCrypt
++{
++    private byte _n;
++    private byte[] _P;
++    private byte _s;
++    
++    public VMPC()
++    {
++        _n = 0;
++        _P = new byte[256];
++        _s = 0;
++    }
++    
++    @Override
++    public void setup(final byte[] key, final byte[] iv)
++    {
++        _s = 0;
++        for (int i = 0; i < 256; ++i)
++        {
++            _P[i] = (byte)(i & 0xFF);
++        }
++        for (int m = 0; m < 768; ++m)
++        {
++            _s = _P[_s + _P[m & 0xFF] + key[m % 64] & 0xFF];
++            final byte temp = _P[m & 0xFF];
++            _P[m & 0xFF] = _P[_s & 0xFF];
++            _P[_s & 0xFF] = temp;
++        }
++        for (int m = 0; m < 768; ++m)
++        {
++            _s = _P[_s + _P[m & 0xFF] + iv[m % 64] & 0xFF];
++            final byte temp = _P[m & 0xFF];
++            _P[m & 0xFF] = _P[_s & 0xFF];
++            _P[_s & 0xFF] = temp;
++        }
++        for (int m = 0; m < 768; ++m)
++        {
++            _s = _P[_s + _P[m & 0xFF] + key[m % 64] & 0xFF];
++            final byte temp = _P[m & 0xFF];
++            _P[m & 0xFF] = _P[_s & 0xFF];
++            _P[_s & 0xFF] = temp;
++        }
++        _n = 0;
++    }
++    
++    @Override
++    public void crypt(final byte[] raw, final int offset, final int size)
++    {
++        for (int i = 0; i < size; ++i)
++        {
++            _s = _P[_s + _P[_n & 0xFF] & 0xFF];
++            final byte z = _P[_P[_P[_s & 0xFF] & 0xFF] + 1 & 0xFF];
++            final byte temp = _P[_n & 0xFF];
++            _P[_n & 0xFF] = _P[_s & 0xFF];
++            _P[_s & 0xFF] = temp;
++            _n = (byte)(_n + 1 & 0xFF);
++            raw[offset + i] ^= z;
++        }
++    }
++}
+\ No newline at end of file
+Index: java/hwid/crypt/Manager.java
+===================================================================
+--- java/hwid/crypt/Manager.java	(nonexistent)
++++ java/hwid/crypt/Manager.java	(working copy)
+@@ -0,0 +1,78 @@
++package hwid.crypt;
++
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.concurrent.ScheduledFuture;
++
++import net.sf.l2j.commons.logging.CLogger;
++
++import net.sf.l2j.Config;
++import net.sf.l2j.gameserver.network.GameClient;
++
++import hwid.hwidmanager.hwidPlayer;
++
++public final class Manager
++{
++    protected static CLogger LOGGER = new CLogger(Manager.class.getName());
++    protected static String _logFile = "Manager";
++    protected static String _logMainFile = "hwid_logs";
++    protected static Manager INSTANCE;
++    protected static ScheduledFuture<?> _GGTask = null;
++    protected static ConcurrentHashMap<String, InfoSet> _objects = new ConcurrentHashMap<>();
++    
++    public static Manager getInstance()
++    {
++        if (INSTANCE == null)
++        {
++            LOGGER.info("Loaded HWID KEY RUSaCis Project");
++            LOGGER.info("Loaded HWID IP " + Config.GAMESERVER_HOSTNAME);
++            LOGGER.info("Loaded Anti Leech key...assigned ");
++            LOGGER.info("Loaded Restriction Leech...assigned ");
++            LOGGER.info("Loaded Licensed to Max Players : " + Config.MAXIMUM_ONLINE_USERS);
++            INSTANCE = new Manager();
++        }
++        return INSTANCE;
++    }
++    
++    public void addPlayer(final GameClient client)
++    {
++    	hwidPlayer.updateHWIDInfo(client);
++        _objects.put(client.getPlayerName(), new InfoSet(client.getPlayerName(), client.getHWID()));
++    }
++    
++    public static void removePlayer(final String name)
++    {
++        if (_objects.containsKey(name))
++            _objects.remove(name);
++    }
++    
++    public static int getCountByHWID(final String HWID)
++    {
++        int result = 0;
++        for (final InfoSet object : _objects.values())
++        {
++            if (object._hwid.equals(HWID))
++                ++result;
++        }
++        return result;
++    }
++    
++    public class InfoSet
++    {
++        public String _playerName;
++        public long _lastGGSendTime;
++        public long _lastGGRecvTime;
++        public int _attempts;
++        public String _hwid;
++        
++        public InfoSet(final String name, final String HWID)
++        {
++            _playerName = "";
++            _hwid = "";
++            _playerName = name;
++            _lastGGSendTime = System.currentTimeMillis();
++            _lastGGRecvTime = _lastGGSendTime;
++            _attempts = 0;
++            _hwid = HWID;
++        }
++    }
++}
+\ No newline at end of file
+Index: java/hwid/utils/HwidLog.java
+===================================================================
+--- java/hwid/utils/HwidLog.java	(nonexistent)
++++ java/hwid/utils/HwidLog.java	(working copy)
+@@ -0,0 +1,53 @@
++package hwid.utils;
++
++import java.io.File;
++import java.io.FileWriter;
++import java.io.IOException;
++import java.text.DateFormat;
++import java.text.SimpleDateFormat;
++import java.util.Date;
++
++import net.sf.l2j.commons.logging.CLogger;
++
++public class HwidLog
++{
++	protected static final CLogger LOGGER = new CLogger(HwidLog.class.getName());
++	
++	public HwidLog() {}
++
++	public static void auditGMAction(String gmName, String action, String params)
++	{
++		final File file = new File("log/hwid/" + gmName + ".txt");
++		if (!file.exists())
++		{
++			try
++			{
++				file.createNewFile();
++			}
++			catch (IOException e) {}
++		}
++
++		try (FileWriter save = new FileWriter(file, true))
++		{
++			save.write(formatDate(new Date(), "dd/MM/yyyy H:mm:ss") + " >>> HWID: [" + gmName + "] >>> Player: [" + action + "]\r\n");
++		}
++		catch (IOException e)
++		{
++			LOGGER.error("HwidLog for Player " + gmName + " could not be saved: ", e);
++		}
++	}
++
++	public static void auditGMAction(String gmName, String action)
++	{
++		auditGMAction(gmName, action, "");
++	}
++
++	public static String formatDate(Date date, String format)
++	{
++		final DateFormat dateFormat = new SimpleDateFormat(format);
++		if (date != null)
++			return dateFormat.format(date);
++		
++		return null;
++	}
++}
+\ No newline at end of file
+Index: java/hwid/utils/Util.java
+===================================================================
+--- java/hwid/utils/Util.java	(nonexistent)
++++ java/hwid/utils/Util.java	(working copy)
+@@ -0,0 +1,73 @@
++package hwid.utils;
++
++public class Util
++{
++    public static void intToBytes(final int value, final byte[] array, int offset)
++    {
++        array[offset++] = (byte)(value & 0xFF);
++        array[offset++] = (byte)(value >> 8 & 0xFF);
++        array[offset++] = (byte)(value >> 16 & 0xFF);
++        array[offset++] = (byte)(value >> 24 & 0xFF);
++    }
++    
++    public static String LastErrorConvertion(final Integer LastError)
++    {
++        return LastError.toString();
++    }
++    
++    public static final String asHex(final byte[] raw)
++    {
++        return asHex(raw, 0, raw.length);
++    }
++    
++    public static final String asHex(final byte[] raw, final int offset, final int size)
++    {
++        final StringBuffer strbuf = new StringBuffer(raw.length * 2);
++        for (int i = 0; i < size; ++i)
++        {
++            if ((raw[offset + i] & 0xFF) < 16)
++                strbuf.append("0");
++
++            strbuf.append(Long.toString(raw[offset + i] & 0xFF, 16));
++        }
++        return strbuf.toString();
++    }
++    
++    public static int bytesToInt(final byte[] array, int offset)
++    {
++        return (array[offset++] & 0xFF) | (array[offset++] & 0xFF) << 8 | (array[offset++] & 0xFF) << 16 | (array[offset++] & 0xFF) << 24;
++    }
++    
++    public static String asHwidString(final String hex)
++    {
++        final byte[] buf = asByteArray(hex);
++        return asHex(buf);
++    }
++    
++    public static byte[] asByteArray(final String hex)
++    {
++        final byte[] buf = new byte[hex.length() / 2];
++        for (int i = 0; i < hex.length(); i += 2)
++        {
++            final int j = Integer.parseInt(hex.substring(i, i + 2), 16);
++            buf[i / 2] = (byte)(j & 0xFF);
++        }
++        return buf;
++    }
++    
++    public static boolean verifyChecksum(final byte[] raw, final int offset, final int size)
++    {
++        if ((size & 0x3) == 0x0 && size > 4)
++        {
++            long chksum = 0L;
++            final int count = size - 4;
++            for (int i2 = offset; i2 < count; i2 += 4)
++            {
++                chksum ^= bytesToInt(raw, i2);
++            }
++            final long check = bytesToInt(raw, count);
++            return check == chksum;
++        }
++        return false;
++    }
++}
+\ No newline at end of file
+Index: java/hwid/crypt/FirstKey.java
+===================================================================
+--- java/hwid/crypt/FirstKey.java	(nonexistent)
++++ java/hwid/crypt/FirstKey.java	(working copy)
+@@ -0,0 +1,29 @@
++package hwid.crypt;
++
++import net.sf.l2j.commons.logging.CLogger;
++
++import net.sf.l2j.Config;
++
++public class FirstKey
++{
++    protected static CLogger LOGGER = new CLogger(FirstKey.class.getName());
++    private static final byte[] TKBOX = new byte[] { -112, 22, 124, -93, 68, -116, -19, -125, -4, 101, -62, 5, 70, 25, 29, 81, 65, -86, 79, -69, 2, 97, -108, -11, -84, -56, 17, 7, 31, 52, -34, -41, -110, -60, 57, -5, -6, -24, 98, -100, 23, 4, -74, -37, 1, 6, -2, -14, -77, 12, -7, 3, -29, -17, -75, 49, 44, -78, 94, 21, 0, 35, -18, 83, 9, -42, 60, 93, 54, 20, -49, 114, 106, -82, 113, -90, 86, -124, -73, -81, 90, 121, 115, 125, 47, 24, -28, 73, 56, -31, 8, 71, 122, 58, -33, 108, -111, 102, -118, -103, -122, 88, 28, -76, 67, -115, -67, 78, 36, 117, -8, -25, -97, 107, -91, -50, -53, -52, 111, -114, -58, -128, 84, -98, 63, 74, 10, 41, -32, 126, 69, -68, 11, -119, -44, -39, -107, -40, 85, -87, 61, 91, -1, 50, -72, -117, 15, 55, -51, 43, 87, 105, 120, -88, 116, 80, -48, -123, -127, -105, -22, 76, 109, 19, -46, -30, 112, 16, -10, 45, -63, -47, 123, -106, 27, 38, 104, -70, -79, 18, -99, -16, -85, -23, 30, -66, 48, -89, -61, -113, -12, 51, -95, -15, 32, -9, 62, -38, 14, -45, -80, 66, 100, 103, -104, -27, -43, 110, -83, -26, -101, 46, -120, -54, 37, 42, 13, 75, 82, -109, 26, -94, -57, -64, 119, 53, 39, -13, -121, 33, 72, -126, -65, -36, -71, 118, -35, 92, 96, 89, 64, 34, -20, -96, 77, 40, 127, -21, 59, -55, -102, 95, -3, 99, -59, -92 };
++    private static final byte[] MGBOX = new byte[] { -14, -108, 90, 75, 15, 115, -38, -37, -125, 29, -77, 9, -4, 54, -72, 70, 65, -44, -48, 85, -13, -121, 118, -102, 40, 53, 113, -5, -9, 28, 3, 125, 21, -124, 10, 67, -6, -98, 96, -105, -104, 126, -93, 82, -47, 41, -91, 89, -59, 122, 47, 37, -31, 59, 56, 12, -112, -58, -39, -10, -40, -49, 22, -107, 33, -89, 109, 31, 88, 81, 72, 42, -66, -85, -15, 93, -101, -7, -128, -19, -27, -90, -11, 111, 49, -70, 121, 79, -123, -127, -79, 35, -28, 114, -22, 44, -54, 107, 106, 30, 92, 4, -43, -82, -78, -26, -61, 57, 77, 95, 58, 69, -76, 103, -56, 78, 26, -92, 48, -32, -52, 16, -67, 51, -50, -73, -29, 52, -60, -118, -1, -80, 63, 2, 124, -36, -65, 8, -33, -115, -3, 108, -21, 18, 110, 36, -51, 46, -103, 94, 20, -114, 80, 127, -86, 19, -119, -113, 68, -25, -120, -71, 32, 38, -95, -57, 5, 7, 105, -17, -34, -81, 24, -74, -35, 100, 1, -46, -94, 43, 13, 17, -87, 11, -69, -62, -126, -63, -64, -23, -97, 27, -18, -53, 84, 0, -106, -83, 39, 116, 91, 104, 14, -24, -42, 34, -88, -84, 62, 61, -2, 112, 23, 119, 73, 6, -122, 55, -99, -41, 83, 99, 60, 87, 45, 120, -55, 117, -117, 98, 123, -8, 76, -16, -30, 64, -96, -109, -75, 25, 101, -110, 86, 50, 71, -12, 74, -100, -116, -68, 66, -20, -45, 102, -111, 97 };
++    public static final byte[] SKBOX = new byte[] { Config.FST_KEY, Config.SCN_KEY, 2, 15, -5, 17, 24, 23, 18, 45, 1, 21, 122, 16, Config.ANP_KEY, Config.ULT_KEY };
++    
++    public static byte[] expandKey(final byte[] key, final int size)
++    {
++        final byte[] P = new byte[64];
++        for (int i = 0; i < 64; ++i)
++        {
++            P[i] = key[i % size];
++        }
++        for (int i = 0; i < 256; ++i)
++        {
++            final byte t = P[i % 64];
++            final byte m = (byte)((MGBOX[MGBOX[t & 0xFF] & 0xFF] & 0xFF) ^ (TKBOX[TKBOX[i] & 0xFF] & 0xFF));
++            P[i % 64] = TKBOX[m & 0xFF];
++        }
++        return P;
++    }
++}
+Index: java/net/sf/l2j/gameserver/network/clientpackets/EnterWorld.java
+===================================================================
+--- java/net/sf/l2j/gameserver/network/clientpackets/EnterWorld.java	(revision 15)
++++ java/net/sf/l2j/gameserver/network/clientpackets/EnterWorld.java	(working copy)
+@@ -55,6 +55,8 @@
+ import net.sf.l2j.gameserver.skills.L2Skill;
+ import net.sf.l2j.gameserver.taskmanager.GameTimeTaskManager;
+ 
++import hwid.hwid;
++
+ public class EnterWorld extends L2GameClientPacket
+ {
+ 	@Override
+@@ -301,6 +303,8 @@
+ 		if (qs != null)
+ 			qs.getQuest().notifyEvent("UC", null, player);
+ 		
++		hwid.enterlog(player, getClient());
++		
+ 		player.sendPacket(ActionFailed.STATIC_PACKET);
+ 	}
+ 	
+Index: java/hwid/crypt/ProtectionCrypt.java
+===================================================================
+--- java/hwid/crypt/ProtectionCrypt.java	(nonexistent)
++++ java/hwid/crypt/ProtectionCrypt.java	(working copy)
+@@ -0,0 +1,8 @@
++package hwid.crypt;
++
++public interface ProtectionCrypt
++{
++    void setup(final byte[] p0, final byte[] p1);
++    
++    void crypt(final byte[] p0, final int p1, final int p2);
++}
+Index: java/hwid/crypt/impl/L2Client.java
+===================================================================
+--- java/hwid/crypt/impl/L2Client.java	(nonexistent)
++++ java/hwid/crypt/impl/L2Client.java	(working copy)
+@@ -0,0 +1,50 @@
++package hwid.crypt.impl;
++
++import hwid.crypt.ProtectionCrypt;
++
++public class L2Client implements ProtectionCrypt
++{
++    private ProtectionCrypt _client;
++    private byte[] _key;
++    private byte[] _iv;
++    
++    public L2Client()
++    {
++        _key = new byte[16];
++        _iv = null;
++    }
++    
++    @Override
++    public void setup(final byte[] key, final byte[] iv)
++    {
++        System.arraycopy(key, 0, this._key, 0, 16);
++        _iv = iv;
++    }
++    
++    @Override
++    public void crypt(final byte[] raw, final int offset, final int size)
++    {
++        if (_iv != null)
++        {
++            (_client = new VMPC()).setup(_key, _iv);
++            _client.crypt(raw, offset, size);
++        }
++        int temp = 0;
++        int temp2 = 0;
++        for (int i = 0; i < size; ++i)
++        {
++            temp2 = (raw[offset + i] & 0xFF);
++            raw[offset + i] = (byte)(temp2 ^ _key[i & 0xF] ^ temp);
++            temp = temp2;
++        }
++        int old = _key[8] & 0xFF;
++        old |= (_key[9] << 8 & 0xFF00);
++        old |= (_key[10] << 16 & 0xFF0000);
++        old |= (_key[11] << 24 & 0xFF000000);
++        old += size;
++        _key[8] = (byte)(old & 0xFF);
++        _key[9] = (byte)(old >> 8 & 0xFF);
++        _key[10] = (byte)(old >> 16 & 0xFF);
++        _key[11] = (byte)(old >> 24 & 0xFF);
++    }
++}
+\ No newline at end of file
+Index: java/hwid/crypt/impl/L2Server.java
+===================================================================
+--- java/hwid/crypt/impl/L2Server.java	(nonexistent)
++++ java/hwid/crypt/impl/L2Server.java	(working copy)
+@@ -0,0 +1,49 @@
++package hwid.crypt.impl;
++
++import hwid.crypt.ProtectionCrypt;
++
++public class L2Server implements ProtectionCrypt
++{
++    private byte[] _key;
++    private byte[] _iv;
++    private ProtectionCrypt _server;
++    
++    public L2Server()
++    {
++        _key = new byte[16];
++        _iv = null;
++    }
++    
++    @Override
++    public void setup(final byte[] key, final byte[] iv)
++    {
++        System.arraycopy(key, 0, this._key, 0, 16);
++        _iv = iv;
++    }
++    
++    @Override
++    public void crypt(final byte[] raw, final int offset, final int size)
++    {
++        int temp = 0;
++        for (int i = 0; i < size; ++i)
++        {
++            final int temp2 = raw[offset + i] & 0xFF;
++            temp ^= (temp2 ^ _key[i & 0xF]);
++            raw[offset + i] = (byte)temp;
++        }
++        int old = _key[8] & 0xFF;
++        old |= (_key[9] << 8 & 0xFF00);
++        old |= (_key[10] << 16 & 0xFF0000);
++        old |= (_key[11] << 24 & 0xFF000000);
++        old += size;
++        _key[8] = (byte)(old & 0xFF);
++        _key[9] = (byte)(old >> 8 & 0xFF);
++        _key[10] = (byte)(old >> 16 & 0xFF);
++        _key[11] = (byte)(old >> 24 & 0xFF);
++        if (_iv != null)
++        {
++            (_server = new VMPC()).setup(_key, _iv);
++            _server.crypt(raw, offset, size);
++        }
++    }
++}
+\ No newline at end of file
+Index: java/hwid/hwid.java
+===================================================================
+--- java/hwid/hwid.java	(nonexistent)
++++ java/hwid/hwid.java	(working copy)
+@@ -0,0 +1,268 @@
++package hwid;
++
++import java.io.IOException;
++import java.nio.ByteBuffer;
++import java.util.concurrent.ConcurrentHashMap;
++
++import net.sf.l2j.commons.logging.CLogger;
++
++import net.sf.l2j.Config;
++import net.sf.l2j.gameserver.model.World;
++import net.sf.l2j.gameserver.model.actor.Player;
++import net.sf.l2j.gameserver.network.GameClient;
++import net.sf.l2j.gameserver.network.serverpackets.ServerClose;
++
++import hwid.crypt.BlowfishEngine;
++import hwid.crypt.FirstKey;
++import hwid.crypt.Manager;
++import hwid.hwidmanager.hwidBan;
++import hwid.hwidmanager.hwidPlayer;
++import hwid.hwidmanager.hwidManager;
++import hwid.utils.HwidLog;
++import hwid.utils.Util;
++
++public class hwid
++{
++    protected static CLogger LOGGER = new CLogger(hwid.class.getName());
++    private static byte[] _key = new byte[16];
++    static byte version = 11;
++    protected static ConcurrentHashMap<String, Manager.InfoSet> _objects = new ConcurrentHashMap<>();
++    
++    public static void Init()
++    {
++        if (isProtectionOn())
++        {
++            hwidBan.getInstance();
++            hwidPlayer.getInstance();
++            Manager.getInstance();
++            hwidManager.getInstance();
++        }
++    }
++    
++    public static boolean isProtectionOn()
++    {
++        return Config.ALLOW_GUARD_SYSTEM;
++    }
++    
++    public static byte[] getKey(final byte[] key)
++    {
++        final byte[] bfkey = FirstKey.SKBOX;
++        try
++        {
++            final BlowfishEngine bf = new BlowfishEngine();
++            bf.init(true, bfkey);
++            bf.processBlock(key, 0, _key, 0);
++            bf.processBlock(key, 8, _key, 8);
++        }
++        catch (IOException e)
++        {
++            LOGGER.warn("HWID: Bad key!!!");
++        }
++        return _key;
++    }
++    
++    public static void addPlayer(final GameClient client)
++    {
++        if (isProtectionOn() && client != null)
++            Manager.getInstance().addPlayer(client);
++    }
++    
++    public static void removePlayer(final GameClient client)
++    {
++        if (isProtectionOn() && client != null)
++            Manager.removePlayer(client.getPlayerName());
++    }
++    
++    public static boolean checkVerfiFlag(final GameClient client, final int flag)
++    {
++        boolean result = true;
++        final int fl = Integer.reverseBytes(flag);
++        if (fl == -1)
++        {
++            return false;
++        }
++        if (fl == 1342177280)
++        {
++            return false;
++        }
++        if ((fl & 0x1) != 0x0)
++        {
++            result = false;
++        }
++        if ((fl & 0x10) != 0x0)
++        {
++            result = false;
++        }
++        if ((fl & 0x10000000) != 0x0)
++        {
++            result = false;
++        }
++        return result;
++    }
++    
++    public static int dumpData(final int _id, int position, final GameClient pi)
++    {
++        int value = 0;
++        position = ((position > 4) ? 5 : position);
++        boolean isIdZero = false;
++        if (_id == 0)
++        {
++            isIdZero = true;
++        }
++        switch (position)
++        {
++            case 0:
++            {
++                if (_id != 1435233386)
++                {
++                    if (!isIdZero) {}
++                    value = 1;
++                    break;
++                }
++                break;
++            }
++            case 1:
++            {
++                if (_id != 16)
++                {
++                    if (!isIdZero) {}
++                    value = 2;
++                    break;
++                }
++                break;
++            }
++            case 2:
++            case 3:
++            case 4:
++            {
++                final int code = _id & 0xFF000000;
++                if (code == 204) {}
++                if (code == 233)
++                {
++                    value = 3;
++                    break;
++                }
++                break;
++            }
++            default:
++            {
++                value = 0;
++                break;
++            }
++        }
++        return value;
++    }
++    
++    public static int calcPenalty(final byte[] data, final GameClient pi)
++    {
++        int sum = -1;
++        if (Util.verifyChecksum(data, 0, data.length))
++        {
++            final ByteBuffer buf = ByteBuffer.wrap(data, 0, data.length - 4);
++            sum = 0;
++            for (int lenPenalty = (data.length - 4) / 4, i = 0; i < lenPenalty; ++i)
++            {
++                sum += dumpData(buf.getInt(), i, pi);
++            }
++        }
++        return sum;
++    }
++    
++    public static boolean CheckHWIDs(final GameClient client, final int LastError1, final int LastError2)
++    {
++        boolean resultHWID = false;
++        boolean resultLastError = false;
++        final String HWID = client.getHWID();
++        if (HWID.equalsIgnoreCase("fab888b1cc9de973c8046519fa841e6") && Config.PROTECT_KICK_WITH_EMPTY_HWID)
++        {
++            resultHWID = true;
++        }
++        if (LastError1 != 0 && Config.PROTECT_KICK_WITH_LASTERROR_HWID)
++        {
++            resultLastError = true;
++        }
++        return resultHWID || resultLastError;
++    }
++    
++    public static String fillHex(final int data, final int digits)
++    {
++        String number = Integer.toHexString(data);
++        for (int i = number.length(); i < digits; ++i)
++        {
++            number = "0" + number;
++        }
++        return number;
++    }
++    
++    public static String ExtractHWID(final byte[] _data)
++    {
++        if (!Util.verifyChecksum(_data, 0, _data.length))
++        {
++            return null;
++        }
++        final StringBuilder resultHWID = new StringBuilder();
++        for (int i = 0; i < _data.length - 8; ++i)
++        {
++            resultHWID.append(fillHex(_data[i] & 0xFF, 2));
++        }
++        return resultHWID.toString();
++    }
++    
++    public static boolean doAuthLogin(final GameClient client, final byte[] data, final String loginName)
++    {
++        if (!isProtectionOn())
++            return true;
++
++        client.setLoginName(loginName);
++        final String fullHWID = ExtractHWID(data);
++        if (fullHWID == null)
++        {
++            LOGGER.warn("AuthLogin CRC Check Fail! May be BOT or unprotected client! Client IP: " + client.toString());
++            client.close(ServerClose.STATIC_PACKET);
++            return false;
++        }
++        final int LastError1 = ByteBuffer.wrap(data, 16, 4).getInt();
++        if (CheckHWIDs(client, LastError1, 0))
++        {
++            LOGGER.warn("HWID error, look protection_logs.txt file, from IP: " + client.toString());
++            client.close(ServerClose.STATIC_PACKET);
++            return false;
++        }
++        if (hwidBan.getInstance().checkFullHWIDBanned(client))
++        {
++            LOGGER.warn("Client " + client + " is banned. Kicked! |HWID: " + client.getHWID() + " IP: " + client.toString());
++            client.close(ServerClose.STATIC_PACKET);
++        }
++        final int VerfiFlag = ByteBuffer.wrap(data, 40, 4).getInt();
++        return checkVerfiFlag(client, VerfiFlag);
++    }
++    
++    public static void doDisconection(final GameClient client)
++    {
++        removePlayer(client);
++    }
++    
++    public static boolean checkPlayerWithHWID(final GameClient client, final int playerID, final String playerName)
++    {
++        if (!isProtectionOn())
++            return true;
++
++        client.setPlayerName(playerName);
++        client.setPlayerId(playerID);
++        addPlayer(client);
++        return true;
++    }
++    
++    public static void nopath(final GameClient client)
++    {
++        LOGGER.warn("HWID: " + client.toString() + " is trying to loggin server without client side hwid.");
++        client.close(ServerClose.STATIC_PACKET);
++    }
++    
++    public static void enterlog(final Player player, final GameClient client)
++    {
++        hwidManager.getInstance().validBox(player, Config.PROTECT_WINDOWS_COUNT + 1, World.getInstance().getPlayers(), true);
++        LOGGER.info("HWID: [" + client.getHWID() + "], character: [" + player.getName() + "]");
++        HwidLog.auditGMAction(player.getHWid(), player.getName());
++    }
++}
+\ No newline at end of file
+Index: java/net/sf/l2j/gameserver/network/clientpackets/AuthLogin.java
+===================================================================
+--- java/net/sf/l2j/gameserver/network/clientpackets/AuthLogin.java	(revision 15)
++++ java/net/sf/l2j/gameserver/network/clientpackets/AuthLogin.java	(working copy)
+@@ -3,6 +3,8 @@
+ import net.sf.l2j.gameserver.LoginServerThread;
+ import net.sf.l2j.gameserver.network.SessionKey;
+ 
++import hwid.hwid;
++
+ public final class AuthLogin extends L2GameClientPacket
+ {
+ 	private String _loginName;
+@@ -10,6 +12,7 @@
+ 	private int _playKey2;
+ 	private int _loginKey1;
+ 	private int _loginKey2;
++	private final byte[] _data = new byte[48];
+ 	
+ 	@Override
+ 	protected void readImpl()
+@@ -24,6 +27,12 @@
+ 	@Override
+ 	protected void runImpl()
+ 	{
++		if (hwid.isProtectionOn())
++		{
++			if (!hwid.doAuthLogin(getClient(), _data, _loginName))
++				return;
++		}
++		
+ 		if (getClient().getAccountName() != null)
+ 			return;
+ 		
+Index: java/net/sf/l2j/gameserver/network/GameClient.java
+===================================================================
+--- java/net/sf/l2j/gameserver/network/GameClient.java	(revision 15)
++++ java/net/sf/l2j/gameserver/network/GameClient.java	(working copy)
+@@ -33,6 +33,8 @@
+ import net.sf.l2j.gameserver.network.serverpackets.L2GameServerPacket;
+ import net.sf.l2j.gameserver.network.serverpackets.ServerClose;
+ 
++import hwid.hwid;
++
+ /**
+  * Represents a client connected on Game Server.<br>
+  * <br>
+@@ -264,6 +266,10 @@
+ 	{
+ 		byte[] key = BlowFishKeygen.getRandomKey();
+ 		_crypt.setKey(key);
++		if (hwid.isProtectionOn())
++		{
++			key = hwid.getKey(key);
++		}
+ 		return key;
+ 	}
+ 	
+@@ -630,6 +636,7 @@
+ 			return;
+ 		
+ 		getConnection().close(gsp);
++		hwid.removePlayer(null);
+ 	}
+ 	
+ 	/**
+@@ -821,4 +828,72 @@
+ 			return true;
+ 		}
+ 	}
++	
++	// HWID
++	private String _playerName;
++	private String _loginName;
++	private int _playerId;
++	private int _count;
++	private String _hwid;
++	private int _revision;
++
++	public final String getPlayerName()
++	{
++		return _playerName;
++	}
++
++	public void setPlayerName(String name)
++	{
++		_playerName = name;
++	}
++	
++	public void setPlayerId(int plId)
++	{
++		_playerId = plId;
++	}
++	
++	public int getPlayerId()
++	{
++		return _playerId;
++	}
++	
++    public int getCount()
++    {
++        return _count;
++    }
++    
++    public void setCount(int count)
++    {
++        _count = count;
++    }
++	
++	public final String getHWID()
++	{
++		return _hwid;
++	}
++	
++	public void setHWID(String hwid)
++	{
++		_hwid = hwid;
++	}
++	
++	public void setRevision(int revision)
++	{
++		_revision = revision;
++	}
++	
++	public int getRevision()
++	{
++		return _revision;
++	}
++	
++	public final String getLoginName()
++	{
++		return _loginName;
++	}
++	
++	public void setLoginName(String name)
++	{
++		_loginName = name;
++	}
+ }
+\ No newline at end of file
+Index: java/net/sf/l2j/gameserver/network/clientpackets/RequestGameStart.java
+===================================================================
+--- java/net/sf/l2j/gameserver/network/clientpackets/RequestGameStart.java	(revision 15)
++++ java/net/sf/l2j/gameserver/network/clientpackets/RequestGameStart.java	(working copy)
+@@ -8,6 +8,8 @@
+ import net.sf.l2j.gameserver.network.serverpackets.CharSelected;
+ import net.sf.l2j.gameserver.network.serverpackets.SSQInfo;
+ 
++import hwid.hwid;
++
+ public class RequestGameStart extends L2GameClientPacket
+ {
+ 	private int _slot;
+@@ -52,6 +54,9 @@
+ 					
+ 					sendPacket(SSQInfo.sendSky());
+ 					
++					if (!hwid.checkPlayerWithHWID(getClient(), player.getObjectId(), player.getName()))
++						return;
++					
+ 					client.setState(GameClientState.ENTERING);
+ 					
+ 					sendPacket(new CharSelected(player, client.getSessionId().playOkID1));
+Index: java/net/sf/l2j/Config.java
+===================================================================
+--- java/net/sf/l2j/Config.java	(revision 15)
++++ java/net/sf/l2j/Config.java	(working copy)
+@@ -24,6 +24,8 @@
+ import net.sf.l2j.gameserver.model.holder.IntIntHolder;
+ import net.sf.l2j.gameserver.model.olympiad.enums.OlympiadPeriod;
+ 
++import hwid.crypt.FirstKey;
++
+ /**
+  * This class contains global server configuration.<br>
+  * It has static final fields initialized from configuration files.
+@@ -46,6 +48,7 @@
+ 	public static final String RUS_ACIS_FILE = "./config/rus_acis.properties";
+ 	public static final String SERVER_FILE = "./config/server.properties";
+ 	public static final String SIEGE_FILE = "./config/siege.properties";
++	public static final String HWID_FILE = "./config/hwid.properties";
+ 	
+ 	// --------------------------------------------------
+ 	// Clans settings
+@@ -741,6 +744,26 @@
+ 	public static int BUY_PREMIUM_DAYS_28;
+ 	public static int BUY_PREMIUM_DAYS_28_PRICE;
+ 	
++	/** hwid settings */
++	
++    public static final boolean PROTECT_DEBUG = false;
++    public static final boolean PROTECT_ENABLE_HWID_LOCK = false;
++    public static byte[] GUARD_CLIENT_CRYPT_KEY;
++    public static byte[] GUARD_CLIENT_CRYPT;
++    public static byte[] GUARD_SERVER_CRYPT_KEY;
++    public static byte[] GUARD_SERVER_CRYPT;
++    public static boolean ALLOW_GUARD_SYSTEM;
++    public static int PROTECT_WINDOWS_COUNT;
++    public static int GET_CLIENT_HWID;
++    public static boolean ENABLE_CONSOLE_LOG;
++    public static boolean PROTECT_KICK_WITH_EMPTY_HWID;
++    public static boolean PROTECT_KICK_WITH_LASTERROR_HWID;
++    public static byte FST_KEY = 110;
++    public static byte SCN_KEY = 36;
++    public static byte ANP_KEY = -5;
++    public static byte ULT_KEY = 12;
++    public static int NPROTECT_KEY = -1;
++	
+ 	/**
+ 	 * Initialize {@link ExProperties} from specified configuration file.
+ 	 * @param filename : File name to be loaded.
+@@ -1243,7 +1266,7 @@
+ 		final ExProperties server = initProperties(SERVER_FILE);
+ 		
+ 		HOSTNAME = server.getProperty("Hostname", "*");
+-		GAMESERVER_HOSTNAME = server.getProperty("GameserverHostname");
++		GAMESERVER_HOSTNAME = server.getProperty("GameserverHostname", "*");
+ 		GAMESERVER_PORT = server.getProperty("GameserverPort", 7777);
+ 		GAMESERVER_LOGIN_HOSTNAME = server.getProperty("LoginHost", "127.0.0.1");
+ 		GAMESERVER_LOGIN_PORT = server.getProperty("LoginPort", 9014);
+@@ -1503,6 +1526,40 @@
+ 	}
+ 	
+ 	/**
++	 * Loads hwid settings.<br>
++	 */
++	private static final void loadHwid()
++	{
++		// Hwid settings
++		final ExProperties hwid = initProperties(HWID_FILE);
++        ALLOW_GUARD_SYSTEM = hwid.getProperty("AllowGuardSystem", true);
++        PROTECT_WINDOWS_COUNT = hwid.getProperty("AllowedWindowsCount", 1);
++
++        GET_CLIENT_HWID = hwid.getProperty("UseClientHWID", 2);
++        ENABLE_CONSOLE_LOG = hwid.getProperty("EnableConsoleLog", false);
++        PROTECT_KICK_WITH_EMPTY_HWID = hwid.getProperty("KickWithEmptyHWID", false);
++        PROTECT_KICK_WITH_LASTERROR_HWID = hwid.getProperty("KickWithLastErrorHWID", false);
++
++        String key_client = "GOGX2_RB(]Slnjt15~EgyqTv%[$YR]!1E~ayK?$9[R%%m4{zoMF$D?f:zvS2q&>~";
++        String key_server = "b*qR43<9J1pD>Q4Uns6FsKao~VbU0H]y`A0ytTveiWn)SuSYsM?m*eblL!pwza!t";
++        byte[] keyS = key_server.getBytes();
++        byte[] tmpS = new byte[32];
++        
++        byte[] keyC = key_client.getBytes();
++        byte[] tmpC = new byte[32];
++       
++        System.arraycopy(keyC, 0, tmpC, 0, 32);
++        GUARD_CLIENT_CRYPT_KEY = FirstKey.expandKey(tmpC, 32);
++        System.arraycopy(keyC, 32, tmpC, 0, 32);
++        GUARD_CLIENT_CRYPT = FirstKey.expandKey(tmpC, 32);
++        
++        System.arraycopy(keyS, 0, tmpS, 0, 32);
++        GUARD_SERVER_CRYPT_KEY = FirstKey.expandKey(tmpS, 32);
++        System.arraycopy(keyS, 32, tmpS, 0, 32);
++        GUARD_SERVER_CRYPT = FirstKey.expandKey(tmpS, 32);
++	}
++	
++	/**
+ 	 * Loads loginserver settings.<br>
+ 	 * IP addresses, database, account, misc.
+ 	 */
+@@ -1575,6 +1632,9 @@
+ 		
+ 		// rusacis settings
+ 		loadRusAcis();
++		
++		// hwid settings
++		loadHwid();
+ 	}
+ 	
+ 	public static final void loadLoginServer()
+Index: java/hwid/crypt/ProtectionCrypt.java
+===================================================================
+--- java/hwid/crypt/ProtectionCrypt.java	(nonexistent)
++++ java/hwid/crypt/ProtectionCrypt.java	(working copy)
+@@ -0,0 +1,8 @@
++package hwid.crypt;
++
++public interface ProtectionCrypt
++{
++    void setup(final byte[] p0, final byte[] p1);
++    
++    void crypt(final byte[] p0, final int p1, final int p2);
++}
+Index: java/net/sf/l2j/gameserver/GameServer.java
+===================================================================
+--- java/net/sf/l2j/gameserver/GameServer.java	(revision 15)
++++ java/net/sf/l2j/gameserver/GameServer.java	(working copy)
+@@ -106,6 +106,8 @@
+ import net.sf.l2j.util.DeadLockDetector;
+ import net.sf.l2j.util.IPv4Filter;
+ 
++import hwid.hwid;
++
+ public class GameServer
+ {
+ 	private static final CLogger LOGGER = new CLogger(GameServer.class.getName());
+@@ -302,6 +304,9 @@
+ 		LOGGER.info("Maximum allowed players: {}.", Config.MAXIMUM_ONLINE_USERS);
+ 		LOGGER.info("Server loaded in " + (System.currentTimeMillis() - serverLoadStart) / 1000 + " seconds");
+ 		
++		StringUtil.printSection("Hwid Manager");
++		hwid.Init();
++		
+ 		StringUtil.printSection("Login");
+ 		LoginServerThread.getInstance().start();
+ 		
+Index: java/hwid/hwid.java
+===================================================================
+--- java/hwid/hwid.java	(nonexistent)
++++ java/hwid/hwid.java	(working copy)
+@@ -0,0 +1,268 @@
++package hwid;
++
++import java.io.IOException;
++import java.nio.ByteBuffer;
++import java.util.concurrent.ConcurrentHashMap;
++
++import net.sf.l2j.commons.logging.CLogger;
++
++import net.sf.l2j.Config;
++import net.sf.l2j.gameserver.model.World;
++import net.sf.l2j.gameserver.model.actor.Player;
++import net.sf.l2j.gameserver.network.GameClient;
++import net.sf.l2j.gameserver.network.serverpackets.ServerClose;
++
++import hwid.crypt.BlowfishEngine;
++import hwid.crypt.FirstKey;
++import hwid.crypt.Manager;
++import hwid.hwidmanager.hwidBan;
++import hwid.hwidmanager.hwidPlayer;
++import hwid.hwidmanager.hwidManager;
++import hwid.utils.HwidLog;
++import hwid.utils.Util;
++
++public class hwid
++{
++    protected static CLogger LOGGER = new CLogger(hwid.class.getName());
++    private static byte[] _key = new byte[16];
++    static byte version = 11;
++    protected static ConcurrentHashMap<String, Manager.InfoSet> _objects = new ConcurrentHashMap<>();
++    
++    public static void Init()
++    {
++        if (isProtectionOn())
++        {
++            hwidBan.getInstance();
++            hwidPlayer.getInstance();
++            Manager.getInstance();
++            hwidManager.getInstance();
++        }
++    }
++    
++    public static boolean isProtectionOn()
++    {
++        return Config.ALLOW_GUARD_SYSTEM;
++    }
++    
++    public static byte[] getKey(final byte[] key)
++    {
++        final byte[] bfkey = FirstKey.SKBOX;
++        try
++        {
++            final BlowfishEngine bf = new BlowfishEngine();
++            bf.init(true, bfkey);
++            bf.processBlock(key, 0, _key, 0);
++            bf.processBlock(key, 8, _key, 8);
++        }
++        catch (IOException e)
++        {
++            LOGGER.warn("HWID: Bad key!!!");
++        }
++        return _key;
++    }
++    
++    public static void addPlayer(final GameClient client)
++    {
++        if (isProtectionOn() && client != null)
++            Manager.getInstance().addPlayer(client);
++    }
++    
++    public static void removePlayer(final GameClient client)
++    {
++        if (isProtectionOn() && client != null)
++            Manager.removePlayer(client.getPlayerName());
++    }
++    
++    public static boolean checkVerfiFlag(final GameClient client, final int flag)
++    {
++        boolean result = true;
++        final int fl = Integer.reverseBytes(flag);
++        if (fl == -1)
++        {
++            return false;
++        }
++        if (fl == 1342177280)
++        {
++            return false;
++        }
++        if ((fl & 0x1) != 0x0)
++        {
++            result = false;
++        }
++        if ((fl & 0x10) != 0x0)
++        {
++            result = false;
++        }
++        if ((fl & 0x10000000) != 0x0)
++        {
++            result = false;
++        }
++        return result;
++    }
++    
++    public static int dumpData(final int _id, int position, final GameClient pi)
++    {
++        int value = 0;
++        position = ((position > 4) ? 5 : position);
++        boolean isIdZero = false;
++        if (_id == 0)
++        {
++            isIdZero = true;
++        }
++        switch (position)
++        {
++            case 0:
++            {
++                if (_id != 1435233386)
++                {
++                    if (!isIdZero) {}
++                    value = 1;
++                    break;
++                }
++                break;
++            }
++            case 1:
++            {
++                if (_id != 16)
++                {
++                    if (!isIdZero) {}
++                    value = 2;
++                    break;
++                }
++                break;
++            }
++            case 2:
++            case 3:
++            case 4:
++            {
++                final int code = _id & 0xFF000000;
++                if (code == 204) {}
++                if (code == 233)
++                {
++                    value = 3;
++                    break;
++                }
++                break;
++            }
++            default:
++            {
++                value = 0;
++                break;
++            }
++        }
++        return value;
++    }
++    
++    public static int calcPenalty(final byte[] data, final GameClient pi)
++    {
++        int sum = -1;
++        if (Util.verifyChecksum(data, 0, data.length))
++        {
++            final ByteBuffer buf = ByteBuffer.wrap(data, 0, data.length - 4);
++            sum = 0;
++            for (int lenPenalty = (data.length - 4) / 4, i = 0; i < lenPenalty; ++i)
++            {
++                sum += dumpData(buf.getInt(), i, pi);
++            }
++        }
++        return sum;
++    }
++    
++    public static boolean CheckHWIDs(final GameClient client, final int LastError1, final int LastError2)
++    {
++        boolean resultHWID = false;
++        boolean resultLastError = false;
++        final String HWID = client.getHWID();
++        if (HWID.equalsIgnoreCase("fab888b1cc9de973c8046519fa841e6") && Config.PROTECT_KICK_WITH_EMPTY_HWID)
++        {
++            resultHWID = true;
++        }
++        if (LastError1 != 0 && Config.PROTECT_KICK_WITH_LASTERROR_HWID)
++        {
++            resultLastError = true;
++        }
++        return resultHWID || resultLastError;
++    }
++    
++    public static String fillHex(final int data, final int digits)
++    {
++        String number = Integer.toHexString(data);
++        for (int i = number.length(); i < digits; ++i)
++        {
++            number = "0" + number;
++        }
++        return number;
++    }
++    
++    public static String ExtractHWID(final byte[] _data)
++    {
++        if (!Util.verifyChecksum(_data, 0, _data.length))
++        {
++            return null;
++        }
++        final StringBuilder resultHWID = new StringBuilder();
++        for (int i = 0; i < _data.length - 8; ++i)
++        {
++            resultHWID.append(fillHex(_data[i] & 0xFF, 2));
++        }
++        return resultHWID.toString();
++    }
++    
++    public static boolean doAuthLogin(final GameClient client, final byte[] data, final String loginName)
++    {
++        if (!isProtectionOn())
++            return true;
++
++        client.setLoginName(loginName);
++        final String fullHWID = ExtractHWID(data);
++        if (fullHWID == null)
++        {
++            LOGGER.warn("AuthLogin CRC Check Fail! May be BOT or unprotected client! Client IP: " + client.toString());
++            client.close(ServerClose.STATIC_PACKET);
++            return false;
++        }
++        final int LastError1 = ByteBuffer.wrap(data, 16, 4).getInt();
++        if (CheckHWIDs(client, LastError1, 0))
++        {
++            LOGGER.warn("HWID error, look protection_logs.txt file, from IP: " + client.toString());
++            client.close(ServerClose.STATIC_PACKET);
++            return false;
++        }
++        if (hwidBan.getInstance().checkFullHWIDBanned(client))
++        {
++            LOGGER.warn("Client " + client + " is banned. Kicked! |HWID: " + client.getHWID() + " IP: " + client.toString());
++            client.close(ServerClose.STATIC_PACKET);
++        }
++        final int VerfiFlag = ByteBuffer.wrap(data, 40, 4).getInt();
++        return checkVerfiFlag(client, VerfiFlag);
++    }
++    
++    public static void doDisconection(final GameClient client)
++    {
++        removePlayer(client);
++    }
++    
++    public static boolean checkPlayerWithHWID(final GameClient client, final int playerID, final String playerName)
++    {
++        if (!isProtectionOn())
++            return true;
++
++        client.setPlayerName(playerName);
++        client.setPlayerId(playerID);
++        addPlayer(client);
++        return true;
++    }
++    
++    public static void nopath(final GameClient client)
++    {
++        LOGGER.warn("HWID: " + client.toString() + " is trying to loggin server without client side hwid.");
++        client.close(ServerClose.STATIC_PACKET);
++    }
++    
++    public static void enterlog(final Player player, final GameClient client)
++    {
++        hwidManager.getInstance().validBox(player, Config.PROTECT_WINDOWS_COUNT + 1, World.getInstance().getPlayers(), true);
++        LOGGER.info("HWID: [" + client.getHWID() + "], character: [" + player.getName() + "]");
++        HwidLog.auditGMAction(player.getHWid(), player.getName());
++    }
++}
+\ No newline at end of file
+Index: java/hwid/crypt/impl/L2Server.java
+===================================================================
+--- java/hwid/crypt/impl/L2Server.java	(nonexistent)
++++ java/hwid/crypt/impl/L2Server.java	(working copy)
+@@ -0,0 +1,49 @@
++package hwid.crypt.impl;
++
++import hwid.crypt.ProtectionCrypt;
++
++public class L2Server implements ProtectionCrypt
++{
++    private byte[] _key;
++    private byte[] _iv;
++    private ProtectionCrypt _server;
++    
++    public L2Server()
++    {
++        _key = new byte[16];
++        _iv = null;
++    }
++    
++    @Override
++    public void setup(final byte[] key, final byte[] iv)
++    {
++        System.arraycopy(key, 0, this._key, 0, 16);
++        _iv = iv;
++    }
++    
++    @Override
++    public void crypt(final byte[] raw, final int offset, final int size)
++    {
++        int temp = 0;
++        for (int i = 0; i < size; ++i)
++        {
++            final int temp2 = raw[offset + i] & 0xFF;
++            temp ^= (temp2 ^ _key[i & 0xF]);
++            raw[offset + i] = (byte)temp;
++        }
++        int old = _key[8] & 0xFF;
++        old |= (_key[9] << 8 & 0xFF00);
++        old |= (_key[10] << 16 & 0xFF0000);
++        old |= (_key[11] << 24 & 0xFF000000);
++        old += size;
++        _key[8] = (byte)(old & 0xFF);
++        _key[9] = (byte)(old >> 8 & 0xFF);
++        _key[10] = (byte)(old >> 16 & 0xFF);
++        _key[11] = (byte)(old >> 24 & 0xFF);
++        if (_iv != null)
++        {
++            (_server = new VMPC()).setup(_key, _iv);
++            _server.crypt(raw, offset, size);
++        }
++    }
++}
+\ No newline at end of file
+Index: config/en/hwid.properties
+===================================================================
+--- config/en/hwid.properties	(nonexistent)
++++ config/en/hwid.properties	(working copy)
+@@ -0,0 +1,28 @@
++#=============================================================
++#                    Hwid System Manager
++#=============================================================
++# Allow Guard Protection System
++AllowGuardSystem = True
++
++# Installing client HWID
++# 1 = HWID HDD
++# 2 = HWID MAC
++# 3 = HWID CPU
++UseClientHWID = 2
++KickWithEmptyHWID = True
++KickWithLastErrorHWID = True
++
++# What is the criterion to prohibit the launch of multiple windows? 
++# IP - to IP, HWID - client on HWID
++ClientWindowsCountSec = HWID
++
++# Configure the number of open windows client 
++# If 0 = Unlimited
++AllowedWindowsCount = 2
++
++# Enable log on Console Server - Player, HWID, NAME, ID
++EnableConsoleLog = True
++EnableHWIDBans = True
++EnableHWIDBonus = True
++StoreHWID = True
++LogHWIDs = True
+Index: java/net/sf/l2j/gameserver/network/clientpackets/SendProtocolVersion.java
+===================================================================
+--- java/net/sf/l2j/gameserver/network/clientpackets/SendProtocolVersion.java	(revision 15)
++++ java/net/sf/l2j/gameserver/network/clientpackets/SendProtocolVersion.java	(working copy)
+@@ -1,21 +1,61 @@
+ package net.sf.l2j.gameserver.network.clientpackets;
+ 
++import net.sf.l2j.Config;
+ import net.sf.l2j.gameserver.network.serverpackets.L2GameServerPacket;
+ import net.sf.l2j.gameserver.network.serverpackets.VersionCheck;
+ 
++import hwid.hwid;
++
+ public final class SendProtocolVersion extends L2GameClientPacket
+ {
+ 	private int _version;
++	private byte _data[];
++	private String _hwidHdd = "NoHWID-HD";
++	private String _hwidMac = "NoHWID-MAC";
++	private String _hwidCPU = "NoHWID-CPU";
+ 	
+ 	@Override
+ 	protected void readImpl()
+ 	{
+ 		_version = readD();
++		if (hwid.isProtectionOn())
++		{
++			if (_buf.remaining() > 260) 
++			{ 
++				_data = new byte[260]; 
++				readB(_data);
++				_hwidHdd = readS();
++				_hwidMac = readS();
++				_hwidCPU = readS();
++			}
++			
++			if (_hwidHdd.equals("NoHWID-HD") && _hwidMac.equals("NoHWID-MAC") && _hwidCPU.equals("NoHWID-CPU"))
++			{
++				hwid.nopath(getClient());
++				getClient().close((L2GameServerPacket) null);
++			}
++		}
+ 	}
+ 	
+ 	@Override
+ 	protected void runImpl()
+ 	{
++		if (hwid.isProtectionOn())
++		{
++			switch (Config.GET_CLIENT_HWID)
++			{
++				case 1:
++					getClient().setHWID(_hwidHdd);
++					break;
++				case 2:
++					getClient().setHWID(_hwidMac);
++					break;
++				case 3:
++					getClient().setHWID(_hwidCPU);
++					break;
++			}
++		}
++		
+ 		switch (_version)
+ 		{
+ 			case 737:
+Index: java/hwid/crypt/impl/L2Client.java
+===================================================================
+--- java/hwid/crypt/impl/L2Client.java	(nonexistent)
++++ java/hwid/crypt/impl/L2Client.java	(working copy)
+@@ -0,0 +1,50 @@
++package hwid.crypt.impl;
++
++import hwid.crypt.ProtectionCrypt;
++
++public class L2Client implements ProtectionCrypt
++{
++    private ProtectionCrypt _client;
++    private byte[] _key;
++    private byte[] _iv;
++    
++    public L2Client()
++    {
++        _key = new byte[16];
++        _iv = null;
++    }
++    
++    @Override
++    public void setup(final byte[] key, final byte[] iv)
++    {
++        System.arraycopy(key, 0, this._key, 0, 16);
++        _iv = iv;
++    }
++    
++    @Override
++    public void crypt(final byte[] raw, final int offset, final int size)
++    {
++        if (_iv != null)
++        {
++            (_client = new VMPC()).setup(_key, _iv);
++            _client.crypt(raw, offset, size);
++        }
++        int temp = 0;
++        int temp2 = 0;
++        for (int i = 0; i < size; ++i)
++        {
++            temp2 = (raw[offset + i] & 0xFF);
++            raw[offset + i] = (byte)(temp2 ^ _key[i & 0xF] ^ temp);
++            temp = temp2;
++        }
++        int old = _key[8] & 0xFF;
++        old |= (_key[9] << 8 & 0xFF00);
++        old |= (_key[10] << 16 & 0xFF0000);
++        old |= (_key[11] << 24 & 0xFF000000);
++        old += size;
++        _key[8] = (byte)(old & 0xFF);
++        _key[9] = (byte)(old >> 8 & 0xFF);
++        _key[10] = (byte)(old >> 16 & 0xFF);
++        _key[11] = (byte)(old >> 24 & 0xFF);
++    }
++}
+\ No newline at end of file
+Index: java/hwid/crypt/impl/L2Server.java
+===================================================================
+--- java/hwid/crypt/impl/L2Server.java	(nonexistent)
++++ java/hwid/crypt/impl/L2Server.java	(working copy)
+@@ -0,0 +1,49 @@
++package hwid.crypt.impl;
++
++import hwid.crypt.ProtectionCrypt;
++
++public class L2Server implements ProtectionCrypt
++{
++    private byte[] _key;
++    private byte[] _iv;
++    private ProtectionCrypt _server;
++    
++    public L2Server()
++    {
++        _key = new byte[16];
++        _iv = null;
++    }
++    
++    @Override
++    public void setup(final byte[] key, final byte[] iv)
++    {
++        System.arraycopy(key, 0, this._key, 0, 16);
++        _iv = iv;
++    }
++    
++    @Override
++    public void crypt(final byte[] raw, final int offset, final int size)
++    {
++        int temp = 0;
++        for (int i = 0; i < size; ++i)
++        {
++            final int temp2 = raw[offset + i] & 0xFF;
++            temp ^= (temp2 ^ _key[i & 0xF]);
++            raw[offset + i] = (byte)temp;
++        }
++        int old = _key[8] & 0xFF;
++        old |= (_key[9] << 8 & 0xFF00);
++        old |= (_key[10] << 16 & 0xFF0000);
++        old |= (_key[11] << 24 & 0xFF000000);
++        old += size;
++        _key[8] = (byte)(old & 0xFF);
++        _key[9] = (byte)(old >> 8 & 0xFF);
++        _key[10] = (byte)(old >> 16 & 0xFF);
++        _key[11] = (byte)(old >> 24 & 0xFF);
++        if (_iv != null)
++        {
++            (_server = new VMPC()).setup(_key, _iv);
++            _server.crypt(raw, offset, size);
++        }
++    }
++}
+\ No newline at end of file
+Index: java/hwid/crypt/impl/L2Client.java
+===================================================================
+--- java/hwid/crypt/impl/L2Client.java	(nonexistent)
++++ java/hwid/crypt/impl/L2Client.java	(working copy)
+@@ -0,0 +1,50 @@
++package hwid.crypt.impl;
++
++import hwid.crypt.ProtectionCrypt;
++
++public class L2Client implements ProtectionCrypt
++{
++    private ProtectionCrypt _client;
++    private byte[] _key;
++    private byte[] _iv;
++    
++    public L2Client()
++    {
++        _key = new byte[16];
++        _iv = null;
++    }
++    
++    @Override
++    public void setup(final byte[] key, final byte[] iv)
++    {
++        System.arraycopy(key, 0, this._key, 0, 16);
++        _iv = iv;
++    }
++    
++    @Override
++    public void crypt(final byte[] raw, final int offset, final int size)
++    {
++        if (_iv != null)
++        {
++            (_client = new VMPC()).setup(_key, _iv);
++            _client.crypt(raw, offset, size);
++        }
++        int temp = 0;
++        int temp2 = 0;
++        for (int i = 0; i < size; ++i)
++        {
++            temp2 = (raw[offset + i] & 0xFF);
++            raw[offset + i] = (byte)(temp2 ^ _key[i & 0xF] ^ temp);
++            temp = temp2;
++        }
++        int old = _key[8] & 0xFF;
++        old |= (_key[9] << 8 & 0xFF00);
++        old |= (_key[10] << 16 & 0xFF0000);
++        old |= (_key[11] << 24 & 0xFF000000);
++        old += size;
++        _key[8] = (byte)(old & 0xFF);
++        _key[9] = (byte)(old >> 8 & 0xFF);
++        _key[10] = (byte)(old >> 16 & 0xFF);
++        _key[11] = (byte)(old >> 24 & 0xFF);
++    }
++}
+\ No newline at end of file
+Index: java/hwid/crypt/ProtectionCrypt.java
+===================================================================
+--- java/hwid/crypt/ProtectionCrypt.java	(nonexistent)
++++ java/hwid/crypt/ProtectionCrypt.java	(working copy)
+@@ -0,0 +1,8 @@
++package hwid.crypt;
++
++public interface ProtectionCrypt
++{
++    void setup(final byte[] p0, final byte[] p1);
++    
++    void crypt(final byte[] p0, final int p1, final int p2);
++}
+Index: java/hwid/crypt/impl/L2Client.java
+===================================================================
+--- java/hwid/crypt/impl/L2Client.java	(nonexistent)
++++ java/hwid/crypt/impl/L2Client.java	(working copy)
+@@ -0,0 +1,50 @@
++package hwid.crypt.impl;
++
++import hwid.crypt.ProtectionCrypt;
++
++public class L2Client implements ProtectionCrypt
++{
++    private ProtectionCrypt _client;
++    private byte[] _key;
++    private byte[] _iv;
++    
++    public L2Client()
++    {
++        _key = new byte[16];
++        _iv = null;
++    }
++    
++    @Override
++    public void setup(final byte[] key, final byte[] iv)
++    {
++        System.arraycopy(key, 0, this._key, 0, 16);
++        _iv = iv;
++    }
++    
++    @Override
++    public void crypt(final byte[] raw, final int offset, final int size)
++    {
++        if (_iv != null)
++        {
++            (_client = new VMPC()).setup(_key, _iv);
++            _client.crypt(raw, offset, size);
++        }
++        int temp = 0;
++        int temp2 = 0;
++        for (int i = 0; i < size; ++i)
++        {
++            temp2 = (raw[offset + i] & 0xFF);
++            raw[offset + i] = (byte)(temp2 ^ _key[i & 0xF] ^ temp);
++            temp = temp2;
++        }
++        int old = _key[8] & 0xFF;
++        old |= (_key[9] << 8 & 0xFF00);
++        old |= (_key[10] << 16 & 0xFF0000);
++        old |= (_key[11] << 24 & 0xFF000000);
++        old += size;
++        _key[8] = (byte)(old & 0xFF);
++        _key[9] = (byte)(old >> 8 & 0xFF);
++        _key[10] = (byte)(old >> 16 & 0xFF);
++        _key[11] = (byte)(old >> 24 & 0xFF);
++    }
++}
+\ No newline at end of file
+Index: java/hwid/crypt/impl/L2Server.java
+===================================================================
+--- java/hwid/crypt/impl/L2Server.java	(nonexistent)
++++ java/hwid/crypt/impl/L2Server.java	(working copy)
+@@ -0,0 +1,49 @@
++package hwid.crypt.impl;
++
++import hwid.crypt.ProtectionCrypt;
++
++public class L2Server implements ProtectionCrypt
++{
++    private byte[] _key;
++    private byte[] _iv;
++    private ProtectionCrypt _server;
++    
++    public L2Server()
++    {
++        _key = new byte[16];
++        _iv = null;
++    }
++    
++    @Override
++    public void setup(final byte[] key, final byte[] iv)
++    {
++        System.arraycopy(key, 0, this._key, 0, 16);
++        _iv = iv;
++    }
++    
++    @Override
++    public void crypt(final byte[] raw, final int offset, final int size)
++    {
++        int temp = 0;
++        for (int i = 0; i < size; ++i)
++        {
++            final int temp2 = raw[offset + i] & 0xFF;
++            temp ^= (temp2 ^ _key[i & 0xF]);
++            raw[offset + i] = (byte)temp;
++        }
++        int old = _key[8] & 0xFF;
++        old |= (_key[9] << 8 & 0xFF00);
++        old |= (_key[10] << 16 & 0xFF0000);
++        old |= (_key[11] << 24 & 0xFF000000);
++        old += size;
++        _key[8] = (byte)(old & 0xFF);
++        _key[9] = (byte)(old >> 8 & 0xFF);
++        _key[10] = (byte)(old >> 16 & 0xFF);
++        _key[11] = (byte)(old >> 24 & 0xFF);
++        if (_iv != null)
++        {
++            (_server = new VMPC()).setup(_key, _iv);
++            _server.crypt(raw, offset, size);
++        }
++    }
++}
+\ No newline at end of file
+Index: java/hwid/crypt/impl/VMPC.java
+===================================================================
+--- java/hwid/crypt/impl/VMPC.java	(nonexistent)
++++ java/hwid/crypt/impl/VMPC.java	(working copy)
+@@ -0,0 +1,64 @@
++package hwid.crypt.impl;
++
++import hwid.crypt.ProtectionCrypt;
++
++public class VMPC implements ProtectionCrypt
++{
++    private byte _n;
++    private byte[] _P;
++    private byte _s;
++    
++    public VMPC()
++    {
++        _n = 0;
++        _P = new byte[256];
++        _s = 0;
++    }
++    
++    @Override
++    public void setup(final byte[] key, final byte[] iv)
++    {
++        _s = 0;
++        for (int i = 0; i < 256; ++i)
++        {
++            _P[i] = (byte)(i & 0xFF);
++        }
++        for (int m = 0; m < 768; ++m)
++        {
++            _s = _P[_s + _P[m & 0xFF] + key[m % 64] & 0xFF];
++            final byte temp = _P[m & 0xFF];
++            _P[m & 0xFF] = _P[_s & 0xFF];
++            _P[_s & 0xFF] = temp;
++        }
++        for (int m = 0; m < 768; ++m)
++        {
++            _s = _P[_s + _P[m & 0xFF] + iv[m % 64] & 0xFF];
++            final byte temp = _P[m & 0xFF];
++            _P[m & 0xFF] = _P[_s & 0xFF];
++            _P[_s & 0xFF] = temp;
++        }
++        for (int m = 0; m < 768; ++m)
++        {
++            _s = _P[_s + _P[m & 0xFF] + key[m % 64] & 0xFF];
++            final byte temp = _P[m & 0xFF];
++            _P[m & 0xFF] = _P[_s & 0xFF];
++            _P[_s & 0xFF] = temp;
++        }
++        _n = 0;
++    }
++    
++    @Override
++    public void crypt(final byte[] raw, final int offset, final int size)
++    {
++        for (int i = 0; i < size; ++i)
++        {
++            _s = _P[_s + _P[_n & 0xFF] & 0xFF];
++            final byte z = _P[_P[_P[_s & 0xFF] & 0xFF] + 1 & 0xFF];
++            final byte temp = _P[_n & 0xFF];
++            _P[_n & 0xFF] = _P[_s & 0xFF];
++            _P[_s & 0xFF] = temp;
++            _n = (byte)(_n + 1 & 0xFF);
++            raw[offset + i] ^= z;
++        }
++    }
++}
+\ No newline at end of file
+#P aCis_datapack
+Index: data/xml/adminCommands.xml
+===================================================================
+--- data/xml/adminCommands.xml	(revision 15)
++++ data/xml/adminCommands.xml	(working copy)
+@@ -166,4 +166,7 @@
+ 
+ 	<!-- ZONE -->
+ 	<aCar name="admin_zone" accessLevel="7" params="[show - all|clear|id]" desc="Show the zone panel, or the zone visually."/>
++	
++	<!-- HWID -->
++	<aCar name="admin_hwid_ban" accessLevel="7" params="" desc=""/>
+ </list>
+\ No newline at end of file
+Index: tools/database_installer.sh
+===================================================================
+--- tools/database_installer.sh	(revision 15)
++++ tools/database_installer.sh	(working copy)
+@@ -121,6 +121,8 @@
+ $MYG < ../sql/grandboss_list.sql &> /dev/null
+ $MYG < ../sql/heroes_diary.sql &> /dev/null
+ $MYG < ../sql/heroes.sql &> /dev/null
++$MYG < ../sql/hwid_bans.sql &> /dev/null
++$MYG < ../sql/hwid_info.sql &> /dev/null
+ $MYG < ../sql/items.sql &> /dev/null
+ $MYG < ../sql/items_on_ground.sql &> /dev/null
+ $MYG < ../sql/mdt_bets.sql &> /dev/null
+Index: sql/hwid_info.sql
+===================================================================
+--- sql/hwid_info.sql	(nonexistent)
++++ sql/hwid_info.sql	(working copy)
+@@ -0,0 +1,7 @@
++CREATE TABLE IF NOT EXISTS `hwid_info` (
++  `HWID` varchar(32) NOT NULL DEFAULT '',
++  `Account` varchar(45) NOT NULL DEFAULT '',
++  `PlayerID` int(10) unsigned NOT NULL DEFAULT '0',
++  `LockType` enum('PLAYER_LOCK','ACCOUNT_LOCK','NONE') NOT NULL DEFAULT 'NONE',
++  PRIMARY KEY (`HWID`)
++) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+\ No newline at end of file
+Index: sql/hwid_bans.sql
+===================================================================
+--- sql/hwid_bans.sql	(nonexistent)
++++ sql/hwid_bans.sql	(working copy)
+@@ -0,0 +1,7 @@
++CREATE TABLE IF NOT EXISTS `hwid_bans` (
++  `HWID` varchar(32) DEFAULT NULL,
++  `HWIDSecond` varchar(32) DEFAULT NULL,
++  `expiretime` int(11) NOT NULL DEFAULT '0',
++  `comments` varchar(255) DEFAULT '',
++  UNIQUE KEY `HWID` (`HWID`)
++) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+\ No newline at end of file
+Index: tools/database_installer.bat
+===================================================================
+--- tools/database_installer.bat	(revision 15)
++++ tools/database_installer.bat	(working copy)
+@@ -101,6 +101,8 @@
+ %mysqlPath% -h %gshost% -u %gsuser% --password=%gspass% -D %gsdb% < ../sql/grandboss_list.sql
+ %mysqlPath% -h %gshost% -u %gsuser% --password=%gspass% -D %gsdb% < ../sql/heroes_diary.sql
+ %mysqlPath% -h %gshost% -u %gsuser% --password=%gspass% -D %gsdb% < ../sql/heroes.sql
++%mysqlPath% -h %gshost% -u %gsuser% --password=%gspass% -D %gsdb% < ../sql/hwid_bans.sql
++%mysqlPath% -h %gshost% -u %gsuser% --password=%gspass% -D %gsdb% < ../sql/hwid_info.sql
+ %mysqlPath% -h %gshost% -u %gsuser% --password=%gspass% -D %gsdb% < ../sql/items.sql
+ %mysqlPath% -h %gshost% -u %gsuser% --password=%gspass% -D %gsdb% < ../sql/items_on_ground.sql
+ %mysqlPath% -h %gshost% -u %gsuser% --password=%gspass% -D %gsdb% < ../sql/mdt_bets.sql
+Index: tools/full_install.sql
+===================================================================
+--- tools/full_install.sql	(revision 15)
++++ tools/full_install.sql	(working copy)
+@@ -44,6 +44,8 @@
+ DROP TABLE IF EXISTS grandboss_list;
+ DROP TABLE IF EXISTS heroes_diary;
+ DROP TABLE IF EXISTS heroes;
++DROP TABLE IF EXISTS hwid_bans;
++DROP TABLE IF EXISTS hwid_info;
+ DROP TABLE IF EXISTS items;
+ DROP TABLE IF EXISTS items_on_ground;
+ DROP TABLE IF EXISTS mdt_bets;
