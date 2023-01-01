@@ -1,0 +1,433 @@
+<?php
+include_once(APPPATH . "third_party/Common/Autoloader.php");
+include_once(APPPATH . "third_party/PhpWord/Autoloader.php");
+include_once(APPPATH . "third_party/HTMLtoOpenXML/src/Parser.php");
+include_once(APPPATH . "third_party/HTMLtoOpenXML/src/Scripts/HTMLCleaner.php");
+include_once(APPPATH . "third_party/HTMLtoOpenXML/src/Scripts/ProcessProperties.php");
+//include_once(APPPATH."core/Front_end.php");
+
+use PhpOffice\Common\Autoloader as CAutoloader;
+use PhpOffice\PhpWord\Autoloader;
+use PhpOffice\PhpWord\Settings;
+use PhpOffice\PhpWord\Shared\Converter;
+use PhpOffice\PhpWord\Style\TablePosition;
+
+Autoloader::register();
+CAutoloader::register();
+Settings::loadConfig();
+defined('BASEPATH') or exit('No direct script access allowed');
+
+
+class Rkpdesa extends CI_Controller
+{
+	public $user_id;
+
+	public function __construct()
+	{
+		parent::__construct();
+		$this->user_id = $this->session->userdata('user_id');
+		$this->load->model('user_model');
+		$this->user_model->user_id = $this->user_id;
+		$this->user_model->set_user_by_user_id();
+		$this->user_picture = $this->user_model->user_picture;
+		$this->full_name	= $this->user_model->full_name;
+		$this->user_level	= $this->user_model->level;
+		$this->load->model('skpd_model');
+		$this->load->model('ref_skpd_model');
+		$this->load->model('ref_unit_kerja_model');
+		$this->load->model('sakip_desa/rpjmdesa_model');
+		$this->load->model('sakip_desa/rkpdesa_model');
+		$this->load->model('sakip_desa/rtangga_miskin_model');
+
+		$this->level_id	= $this->user_model->level_id;
+
+		if ($this->level_id > 2) redirect("admin");
+	}
+
+	public function index()
+	{
+		if ($this->user_id) {
+			$data['title']		= "Detail Rencana Strategis SKPD";
+			$data['content']	= "rkpdesa/index";
+			$data['user_picture'] = $this->user_picture;
+			$data['full_name']		= $this->full_name;
+			$data['user_level']		= $this->user_level;
+			$data['active_menu'] = "rkpdesa";
+			$this->load->model('ref_skpd_model');
+			$hal = 6;
+			$page = isset($_GET["page"]) ? (int)$_GET["page"] : 1;
+			$mulai = ($page > 1) ? ($page * $hal) - $hal : 0;
+// 			$total = count($this->ref_skpd_model->get_all('desa', true));
+			$total = count($this->ref_skpd_model->get_all('kelurahan', true));
+			$data['pages'] = ceil($total / $hal);
+			$data['current'] = $page;
+			if (!empty($_POST)) {
+				$filter = $_POST;
+				$data['filter'] = true;
+				$data['filter_data'] = $_POST;
+			} else {
+				$filter = '';
+				$data['filter'] = false;
+			}
+// 			$data['list'] = $this->ref_skpd_model->get_page($mulai, $hal, $filter, 'desa');
+			$data['list'] = $this->ref_skpd_model->get_page($mulai, $hal, $filter, 'kelurahan');
+
+			$this->load->view('admin/index', $data);
+		} else {
+			redirect('admin');
+		}
+	}
+
+	public function detail($id_skpd)
+	{
+		if ($this->user_id) {
+			$data['title']		= "Detail Rencana Strategis SKPD";
+			$data['content']	= "rkpdesa/detail";
+			$data['user_picture'] = $this->user_picture;
+			$data['full_name']		= $this->full_name;
+			$data['user_level']		= $this->user_level;
+			$data['active_menu'] = "rkpdesa";
+			$data['tahun_awal'] = $this->rpjmdesa_model->tahun_awal;
+			$data['tahun_akhir'] = $this->rpjmdesa_model->tahun_akhir;
+			$data['kepala_skpd'] = $this->ref_skpd_model->get_kepala_skpd($id_skpd);
+			$data['detail_skpd'] = $this->ref_skpd_model->get_by_id($id_skpd);
+			$data['id_skpd'] = $id_skpd;
+			$this->load->view('admin/index', $data);
+		} else {
+			redirect('admin');
+		}
+	}
+	public function detail_tahun($id_skpd, $tahun)
+	{
+		if ($this->user_id) {
+			$data['title']		= "Detail Rencana Strategis SKPD";
+			$data['content']	= "rkpdesa/detail_tahun";
+			$data['user_picture'] = $this->user_picture;
+			$data['full_name']		= $this->full_name;
+			$data['user_level']		= $this->user_level;
+			$data['active_menu'] = "rkpdesa";
+			$data['sasaran'] = $this->rpjmdesa_model->get_sasaran();
+			$data['id_skpd'] = $id_skpd;
+			$data['tahun'] = $tahun;
+			$data['bidang'] = $this->rkpdesa_model->get_bidang($id_skpd, $tahun);
+			$data['kepala_skpd'] = $this->ref_skpd_model->get_kepala_skpd($id_skpd);
+			$data['detail_skpd'] = $this->ref_skpd_model->get_by_id($id_skpd);
+			$this->load->view('admin/index', $data);
+		} else {
+			redirect('admin');
+		}
+	}
+	public function detail_kegiatan($id_skpd, $tahun, $id_sd_sub_bidang)
+	{
+		if ($this->user_id) {
+			$data['title']		= "Detail Rencana Strategis SKPD";
+			$data['content']	= "rkpdesa/detail_kegiatan";
+			$data['user_picture'] = $this->user_picture;
+			$data['full_name']		= $this->full_name;
+			$data['user_level']		= $this->user_level;
+			$data['active_menu'] = "rkpdesa";
+			$data['detail_sub_bidang'] = $this->rkpdesa_model->get_sub_bidang_by_id($id_sd_sub_bidang);
+			$data['kegiatan'] = $this->rkpdesa_model->get_kegiatan($id_sd_sub_bidang);
+			$data['kepala_skpd'] = $this->ref_skpd_model->get_kepala_skpd($id_skpd);
+			$data['detail_skpd'] = $this->ref_skpd_model->get_by_id($id_skpd);
+			$this->load->view('admin/index', $data);
+		} else {
+			redirect('admin');
+		}
+	}
+
+	public function download_pk($id_skpd, $tahun)
+	{
+		// error_reporting(-1);
+		// ini_set('display_errors', 1);
+
+		$phpWord = new \PhpOffice\PhpWord\PhpWord();
+		$parser = new \HTMLtoOpenXML\Parser();
+		$phpWord->getCompatibility()->setOoxmlVersion(14);
+		$phpWord->getCompatibility()->setOoxmlVersion(15);
+
+
+		$template = 'PK_Kades';
+		$detail = $this->ref_skpd_model->get_by_id($id_skpd);
+		$kepala = $this->ref_skpd_model->get_kepala_skpd($id_skpd);
+		if(empty($detail->id_kecamatan)){
+			$id_kecamatan = substr($detail->id_desa,0,7);
+		}else{
+			$id_kecamatan = $detail->id_kecamatan;
+		}
+		$kecamatan = json_decode(curlEoffice('detail_kecamatan?id_kecamatan=' . $id_kecamatan));
+		// print_r($kecamatan);die;
+		if ($kecamatan && $kecamatan->status) {
+			$kepala_kecamatan = $kecamatan->kepala;
+			$namafile = "Perjanjian Kinerja " . $detail->nama_skpd . " Tahun " . $tahun;
+			$jenis_sasaran = array('ss' => 'Sasaran Strategis', 'sp' => 'Sasaran Program', 'sk' => 'Sasaran Kegiatan');
+			$filename = $namafile . ".docx";
+
+			$template_path = './template/' . $template . '.docx';
+			$template = $phpWord->loadTemplate($template_path);
+
+			$template->setValue('tahun', $tahun);
+			$template->setValue('tanggal', tanggal(date('Y-m-d')));
+			$template->setValue('nama_desa', $detail->nama_skpd);
+			$template->setValue('nama_kades', $kepala->nama_lengkap);
+			$template->setValue('nama_kecamatan', $kecamatan->nama_skpd);
+			$template->setValue('nama_camat', $kepala_kecamatan->nama_lengkap);
+			$template->setValue('pangkat', $kepala_kecamatan->pangkat);
+			$template->setValue('nip', $kepala_kecamatan->nip);
+
+			$sasaran = $this->rpjmdesa_model->get_sasaran();
+			$template->cloneRow('sasaran', count($sasaran));
+			foreach ($sasaran as $k => $s) {
+				$no = $k + 1;
+				$indikator = $this->rpjmdesa_model->get_indikator_sasaran($s->id_sd_sasaran);
+				$template->cloneRow('indikator#' . $no, count($indikator));
+				foreach ($indikator as $ki => $i) {
+					$target = $this->rpjmdesa_model->get_target_indikator_by_tahun($id_skpd, $i->id_sd_indikator, $tahun);
+					$nok = $ki + 1;
+					$template->setValue('ns#' . $no . '#' . $nok, $no);
+					$template->setValue('sasaran#' . $no . '#' . $nok, $s->nama_sasaran);
+					$template->setValue('indikator#' . $no . '#' . $nok, $i->nama_indikator);
+					$template->setValue('target#' . $no . '#' . $nok, $target->target);
+					$template->setValue('satuan#' . $no . '#' . $nok, " " . $i->satuan);
+				}
+			}
+
+			$bidang = $this->rkpdesa_model->get_bidang($id_skpd, $tahun);
+			$template->cloneRow('bidang', count($bidang) * 2);
+			$n = 1;
+			$no_bidang = 1;
+			foreach ($bidang as $kb => $b) {
+				$template->setValue('n#' . $n, $no_bidang);
+				$template->setValue('bidang#' . $n, "Bidang ".$b->nama_bidang);
+				$template->setValue('r#' . $n, '');
+				$template->setValue('anggaran#' . $n, '');
+
+				$sub_bidang = $this->rkpdesa_model->get_sub_bidang($b->id_sd_bidang);
+				$template->cloneRow('bidang#' . ($n + 1), count($sub_bidang) * 2);
+				$nsb = 1;
+				foreach ($sub_bidang as $ksb => $sb) {
+					$template->setValue('n#' . ($n + 1) . '#' . $nsb, '');
+					$template->setValue('bidang#' . ($n + 1) . '#' . $nsb, "Sub Bidang ".$sb->nama_sub_bidang);
+					$template->setValue('r#' . ($n + 1) . '#' . $nsb, '');
+					$template->setValue('anggaran#' . ($n + 1) . '#' . $nsb, '');
+
+					$kegiatan = $this->rkpdesa_model->get_kegiatan($sb->id_sd_sub_bidang);
+					$template->cloneRow('bidang#' . ($n + 1) . "#" . ($nsb + 1), count($kegiatan));
+					foreach ($kegiatan as $kk => $kg) {
+						$nk = $kk + 1;
+						$template->setValue('n#' . ($n + 1) . '#' . ($nsb + 1) . '#' . $nk, '');
+						$template->setValue('bidang#' . ($n + 1) . '#' . ($nsb + 1) . '#' . $nk, $kg->nama_kegiatan);
+						$template->setValue('r#' . ($n + 1) . '#' . ($nsb + 1) . '#' . $nk, 'Rp');
+						$template->setValue('anggaran#' . ($n + 1) . '#' . ($nsb + 1) . '#' . $nk, number_format($kg->anggaran));
+					}
+					$nsb += 2;
+				}
+				
+				$n += 2;
+				$no_bidang++;
+			}
+
+			// die;
+			ob_clean();
+			$template->saveAs("./data/perjanjian_kinerja/" . $filename);
+			header('Content-Description: File Transfer');
+			header('Content-Type: application/octet-stream');
+			header('Content-Disposition: attachment; filename="' . $filename . '"');
+			header('Content-Transfer-Encoding: binary');
+			header('Expires: 0');
+			header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+			header('Pragma: public');
+			header('Content-Length: ' . filesize("./data/perjanjian_kinerja/" . $filename));
+			flush();
+			readfile("./data/perjanjian_kinerja/" . $filename);
+		}
+	}
+
+	public function getDetailTarget($id_sd_target_indikator = '')
+	{
+		if ($id_sd_target_indikator == '') {
+			show_404();
+			die;
+		}
+		$get = $this->rpjmdesa_model->get_target_indikator_by_id($id_sd_target_indikator);
+		echo json_encode($get);
+	}
+
+	public function updateRealisasiTarget($id_sd_target_indikator = '')
+	{
+		if ($id_sd_target_indikator == '') {
+			show_404();
+			die;
+		}
+		if (empty($_POST)) {
+			show_404();
+			die;
+		}
+
+		$detail_target = $this->rpjmdesa_model->get_target_indikator_by_id($id_sd_target_indikator);
+		$target = $detail_target->target;
+		$realisasi = $_POST['realisasi'];
+		$capaian = get_capaian_desa($target, $realisasi);
+
+		$update = $this->rpjmdesa_model->update_realisasi_target_indikator($realisasi, $capaian, array('id_sd_target_indikator' => $id_sd_target_indikator));
+		if ($update) {
+			echo true;
+		} else {
+			echo false;
+		}
+	}
+
+	function addBidang($id_skpd, $tahun)
+	{
+		if (empty($_POST)) {
+			show_404();
+			die;
+		}
+
+		$insert = $this->rkpdesa_model->insert_bidang(array('id_skpd' => $id_skpd, 'tahun' => $tahun, 'nama_bidang' => $_POST['nama_bidang']));
+		if ($insert) {
+			echo true;
+		} else {
+			echo false;
+		}
+	}
+	function updateBidang($id_sd_bidang)
+	{
+		if (empty($_POST)) {
+			show_404();
+			die;
+		}
+
+		$update = $this->rkpdesa_model->update_bidang(array('nama_bidang' => $_POST['nama_bidang']), $id_sd_bidang);
+		if ($update) {
+			echo true;
+		} else {
+			echo false;
+		}
+	}
+	function deleteBidang($id_sd_bidang)
+	{
+		$delete = $this->rkpdesa_model->delete_bidang($id_sd_bidang);
+		if ($delete) {
+			echo true;
+		} else {
+			echo false;
+		}
+	}
+
+
+	function getDetailBidang($id_sd_bidang = '')
+	{
+
+		if ($id_sd_bidang == '') {
+			show_404();
+			die;
+		}
+		$get = $this->rkpdesa_model->get_bidang_by_id($id_sd_bidang);
+		echo json_encode($get);
+	}
+
+
+
+	function addSubBidang($id_sd_bidang)
+	{
+		if (empty($_POST)) {
+			show_404();
+			die;
+		}
+
+		$insert = $this->rkpdesa_model->insert_sub_bidang(array('id_sd_bidang' => $id_sd_bidang, 'nama_sub_bidang' => $_POST['nama_sub_bidang']));
+		if ($insert) {
+			echo true;
+		} else {
+			echo false;
+		}
+	}
+
+	function getDetailSubBidang($id_sd_sub_bidang = '')
+	{
+
+		if ($id_sd_sub_bidang == '') {
+			show_404();
+			die;
+		}
+		$get = $this->rkpdesa_model->get_sub_bidang_by_id($id_sd_sub_bidang);
+		echo json_encode($get);
+	}
+
+	function updateSubBidang($id_sd_sub_bidang)
+	{
+		if (empty($_POST)) {
+			show_404();
+			die;
+		}
+
+		$update = $this->rkpdesa_model->update_sub_bidang(array('nama_sub_bidang' => $_POST['nama_sub_bidang']), $id_sd_sub_bidang);
+		if ($update) {
+			echo true;
+		} else {
+			echo false;
+		}
+	}
+	function deleteSubBidang($id_sd_sub_bidang)
+	{
+		$delete = $this->rkpdesa_model->delete_sub_bidang($id_sd_sub_bidang);
+		if ($delete) {
+			echo true;
+		} else {
+			echo false;
+		}
+	}
+	function addKegiatan($id_sd_sub_bidang)
+	{
+		if (empty($_POST)) {
+			show_404();
+			die;
+		}
+
+		$insert = $this->rkpdesa_model->insert_kegiatan(array('id_sd_sub_bidang' => $id_sd_sub_bidang, 'nama_kegiatan' => $_POST['nama_kegiatan'], 'anggaran' => $_POST['anggaran']));
+		if ($insert) {
+			echo true;
+		} else {
+			echo false;
+		}
+	}
+
+
+	function updateKegiatan($id_sd_kegiatan)
+	{
+		if (empty($_POST)) {
+			show_404();
+			die;
+		}
+
+		// print_r($_POST);
+		$update = $this->rkpdesa_model->update_kegiatan(array('nama_kegiatan' => $_POST['nama_kegiatan'], 'anggaran' => $_POST['anggaran']), $id_sd_kegiatan);
+		if ($update) {
+			echo true;
+		} else {
+			echo false;
+		}
+	}
+	function deleteKegiatan($id_sd_kegiatan)
+	{
+		$delete = $this->rkpdesa_model->delete_kegiatan($id_sd_kegiatan);
+		if ($delete) {
+			echo true;
+		} else {
+			echo false;
+		}
+	}
+
+
+	function getDetailKegiatan($id_sd_kegiatan = '')
+	{
+
+		if ($id_sd_kegiatan == '') {
+			show_404();
+			die;
+		}
+		$get = $this->rkpdesa_model->get_kegiatan_by_id($id_sd_kegiatan);
+		echo json_encode($get);
+	}
+}
