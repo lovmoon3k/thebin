@@ -1,0 +1,77 @@
+using System;
+using System.Collections.Concurrent;
+using System.Threading;
+
+//Создать класс на языке C#, который: 
+//- называется TaskQueue и реализует логику пула потоков;
+//- создает указанное количество потоков пула в конструкторе;
+//- содержит очередь задач в виде делегатов без параметров:
+//  delegate void TaskDelegate();
+//- обеспечивает постановку в очередь и последующее выполнение делегатов с помощью метода 
+//  void EnqueueTask(TaskDelegate task);
+
+
+
+namespace Мусор
+{
+    public delegate void TaskDelegate();
+
+    public class TaskQueue
+    {
+        private readonly BlockingCollection<TaskDelegate> _blockingQueue
+            = new BlockingCollection<TaskDelegate>(new ConcurrentQueue<TaskDelegate>());
+
+        public TaskQueue(int threadCount)
+        {
+            for (var i = 0; i < threadCount; i++)
+            {
+                var thread = new Thread(DoThreadWork) {IsBackground = true};
+                thread.Start();
+            }
+        }
+
+        public void EnqueueTask(TaskDelegate task)
+        {
+            _blockingQueue.Add(task);
+        }
+
+        private void DoThreadWork()
+        {
+            while (true)
+            {
+                var task = _blockingQueue.Take();
+                try
+                {
+                    task();
+                }
+                catch (ThreadAbortException)
+                {
+                    Thread.ResetAbort();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.ToString());
+                }
+            }
+        }
+    }
+
+    static class Program
+    {
+        private static void TestTask()
+        {
+            Console.WriteLine("TestTask in thread #" + Thread.CurrentThread.ManagedThreadId);
+            Thread.Sleep(3000);
+        }
+
+        static void Main(string[] args)
+        {
+            var taskQueue = new TaskQueue(3);
+            for (var i = 0; i < 10; i++)
+            {
+                taskQueue.EnqueueTask(TestTask);
+            }          
+            Console.ReadLine();
+        }
+    }
+}
