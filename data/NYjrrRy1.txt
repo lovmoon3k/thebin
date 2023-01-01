@@ -1,0 +1,2216 @@
+// ==UserScript==
+// @name         Delete steam post history developing version
+// @namespace    http://tampermonkey.net/
+// @version      0.2.2
+// @description  delete all post history
+// @author       Justman
+// @match        https://steamcommunity.com/*/*/commenthistory*
+// @match        https://steamcommunity.com/*/*/posthistory*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=steamcommunity.com
+// @grant unsafeWindow
+// ==/UserScript==
+
+(function() {
+
+    /*
+    Execute this code on https://steamcommunity.com/my/commenthistory
+
+    The newest versions are available on BitBucket: https://bitbucket.org/SoftJustman/steamcommentscleaner
+
+    Created by Justman (steamcommunity.com/id/justman666)
+    Specially for Miped.ru
+todo replace var with let or constant
+*/
+
+    /*
+        Changable constants
+    */
+    const FIRST_PAGE_TO_CLEAR = 1; // Number of first page to be cleared
+    let LAST_PAGE_TO_CLEAR ;
+    do
+        LAST_PAGE_TO_CLEAR = parseInt(window.prompt('Enter nmumber of pages to be deleted (-1 for all)')); // Number of last page to clear. -1 if you need to delete all of them
+    while (typeof LAST_PAGE_TO_CLEAR !== "number")
+    // Example (2, 2) will clear 2nd page only
+    const PRINT_EXECUTED_COMMANDS = true; // Print everything script does (It's a lot)
+    const style = 'color: darkorchid';
+
+    function global() {
+
+        const CAutoSizingTextArea = Class.create({
+            m_elTextArea: null,
+            m_nMinHeight: 20,
+            m_nMaxHeight: 500,
+            m_cCurrentSize: Number.MAX_VALUE,
+            m_fnChangeCallback: null,
+            m_nTextAreaPadding: null,
+            CalculatePadding: function () {
+                // briefly empty the text area and set the height so we can see how much padding there is
+                const strContents = this.m_elTextArea.value;
+                this.m_elTextArea.value = '';
+                this.m_elTextArea.style.height = this.m_nMinHeight + 'px';
+                this.m_nTextAreaPadding = this.m_elTextArea.scrollHeight - this.m_nMinHeight;
+                this.m_elTextArea.value = strContents;
+            },
+
+            OnTextInput: function () {
+                let iScrollOffset = undefined;
+                const cNewLength = this.m_elTextArea.value.length;
+
+                // we delay this until first input as some values get reported incorrectly if the element isn't visible.
+                if (this.m_nTextAreaPadding === null && $J(this.m_elTextArea).is(':visible'))
+                    this.CalculatePadding();
+
+                // force a resize
+                if (cNewLength < this.m_cEntryLength) {
+                    // when we shrink this box, we might scroll the window.  Remember where we are so we can jump back
+                    iScrollOffset = window.scrollY;
+                    this.m_elTextArea.style.height = this.m_nMinHeight + 'px';
+                }
+
+                if (this.m_elTextArea.scrollHeight > this.m_nMaxHeight) {
+                    this.m_elTextArea.style.height = this.m_nMaxHeight + 'px';
+                    this.m_elTextArea.style.overflow = 'auto';
+                } else if (this.m_elTextArea.scrollHeight !== this.m_elTextArea.getHeight()) {
+                    const nHeight = Math.max(this.m_elTextArea.scrollHeight, this.m_nMinHeight);
+                    this.m_elTextArea.style.height = (nHeight - this.m_nTextAreaPadding) + 'px';
+
+                    if (this.m_elTextArea.style.overflow === 'auto')
+                        this.m_elTextArea.style.overflow = 'hidden';
+                }
+
+                if (this.m_fnChangeCallback)
+                    this.m_fnChangeCallback(this.m_elTextArea);
+
+                if (iScrollOffset)
+                    window.scrollTo(window.scrollX, iScrollOffset);
+
+                this.m_cEntryLength = cNewLength;
+            }
+        });
+
+
+        function UpdateParameterInCurrentURL( strParamName, strParamValue, rgRemoveParameters )
+        {
+            const path = window.location.pathname;
+            let query = window.location.search;
+            let params = {};
+            if ( query && query.length > 2 )
+                params = $J.deparam( query.substr( 1 ) );
+
+            if ( strParamValue === null )
+                delete params[strParamName];
+            else
+                params[strParamName] = strParamValue;
+
+            // comment thread specific
+            if ( rgRemoveParameters )
+                for(let i = 0; i < rgRemoveParameters.length; i++ )
+                    delete params[ rgRemoveParameters[i] ];
+
+            query = $J.param( params );
+
+            return path + ( query ? '?' + query : '' );
+        }
+
+
+        const g_rgCommentThreads = {};
+
+        const CCommentThread = Class.create({
+
+            m_strName: null,
+            m_strCommentThreadType: null,
+            m_rgCommentData: null,
+            m_strActionURL: null,
+            m_elTextArea: null,
+            m_cPageSize: null,
+            m_nQuoteBoxHeight: 40,
+
+            m_cTotalCount: 0,
+            m_iCurrentPage: 0,
+            m_cMaxPages: 0,
+            m_cDropdownPages: 0,
+            m_bLoading: false,
+            m_bLoadingUserHasUpVoted: false,
+            m_cUpVotes: 0,
+
+            m_bIncludeRaw: false,
+            m_rgRawCommentCache: null,
+            m_bHasPaging: true,
+            m_bTrackNavigation: false,	// should we track navigation in the URL?
+
+            // these vars are id's we'll update when values change
+            m_votecountID: null,
+            m_voteupID: null,
+            m_commentcountID: null,
+
+            m_oTextAreaSizer: null,
+
+            m_bSubscribed: null,
+            m_$SubscribeCheckbox: null,
+            CheckTextAreaSize: function () {
+                this.m_oTextAreaSizer.OnTextInput();
+            },
+
+            OnTextInput: function (elSaveButton, elTextArea) {
+                if (elSaveButton) {
+                    let strPrepoulatedText = $J(this.m_elTextArea).data('prepopulated-text');
+                    let bEnteredText = elTextArea.value.length > 0;
+
+                    if (bEnteredText && strPrepoulatedText && !$J(this.m_elTextArea).data('replaced-prepopulated-text')) {
+                        strPrepoulatedText = v_trim(strPrepoulatedText).replace(/[\n\r]/g, '');
+                        const strEnteredText = v_trim(elTextArea.value).replace(/[\n\r]/g, '');
+
+                        bEnteredText = strPrepoulatedText !== strEnteredText;
+
+                        // save so we don't have to keep doing this check as they enter more text.
+                        if (bEnteredText)
+                            $J(this.m_elTextArea).data('replaced-prepopulated-text', true);
+                    }
+
+                    if (bEnteredText)
+                        elSaveButton.show();
+                    else
+                        elSaveButton.hide();
+                }
+            },
+
+            GetActionURL: function (action) {
+                let url = this.m_strActionURL + action + '/';
+                url += this.m_rgCommentData['owner'] + '/';
+                url += this.m_rgCommentData['feature'] + '/';
+                return url;
+            },
+
+            ParametersWithDefaults: function (params) {
+                if (!params)
+                    params = {};
+
+                params['count'] = this.m_cPageSize;
+                params['sessionid'] = g_sessionID;
+
+                if (this.m_rgCommentData['extended_data'])
+                    params['extended_data'] = this.m_rgCommentData['extended_data'];
+
+                if (this.m_rgCommentData['feature2'])
+                    params['feature2'] = this.m_rgCommentData['feature2'];
+
+                if (this.m_rgCommentData['oldestfirst'])
+                    params['oldestfirst'] = true;
+
+                if (this.m_rgCommentData['newestfirstpagination'])
+                    params['newestfirstpagination'] = true;
+
+                if (this.m_rgCommentData['lastvisit'])
+                    params['lastvisit'] = this.m_rgCommentData['lastvisit'];
+
+                if (this.m_bIncludeRaw)
+                    params['include_raw'] = true;
+
+
+                return params;
+            },
+            DeleteComment: function (gidComment, bUndelete, fnOnSuccess) {
+                if (this.m_bLoading)
+                    return;
+
+                const params = this.ParametersWithDefaults({
+                    gidcomment: gidComment,
+                    start: this.m_cPageSize * this.m_iCurrentPage
+                });
+
+                if (bUndelete)
+                    params.undelete = 1;
+
+                this.m_bLoading = true;
+                new Ajax.Request(this.GetActionURL('delete'), {
+                    method: 'post',
+                    parameters: params,
+                    onSuccess: fnOnSuccess ? fnOnSuccess : this.OnResponseDeleteComment.bind(this, ++this.m_nRenderAjaxSequenceNumber),
+                    onFailure: this.OnFailureDisplayError.bind(this),
+                    onComplete: this.OnAJAXComplete.bind(this)
+                });
+            },
+
+            MarkSpam: function (gidComment, authorAccountID, fnOnSuccess) {
+                if (this.m_bLoading)
+                    return;
+
+                const params = this.ParametersWithDefaults({
+                    gidcomment: gidComment,
+                    author_accountid: authorAccountID,
+                    start: this.m_cPageSize * this.m_iCurrentPage
+                });
+
+                const thread = this;
+
+                const dialog = ShowConfirmDialog('Marcar como spam', 'Esto aplicará un bloqueo de la comunidad al autor, añadirá este comentario como datos de entrenamiento para que podamos marcar este tipo de comentarios automáticamente y borrará todos los comentarios del autor. ¿Seguro que es lo que quieres hacer?', 'Marcar como spam');
+                dialog.done(function () {
+                    thread.m_bLoading = true;
+                    new Ajax.Request(thread.GetActionURL('markspam'), {
+                        method: 'post',
+                        parameters: params,
+                        onSuccess: fnOnSuccess ? fnOnSuccess : thread.OnResponseDeleteComment.bind(thread, ++thread.m_nRenderAjaxSequenceNumber),
+                        onFailure: thread.OnFailureDisplayError.bind(thread),
+                        onComplete: thread.OnAJAXComplete.bind(thread)
+                    });
+                });
+            },
+
+            ClearContentCheckFlag: function (gidComment, fnOnSuccess) {
+                if (this.m_bLoading)
+                    return;
+
+                const params = this.ParametersWithDefaults({
+                    gidcomment: gidComment,
+                    start: this.m_cPageSize * this.m_iCurrentPage
+                });
+
+                const thread = this;
+
+                const dialog = ShowConfirmDialog('Quitar marca de contenido bloqueable', 'Esto quitará la marca de contenido bloqueable a este comentario y es irreversible. ¿Seguro que es lo que quieres hacer?', 'Quitar marca de contenido bloqueable');
+                dialog.done(function () {
+                    thread.m_bLoading = true;
+                    new Ajax.Request(thread.GetActionURL('clearcontentcheckflag'), {
+                        method: 'post',
+                        parameters: params,
+                        onSuccess: fnOnSuccess ? fnOnSuccess : thread.OnResponseDeleteComment.bind(thread, ++thread.m_nRenderAjaxSequenceNumber),
+                        onFailure: thread.OnFailureDisplayError.bind(thread),
+                        onComplete: thread.OnAJAXComplete.bind(thread)
+                    });
+                });
+            },
+
+            HideAndReport: function (gidComment, bHide, fnOnSuccess) {
+                if (this.m_bLoading)
+                    return;
+
+                const params = this.ParametersWithDefaults({
+                    gidcomment: gidComment,
+                    hide: bHide,
+                    start: this.m_cPageSize * this.m_iCurrentPage
+                });
+
+                this.m_bLoading = true;
+                new Ajax.Request(this.GetActionURL('hideandreport'), {
+                    method: 'post',
+                    parameters: params,
+                    onSuccess: fnOnSuccess ? fnOnSuccess : this.OnResponseHideAndReportComment.bind(this, ++this.m_nRenderAjaxSequenceNumber),
+                    onFailure: this.OnFailureDisplayError.bind(this),
+                    onComplete: this.OnAJAXComplete.bind(this)
+                });
+            },
+
+            OnResponseHideAndReportComment: function (nAjaxSequenceNumber, transport) {
+                if (transport.responseJSON && transport.responseJSON.success)
+                    this.OnResponseRenderComments(CCommentThread.RENDER_GOTOCOMMENT, nAjaxSequenceNumber, transport);
+                else
+                    this.OnFailureDisplayError(transport);
+            },
+
+            DisplayEditComment: function (gidComment) {
+                const elForm = $('editcommentform_' + gidComment);
+                const elTextarea = $('comment_edit_text_' + gidComment);
+
+                const elContent = $('comment_content_' + gidComment);
+                elContent.hide();
+
+                if (elContent.next('.forum_audit'))
+                    elContent.next('.forum_audit').hide();
+
+                $('comment_edit_' + gidComment).show();
+                $('comment_edit_' + gidComment + '_error').update('');
+
+                if (!elTextarea.value || elTextarea.value.length === 0)
+                    elTextarea.value = this.m_rgRawCommentCache[gidComment].text;
+
+                if (!elForm.m_bEventsBound) {
+                    new CAutoSizingTextArea(elTextarea, 40);
+                    elForm.observe('submit', this.SubmitEditComment.bind(this, elForm));
+                    elForm.observe('reset', this.HideEditComment.bind(this, gidComment));
+                    elForm.m_bEventsBound = true;
+                }
+            },
+
+            VoteUp: function () {
+                if (this.m_bLoading)
+                    return;
+
+                const params = this.ParametersWithDefaults({
+                    vote: this.m_bLoadingUserHasUpVoted ? 0 : 1	// flip our vote
+                });
+
+                this.m_bLoading = true;
+                new Ajax.Request(this.GetActionURL('voteup'), {
+                    method: 'post',
+                    parameters: params,
+                    onSuccess: this.OnResponseVoteUp.bind(this, ++this.m_nRenderAjaxSequenceNumber),
+                    onFailure: this.OnFailureDisplayError.bind(this),
+                    onComplete: this.OnAJAXComplete.bind(this)
+                });
+            },
+
+            UpdateAnswer: function (gidComment, bExisting) {
+                // see if it's on the current page
+                if (this.m_bLoading)
+                    return;
+
+                let $modal;
+                if (!gidComment) {
+                    $modal = ShowConfirmDialog('Eliminar como respuesta', '¿Seguro que quieres desmarcar esta publicación como la respuesta a este hilo? Puedes actualizar esto en cualquier momento.', 'Eliminar como respuesta');
+                } else {
+                    let strModalBody = 'Estás a punto de marcar este mensaje como la respuesta a este hilo. Esto indicará que la cuestión original ha sido respondida y enlazará a este mensaje específico. Puedes eliminar esta marca o indicar un mensaje diferente como respuesta en cualquier momento si cambias de opinión.';
+                    if (bExisting)
+                        strModalBody = 'Ya se ha seleccionado un mensaje diferente como respuesta a este hilo. ¿Quieres elegir este mensaje como la nueva respuesta?';
+
+                    $modal = ShowConfirmDialog('Marcar como respuesta', strModalBody, 'Elegir respuesta');
+                    $modal.SetMaxWidth(500);
+                }
+
+                const _$this = this;
+
+                $modal.done(function () {
+
+                    const params = _$this.ParametersWithDefaults({
+                        gidcommentanswer: gidComment
+                    });
+
+                    _$this.m_bLoading = true;
+                    new Ajax.Request(_$this.GetActionURL('updateanswer'), {
+                        method: 'post',
+                        parameters: params,
+                        onSuccess: function () {
+                            window.location.hash = 'c' + gidComment;
+                            window.location.reload();
+                        },
+                        onFailure: function (transport) {
+                            if (transport.responseJSON && transport.responseJSON.success) {
+                                var strError = 'Hubo un problema al actualizar la respuesta de este tema. Error:' + transport.responseJSON.success;
+                                if (transport.responseJSON.success === 15) {
+                                    strError = 'No tienes permiso para actualizar la respuesta de este tema.'
+                                }
+
+                                ShowAlertDialog('Error', strError);
+                            }
+                        },
+                        onComplete: _$this.OnAJAXComplete.bind(_$this)
+                    });
+                });
+
+            },
+
+            GetRawComment: function (gidComment) {
+                return this.m_rgRawCommentCache[gidComment];
+            },
+
+            GetCommentTextEntryElement: function () {
+                return this.m_elTextArea;
+            },
+
+            HideEditComment: function (gidComment) {
+                $('comment_content_' + gidComment).show();
+                $('comment_edit_' + gidComment).hide();
+            },
+
+            OnResponseEditComment: function (gidComment, nAjaxSequenceNumber, transport) {
+                if (transport.responseJSON && transport.responseJSON.success) {
+                    // no need to hide because render will replace our whole element
+                    this.OnResponseRenderComments(CCommentThread.RENDER_DELETEDPOST, nAjaxSequenceNumber, transport);	//display the updated comment thread
+                } else {
+                    this.OnEditFailureDisplayError(gidComment, transport);
+                }
+            },
+
+            OnEditFailureDisplayError: function (gidComment, transport) {
+                this.DisplayError($('comment_edit_' + gidComment + '_error'), transport);
+            },
+
+            SubmitEditComment: function (elForm) {
+                if (this.m_bLoading)
+                    return false;
+
+                const gidComment = elForm.elements['gidcomment'].value;
+                const strComment = elForm.elements['comment'].value;
+
+                const params = this.ParametersWithDefaults({
+                    gidcomment: gidComment,
+                    comment: strComment,
+                    start: this.m_cPageSize * this.m_iCurrentPage
+                });
+
+                this.m_bLoading = true;
+                new Ajax.Request(this.GetActionURL('edit'), {
+                    method: 'post',
+                    parameters: params,
+                    onSuccess: this.OnResponseEditComment.bind(this, gidComment, ++this.m_nRenderAjaxSequenceNumber),
+                    onFailure: this.OnEditFailureDisplayError.bind(this, gidComment),
+                    onComplete: this.OnAJAXComplete.bind(this)
+                });
+                return false;
+            },
+
+            OnAJAXComplete: function () {
+                this.m_bLoading = false;
+            },
+            m_nRenderAjaxSequenceNumber: 0,
+            GoToPage: function (iPage, eRenderReason) {
+                if (iPage >= this.m_cMaxPages || iPage < 0 || (iPage === this.m_iCurrentPage && !this.m_bLoading))
+                    return;
+
+                const params = this.ParametersWithDefaults({
+                    start: this.m_cPageSize * iPage,
+                    totalcount: this.m_cTotalCount
+                });
+
+                this.m_bLoading = true;
+                new Ajax.Request(this.GetActionURL('render'), {
+                    method: 'post',
+                    parameters: params,
+                    onSuccess: this.OnResponseRenderComments.bind(this, eRenderReason || CCommentThread.RENDER_GOTOPAGE, ++this.m_nRenderAjaxSequenceNumber),
+                    onComplete: this.OnAJAXComplete.bind(this)
+                });
+            },
+
+            GoToPageWithComment: function (gidComment, eRenderReason) {
+                // see if it's on the current page
+                if (this.m_bLoading || $('comment_' + gidComment))
+                    return;
+
+                // nope, load
+                const params = this.ParametersWithDefaults({
+                    gidComment: gidComment
+                });
+
+                new Ajax.Request(this.GetActionURL('render'), {
+                    method: 'post',
+                    parameters: params,
+                    onSuccess: this.OnResponseRenderComments.bind(this, eRenderReason || CCommentThread.RENDER_GOTOCOMMENT, ++this.m_nRenderAjaxSequenceNumber),
+                    onComplete: this.OnAJAXComplete.bind(this)
+                });
+            },
+            OnResponseDeleteComment: function (nAjaxSequenceNumber, transport) {
+                if (transport.responseJSON && transport.responseJSON.success)
+                    this.OnResponseRenderComments(CCommentThread.RENDER_DELETEDPOST, nAjaxSequenceNumber, transport);
+                else
+                    this.OnFailureDisplayError(transport);
+            },
+
+            OnResponseVoteUp: function (nAjaxSequenceNumber, transport) {
+                if (transport.responseJSON && transport.responseJSON.success) {
+                    this.OnResponseRenderComments(CCommentThread.RENDER_GOTOCOMMENT, nAjaxSequenceNumber, transport);
+                    this.m_bLoadingUserHasUpVoted = !this.m_bLoadingUserHasUpVoted;	// we can switch this to getting from the response after 8/24/2012
+                    this.m_cUpVotes = transport.responseJSON.upvotes;
+
+                    if (this.m_votecountID && $(this.m_votecountID) && transport.responseJSON.votetext) {
+                        $(this.m_votecountID).innerHTML = transport.responseJSON.votetext;
+                    }
+
+                    if (this.m_voteupID && $(this.m_voteupID)) {
+                        if (this.m_bLoadingUserHasUpVoted)
+                            $(this.m_voteupID).addClassName('active');
+                        else
+                            $(this.m_voteupID).removeClassName('active');
+                    }
+                } else
+                    this.OnFailureDisplayError(transport);
+            },
+
+            OnFailureDisplayError: function (transport) {
+                this.DisplayError($('commentthread_' + this.m_strName + '_entry_error'), transport);
+            },
+
+            DisplayError: function (elError, transport) {
+                let strMessage = 'Lo sentimos, ha ocurrido un error: ';
+                if (transport.responseJSON && transport.responseJSON.error)
+                    strMessage += transport.responseJSON.error;
+                else
+                    strMessage += 'Se ha producido un error de comunicación con la red. Inténtalo de nuevo más tarde.';
+
+                elError.update(strMessage);
+                elError.show();
+            },
+
+            OnResponseRenderComments: function (eRenderReason, nAjaxSequenceNumber, transport) {
+                if (this.m_nRenderAjaxSequenceNumber !== nAjaxSequenceNumber)
+                    return;
+
+                if (transport.responseJSON) {
+                    const response = transport.responseJSON;
+                    this.m_cTotalCount = response.total_count;
+                    this.m_cMaxPages = Math.ceil(response.total_count / response.pagesize);
+                    this.m_iCurrentPage = Math.floor(response.start / response.pagesize);
+
+                    if (response.comments_raw)
+                        this.m_rgRawCommentCache = response.comments_raw;
+
+                    if (this.m_commentcountID && $(this.m_commentcountID))
+                        $(this.m_commentcountID).innerHTML = this.m_cTotalCount;
+
+                    if (this.m_cTotalCount <= response.start && this.m_iCurrentPage > 0) {
+                        // this page is no logner valid, flip back a page (deferred so that the AJAX handler exits and reset m_bLoading)
+                        this.GoToPage.bind(this, this.m_iCurrentPage - 1).defer();
+                        return;
+                    }
+
+                    if (this.m_bTrackNavigation && window.history && window.history.pushState) {
+                        const params = window.location.search.length ? $J.deparam(window.location.search.substr(1)) : {};
+                        if ((!params['ctp'] && this.m_iCurrentPage !== 0) || (params['ctp'] && params['ctp'] !== this.m_iCurrentPage + 1)) {
+                            let fnStateUpdate = window.history.pushState.bind(window.history);
+                            let url = UpdateParameterInCurrentURL('ctp', this.m_iCurrentPage == 0 ? null : this.m_iCurrentPage + 1, ['tscn']);
+                            if (eRenderReason === CCommentThread.RENDER_GOTOPAGE_HASHCHANGE || eRenderReason === CCommentThread.RENDER_GOTOCOMMENT_HASHCHANGE) {
+                                fnStateUpdate = window.history.replaceState.bind(window.history);
+                                if (eRenderReason === CCommentThread.RENDER_GOTOCOMMENT_HASHCHANGE)
+                                    url += window.location.hash;
+                            }
+                            fnStateUpdate({comment_thread_page: this.m_iCurrentPage}, '', url);
+                        }
+                    }
+
+                    this.DoTransitionToNewPosts(response, eRenderReason);
+
+                    // if we're viewing the most recent page of comments, refresh notifications
+                    if ((!this.m_rgCommentData['oldestfirst'] && this.m_iCurrentPage === 0) ||
+                        this.m_rgCommentData['oldestfirst'] && (this.m_iCurrentPage + 1) * this.m_cPageSize > this.m_cTotalCount) {
+                        RefreshNotificationArea();
+                    }
+
+                    this.UpdatePagingDisplay();
+                }
+            },
+
+            DoTransitionToNewPosts: function (response, eRenderReason) {
+                const strNewHTML = response.comments_html;
+
+                const elPosts = $('commentthread_' + this.m_strName + '_posts');
+                const elContainer = $('commentthread_' + this.m_strName + '_postcontainer');
+                elContainer.style.height = elContainer.getHeight() + 'px';
+                elContainer.style.overflow = 'hidden';
+
+                const bNewPost = (eRenderReason === CCommentThread.RENDER_NEWPOST);
+
+                if (bNewPost && this.m_cTotalCount <= this.m_cPageSize && !this.m_rgCommentData['oldestfirst'] && !this.m_rgCommentData['newestfirstpagination']) {
+                    elContainer.style.position = 'relative';
+                    elPosts.style.position = 'absolute';
+                    elPosts.style.left = '0px';
+                    elPosts.style.right = '0px';
+                    elPosts.style.bottom = '0px';
+                } else {
+                    elPosts.style.position = 'static';
+                }
+
+                elPosts.update(strNewHTML);
+
+                ScrollToIfNotInView($('commentthread_' + this.m_strName + '_area'), 40, 20);
+
+                if (elContainer.effect)
+                    elContainer.effect.cancel();
+
+                (function () {
+                    elContainer.effect = new Effect.Morph(elContainer, {
+                        style: 'height: ' + elPosts.getHeight() + 'px',
+                        duration: 0.25,
+                        afterFinish: function () {
+                            elPosts.style.position = 'static';
+                            elContainer.style.height = 'auto';
+                            elContainer.style.overflow = '';
+                        }
+                    });
+                }).defer();
+            },
+
+            UpdatePagingDisplay: function () {
+                let iPage;
+                let lastPageLink;
+                let firstPageLink;
+                let cPageLinksAheadBehind;
+                if (!this.m_bHasPaging)
+                    return;
+
+                const strPrefix = 'commentthread_' + this.m_strName;
+
+                // this element not displayed on the forum topic page
+                $(strPrefix + '_totalcount') && $(strPrefix + '_totalcount').update(v_numberformat(this.m_cTotalCount));
+
+                const rgPagingControls = [strPrefix + '_page', strPrefix + '_fpage'];
+                for (let i = 0; i < rgPagingControls.length; i++) {
+                    const strPagePrefix = rgPagingControls[i];
+
+                    // these elements are displayed on the forum topic page
+                    $(strPagePrefix + 'total') && $(strPagePrefix + 'total').update(v_numberformat(this.m_cTotalCount));
+                    $(strPagePrefix + 'start') && $(strPagePrefix + 'start').update(v_numberformat(this.m_iCurrentPage * this.m_cPageSize + 1));
+                    $(strPagePrefix + 'end') && $(strPagePrefix + 'end').update(Math.min((this.m_iCurrentPage + 1) * this.m_cPageSize, this.m_cTotalCount));
+
+                    if ($(strPagePrefix + 'ctn')) {
+                        if (this.m_cTotalCount > 0)
+                            $(strPagePrefix + 'ctn').show();
+                        else
+                            $(strPagePrefix + 'ctn').hide();
+                    }
+
+
+                    if (this.m_cMaxPages <= 1) {
+                        $(strPagePrefix + 'controls').hide();
+                    } else {
+                        $(strPagePrefix + 'controls').show();
+                        if (this.m_iCurrentPage > 0) {
+                            $(strPagePrefix + 'btn_prev').removeClassName('disabled');
+                            if (this.m_bTrackNavigation)
+                                $(strPagePrefix + 'btn_prev').href = UpdateParameterInCurrentURL('ctp',
+                                    this.m_iCurrentPage === 1 ? null : this.m_iCurrentPage,
+                                    ['tscn']);
+                        } else {
+                            $(strPagePrefix + 'btn_prev').addClassName('disabled');
+                            if (this.m_bTrackNavigation)
+                                $(strPagePrefix + 'btn_prev').href = 'javascript:void(0);';
+                        }
+
+                        if (this.m_iCurrentPage < this.m_cMaxPages - 1) {
+                            $(strPagePrefix + 'btn_next').removeClassName('disabled');
+                            if (this.m_bTrackNavigation)
+                                $(strPagePrefix + 'btn_next').href = UpdateParameterInCurrentURL('ctp', this.m_iCurrentPage + 2, ['tscn']);
+                        } else {
+                            $(strPagePrefix + 'btn_next').addClassName('disabled');
+                            if (this.m_bTrackNavigation)
+                                $(strPagePrefix + 'btn_next').href = 'javascript:void(0);';
+                        }
+
+                        const elPageLinks = $(strPagePrefix + 'links');
+                        elPageLinks.update('');
+                        // we always show first, last, + 3 page links closest to current page
+                        cPageLinksAheadBehind = 2;
+                        firstPageLink = Math.max(this.m_iCurrentPage - cPageLinksAheadBehind, 1);
+                        lastPageLink = Math.min(this.m_iCurrentPage + (cPageLinksAheadBehind * 2) + (firstPageLink - this.m_iCurrentPage), this.m_cMaxPages - 2);
+
+                        if (lastPageLink - this.m_iCurrentPage < cPageLinksAheadBehind)
+                            firstPageLink = Math.max(this.m_iCurrentPage - (cPageLinksAheadBehind * 2) + (lastPageLink - this.m_iCurrentPage), 1);
+
+                        this.AddPageLink(elPageLinks, 0);
+                        if (firstPageLink !== 1)
+                            elPageLinks.insert(' ... ');
+
+                        for (iPage = firstPageLink; iPage <= lastPageLink; iPage++) {
+                            this.AddPageLink(elPageLinks, iPage);
+                        }
+
+                        if (lastPageLink !== this.m_cMaxPages - 2)
+                            elPageLinks.insert(' ... ');
+                        this.AddPageLink(elPageLinks, this.m_cMaxPages - 1);
+                    }
+
+                    // update the dropdown list with the total.
+                    const $DropdownCtn = $J('#' + strPagePrefix + 'dropdown');
+                    let $Select = $DropdownCtn.children('select');
+
+                    if (!$Select.length) {
+                        $Select = $J('<select/>');
+                        const _this = this;
+                        $Select.change(function () {
+                            const $Select = $J(this);
+                            _this.GoToPage($Select.val());
+                        });
+                        $DropdownCtn.append($Select);
+                    }
+                    $Select.empty();
+                    var fnAddPageDropdown = function (iDropdownPage) {
+                        $Select.append($J('<option/>', {'value': iDropdownPage}).text(iDropdownPage >= 999 ? v_numberformat(iDropdownPage + 1) : iDropdownPage + 1));
+                    };
+                    cPageLinksAheadBehind = 10;
+                    firstPageLink = Math.max(this.m_iCurrentPage - cPageLinksAheadBehind, 1);
+                    lastPageLink = Math.min(this.m_iCurrentPage + (cPageLinksAheadBehind * 2) + (firstPageLink - this.m_iCurrentPage), this.m_cMaxPages - 2);
+                    if (lastPageLink - this.m_iCurrentPage < cPageLinksAheadBehind)
+                        firstPageLink = Math.max(this.m_iCurrentPage - (cPageLinksAheadBehind * 2) + (lastPageLink - this.m_iCurrentPage), 1);
+                    fnAddPageDropdown(0);
+                    if (firstPageLink !== 1)
+                        $Select.append($J('<option/>', {'value': '', 'disabled': 1}).text('...'));
+                    for (iPage = firstPageLink; iPage <= lastPageLink; iPage++) {
+                        fnAddPageDropdown(iPage);
+                    }
+                    if (lastPageLink !== this.m_cMaxPages - 2)
+                        $Select.append($J('<option/>', {'value': '', 'disabled': 1}).text('...'));
+                    fnAddPageDropdown(this.m_cMaxPages - 1);
+
+                    $Select.val(this.m_iCurrentPage);
+                }
+
+                this.m_cDropdownPages = this.m_cMaxPages;
+            },
+
+            AddPageLink: function (elPageLinks, iPage) {
+                let el;
+                if (this.m_bTrackNavigation)
+                    el = new Element('a', {
+                        'class': 'commentthread_pagelink',
+                        'href': UpdateParameterInCurrentURL('ctp', iPage + 1, ['tscn'])
+                    });
+                else
+                    el = new Element('span', {'class': 'commentthread_pagelink'});
+
+                el.update((iPage + 1));
+
+                const fnGoToPage = this.GoToPage.bind(this, iPage);
+
+                if (iPage === this.m_iCurrentPage)
+                    el.addClassName('active');
+                else
+                    el.observe('click', function (e) {
+                        e.stop();
+                        fnGoToPage();
+                    });
+
+                elPageLinks.insert(el);
+                elPageLinks.insert(' ');
+            },
+
+            Subscribe: function (fnOnSuccess, fnOnFail) {
+                const params = this.ParametersWithDefaults();
+                this.m_$SubscribeCheckbox.addClass('waiting');
+
+                const _this = this;
+                $J.post(this.GetActionURL('subscribe'), params)
+                    .done(function () {
+                        _this.OnSubscriptionChange(true, fnOnSuccess);
+                    })
+                    .fail(fnOnFail)
+                    .always(function () {
+                        _this.m_$SubscribeCheckbox.removeClass('waiting')
+                    });
+            },
+
+            Unsubscribe: function (fnOnSuccess, fnOnFail) {
+                const params = this.ParametersWithDefaults();
+                this.m_$SubscribeCheckbox.addClass('waiting');
+
+                const _this = this;
+                $J.post(this.GetActionURL('unsubscribe'), params)
+                    .done(function () {
+                        _this.OnSubscriptionChange(false, fnOnSuccess);
+                    })
+                    .fail(fnOnFail)
+                    .always(function () {
+                        _this.m_$SubscribeCheckbox.removeClass('waiting')
+                    });
+            },
+
+            m_rgSubscriptionUpdateHandlers: null,
+            OnSubscriptionChange: function (bSubscribed, fnProxy, transport) {
+                this.m_bSubscribed = bSubscribed;
+
+                if (fnProxy)
+                    fnProxy(transport);
+
+                this.UpdateSubscriptionDisplay();
+            },
+
+            UpdateSubscriptionDisplay: function () {
+                if (this.m_rgSubscriptionUpdateHandlers && this.m_rgSubscriptionUpdateHandlers.length) {
+                    for (let i = 0; i < this.m_rgSubscriptionUpdateHandlers.length; i++)
+                        (this.m_rgSubscriptionUpdateHandlers[i])();
+                }
+
+                if (this.m_bSubscribed)
+                    this.m_$SubscribeCheckbox.addClass('checked');
+                else
+                    this.m_$SubscribeCheckbox.removeClass('checked');
+
+                const elForumSubscribe = $('forum_subscribe_' + this.m_rgCommentData['feature2']);
+                const elForumUnsubscribe = $('forum_unsubscribe_' + this.m_rgCommentData['feature2']);
+                if (elForumSubscribe && elForumUnsubscribe) {
+                    if (this.m_bSubscribed) {
+                        elForumSubscribe.hide();
+                        elForumUnsubscribe.show();
+                    } else {
+                        elForumSubscribe.show();
+                        elForumUnsubscribe.hide();
+                    }
+                }
+            }
+        });
+        CCommentThread.RENDER_NEWPOST = 1;
+        CCommentThread.RENDER_GOTOPAGE = 2;
+        CCommentThread.RENDER_GOTOCOMMENT = 3;
+        CCommentThread.RENDER_DELETEDPOST = 4;
+        CCommentThread.RENDER_GOTOPAGE_HASHCHANGE = 5;
+        CCommentThread.RENDER_GOTOCOMMENT_HASHCHANGE = 6;
+
+        // static accessor
+        CCommentThread.DeleteComment = function( id, gidcomment )
+        {
+            if ( g_rgCommentThreads[id] )
+                g_rgCommentThreads[id].DeleteComment( gidcomment );
+        };
+        CCommentThread.UnDeleteComment = function( id, gidcomment )
+        {
+            if ( g_rgCommentThreads[id] )
+                g_rgCommentThreads[id].DeleteComment( gidcomment, true );
+        };
+        CCommentThread.MarkSpam = function( id, gidcomment, authorAccountID )
+        {
+            if ( g_rgCommentThreads[id] )
+                g_rgCommentThreads[id].MarkSpam( gidcomment, authorAccountID );
+        };
+        CCommentThread.ClearContentCheckFlag = function( id, gidcomment )
+        {
+            if ( g_rgCommentThreads[id] )
+                g_rgCommentThreads[id].ClearContentCheckFlag( gidcomment );
+        };
+        // static accessor
+        CCommentThread.EditComment = function( id, gidcomment )
+        {
+            if ( g_rgCommentThreads[id] )
+                g_rgCommentThreads[id].DisplayEditComment( gidcomment );
+        };
+        // static accessor
+        CCommentThread.VoteUp = function( id )
+        {
+            if ( g_rgCommentThreads[id] )
+                g_rgCommentThreads[id].VoteUp();
+        };
+        // static accessor
+        CCommentThread.UpdateAnswer = function( id, gidcomment, bExisting )
+        {
+            if ( g_rgCommentThreads[id] )
+                g_rgCommentThreads[id].UpdateAnswer( gidcomment, bExisting );
+        };
+        CCommentThread.FormattingHelpPopup = function( strCommentThreadType )
+        {
+            $J.get( 'https://steamcommunity.com/comment/' + strCommentThreadType + '/formattinghelp', {ajax:1} ).done( function(data) {
+                ShowAlertDialog( 'Formato de texto', data );
+            });
+        };
+        CCommentThread.ShowDeletedComment = function( id, gidcomment )
+        {
+            const elComment = $('comment_' + gidcomment);
+            var elDeletedComment = $('deleted_comment_' + gidcomment );
+            elComment.show();
+            elDeletedComment.hide();
+        };
+        CCommentThread.HideAndReport = function( id, gidcomment, bHide )
+        {
+            if ( g_rgCommentThreads[id] )
+                g_rgCommentThreads[id].HideAndReport( gidcomment, bHide );
+        };
+        CCommentThread.ShowHiddenComment = function( id, gidcomment )
+        {
+            const elComment = $('comment_' + gidcomment);
+            const elHiddenComment = $('hidden_comment_' + gidcomment);
+            elComment.show();
+            elHiddenComment.hide();
+        };
+
+
+        function levenshtein( a, b )
+        {
+            const alen = a.length;
+            const blen = b.length;
+            if (alen === 0) return blen;
+            if (blen === 0) return alen;
+            let tmp, i, j, prev, val, row, ma, mb, mc, md, bprev;
+
+            if (alen > blen) {
+                tmp = a;
+                a = b;
+                b = tmp;
+            }
+
+            row = new Int8Array(alen+1);
+            // init the row
+            for (i = 0; i <= alen; i++) {
+                row[i] = i;
+            }
+
+            // fill in the rest
+            for (i = 1; i <= blen; i++) {
+                prev = i;
+                bprev = b[i - 1]
+                for (j = 1; j <= alen; j++) {
+                    if (bprev === a[j - 1]) {
+                        val = row[j-1];
+                    } else {
+                        ma = prev+1;
+                        mb = row[j]+1;
+                        mc = ma - ((ma - mb) & ((mb - ma) >> 7));
+                        md = row[j-1]+1;
+                        val = mc - ((mc - md) & ((md - mc) >> 7));
+                    }
+                    row[j - 1] = prev;
+                    prev = val;
+                }
+                row[alen] = prev;
+            }
+            return row[alen];
+        }
+
+
+        let CGameSelector = Class.create({
+            bHaveSuggestions: false,
+            elInput: null,
+            elSuggestionsCtn: null,
+            elSuggestions: null,
+            fnOnClick: null,
+
+            elFocus: null,
+            nAppIDFocus: 0,
+            ShowSuggestions: function () {
+                if (!this.elSuggestionsCtn.visible() && this.bHaveSuggestions) {
+                    AlignMenu(this.elInput, this.elSuggestionsCtn, 'left', 'bottom', true);
+                    ShowWithFade(this.elSuggestionsCtn);
+                }
+            },
+
+            HideSuggestions: function () {
+                HideWithFade(this.elSuggestionsCtn);
+            },
+            ReceiveGameSelectResponse: function (value, transport) {
+                if (this.elInput.value === value) {
+
+                    const json = transport.responseJSON;
+                    this.UpdateListWithOptions(json);
+
+                }
+            },
+
+            UpdateListWithOptions: function (rgOptions) {
+                this.elSuggestions.update('');
+                this.elFocus = null;
+                if (rgOptions && rgOptions.length) {
+                    for (let i = 0; i < rgOptions.length; i++) {
+                        const elSuggestion = new Element('div', {'class': 'game_suggestion popup_menu_item'});
+                        $J(elSuggestion).text(rgOptions[i].name);
+
+                        elSuggestion.appid = rgOptions[i].appid;
+                        elSuggestion.fnOnSelect = this.fnOnClick.bind(null, this, rgOptions[i]);
+                        elSuggestion.observe('click', elSuggestion.fnOnSelect);
+                        elSuggestion.observe('mouseover', this.SetFocus.bind(this, elSuggestion));
+
+                        this.elSuggestions.insert({bottom: elSuggestion});
+
+                        if (this.nAppIDFocus === elSuggestion.appid)
+                            this.SetFocus(elSuggestion);
+                    }
+                    this.bHaveSuggestions = true;
+                    this.ShowSuggestions();
+                } else {
+                    this.bHaveSuggestions = false;
+                    this.HideSuggestions();
+                }
+            },
+
+
+            SetFocus: function (elSuggestion) {
+                if (this.elFocus)
+                    this.elFocus.removeClassName('focus');
+
+                this.elFocus = elSuggestion;
+                this.nAppIDFocus = elSuggestion.appid;
+                elSuggestion.addClassName('focus');
+            }
+
+
+        });
+        Class.create(CGameSelector, {
+            OnGameSelectTextEntry: function (elInput, value) {
+                if (value) {
+                    new Ajax.Request('https://steamcommunity.com/workshop/ajaxfindworkshops/?searchText=' + encodeURIComponent(value), {
+                        method: 'get',
+                        onSuccess: this.ReceiveGameSelectResponse.bind(this, value)
+                    });
+                } else {
+                    this.elSuggestions.update('');
+                    this.bHaveSuggestions = false;
+                }
+            }
+        });
+        CGameSelectorOwnedGames = Class.create( CGameSelector, {
+
+            m_bOwnedGamesReady: false,
+
+            initialize: function( $super, elInput, elSuggestionsCtn, elSuggestions, fnOnClick )
+            {
+                $super( elInput, elSuggestionsCtn, elSuggestions, fnOnClick );
+                CGameSelectorOwnedGames.LoadOwnedGames( this.OnOwnedGamesReady.bind( this ) );
+            },
+
+            OnOwnedGamesReady: function()
+            {
+                this.m_bOwnedGamesReady = true;
+                this.OnGameSelectTextEntry( this.elInput, this.elInput.value );
+            },
+
+            OnGameSelectTextEntry: function( elInput, value )
+            {
+                if ( value )
+                {
+                    if ( !this.m_bOwnedGamesReady )
+                    {
+                        this.elSuggestions.update( '<div style="text-align: center; width: 200px; padding: 5px 0;"><img src="https://community.cloudflare.steamstatic.com/public/images/login/throbber.gif"></div>' );
+                        this.bHaveSuggestions = true;
+                        this.ShowSuggestions();
+                    }
+                    else
+                    {
+                        const strSearchString = value.toLocaleLowerCase();
+                        const rgTerms = strSearchString.split(' ');
+                        const rgRegex = [];
+                        for (let iTerm = 0; iTerm < rgTerms.length; iTerm++ )
+                        {
+                            const term = V_EscapeRegExp(rgTerms[iTerm], 'i');
+                            rgRegex.push( new RegExp( term ) );
+                        }
+                        let rgMatchingGames = [];
+                        for (let i = 0; i < CGameSelectorOwnedGames.s_rgOwnedGames.length; i++ )
+                        {
+                            const game = CGameSelectorOwnedGames.s_rgOwnedGames[i];
+                            if ( !game.name || !game.name_normalized )
+                                continue;
+
+                            let bMatch = true;
+                            for (let iRegex = 0; iRegex < rgRegex.length; iRegex++ )
+                            {
+                                const regex = rgRegex[iRegex];
+                                if ( !game.name_normalized.match( regex ) && !game.name.match(regex) )
+                                {
+                                    bMatch = false;
+                                    break;
+                                }
+                            }
+                            if ( bMatch )
+                            {
+                                game.levenshtein = levenshtein( game.name.toLocaleLowerCase(), strSearchString );
+                                rgMatchingGames.push( game );
+                            }
+                        }
+
+                        rgMatchingGames.sort( function( a, b ) {
+                            if ( a.levenshtein === b.levenshtein )
+                            {
+                                return a.name.localeCompare( b.name );
+                            }
+                            return a.levenshtein - b.levenshtein;
+                        } );
+
+                        rgMatchingGames = rgMatchingGames.slice( 0, 10 );
+
+                        this.UpdateListWithOptions( rgMatchingGames );
+                    }
+                }
+                else
+                {
+                    this.elSuggestions.update('');
+                    this.bHaveSuggestions = false;
+                }
+            }
+
+        } );
+
+        CGameSelectorOwnedGames.s_rgOwnedGames = null;
+        CGameSelectorOwnedGames.s_bLoadInFlight = false;
+        CGameSelectorOwnedGames.s_rgOwnedGamesReadyCallbacks = [];
+        CGameSelectorOwnedGames.s_rgParams = {};
+        CGameSelectorOwnedGames.AreOwnedGamesLoaded = function()
+        {
+            return CGameSelectorOwnedGames.s_rgOwnedGames != null;
+        };
+        CGameSelectorOwnedGames.NormalizeGameNames = function( rgOwnedGames )
+        {
+            const regexNormalize = new RegExp(/[\s.-:!?,']+/g);
+            for(let i=0; i < rgOwnedGames.length; i++ )
+            {
+                const game = rgOwnedGames[i];
+                game.name_normalized = game.name.replace( regexNormalize, '' ).toLowerCase();
+            }
+        };
+        CGameSelectorOwnedGames.LoadOwnedGames = function( fnCallback )
+        {
+            if ( !CGameSelectorOwnedGames.AreOwnedGamesLoaded() )
+            {
+                CGameSelectorOwnedGames.s_rgOwnedGamesReadyCallbacks.push( fnCallback );
+
+                if ( CGameSelectorOwnedGames.s_bLoadInFlight )
+                    return;
+
+                CGameSelectorOwnedGames.s_bLoadInFlight = true;
+                const rgParams = CGameSelectorOwnedGames.s_rgParams;
+                rgParams['sessionid'] = g_sessionID;
+
+                new Ajax.Request( 'https://steamcommunity.com/actions/GetOwnedApps/', {
+                    method: 'get',
+                    parameters: rgParams,
+                    onSuccess: function( transport )
+                    {
+                        CGameSelectorOwnedGames.s_rgOwnedGames = transport.responseJSON || [];
+
+                        CGameSelectorOwnedGames.NormalizeGameNames( CGameSelectorOwnedGames.s_rgOwnedGames );
+                    },
+                    onFailure: function()
+                    {
+                        CGameSelectorOwnedGames.s_rgOwnedGames = [];
+                    },
+                    onComplete: function()
+                    {
+                        for ( var i = 0; i < CGameSelectorOwnedGames.s_rgOwnedGamesReadyCallbacks.length; i++ )
+                        {
+                            CGameSelectorOwnedGames.s_rgOwnedGamesReadyCallbacks[i]();
+                        }
+                    }
+                } );
+            }
+            else
+            {
+                // data is already ready
+                fnCallback();
+            }
+        };
+
+        CGameSelectorProfileShowcaseGames = Class.create( CGameSelectorOwnedGames, {
+            initialize: function( $super, elInput, elSuggestionsCtn, elSuggestions, fnOnClick, rgFilteredGames )
+            {
+                CGameSelectorOwnedGames.s_rgParams['for_showcase'] = 1;
+                if ( rgFilteredGames )
+                {
+                    CGameSelectorOwnedGames.s_rgOwnedGames = rgFilteredGames;
+                    CGameSelectorOwnedGames.NormalizeGameNames( CGameSelectorOwnedGames.s_rgOwnedGames );
+                }
+                $super( elInput, elSuggestionsCtn, elSuggestions, fnOnClick );
+            },
+        } );
+        function addEvent(el, ev, fn, useCapture)
+        {
+            if(el.addEventListener)
+            {
+                el.addEventListener(ev, fn, useCapture);
+            }
+            else if(el.attachEvent)
+            {
+                return el.attachEvent("on" + ev, fn);
+            }
+            else
+            {
+                el["on"+ev] = fn;
+            }
+        }
+        let updateInProgress = false;
+        function winDim(wh, vs)
+        {
+            if(window.innerWidth) // most browsers - ff, safari, etc
+            {
+                return (wh === 'w' ? (vs === 'v' ? window.innerWidth : window.pageXOffset) : (vs === 'v' ? window.innerHeight : window.pageYOffset));
+            }
+            else if(document.documentElement && document.documentElement.clientWidth) // ie strict
+            {
+                return (wh === 'w' ? (vs === 'v' ? document.documentElement.clientWidth : document.documentElement.scrollLeft) : (vs === 'v' ? document.documentElement.clientHeight : document.documentElement.scrollTop));
+            }
+            else // ie normal
+            {
+                return (wh === 'w' ? (vs === 'v' ? document.body.clientWidth : document.body.scrollLeft) : (vs === 'v' ? document.body.clientHeight : document.body.scrollTop));
+            }
+        }
+        function getPopPos(e, pw, ph, offset)
+        {
+            const w = winDim('w', 'v');
+            const h = winDim('h', 'v');
+            const sl = winDim('w', 's');
+            const st = winDim('h', 's');
+            // mouse x/y within viewport
+            const vmX = e.clientX;
+            const vmY = e.clientY;
+            // mouse x/y within document
+            const smX = vmX + sl;
+            const smY = vmY + st;
+            const l = (pw > vmX) ? (smX + offset) : (smX - pw - offset);
+            const t = (ph > vmY) ? (smY + offset) : (smY - ph - offset);
+            return [t, l];
+        }
+        function tooltipDestroy(go)
+        {
+            if ( go !== 1 )
+            {
+                setTimeout( "tooltipDestroy(1)", 10 );
+            }
+            else
+            {
+                var ttEl = document.getElementById('tooltip');
+                if(ttEl)
+                {
+                    ttEl.parentNode.removeChild(ttEl);
+                }
+            }
+        }
+
+        function getElement( elementId )
+        {
+            var elem;
+            if ( document.getElementById ) // standard compliant method
+                elem = document.getElementById( elementId );
+            else if ( document.all ) // old msie versions
+                elem = document.all[ elementId ];
+            else
+                elem = false;
+
+            return elem;
+        }
+
+        function setImage( elementId, strImage )
+        {
+            var imageElem = getElement( elementId );
+            if ( !imageElem )
+                return;
+
+            imageElem.src = strImage;
+        }
+
+        const gShareOnSteamDialog = null;
+
+        function CloseShareOnSteamDialog()
+        {
+            gShareOnSteamDialog.Dismiss();
+        }
+    }
+    function forum() {
+
+        let g_rgForumTopics = {};
+        let g_rgForumTopicCommentThreads = {};
+
+        const init = function InitializeForumTopic( rgForumData, url, gidTopic, rgRawData )
+        {
+            g_rgForumTopics[ gidTopic ] = new CForumTopic( rgForumData, url, gidTopic, rgRawData );
+        }
+
+        function Forum_DeleteTopic( gidTopic )
+        {
+            if ( g_rgForumTopics[ gidTopic ] )
+            {
+                var Topic = g_rgForumTopics[ gidTopic ];
+                if ( Topic.BCheckPermission( 'can_moderate' ) )
+                {
+                    Topic.Delete();
+                }
+                else
+                {
+                    ShowConfirmDialog('Eliminar hilo ',
+                        '¿Seguro que quieres eliminar este hilo? ' +
+                        'Solo un moderador puede deshacer esta acción.',
+                        'Eliminar hilo'
+                    ).done( function() {
+                        Topic.Delete();
+                    });
+                }
+            }
+        }
+
+        function Forum_PurgeTopic( gidTopic )
+        {
+            ShowConfirmDialog('Eliminar permanentemente ',
+                '¿Seguro que deseas eliminar permanentemente este tema? Esta acción no podrá deshacerse.',
+                'Eliminar permanentemente'
+            ).done( function() {
+                Forum_SetTopicFlag( gidTopic, 'purge', true );
+            });
+        }
+
+
+        function Forum_ClearContentCheckResult( gidTopic )
+        {
+            ShowConfirmDialog('Quitar marca de contenido bloqueable ',
+                '¿Seguro que quieres quitar la marca de contenido bloqueable a este tema? Esto es irreversible.',
+                'Quitar marca de contenido bloqueable'
+            ).done( function() {
+                Forum_SetTopicFlag( gidTopic, 'clearcontentcheckresult', true );
+            });
+        }
+
+        function Forum_BanCommenters( gidTopic )
+        {
+            ShowConfirmDialog('Bloquear comentaristas ',
+                '¿Seguro que quieres bloquear a los usuarios que han comentado más de 5 veces en este tema? Será difícil revertir esto.',
+                'Bloquear comentaristas'
+            ).done( function() {
+                Forum_SetTopicFlag( gidTopic, 'bancommenters', true );
+            });
+        }
+
+        function Forum_MarkSpam( gidTopic )
+        {
+            ShowConfirmDialog('Marcar como spam ',
+                'Esto eliminará los hilos seleccionados y bloqueará a los autores en el foro. ¿Seguro que es lo que quieres hacer?',
+                'Eliminar spam'
+            ).done( function() {
+                Forum_SetTopicFlag( gidTopic, 'markspam', true );
+            });
+        }
+
+
+        function Forum_ReportPost( gidTopic, author, gidComment )
+        {
+            if ( g_rgForumTopics[ gidTopic ] )
+                g_rgForumTopics[ gidTopic ].ReportPost( author, gidComment );
+        }
+
+        // block a user, with confirmation
+        function Forum_BlockUser( author, strPersonaName )
+        {
+            ShowConfirmDialog( 'Bloquear toda comunicación',
+                'Estás a punto de bloquear toda comunicación con %s.'.replace( /%s/, strPersonaName ),
+                'Sí, bloquéala'
+            ).done( function() {
+                $J.post(
+                    'https://steamcommunity.com/actions/BlockUserAjax',
+                    {sessionID: g_sessionID, steamid: author, block: 1 }
+                ).done( function() {
+                    ShowAlertDialog( 'Bloquear toda comunicación',
+                        'Has bloqueado todas las comunicaciones con este jugador.'
+                    ).done( function() {
+                        location.reload();
+                    } );
+                } ).fail( function() {
+                    ShowAlertDialog( 'Bloquear toda comunicación',
+                        'Error al procesar la solicitud. Inténtalo de nuevo.'
+                    );
+                } );
+            } );
+        }
+
+        function Forum_InitTooltips()
+        {
+            // Override default tooltips for forums
+            $J('.forum_topic[data-tooltip-forum], .forum_topic_link[data-tooltip-forum]').v_tooltip( {
+                'location':'bottom',
+                trackMouse: true,
+                'tooltipClass': 'forum_topic_tooltip',
+                offsetY: 6,
+                fadeSpeed: 0,
+                trackMouseCentered: false,
+                disableOnTouchDevice: true,
+                defaultType: 'html',
+                dataName: 'tooltipForum'
+            });
+
+        }
+
+        function Forum_InitPostAndCommentControls( container )
+        {
+            $element = container ? $J( container ).find('.forum_comment_action_trigger') : $J('.forum_comment_action_trigger');
+
+            $element.v_tooltip({'location':'bottom', 'destroyWhenDone': false, 'tooltipClass': 'forum_comment_action_menu', 'offsetY':0, 'offsetX': 1, 'horizontalSnap': 4, /*'tooltipParent': '#global_header .supernav_container',*/ 'correctForScreenSize': true});
+        }
+        Class.create( {
+
+            m_strName: null,
+            m_rgForumData: null,
+            m_strActionURL: null,
+            m_cPageSize: null,
+
+            m_cTotalCount: 0,
+            m_iCurrentPage: 0,
+            m_iInitialPage: 0,
+            m_cMaxPages: 0,
+            m_bLoading: false,
+            m_bSubmittingTopic: false,
+            m_bNewTopicFormDisplayed: false,
+            m_rgCreateTopicFlags: null,
+            OnTextInput: function( elTextArea )
+            {
+            },
+            GetActionURL: function( action )
+            {
+                let url = this.m_strActionURL + action + '/';
+                if ( this.m_rgForumData['feature'] )
+                    url += this.m_rgForumData['feature'] + '/';
+                return url;
+            },
+
+            OnAJAXComplete: function()
+            {
+                this.m_bLoading = false;
+            },
+
+            OnLocationChange: function( hash )
+            {
+                if ( hash.match( /^#p[0-9]+$/ ) )
+                {
+                    const iPage = parseInt(hash.substring(2)) - 1;
+                    if ( this.m_iCurrentPage !== iPage )
+                        this.GoToPage( iPage );
+                }
+                else if ( !hash )
+                {
+                    // reset to initial view
+                    this.GoToPage( this.m_iInitialPage );
+                }
+            },
+            m_nAjaxSequenceNumber: 0,
+            GoToPage: function( iPage, bForce )
+            {
+                if ( iPage >= this.m_cMaxPages || iPage < 0 || ( iPage == this.m_iCurrentPage && !bForce ) )
+                    return;
+
+                var params = {
+                    start: this.m_cPageSize * iPage,
+                    count: this.m_cPageSize
+                };
+                if ( this.m_rgForumData['extended_data'] )
+                    params['extended_data'] = this.m_rgForumData['extended_data'];
+
+                this.m_bLoading = true;
+                new Ajax.Request( this.GetActionURL( 'render' ), {
+                    method: 'get',
+                    parameters: params,
+                    onSuccess: this.OnResponseRenderTopics.bind( this, ++this.m_nAjaxSequenceNumber ),
+                    onComplete: this.OnAJAXComplete.bind( this )
+                });
+            },
+
+            OnResponseRenderTopics: function( nSequenceNumber, transport )
+            {
+                if ( nSequenceNumber !== this.m_nAjaxSequenceNumber )
+                {
+                    return;
+                }
+
+                if ( transport.responseJSON )
+                {
+                    const response = transport.responseJSON;
+                    this.m_cTotalCount = response.total_count;
+                    this.m_cMaxPages = Math.ceil( response.total_count / this.m_cPageSize );
+                    this.m_iCurrentPage = Math.floor( response.start / this.m_cPageSize );
+
+                    if ( this.m_cTotalCount <= response.start )
+                    {
+                        // this page is no logner valid, flip back a page (deferred so that the AJAX handler exits and reset m_bLoading)
+                        this.GoToPage.bind( this, this.m_iCurrentPage - 1 ).defer();
+                        return;
+                    }
+
+                    const elTopics = $('forum_' + this.m_strName + '_topics');
+                    $('forum_' + this.m_strName + '_topiccontainer' );
+                    elTopics.update( response.topics_html );
+
+
+                    if ( window.history && window.history.pushState )
+                    {
+                        var params = window.location.search.length ? $J.deparam( window.location.search.substr(1) ) : {};
+                        var urlpage = params['fp'] ? params['fp'] - 1 : 0;
+                        if ( urlpage != this.m_iCurrentPage )
+                        {
+                            window.history.pushState( { forum_page: this.m_iCurrentPage }, '', UpdateParameterInCurrentURL( 'fp', this.m_iCurrentPage == 0 ? null : this.m_iCurrentPage + 1 ) );
+                        }
+                    }
+                    else if ( this.m_iCurrentPage != this.m_iInitialPage || window.location.hash.length > 1)
+                    {
+                        if ( this.m_iCurrentPage != this.m_iInitialPage )
+                            window.location.hash = 'p' + ( this.m_iCurrentPage + 1);
+                        else
+                            window.location.hash = '';
+                    }
+
+                    ScrollToIfNotInView($('forum_' + this.m_strName + '_area' ), 40 );
+
+                    this.UpdatePagingDisplay();
+                    Forum_InitTooltips();
+                }
+            },
+
+            UpdatePagingDisplay: function()
+            {
+                var strPrefix = 'forum_' + this.m_strName;
+
+
+                var rgPagingControls = [ strPrefix + '_page' , strPrefix + '_footerpage' ];
+                for ( var i = 0; i < rgPagingControls.length; i++ )
+                {
+                    var strPagePrefix = rgPagingControls[i];
+
+                    // we may not always show both sets of controls
+                    if ( !$(strPagePrefix + 'controls' ) )
+                        continue;
+
+                    $(strPagePrefix + 'total').update( v_numberformat( this.m_cTotalCount ) );
+                    $(strPagePrefix + 'start').update( v_numberformat( this.m_iCurrentPage * this.m_cPageSize + 1 ) );
+                    $(strPagePrefix + 'end').update( Math.min( ( this.m_iCurrentPage + 1 ) * this.m_cPageSize, this.m_cTotalCount ) );
+
+
+                    if ( this.m_cMaxPages <= 1 )
+                    {
+                        $(strPagePrefix + 'controls').hide();
+                    }
+                    else
+                    {
+                        $(strPagePrefix + 'controls').show();
+                        if ( this.m_iCurrentPage > 0 )
+                            $(strPagePrefix + 'btn_prev').removeClassName('disabled');
+                        else
+                            $(strPagePrefix + 'btn_prev').addClassName('disabled');
+
+                        if ( this.m_iCurrentPage < this.m_cMaxPages - 1 )
+                            $(strPagePrefix + 'btn_next').removeClassName('disabled');
+                        else
+                        {
+                            $(strPagePrefix + 'btn_next').addClassName('disabled');
+                            $J('#' + strPrefix + '_searchformore').show();
+                        }
+
+                        var elPageLinks = $(strPagePrefix + 'links');
+                        elPageLinks.update('');
+                        // we always show first, last, + 3 page links closest to current page
+                        const cPageLinksAheadBehind = 2;
+                        let firstPageLink = Math.max(this.m_iCurrentPage - cPageLinksAheadBehind, 1);
+                        const lastPageLink = Math.min(this.m_iCurrentPage + (cPageLinksAheadBehind * 2) + (firstPageLink - this.m_iCurrentPage), this.m_cMaxPages - 2);
+
+                        if ( lastPageLink - this.m_iCurrentPage < cPageLinksAheadBehind )
+                            firstPageLink = Math.max( this.m_iCurrentPage - (cPageLinksAheadBehind*2) + ( lastPageLink - this.m_iCurrentPage ), 1 );
+
+                        this.AddPageLink( elPageLinks, 0 );
+                        if ( firstPageLink !== 1 )
+                            elPageLinks.insert( ' ... ' );
+
+                        for ( var iPage = firstPageLink; iPage <= lastPageLink; iPage++ )
+                        {
+                            this.AddPageLink( elPageLinks, iPage );
+                        }
+
+                        if ( lastPageLink != this.m_cMaxPages - 2 )
+                            elPageLinks.insert( ' ... ' );
+                        this.AddPageLink( elPageLinks, this.m_cMaxPages - 1 );
+                    }
+                }
+            },
+
+            AddPageLink: function( elPageLinks, iPage )
+            {
+                const el = new Element('a', {
+                    'class': 'forum_paging_pagelink',
+                    'href': UpdateParameterInCurrentURL('fp', iPage ? iPage + 1 : null)
+                });
+                el.update( (iPage + 1) + ' ' );
+
+                const fnGoToPage = this.GoToPage.bind(this, iPage);
+
+                if ( iPage === this.m_iCurrentPage )
+                    el.addClassName( 'active' );
+                else
+                    $J(el).on('click', function(e) { e.preventDefault(); fnGoToPage();  });
+
+                elPageLinks.insert( el );
+            }
+        } );
+        g_rgForumTopics = {};
+        g_rgForumTopicCommentThreads = {};
+
+        function RegisterForumTopicCommentThread( gidTopic, CommentThread )
+        {
+            g_rgForumTopicCommentThreads[ gidTopic ] = CommentThread;
+        }
+        function Forum_SetTopicFlag( gidTopic, flag, value )
+        {
+            if ( g_rgForumTopics[ gidTopic ] )
+                g_rgForumTopics[ gidTopic ].SetTopicFlag( flag, value );
+        }
+        function ShowForumSuccessDialog( strTitle, strDetails )
+        {
+            ShowForumSuccessDialogWithDetailTitle( strTitle, null, strDetails );
+        }
+
+        function ShowForumSuccessDialogWithDetailTitle( strTitle, strDetailTitle, strDetails )
+        {
+            const $Content = $J('<div/>');
+
+            if ( strDetailTitle )
+                $Content.append( $J('<h2/>', {'class': 'forum_modal_detailtitle'} ).html( strDetailTitle ) );
+
+            $Content.append( $J('<div/>' ).html(strDetails) );
+            const Modal = ShowAlertDialog(strTitle, $Content);
+            Modal.GetContent().css( 'width', '400px' );
+
+        }
+        Class.create({
+
+            m_rgForumData: null,
+            m_strActionURL: null,
+            m_gidForumTopic: null,
+            m_rgRawData: null,	//raw text and author data, for editing/quoting
+
+            m_bAJAXInFlight: false,
+
+            // for editing
+            m_elTextArea: null,
+            m_oTextAreaSizer: null,
+            GetActionURL: function (action) {
+                var url = this.m_strActionURL + action + '/';
+                if (this.m_rgForumData['feature'])
+                    url += this.m_rgForumData['feature'] + '/';
+                return url;
+            },
+
+            ParametersWithDefaults: function (params) {
+                if (!params)
+                    params = {};
+
+                params['gidforumtopic'] = this.m_gidForumTopic;
+                params['sessionid'] = g_sessionID;
+
+                return params;
+            },
+            SetTopicFlag: function (flag, value) {
+                if (this.m_bAJAXInFlight)
+                    return;
+
+                this.m_bAJAXInFlight = true;
+
+                let fnOnSuccess = function () {
+                    window.location.reload();
+                };
+                if (flag === 'purge')
+                    fnOnSuccess = this.RedirectToTopicListPage.bind(this);
+
+                new Ajax.Request(this.GetActionURL('moderatetopic'), {
+                    method: 'post',
+                    parameters: this.ParametersWithDefaults({action: 'setflag', flag: flag, value: value}),
+                    onSuccess: fnOnSuccess,
+                    onFailure: this.OnModeratorActionFailed.bind(this)
+                });
+            },
+            OnReportPostSuccess: function () {
+                ShowForumSuccessDialogWithDetailTitle('Denunciar', 'Gracias por informar', 'Tu denuncia ha sido enviada a los moderadores para su revisión. Te lo haremos saber si tomamos medidas.');
+            },
+            RedirectToTopicListPage: function () {
+                window.location = this.m_rgForumData['forum_url'];
+            },
+
+            OnModeratorActionFailed: function (transport) {
+                this.m_bAJAXInFlight = false;
+                if (transport.responseJSON && 'msg' in transport.responseJSON) {
+                    ShowForumSuccessDialog('', 'Error al cambiar el tema. Mensaje de error:' +
+                        "<br><br>" + transport.responseJSON.msg);
+                } else {
+                    ShowForumSuccessDialog('', 'No se ha podido modificar el tema. Por favor, inténtalo de nuevo más tarde.');
+                }
+            },
+
+            RecordTopicViewed: function (timelastpost) {
+                // fire and forget (success sets a cookie)
+                new Ajax.Request(this.GetActionURL('recordtopicviewed'), {
+                    method: 'post',
+                    parameters: this.ParametersWithDefaults({timelastpost: timelastpost ? timelastpost + 1 : 0})
+                });
+            },
+
+            Subscribe: function (fnExternalOnSuccess) {
+                if (g_rgForumTopicCommentThreads[this.m_gidForumTopic]) {
+                    var fnSuccess = function () {
+                        ShowForumSuccessDialogWithDetailTitle('Suscribirse a discusión', 'Has sido suscrito a esta discusión.', 'Recibirás una notificación de comentario cada vez que alguien responda a esta discusión.');
+                        fnExternalOnSuccess();
+                    };
+                    var fnFail = ShowForumSuccessDialog.bind(null, 'Suscribirse a discusión', 'Lo sentimos, no podemos suscribirte a esta discusión. Por favor, inténtalo de nuevo más tarde.');
+                    g_rgForumTopicCommentThreads[this.m_gidForumTopic].Subscribe(fnSuccess, fnFail);
+                }
+            },
+
+            Unsubscribe: function (fnExternalOnSuccess) {
+                if (g_rgForumTopicCommentThreads[this.m_gidForumTopic]) {
+                    var fnSuccess = function () {
+                        ShowForumSuccessDialogWithDetailTitle('Anular suscripción a discusión', 'Tu suscripción a esta discusión ha sido anulada.', 'Ya no recibirás más notificaciones de comentarios de esta discusión.');
+                        fnExternalOnSuccess();
+                    };
+                    var fnFail = ShowForumSuccessDialog.bind(null, 'Anular suscripción a discusión', 'Lo sentimos, no hemos podido anular la suscripción a esta discusión. Por favor, inténtalo de nuevo más tarde.');
+                    g_rgForumTopicCommentThreads[this.m_gidForumTopic].Unsubscribe(fnSuccess, fnFail);
+                }
+            },
+            BCheckPermission: function (strPermissionName) {
+                return this.m_rgForumData.permissions && this.m_rgForumData.permissions[strPermissionName] === 1;
+            }
+
+        });
+        Class.create(CCommentThread, {
+
+            m_iInitialPage: 0,
+
+            initialize: function ($super, type, name, rgCommentData, url, quoteBoxHeight) {
+                $super(type, name, rgCommentData, url, quoteBoxHeight);
+
+                this.m_iInitialPage = this.m_iCurrentPage;
+
+                // watch for incoming # urls
+                BindOnHashChange(this.OnLocationChange.bind(this));
+                this.OnLocationChange(window.location.hash);
+
+                if (this.m_rgCommentData && this.m_rgCommentData.lastvisit) {
+                    var rgNewComments = $$('.commentthread_newcomment');
+                    if (rgNewComments.length > 0) {
+                        ScrollToIfNotInView(rgNewComments[0], 5000, 36);
+                    }
+                }
+
+                RegisterForumTopicCommentThread(this.m_rgCommentData['feature2'], this);
+            },
+
+            GetForumTopic: function () {
+                return g_rgForumTopics[this.m_rgCommentData.feature2];
+            },
+
+            OnLocationChange: function (hash) {
+                if (hash.match(/^#c[0-9]+$/)) {
+                    var gidComment = hash.substring(2);
+                    if (!$('comment_' + gidComment))
+                        this.GoToPageWithComment(gidComment, CCommentThread.RENDER_GOTOCOMMENT_HASHCHANGE);
+                    else
+                        this.UpdatePermLinkHighlight();
+                } else if (hash.match(/^#p[0-9]+$/)) {
+                    var iPage = parseInt(hash.substring(2)) - 1;
+                    if (this.m_iCurrentPage !== iPage)
+                        this.GoToPage(iPage, CCommentThread.RENDER_GOTOPAGE_HASHCHANGE);
+                } else if (!hash) {
+                    // reset to initial view
+                    //this.GoToPage( this.m_iInitialPage );
+                    this.UpdatePermLinkHighlight();
+                }
+            },
+
+            UpdatePermLinkHighlight: function () {
+                const elContainer = $('commentthread_' + this.m_strName + '_posts');
+                elContainer.childElements().invoke('removeClassName', 'permlinked');
+
+                const hash = window.location.hash;
+                if (hash && hash.length > 2 && hash.match(/#c[0-9]+/)) {
+                    const elComment = $('comment_' + hash.substring(2));
+                    const elDeletedComment = $('deleted_comment_' + hash.substring(2));
+                    if (elComment) {
+                        if (elDeletedComment) {
+                            elDeletedComment.hide();
+                            elComment.show();
+                        }
+                        elComment.addClassName('permlinked');
+                        ScrollToIfNotInView.defer(elComment, 5000, 36);
+                    }
+                }
+            },
+
+            /* override to get rid of animation */
+            DoTransitionToNewPosts: function (response, eRenderReason) {
+                var strNewHTML = response.comments_html;
+
+                var elPosts = $('commentthread_' + this.m_strName + '_posts');
+                var elContainer = $('commentthread_' + this.m_strName + '_postcontainer');
+                var elArea = $('commentthread_' + this.m_strName + '_area');
+
+                var topic = g_rgForumTopics[this.m_rgCommentData['feature2']];
+
+                var bNewPost = (eRenderReason === CCommentThread.RENDER_NEWPOST);
+
+                // new posts get an animation, anything else just gets snapped in
+                elContainer.style.height = elContainer.getHeight() + 'px';
+
+                elPosts.update(strNewHTML);
+                Forum_InitPostAndCommentControls(elPosts);
+
+                if (eRenderReason === CCommentThread.RENDER_GOTOPAGE || eRenderReason === CCommentThread.RENDER_NEWPOST) {
+                    if ((!window.history || !window.history.pushState) && (this.m_iCurrentPage !== this.m_iInitialPage || window.location.hash.length > 1))
+                        window.location.hash = 'p' + (this.m_iCurrentPage + 1);
+                } else
+                    this.UpdatePermLinkHighlight();
+
+                if (bNewPost) {
+                    if (elContainer.effect)
+                        elContainer.effect.cancel();
+
+                    window.setTimeout(function () {
+                        elContainer.effect = new Effect.Morph(elContainer, {
+                            style: 'height: ' + elPosts.getHeight() + 'px',
+                            duration: 0.25,
+                            afterFinish: function () {
+                                elPosts.style.position = 'static';
+                                elContainer.style.height = 'auto';
+                            }
+                        });
+                    }, 10);
+                } else {
+                    elContainer.style.height = '';
+                    if (eRenderReason !== CCommentThread.RENDER_GOTOCOMMENT && eRenderReason !== CCommentThread.RENDER_GOTOCOMMENT_HASHCHANGE && eRenderReason !== CCommentThread.RENDER_DELETEDPOST && eRenderReason !== CCommentThread.RENDER_GOTOPAGE_HASHCHANGE)
+                        ScrollToIfNotInView.defer(elArea, 80, 40);
+                }
+
+                if (this.m_iCurrentPage === this.m_cMaxPages - 1) {
+                    if (topic)
+                        topic.RecordTopicViewed(response.timelastpost);
+                }
+
+            },
+
+
+            DeleteComment: function ($super, gidComment, bUndelete, fnOnSuccess) {
+                if (fnOnSuccess) {
+                    // special global reports mode
+                    $super(gidComment, bUndelete, fnOnSuccess);
+                    return;
+                }
+                const Topic = this.GetForumTopic();
+                const bIsModerator = Topic && Topic.BCheckPermission('can_moderate');
+
+                const fnOnConfirm = $super.bind(this, gidComment, bUndelete);
+                if (!bUndelete && !bIsModerator) {
+                    ShowConfirmDialog('', '¿Seguro que quieres borrar este mensaje?', 'Borrar')
+                        .done(function () {
+                            fnOnConfirm();
+                        });
+                } else {
+                    // no confirmation for undeleting or for moderators (who can just undo the delete if they decide it was a bad idea
+                    fnOnConfirm();
+                }
+            }
+
+        });
+        function Forum_SetMoveTopicClan( clanidowner, appidowner )
+        {
+            const form = $('forum_movetopic_form');
+            let rgReloadParams = null;
+            if ( clanidowner )
+            {
+                if ( form.elements['destination_clanidowner'].value !== clanidowner )
+                {
+                    form.elements['destination_clanidowner'].value = clanidowner;
+                    form.elements['destination_appidowner'].value = '';
+                    rgReloadParams = { destination_clanid: clanidowner };
+                }
+            }
+            else if ( appidowner )
+            {
+                if ( form.elements['destination_appidowner'].value !== appidowner )
+                {
+                    form.elements['destination_clanidowner'].value = '';
+                    form.elements['destination_appidowner'].value = appidowner;
+                    rgReloadParams = { destination_appid: appidowner };
+                }
+            }
+
+            if ( rgReloadParams )
+            {
+                $(form.elements['destination_gidforum']).hide();
+                $('forum_movetopic_destination_throbber').show();
+                $('forum_movetopic_destinationclan') && $('forum_movetopic_destinationclan').update('&nbsp;');
+                $('forum_movetopic_destination_unavailable').hide();
+                rgReloadParams['sessionid'] = g_sessionID;
+
+                new Ajax.Request( 'https://steamcommunity.com/forum/0/General/gettopicdestinations/', {
+                    method: 'get',
+                    parameters: rgReloadParams,
+                    onSuccess: Forum_OnMoveTopicDestinations.bind( null, clanidowner, appidowner ),
+                    onFailure: Forum_OnMoveTopicDestinationsFailed.bind( null, clanidowner, appidowner )
+                } );
+            }
+        }
+
+        function Forum_OnMoveTopicSelectGame( GameSelector, rgAppData )
+        {
+            $('associate_game').value='';
+
+            Forum_SetMoveTopicClan( false, rgAppData.appid );
+        }
+
+        function Forum_OnMoveTopicDestinations( clanidowner, appidowner, transport )
+        {
+            const form = $('forum_movetopic_form');
+            if ( ( !clanidowner || form.elements['destination_clanidowner'].value === clanidowner ) &&
+                ( !appidowner || form.elements['destination_appidowner'].value === appidowner ) )
+            {
+                $('forum_movetopic_destination_throbber').hide();
+                const $Select = $J(form.elements['destination_gidforum']);
+                $Select.html('');
+                const rgForums = transport.responseJSON.rgForums;
+                if ( rgForums && rgForums.length > 0 )
+                {
+                    for (let i = 0; i < rgForums.length; i++ )
+                    {
+                        const rgForum = rgForums[i];
+                        const $Option = $J('<option/>', {value: rgForum.gidforum});
+                        $Option.text( rgForum.name );
+                        $Select.append( $Option );
+                    }
+                }
+                else
+                {
+                    Forum_OnMoveTopicDestinationsFailed( clanidowner, appidowner, transport );
+                    return;
+                }
+
+                const elName = $('forum_movetopic_destinationclan');
+                if ( elName )
+                    elName.update( transport.responseJSON.strName );
+
+                $Select.show();
+                $Select.focus();
+                $('submit_move_topic_button').show();
+            }
+        }
+
+        function Forum_OnMoveTopicDestinationsFailed( clanidowner, appidowner, transport )
+        {
+            const form = $('forum_movetopic_form');
+            if ( ( !clanidowner || form.elements['destination_clanidowner'].value === clanidowner ) &&
+                ( !appidowner || form.elements['destination_appidowner'].value === appidowner ) )
+            {
+                $('forum_movetopic_destination_throbber').hide();
+                $(form.elements['destination_gidforum']).hide();
+                $('forum_movetopic_destination_unavailable').show();
+                $('submit_move_topic_button').hide();
+            }
+        }
+        function Forum_InitExpiryOptions( $Select )
+        {
+            var nLastExpiryChoice = WebStorage.GetLocal( 'nForumLastExpiryChoice', false ) || 0;
+            $Select.val( nLastExpiryChoice );
+
+            $Select.off( 'change.ForumRememberChoice' );
+            $Select.on( 'change.ForumRememberChoice', function() {
+                WebStorage.SetLocal( 'nForumLastExpiryChoice', $Select.val() );
+            });
+        }
+        $J( function($) {
+            Forum_InitPostAndCommentControls();
+        });
+
+    }
+    /*
+        Constants
+    */
+    const COMMENTS_PAGE = "https://steamcommunity.com/my/commenthistory"; // URL to page with comments
+    const FORUM_JS_LOAD_TIMEOUT = 10000; // ms
+    const USER_STEAM_PROFILE_URL = jQuery("#global_actions > a").attr("href").replace(/\/$/, ""); // https://steamcommunity.com/id/$ID
+    const PAGE_REQUESTS_INTERVAL = 1000; // ms
+    const TIMESTAMP_DIFF = 3; // Maximum difference between timestamps
+    const REGEXP =
+        {
+            "body": /<body.{1,}?>([.\s\S]{1,})<\/body>/, // Body innerHTML (No depending on attributes)
+            "link": /^(.{1,}?)(?:\?(.{1,}?))?$/, // Link -> url + data
+            "initFTopic": /InitializeForumTopic\s?\([^"]+?(?:"[^"]+?"[^"]+?)+?[^"]+?\);/, // Protected from ); in quotes
+            "initCThread": /InitializeCommentThread\s?\([^"]+?(?:"[^"]+?"[^"]+?)+?[^"]+?\);/ // Protected from ); in quotes
+        };
+
+    /*
+        Utility
+    */
+    let pages_amount = jQuery(".pageLinks .pagelink:last").html(); // Amount of pages
+    if (!pages_amount) {
+        pages_amount = 1;
+    } else {
+        pages_amount = +(pages_amount);
+    }
+    const pages = []; // Array with page bodies
+    const comments = []; // Array with comments to clean
+
+    const execute = function (txt) // Replacer to eval to be able to see commands printed
+    {
+        if (PRINT_EXECUTED_COMMANDS) {
+            console.log('%c ' + txt, style);
+        }
+        eval(txt);
+    };
+
+    /*
+        Functions
+    */
+    const loadPagesFrom = function (fromPageNumber, callback) // Loading page body with comments and adding it to pages as div
+    {
+        if (fromPageNumber > pages_amount || (LAST_PAGE_TO_CLEAR !== -1 && fromPageNumber > LAST_PAGE_TO_CLEAR)) {
+            console.log("%c    Loaded pages", style);
+            console.log('%c ' + pages, style);
+            if (typeof callback == "function") {
+                callback();
+            }
+            return;
+        }
+        console.log("%c    Loading page #" + fromPageNumber, style);
+        if (location.search.match(new RegExp("p=" + fromPageNumber)) || fromPageNumber === 1) {
+            var elem = document.createElement("div");
+            elem.innerHTML = document.body.innerHTML;
+            pages.push(elem);
+            console.log("%c    Loaded page #" + fromPageNumber, style);
+            loadPagesFrom(fromPageNumber + 1, callback);
+            return;
+        }
+
+        let search = location.search.replace(/\?/, ""); // Delete first ? if it exists
+        if (search) {
+            // Search is not empty
+            if (search.match(/p=[0-9]+/)) {
+                // Page number is already stated (it must be 1)
+                search = search.replace(/p=[0-9]+/, "p=" + fromPageNumber)
+            } else {
+                // No page number but have some search parameters
+                search += "&p=" + fromPageNumber;
+            }
+        } else {
+            // empty search
+            search = "p=" + fromPageNumber;
+        }
+        jQuery.ajax({
+            "success": function (data, status) {
+                const inner = data.match(REGEXP.body)[1];
+                const elem = document.createElement("div");
+                elem.innerHTML = inner;
+                pages.push(elem);
+                console.log("%c    Loaded page #" + fromPageNumber, style);
+                loadPagesFrom(fromPageNumber + 1, callback);
+            },
+            "fail": function () {
+                console.error("    !!!Unable to load page");
+            },
+            "data": search,
+            "method": "GET",
+            "url": COMMENTS_PAGE
+        });
+    };
+
+    const loadURLsFrom = function (fromPageNumber, callback) // Loading URLs and adding them to comments as objects
+    {
+        if (fromPageNumber > pages.length) {
+            console.log("%c    Loaded URLs", style);
+            console.log('%c '+ comments, style);
+            if (typeof callback == "function") {
+                callback();
+            }
+            return;
+        }
+        jQuery(pages[fromPageNumber - 1]).find(".commenthistory_comment .comment_item_title a").each(function (index, a) {
+            const info = {}; // Info about comment
+            let link = a.href;
+            link = link.replace(/#/, "/"); // Getting rid of # (replacable with /)
+            info["isForum"] = !!link.match(/\/discussions\//);
+            const m = link.match(REGEXP.link);
+            info["link"] = link; // Full link
+            info["url"] = m[1]; // Link with no GET arguments
+            info["data"] = m[2]; // GET arguments (key=val&key=val...)
+            if (info["data"] && info["data"].match(/tscn=[0-9]+/)) {
+                info["timestamp"] = info["data"].match(/tscn=([0-9]+)/)[1]; // Timestamp
+            }
+            if (info["isForum"]) {
+                info["isForumTopic"] = !(info["data"] && info["data"].match(/tscn=/));
+            }
+            info["text"] = jQuery(a).closest(".commenthistory_comment").find(".comment_text").text().replace(/\s/g, "");
+            comments.push(info);
+        });
+        console.log("%c    Loaded URLs from page #" + (fromPageNumber + FIRST_PAGE_TO_CLEAR - 1), style);
+        loadURLsFrom(fromPageNumber + 1, callback);
+    };
+
+    let cleaned = 0;
+    const clearURLfromIndex = function (index, callback) // Clearing comment form comments array by its index
+    {
+        if (index >= comments.length) {
+            console.log("%c    Cleared URLs", style);
+            console.log('%c ' + comments, style);
+            if (typeof callback == "function") {
+                window.location.hash = ""; // Removing previously set hash
+                callback();
+            }
+            return;
+        }
+        window.location.hash = "#p0"; // Can't initialize Comment thread without this hash (Crutch ._ .)
+        jQuery.ajax({
+            "success": function (data, status) {
+                 // Comments on the page by user
+                let ifFoundComment;
+                let initCThread;
+                try {
+                    comments[index]["html"] = document.createElement("div");
+                    comments[index]["html"].innerHTML = data;
+                    if (jQuery(comments[index]["html"]).find("#message").length) {
+                        throw new Error(jQuery(comments[index]["html"]).find("#message").text());
+                    }
+                    if (comments[index]["isForum"]) {
+                        let initFTopic = jQuery(comments[index]["html"]).find("script:contains(InitializeForumTopic)").html(); // Code to be executed
+                        initFTopic = initFTopic.match(REGEXP.initFTopic)[0]; // Getting main command
+                        execute(initFTopic);
+                        let initCThread = jQuery(comments[index]["html"]).find("script:contains(InitializeCommentThread)").html(); // Code to be executed
+                        initCThread = initCThread.match(REGEXP.initCThread)[0]; // Getting main command
+                        initCThread = initCThread.replace(/\{/, "{\"no_paging\": true, "); // Adding no paging to prevent error
+                        execute(initCThread);
+                        if (comments[index]["isForumTopic"]) {
+                            // Topic
+                            var deleteTopic = jQuery(comments[index]["html"]).find(".forum_op a[href*=\"DeleteTopic\"]");
+                            var argument = jQuery(deleteTopic).attr("href").match(/\(([.\s\S]{1,}?)\)/)[1].replace(/[\s'"]/g, "");
+                            new Ajax.Request(
+                                g_rgForumTopics[argument].GetActionURL("deletetopic"), {
+                                    "method": "POST",
+                                    "parameters": g_rgForumTopics[argument].ParametersWithDefaults()
+                                });
+                        } else {
+                            // Message
+                            const messagesByUser = jQuery(comments[index]["html"]).find(".commentthread_comment .commentthread_comment_avatar a[href*=\"" + USER_STEAM_PROFILE_URL + "\"]").closest(".commentthread_comment"); // Messages on the page by user
+                            messagesByUser.each(function (i, message) {
+                                const text = jQuery(message).find(".commentthread_comment_text").text().replace(/\s/g, ""); // innerText of message
+                                const timestamp = jQuery(message).find(".commentthread_comment_timestamp").attr("data-timestamp"); // Timestamp of message
+                                if (text === comments[index]["text"] && Math.abs(+(timestamp) - +(comments[index]["timestamp"])) < TIMESTAMP_DIFF) {
+                                    let deleteComment = jQuery(message).find("a[href*=\"DeleteComment\"]").attr("href");
+                                    if (!deleteComment) {
+                                        throw new Error("\nWas unable to find \"Delete\" button. Possibly you can't delete message from this group\n");
+                                    }
+                                    deleteComment = deleteComment.replace(/javascript:/, "");
+                                    const arguments = deleteComment.match(/\(([.\s\S]{1,}?),([.\s\S]{1,}?)\)/); // Arguments
+                                    // arguments looks like: " 'STRING' ". It may have [\s'"] in it
+                                    execute("g_rgCommentThreads[" + arguments[1] + "].GetForumTopic().m_rgForumData.permissions.can_moderate = 1;"); // Need to prevent confirmation (execute is used just to be able to replace it with console.log. Also this is effective as we keep argument as it was at DeleteComment())
+                                    execute("g_rgCommentThreads[" + arguments[1] + "].DeleteComment(" + arguments[2] + ");");
+                                    ifFoundComment = true;
+                                    return false; // break
+                                }
+                            });
+                        }
+                    } else {
+                        // Comment
+                        if (comments[index]["url"].match(/\/id\//) && !jQuery(comments[index]["html"]).find(".commentthread_comments").length) {
+                            throw new Error("\nCan not delete comment. As profile owner locked his page and deleted you from friends\n");
+                        }
+                        initCThread = jQuery(comments[index]["html"]).find("script:contains(InitializeCommentThread)").html(); // Code to be executed
+                        initCThread = initCThread.match(REGEXP.initCThread)[0]; // Getting main command
+                        initCThread = initCThread.replace(/\{/, "{\"no_paging\": true, "); // Adding no paging to prevent error
+                        execute(initCThread);
+                        const commentsByUser = jQuery(comments[index]["html"]).find(".commentthread_comment .commentthread_comment_avatar a[href*=\"" + USER_STEAM_PROFILE_URL + "\"]").closest(".commentthread_comment");
+                        ifFoundComment = false;
+                        commentsByUser.each(function (i, comment) {
+                            const text = jQuery(comment).find(".commentthread_comment_text").text().replace(/\s/g, ""); // innerText of comment
+                            const timestamp = jQuery(comment).find(".commentthread_comment_timestamp").attr("data-timestamp"); // Timestamp of comment
+                            if (text === comments[index]["text"] && Math.abs(+(timestamp) - +(comments[index]["timestamp"])) < TIMESTAMP_DIFF) {
+                                const deleteComment = jQuery(comment).find("a[href*=\"DeleteComment\"]").attr("href").replace(/javascript:/, "");
+                                if (!deleteComment) {
+                                    throw new Error("\nWas unable to find \"Delete\" button\n");
+                                }
+                                execute(deleteComment);
+                                ifFoundComment = true;
+                                return false; // break
+                            }
+                        });
+                        if (!ifFoundComment) {
+                            throw new Error("\nWas unable to find users comment\n");
+                        }
+                    }
+                    console.log("%c    Cleaned comment #" + (index + 1), style);
+                    cleaned++;
+                } catch (e) {
+                    console.error("    !!! Can not clean comment #" + (index + 1));
+                    console.error(comments[index]);
+                    console.error(e);
+                }
+                setTimeout(function () {
+                    clearURLfromIndex(index + 1, callback);
+                }, PAGE_REQUESTS_INTERVAL);
+            },
+            "fail": function () {
+                console.error("    !!!Unable to send request");
+            },
+            "data": comments[index]["data"],
+            "method": "GET",
+            "url": comments[index]["url"]
+        });
+    };
+
+    /*
+        Main
+    */
+    loadPagesFrom(FIRST_PAGE_TO_CLEAR, function()
+    {
+        loadURLsFrom(1, function()
+        {
+            clearURLfromIndex(0, function()
+            {
+                alert("Done, comments cleaned: " + cleaned);
+            });
+        });
+    });
+
+})();
