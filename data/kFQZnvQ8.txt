@@ -1,0 +1,153 @@
+/*
+
+Custom Angle Tilt Function test script by TheNoobPolice using Interception driver and EvilC's AHI library.
+This is an alternative to Angle Snapping which emulates the directional shift of Independent / By Component accel instead, but without any accel or change in sensitivity.
+This gives broader "angular windows" for movements close to each axis, but doesn't completely obfuscate output angles as Snapping does (rather squeezes the input angles needed to hit them).
+Desmos demo here: https://www.desmos.com/calculator/hh5yizck9e
+
+*/
+; =============================================  Load Time ===========================================================================
+
+Menu, Tray, NoIcon
+#SingleInstance force
+ListLines Off
+#KeyHistory 0
+#NoEnv
+#include Lib/AutoHotInterception.ahk
+CoordMode, Tooltip, Screen
+Suspend, On
+
+linked := toggle := hSpread := vSpread := HorSnap := VertSnap := 1
+AHI := new AutoHotInterception()
+
+for k in AHI.GetDeviceList()
+	{
+	if (k >= 11) ; first 10 devices are keyboards, 11 to 20 are mice
+		NumberOfMice++
+	}
+Loop % NumberOfMice 
+	{ 
+	MouseID := 10 + A_Index 
+	AHI.SubscribeMouseMoveRelative(MouseID, true, Func("MouseLoop").Bind(AHI, MouseID)) ; bind interception object to mouse loop
+	}
+MouseID := ""
+AHI.SetState(0)
+
+Process, Priority,, H
+SetBatchlines, -1
+Msgbox,
+	(
+	KEYBINDS
+	`n`nCapslock  :  Enables / Disables (starts disabled)
+	`n`nCtrl + / - or [  ] : Amount of vert/hor angle shift respectively
+	`n`nCtrl Home  :  Links / unlinks scaling for both axes
+	`n`nCtrl BackSpace  :  Cycles which axes are affected
+	`n`nCtrl Esc  :  Closes app and removes all effect on mouse input
+	)
+Suspend, Off
+SetCapsLockState, Off
+Menu, Tray, NoStandard
+Menu, Tray, Add, Exit, CloseApp
+Menu, Tray, Icon
+TooltipShow(vSpread, hSpread, toggle)
+Return
+
+; ========================================== Run Time  ============================================================================
+
+
+; ------------------------------------------  HotKeys  -----------------------------------------------------------------------
+
+^=::
+^-::
+	(A_ThisHotkey == "^=") ? ((vSpread <= 9.9) ? vSpread += 0.1 : vSpread++ ) : ((vSpread <= 10) ? vSpread -= 0.1 : vSpread-- )
+	vSpread := (vSpread < 1) ? 1 : vSpread
+	if linked
+		hSpread := vSpread
+	TooltipShow(vSpread, hSpread, toggle)
+	Return
+	
+^]::
+^[::
+	(A_ThisHotkey == "^]") ? ((hSpread <= 9.9) ? hSpread += 0.1 : hSpread++ ) : ((hSpread <= 10) ? hSpread -= 0.1 : hSpread-- )
+	hSpread := (hSpread < 1) ? 1 : hSpread
+	if linked
+		vSpread := hSpread
+	TooltipShow(vSpread, hSpread, toggle)
+	Return
+	
+^BS::
+	toggle++
+	if (toggle > 3)
+		toggle := 1
+	Switch (toggle) 
+		{
+		case 1: (HorSnap := VertSnap := true)
+		case 2: (HorSnap := true, VertSnap := false)
+		case 3: (HorSnap := false, VertSnap := true)
+		}
+	TooltipShow(vSpread, hSpread, toggle)
+	return
+	
+^Home Up::linked := !linked, TooltipShow(vSpread, hSpread, toggle)
+	
+~*CapsLock Up::GetKeyState("CapsLock", "T") ? AHI.SetState(1) : AHI.SetState(0), TooltipShow(vSpread, hSpread, toggle)
+
+~Esc::TooltipOFF()
+^Esc::CloseApp()
+
+
+; ------------------------------------------------  Functions ----------------------------------------------------------------
+
+TooltipShow(vAng, hAng, t){
+	global linked
+	tooltip, %
+	(
+	"`nDYNAMIC ANGLE TILT SCRIPT SETTINGS:`n`nGlobal effect is "(GetKeyState("CapsLock", "T") ? "ENABLED" : "DISABLED") "  (Capslock to toggle)`n`nAngle shift (1.0 = no effect):`n`n   Vertical = " round(vAng, 1)",  Ctrl + or - to change`n   Horizontal = " round(hAng, 1)",  Ctrl [ or ] to change`n   (Ctrl Home to link/unlink) State = " (linked ? "linked" : "unlinked") "`n`nAxes affected: (Ctrl Backspace to cycle)`n`n   Vertical = " ((t = 1 || t = 3) ? "On" : "Off") "`n   Horizontal = " ((t = 1 || t = 2) ? "On" : "Off")"`n`nPress Esc to dismiss this tooltip, Ctrl Esc to close app"
+	)
+	, A_ScreenWidth * 0.8
+	, 0
+}
+	
+TooltipOFF(){
+	tooltip
+}
+
+MouseLoop(AHI, MouseID, dx, dy){
+	static QuartPi := atan(1), CarryX := 0, CarryY := 0
+	global hSpread, vSpread, HorSnap, VertSnap
+	
+	if (dx && dy) ; if there is some angle
+		{
+		angle := atan(abs(dy / dx))
+		if (angle <= QuartPi) 
+			HorSnap ? CalculateShift(VertMultiplier, DistanceComp, hSpread, angle, dx, dy) : (VertMultiplier := DistanceComp := 1)
+		else 
+			VertSnap ? CalculateShift(VertMultiplier, DistanceComp, vSpread, angle, dx, dy) : (VertMultiplier := DistanceComp := 1)
+		}
+	else ; when moving directly horizontally or vertically, no need to take any action
+		VertMultiplier := DistanceComp := 1
+	
+	; apply to output and carry remainders
+	newX := (dx * DistanceComp) + CarryX
+	newY := (dy * DistanceComp * VertMultiplier) + CarryY
+	
+	AHI.Instance.SendMouseMoveRelative(MouseID, round(newX), round(newY))
+	
+	CarryX := newX - round(newX)
+	CarryY := newY - round(newY)
+}
+
+CalculateShift(ByRef vm, ByRef dc, axis, angle, dx, dy){
+	static QuartPiInv := 1 / atan(1)
+	
+	; calc a y/x ratio based on input angle (vertical = vSpread, horizontal = 1 / hSpread, 45 degrees = 1)
+		vm := axis ** ((QuartPiInv * angle) - 1)
+	; compensate so sensitivity = 1 (we won't change sensitivity due to y component scaling, only angle)
+		ScaledY := dy * vm
+		dc := sqrt(dx * dx + dy * dy) / sqrt(dx * dx + ScaledY * ScaledY)
+}
+
+CloseApp(){
+	ExitApp
+}
+
