@@ -1,3 +1,7 @@
-**Total Datas**: 2655
+[**BYmufFNN**](/data/BYmufFNN.txt) (03/01/23 - 03:55)- 3368 bytes
 
-**Total Size**: 17.16 MB / 17.2 MB
+[**BYmufFNN**](/data/BYmufFNN.txt) (03/01/23 - 03:55)- 3368 bytes
+
+**Total Datas**: 2656
+
+**Total Size**: 17.17 MB / 17.2 MB
