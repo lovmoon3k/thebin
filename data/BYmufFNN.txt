@@ -1,0 +1,88 @@
+-- The server computer id
+local server_id = 2
+ 
+-- Function to check if a disk is inserted into any of the computer drives
+function checkDisk()
+	local result = false
+	if disk.isPresent("left") and disk.isPresent("right") then
+		result = true
+	end
+	return result
+end
+
+-- Main program loop
+while true do
+	-- Prompt the user to insert a blank disk into the left drive and an admin disk into the right drive
+	print("Please insert a blank disk into the left drive and an Administrator disk into the right drive.")
+	-- Wait for a disk to be inserted into the left drive
+	while not checkDisk() do
+		sleep(1)
+	end
+	local mountPath = disk.getMountPath("right")
+	if fs.exists(mountPath .. "/user_id.txt") and fs.exists(mountPath .. "/user_pass.txt") then
+		-- Open the "id" file on the right disk
+		local file = fs.open(mountPath .. "/user_id.txt", "r")
+		-- Read the contents of the file
+		local admin_user_id = file.readAll()
+		-- Close the file
+		file.close()
+		rednet.send(server_id, "add user")
+		rednet.send(server_id, admin_user_id)
+		local _, response = rednet.receive()
+		if (response == "user recognized") then
+			-- Send the user pass
+			local file = fs.open(mountPath .. "/user_pass.txt", "r")
+			-- Read the contents of the file
+			local admin_user_pass = file.readAll()
+			-- Close the file
+			file.close()
+			rednet.send(server_id, admin_user_pass)
+			local _, response = rednet.receive()
+			if (response == "user verified") then
+				-- Receive the new user pass and write it to the file
+				local _, new_admin_user_pass = rednet.receive()
+				local mountPath = disk.getMountPath("left")
+				local file = fs.open(mountPath .. "/user_pass.txt", "w")
+				file.write(new_admin_user_pass)
+				file.close()
+				local _, response = rednet.receive()
+				if (response == "access granted") then
+					-- Prompt the user for a unique user id
+					local client_user_id = read("Please enter a unique user name for this card: ")
+					rednet.send(server_id, client_user_id)
+					local _, response = rednet.receive()
+					if (response == "user added") then
+						local _, client_user_pass = rednet.receive()
+						local file = fs.open(mountPath .. "/user_pass.txt", "w")
+						file.write(client_user_pass)
+						file.close()
+						local client_user_level = read("Please enter the access level to assign to this card. 1 for guest, 2 for employee or 3 for Administrator: ")
+						rednet.send(server_id, client_user_level)
+						print("The new user card has been properly set up. Thank you and goodbye.")
+						sleep(3)
+					else
+						-- Inform the user that the chosen user id already exists
+						print("The user name entered for this card already exists")
+						sleep(3)
+					end
+				else
+					-- Inform the user that the card in the right slot is not an admin account
+					print("The disk inserted into the right drive is not an administrator account")
+					sleep(3)
+				end
+			else
+				print("The disk inserted into the right drive has a mismatched user password. Please contact a site administrator.")
+				sleep(3)
+			end
+		else
+			print("The disk inserted into the right drive is not a recognized user")
+			sleep(3)
+		end
+	else
+		print("Please insert a properly formatted admin card into the right drive")
+		sleep(3)
+	end
+	-- Eject both disks
+	disk.eject("left")
+	disk.eject("right")
+end
