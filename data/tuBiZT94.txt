@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+
+import requests
+from bs4 import BeautifulSoup
+import json
+
+@service
+def scrape_nask(url="https://esa.nask.pl", station_id=None, entity_id=None, friendly_name=None, icon=None):
+
+    log.debug('received parameters: ' + str(locals()))
+
+    if station_id is None:
+        log.error('"station_id" is required but not passed on service call')
+        return
+    if entity_id is None:
+        log.error('"entity_id" is required but not passed on service call')
+        return
+    
+    # Get Token from https://esa.nask.pl
+    try:
+        url_token = task.executor(requests.get, url)
+    except:
+        log.error('exception when processing parameters: ' + str(locals()))
+        raise
+    
+    log.info('token requests result: ' + str(url_token))
+    
+    # Create Authorization Bearer Token
+    @pyscript_executor
+    def authorize(token):
+        token = BeautifulSoup(token.content, "html.parser").find(id="security").get("data-value")
+        auth = f"Bearer {token}"
+        return auth
+
+    AUTH = authorize(url_token)
+    END_POINT = f"https://esa.nask.pl/api/data/id/{station_id}"
+    HEADERS = {
+                'content-type': 'application/json',
+                'Accept-Charset': 'UTF-8',
+                'Authorization': AUTH }
+            
+    log.info('AUTH result: ' + AUTH)
+    log.info('END_POINT result: ' + END_POINT)
+
+    # Request station_id json() output
+    try:
+        response = (task.executor(requests.get, END_POINT, headers=HEADERS)).json()
+    except:
+        log.error('exception when processing parameters: ' + str(locals()))
+        raise
+    
+    log.info('json request result: ' + str(response))
+    
+    # Set the entity_id attributes
+    attributes = {}
+    
+    if friendly_name:    
+        attributes['friendly_name'] = friendly_name
+    if icon:    
+        attributes['icon'] = icon
+    
+    attributes.update({'id': response['id']})
+    attributes.update({'project': response['project']})
+    attributes.update({'province': response['province']})
+    attributes.update({'street': response['street'] + " "+ response['streetNo']})
+    attributes.update({'city': response['city']})
+    attributes.update({'sensors': response['sensors'][0]['lastMeasurement']})
+    
+    # Set the entity_id state
+    STATUS = response['sensors'][0]['lastMeasurement']['pm25']['icon']
+    
+    log.info(f"Status : {STATUS}")
+    log.info(f"Attributes : {attributes}")    
+
+    # Only create entity if the requests returns json
+    if response:
+        # Set the entity_id value to the last request value and attributes 
+        state.set(entity_id, value=STATUS, new_attributes=attributes)
+    
+    log.info(f"Entity state value: {state.get(entity_id)}")
