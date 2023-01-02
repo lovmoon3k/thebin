@@ -1,0 +1,289 @@
+local setAPI = require('./apis/setAPI')
+local tableAPI = require('./apis/tableAPI')
+local settings = require('inventoryManagementSettings')
+
+local Management = {}
+
+function Management:new()
+    setmetatable({}, Management)
+
+    self.peripherals = nil
+    self.input = nil
+    self.output = nil
+    self.items = nil
+
+    return self
+end
+
+-- Create inventory set
+function Management:getPeripherals()
+    local peripheralNames = peripheral.getNames('inventory')
+
+    self.peripherals = Set.new(peripheralNames)
+
+    for k, _ in pairs(self.peripherals) do
+        if not peripheral.hasType(k, 'inventory') then
+            self.peripherals[k] = nil
+        end
+    end
+
+    -- remove local inventories
+    local directions = { 'bottom', 'top', 'left', 'right', 'front', 'back' }
+
+    for _, v in ipairs(directions) do
+        self.peripherals[v] = nil
+    end
+
+    -- get input chest
+    self.peripherals[settings.input.name] = nil
+    self.input = peripheral.wrap(settings.input.name)
+
+    -- get output chest
+    self.peripherals[settings.output.name] = nil
+    self.output = peripheral.wrap(settings.output.name)
+end
+
+function Management:getInventories()
+    local inventories
+
+    inventories = tableAPI.deepcopy(self.peripherals)
+
+    for k, v in pairs(inventories) do
+        local tempPeripheral = peripheral.wrap(k)
+        inventories[k] = { chest = tempPeripheral, size = tempPeripheral.size() }
+    end
+
+    return inventories
+end
+
+-- add to item list {name = item_name, inv_name = inventory_name, peripheral = peripheral, slot = slot, count = count, nbt = nbt}
+function Management:addItem(item)
+    if self.items[item.name] == nil then
+        self.items[item.name] = {}
+    end
+
+    if self.items[item.name]['inventories'] == nil then
+        self.items[item.name]['inventories'] = {}
+    end
+
+    if self.items[item.name]['inventories'][item.inv_name] == nil then
+        self.items[item.name]['inventories'][item.inv_name] = { peripheral = item.peripheral,
+            inventory = {} }
+    end
+
+    self.items[item.name]['inventories'][item.inv_name]['inventory'][item.slot] = { count = item.count,
+        nbt = item.nbt }
+end
+
+-- create item list
+function Management:getItems()
+    local inventories
+
+    inventories = tableAPI.deepcopy(self.peripherals)
+
+    for k, v in pairs(inventories) do
+        local tempPeripheral = peripheral.wrap(k)
+        local tempInventory = tempPeripheral.list()
+        inventories[k] = { chest = tempPeripheral, size = tempPeripheral.size(), inventory = {} }
+        for slot, item in pairs(tempInventory) do
+            inventories[k]['inventory'][slot] = {}
+            inventories[k]['inventory'][slot]['name'] = tempInventory[slot]['name']
+            inventories[k]['inventory'][slot]['count'] = tempInventory[slot]['count']
+            inventories[k]['inventory'][slot]['nbt'] = tempInventory[slot]['nbt']
+        end
+    end
+
+    self.items = {}
+
+    for k_chest, v_perinv in pairs(inventories) do
+        for k_slot, v_itemdetail in pairs(v_perinv['inventory']) do
+            self:addItem({ name = tostring(v_itemdetail['name']),
+                inv_name = k_chest,
+                peripheral = v_perinv.chest,
+                slot = k_slot,
+                count = v_itemdetail['count'],
+                nbt = v_itemdetail['nbt'] })
+        end
+    end
+end
+
+function Management:sort()
+    local lastItem = nil
+    local lastInventory = nil
+    local lastSlot = nil
+    local lastSlotInfo = nil
+    local lastSlotFree = nil
+    local lastSlotFull = false
+    local empty = false
+    for k_item, v_invs in pairs(self.items) do
+        for k_inv, v_inv_info in pairs(v_invs.inventories) do
+            for k_slot, v_slot_info in pairs(v_inv_info.inventory) do
+                local itemDetail = v_inv_info.peripheral.getItemDetail(k_slot)
+                local freeAmount = itemDetail.maxCount - itemDetail.count
+                local pushedAmount = 0
+                if freeAmount > 0 then
+                    if lastItem == k_item then
+                        if lastSlotInfo.nbt == v_slot_info.nbt then
+                            if lastSlotFree > itemDetail.count then
+                                pushedAmount = itemDetail.count
+                                empty = true
+                            elseif lastSlotFree == itemDetail.count then
+                                pushedAmount = itemDetail.count
+                                empty = true
+                                lastSlotFull = true
+                            else
+                                pushedAmount = lastSlotFree
+                                lastSlotFull = true
+                            end
+                            v_inv_info.peripheral.pushItems(lastInventory, k_slot, pushedAmount, lastSlot)
+                            self.items[k_item]['inventories'][lastInventory]['inventory'][lastSlot]['count'] =
+                            self.items[k_item]['inventories'][lastInventory]['inventory'][lastSlot]['count'] +
+                                pushedAmount
+
+                            if not empty then
+                                self.items[k_item]['inventories'][k_inv]['inventory'][k_slot]['count'] =
+                                self.items[k_item]['inventories'][k_inv]['inventory'][k_slot]['count'] - pushedAmount
+                            else
+                                self.items[k_item]['inventories'][k_inv]['inventory'][k_slot] = nil
+                                local chest_empty = true
+                                for k, v in pairs(self.items[k_item]['inventories'][k_inv]['inventory']) do
+                                    chest_empty = false
+                                    break
+                                end
+                                if chest_empty then
+                                    self.items[k_item]['inventories'][k_inv] = nil
+                                end
+                            end
+                        end
+                    end
+
+                    if not empty then
+                        lastSlotFree = freeAmount + pushedAmount
+                        lastSlotInfo = v_slot_info
+                        lastSlot = k_slot
+                        lastInventory = k_inv
+                        lastItem = k_item
+                    elseif lastSlotFull then
+                        lastSlotFree = nil
+                        lastSlotInfo = nil
+                        lastSlot = nil
+                        lastInventory = nil
+                        lastItem = nil
+                    else
+                        lastSlotFree = lastSlotFree - pushedAmount
+                    end
+                    empty = false
+                    lastSlotFull = false
+                else
+                end
+            end
+        end
+    end
+end
+
+-- create item list
+function Management:count()
+    local count = 0
+    for k_item, v_invs in pairs(self.items) do
+        count = 0
+        for k_inv, v_inv_info in pairs(v_invs.inventories) do
+            for k_slot, v_slot_info in pairs(v_inv_info.inventory) do
+                itemDetail = v_inv_info.peripheral.getItemDetail(k_slot)
+                count = count + itemDetail.count
+            end
+        end
+        self.items[k_item]['count'] = count
+    end
+end
+
+-- find empty slot
+function Management:getEmptySlot()
+    local found = nil
+    for k_inv, v_inv_info in pairs(self:getInventories()) do
+        local lastSlot = 0
+        for k_slot in ipairs(v_inv_info.chest.list()) do
+            if k_slot - lastSlot ~= 1 then
+                break
+            else
+                lastSlot = k_slot
+            end
+        end
+
+        if lastSlot <= v_inv_info.size then
+            found = { name = k_inv, peripheral = v_inv_info.chest, slot = lastSlot + 1 }
+            break
+        end
+    end
+    return found
+end
+
+function Management:insert(item)
+    local empty = false
+
+    local remaining = item.count
+
+    if self.items[item.name] ~= nil then
+        for k_inv, v_inv_info in pairs(self.items[item.name].inventories) do
+            for k_slot, v_slot_info in pairs(v_inv_info.inventory) do
+                local itemDetail = v_inv_info.peripheral.getItemDetail(k_slot)
+                local freeAmount = itemDetail.maxCount - itemDetail.count
+                local pushedAmount = 0
+
+                if freeAmount > 0 then
+                    if item.nbt == v_slot_info.nbt then
+                        if freeAmount > item.count then
+                            pushedAmount = item.count
+                            empty = true
+                        elseif freeAmount == item.count then
+                            pushedAmount = item.count
+                            empty = true
+                        else
+                            pushedAmount = freeAmount
+                        end
+                        item.peripheral.pushItems(k_inv, item.slot, pushedAmount, k_slot)
+                        remaining = remaining - pushedAmount
+
+                        self.items[item.name]['inventories'][k_inv]['inventory'][k_slot]['count'] =
+                        self.items[item.name]['inventories'][k_inv]['inventory'][k_slot]['count'] +
+                            pushedAmount
+                    end
+                end
+            end
+        end
+    end
+
+    if remaining > 0 then
+        local emptySlot = self:getEmptySlot()
+        item.peripheral.pushItems(emptySlot.name, item.slot, item.count, emptySlot.slot)
+        self:addItem({ name = item.name,
+            inv_name = emptySlot.name,
+            peripheral = emptySlot.peripheral,
+            slot = emptySlot.slot,
+            count = item.count,
+            nbt = item.nbt })
+    end
+end
+
+-- import items
+function Management:import()
+    local empty = true
+    local inputItems = self.input.list()
+    for k, v in pairs(inputItems) do
+        empty = false
+        break
+    end
+    if empty then
+        return false
+    else
+        for k, v in pairs(inputItems) do
+            local item = v
+            item['slot'] = k
+            item['peripheral'] = self.input
+            self:insert(item)
+        end
+        self:getEmptySlot()
+        return true
+    end
+end
+
+return Management
