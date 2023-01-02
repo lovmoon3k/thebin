@@ -1,0 +1,96 @@
+-- Function to check if a file exists
+function fileExists(path)
+  local file = fs.open(path, "r")
+  if file then
+    file.close()
+    return true
+  end
+  return false
+end
+
+-- Function to verify a user and their security level
+function verifyUser()
+    -- Wait for a message from the client
+    local door_id, message = rednet.receive()
+    -- Search the server for the user_id file
+	if fileExists(message .. ".txt") then
+	    local file = fs.open(message .. ".txt", "r")
+	    user_serverside_pass = file.readLine()
+	    file.close()
+	    -- Inform the client computer that the user has been recognized
+	    rednet.send(door_id, "user recognized")
+	    -- Wait for a message from the client
+        local door_id, user_clientside_pass = rednet.receive()
+	    if (tostring(user_serverside_pass) == tostring(user_clientside_pass)) then
+	        rednet.send(door_id, "user verified")
+	        -- Send the client computer the new user password to store
+	        local file = fs.open(message .. ".txt", "w")
+	        -- Create a new, random user password and store it in the user_id file
+	        local newID = math.random(10000, 99999)
+	        file.write(newID)
+	        file.close()
+	        rednet.send(door_id, newID)
+		    local user_level = fs.open(message .. "_level.txt", "r")
+			local door_level = fs.open("door_" .. door_id .. "_level", "r")
+			-- If the user has a sufficiently high access level, then return true
+		    if (tonumber(user_level) >= tonumber(door_level)) then
+				--inform the client computer that access is granted
+	            rednet.send(door_id, "access granted")
+		        return true
+		    else
+		        -- inform client computer that the user has an insufficient access level for this door_
+	            rednet.send(door_id, "access denied")
+				return false
+		    end
+	    else
+	        -- Inform client computer that this is not a valid id card
+	        rednet.send(door_id, "wrong password")
+			return false
+	    end
+	else
+	    -- Inform client computer that this is not a valid user id
+	    rednet.send(door_id, "invalid user id")
+		return false
+	end
+ end
+ 
+while true do
+    -- Wait for a message from a client
+    local door_id, message = rednet.receive()
+    -- Check the message
+    if message == "add user" then
+	    -- Verify if the user generating the card is an admin level account
+		if verifyUser() then
+			-- Wait for the client to send the new user_id
+			local door_id, user_id = rednet.receive()
+			-- check to make sure user_id does not already exist
+			if not fileExists(user_id .. ".txt") then
+				-- Inform the admin console that this was an acceptable user id
+				-- Create a file with the new user_id
+				local file = fs.open(user_id .. ".txt", "w")
+				-- Create a new, random user password and store it in the user_id file
+				local newID = math.random(10000, 99999)
+				file.write(newID)
+				file.close()
+				-- Inform the admin console that the user has been added
+				rednet.send(door_id, "user added")
+				-- Send the admin console the new user password to store
+				rednet.send(door_id, newID)
+				-- Wait the admin console to send the access level for the user
+				local door_id, user_level = rednet.receive()
+				local file = fs.open(user_id .. "_level.txt", "w")
+				file.write(user_level)
+				file.close()
+			else
+				-- Tell admin console to pick a different user_id
+				rednet.send(door_id, "not a unique user id")
+			end
+		end
+    else
+		if verifyUser() then
+			-- Client computer has been informed that access is granted
+		else
+			-- Client computer has been informed of reason for failure
+		end
+    end
+end
