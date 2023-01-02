@@ -1,0 +1,601 @@
+--peripheral config
+local sideoutputFlux = "top"
+ 
+--output multiplier: set by modpack (default = 1.0), change this to the value of draconic evolution config (!!!not tested yet!!!)
+local reactorOutputMultiplier = 1.0
+ 
+local reactornumber = "1"
+
+--Do not change anything below
+ 
+--originally made by electronx3
+--modified by jona23 to work in 1.16+
+ 
+--constants
+local val_1div3 = 1.0/3.0
+ 
+ 
+--config
+ 
+--emergency shutdown parameters
+local maxOvershoot = 200.0      --reactor will shutdown when temperature gets hotter than idealTemp+maxOvershoot
+local minFuel = 0.05
+ 
+--default parameters
+local idealTemp = 8000.0
+local idealField = 0.09
+ 
+local maxTempInc = 400.0        --max. temperature increase per computer tick
+local maxOutflow = 30000000.0
+ 
+local chargeInflow = 20000000
+local shutDownField = 0.1       --field strength while shutdown
+ 
+local safeMode = true           --when set to false, the automatic emergency shutdown function is disabled
+ 
+ 
+--peripherals
+local reactor
+local inputFlux
+local outputFlux
+local mon
+ 
+--info
+local info
+ 
+local currentEmergency = false
+local currentField
+local currentFuel
+ 
+local stableTicks = 0
+local screenPage = 0
+local openConfirmDialog = false
+ 
+local manualStart = false
+local manualCharge = false
+local manualStop = false
+ 
+ 
+--the program
+ 
+function updateInfo()
+    info = reactor.getReactorInfo()
+    
+    if info == nil or info == null then
+      error("Reactor has an invalid setup!")
+    end
+    
+    currentField = info.fieldStrength / info.maxFieldStrength
+    currentFuel = 1.0 - (info.fuelConversion / info.maxFuelConversion)
+end
+ 
+function isEmergency()
+    currentEmergency = safeMode and not (info.temperature < 2000.0) and (info.status == "running" or info.status == "online" or info.status == "stopping") and (info.temperature > idealTemp + maxOvershoot or currentField < 0.004 or currentFuel < minFuel)
+    return currentEmergency
+end
+ 
+function calcInflow(targetStrength, fieldDrainRate)
+    return fieldDrainRate / (1.0 - targetStrength)
+end
+ 
+--creators of the setupPeripherals function: https://github.com/acidjazz/drmon/blob/master/drmon.lua
+function setupPeripherals()
+    print("Setup peripherals...")
+    reactor = periphSearch("draconic_reactor")
+    inputFlux = periphSearch("flow_gate")
+    outputFlux = peripheral.wrap(sideoutputFlux)
+    
+    if reactor == null then
+        error("No valid reactor was found!")
+    end
+    if inputFlux == null then
+        error("No valid input fluxgate was found!")
+    end  
+    if outputFlux == null then
+        error("No valid output fluxgate was found!")
+    end
+    
+    inputFlux.setOverrideEnabled(true)
+    inputFlux.setFlowOverride(0)
+    outputFlux.setOverrideEnabled(true)
+    outputFlux.setFlowOverride(0)
+    
+    local tmpMon = periphSearch("monitor")
+    if tmpMon == null then
+        mon = null
+        print("WARN: No valid monitor was found!")
+ 
+    else
+        monX, monY = tmpMon.getSize()
+        mon = {}
+        mon.monitor, mon.x, mon.y = tmpMon, monX, monY
+    end
+    
+    print("Done!")
+end
+ 
+function periphSearch(type)
+    local names = peripheral.getNames()
+    local i, name
+    for i, name in pairs(names) do
+        if peripheral.getType(name) == type then
+            return peripheral.wrap(name)
+        end
+    end
+    return null
+end
+ 
+function clickListener()
+    if mon == null then
+        return
+    end
+    
+    while true do
+        event, side, xPos, yPos = os.pullEvent("monitor_touch")
+        
+        local cFlow = 0 --remove local later
+        
+        if yPos == mon.y and xPos >= 1 and xPos <= 4 then
+            openConfirmDialog = false
+            screenPage = (screenPage + 1) % 2
+        elseif screenPage == 1 then         
+            if yPos == 8 then
+                local tmpTemp = idealTemp
+            
+                if xPos >= 2 and xPos <= 3 then
+                    tmpTemp = tmpTemp - 1.0
+                elseif xPos >= 5 and xPos <= 6 then
+                    tmpTemp = tmpTemp - 10.0
+                elseif xPos >= 9 and xPos <= 11 then
+                    tmpTemp = tmpTemp - 100.0
+                elseif xPos >= 14 and xPos <= 16 then
+                    tmpTemp = 8000.0
+                elseif xPos >= 19 and xPos <= 21 then
+                    tmpTemp = tmpTemp + 100.0
+                elseif xPos >= 24 and xPos <= 25 then
+                    tmpTemp = tmpTemp + 10.0
+                elseif xPos >= 27 and xPos <= 28 then
+                    tmpTemp = tmpTemp + 1.0
+                end
+                
+                if tmpTemp < 20.0 then
+                    tmpTemp = 20.0
+                elseif tmpTemp > 20000.0 then
+                    tmpTemp = 20000.0
+                end
+                
+                idealTemp = tmpTemp
+                --print("new default temperature: " .. math.floor(idealTemp) .. "°C")
+            elseif yPos == 12 then
+                local tmpField = idealField
+                
+                if xPos >= 2 and xPos <= 3 then
+                    tmpField = tmpField - 0.001
+                elseif xPos >= 5 and xPos <= 6 then
+                    tmpField = tmpField - 0.01
+                elseif xPos >= 9 and xPos <= 11 then
+                    tmpField = tmpField - 0.1
+                elseif xPos >= 14 and xPos <= 16 then
+                    tmpField = 0.01
+                elseif xPos >= 19 and xPos <= 21 then
+                    tmpField = tmpField + 0.1
+                elseif xPos >= 24 and xPos <= 25 then
+                    tmpField = tmpField + 0.01
+                elseif xPos >= 27 and xPos <= 28 then
+                    tmpField = tmpField + 0.001
+                end
+                
+                if tmpField < 0.005 then
+                    tmpField = 0.005
+                elseif tmpField > 0.6 then
+                    tmpField = 0.6
+                end
+                
+                idealField = tmpField
+                --print("new default field strength: " .. math.floor(idealField*1000.0)/10.0 .. "%")
+            elseif yPos == 15 then              
+                if openConfirmDialog then
+                    if xPos >= 25 and xPos <= 28 then
+                        openConfirmDialog = false
+                    elseif xPos >= 16 and xPos <= 22 then
+                        openConfirmDialog = false
+                        safeMode = false
+                        --print("WARN: Safe mode deactivated!")
+                    end
+                elseif xPos >= 26 and xPos <= 28 then
+                    if safeMode then
+                        openConfirmDialog = true
+                    else
+                        safeMode = true
+                        --print("Safe mode activated!")
+                    end
+                end
+            elseif yPos == 17 and info ~= null then
+                if not currentEmergency then
+                    if (info.status == "running" or info.status == "online") and xPos >= 2 and xPos <= 5 then
+                        manualStop = true
+                    elseif (info.status == "cold" or info.status == "offline" or info.status == "cooling") and xPos >= 2 and xPos <= 7 then
+                        manualCharge = true
+                    elseif (info.status == "stopping" or info.status == "warming_up" or info.status == "charged") and xPos >= 2 and xPos <= 6 then
+                        manualStart = true
+                    elseif info.status == "warming_up" and xPos >= 9 and xPos <= 12 then
+                        manualStop = true
+                    end
+                end
+                if info.temperature < 2000.0 and xPos >= 26 and xPos <= 28 then
+                    print("Program stopped!")
+                    return
+                end
+            end
+        end
+        saveConfig()
+    end
+end
+ 
+--graphic stuff: inspired by https://github.com/acidjazz/drmon/blob/master/drmon.lua
+function gClear()
+  mon.monitor.setBackgroundColor(colors.black)
+  mon.monitor.clear()
+  mon.monitor.setCursorPos(1,1)
+end
+function gWrite(text, x, y, cl, clBg)
+    mon.monitor.setCursorPos(x, y)
+    mon.monitor.setTextColor(cl)
+    mon.monitor.setBackgroundColor(clBg)
+    mon.monitor.write(text)
+end
+function gWriteR(text, x, y, cl, clBg)
+    gWrite(text, mon.x - string.len(tostring(text)) - x, y, cl, clBg)
+end
+function gWriteLR(textL, textR, xL, xR, y, clL, clR, clBg)
+    gWrite(textL, xL, y, clL, clBg)
+    gWriteR(textR, xR, y, clR, clBg)
+end
+function gDrawLine(x, y, length, cl)
+    if length < 0 then
+        return
+    end
+    mon.monitor.setCursorPos(x, y)
+    mon.monitor.setBackgroundColor(cl)
+    mon.monitor.write(string.rep(" ", length))
+end
+function gDrawProgressBar(x, y, length, proportion, cl, clBg)
+    if proportion < 0.0 or proportion > 1.0 then
+        gDrawLine(x, y, length, cl)
+    else
+        gDrawLine(x, y, length, clBg)
+        gDrawLine(x, y, math.floor(proportion*length), cl)
+    end
+end
+function gDrawStandardProgressBar(y, proportion, cl)
+    gDrawProgressBar(2, y, mon.x-2, proportion, cl, colors.gray)
+end
+ 
+ 
+function update()
+    local newInflow = 0.0
+    local newOutflow = 0.0  
+    
+    while true do   
+        updateInfo()        
+        local isStable = true
+        local tmpShutDownField = math.max(shutDownField, idealField)
+    
+        if peripheral.wrap(sideoutputFlux) == null then
+            reactor.stopReactor()
+            newInflow = calcInflow(tmpShutDownField, info.fieldDrainRate)
+            error("Output gate missing!")
+        end
+        
+        if manualStop then
+            manualStart = false
+            manualStop = false
+            manualCharge = false
+            reactor.stopReactor()
+        end
+        
+        if isEmergency() == true then
+            reactor.stopReactor()
+            newInflow = calcInflow(0.8, info.fieldDrainRate)
+            newOutflow = 0.0
+            manualStart = false
+            manualCharge = false
+        elseif info.status == "cold" or info.status == "offline" or info.status == "cooling" then
+            newInflow = 0.0
+            newOutflow = 0.0
+            if manualCharge then
+                manualStart = false
+                manualCharge = false
+                reactor.chargeReactor()
+            end
+        elseif info.status == "charging" then
+            newInflow = chargeInflow
+            newOutflow = 0.0
+            manualStart = false
+            manualCharge = false
+        elseif info.status == "warming_up" or info.status == "charged" then
+            newInflow = chargeInflow
+            newOutflow = 0.0
+            if manualStart then
+                manualStart = false
+                manualCharge = false
+                reactor.activateReactor()
+            end
+        elseif info.status == "running" or info.status == "online" then
+            manualStart = false
+            manualCharge = false
+            local temp = info.temperature
+            
+            if temp > idealTemp - 6.0 and temp < idealTemp + 5.0 then
+                stableTicks = stableTicks + 1
+                if stableTicks > 100 then
+                    isStable = true
+                end
+            else
+                stableTicks = 0
+            end
+        
+            	local targetShieldPercent = idealField or 15 -- Desired shield strength
+	local targetShield = (targetShieldPercent / 100)
+ -- Reactor equation variables
+    local targetTemp50  = math.min((idealTemp / 10000) * 50, 99)
+    local coreSat       = info.energySaturation / info.maxEnergySaturation
+    local convLVL       = (info.fuelConversion / info.maxFuelConversion * 1.3) - 0.3
+ -- Calculate the temperature rise resistance for the reactor at the desired temperature.
+    local targetTempResist = ((targetTemp50^4) / (100 - targetTemp50))
+ -- Calculate the temperature rise exponential needed to reach the desired temperature
+    local targetTempExpo = -(targetTempResist*convLVL) - 1000*convLVL + targetTempResist
+ -- Calculate the saturation level needed to produce the required tempRiseExpo
+    local term1 = 1334.1-(3*targetTempExpo)
+    local term2 = (1200690-(2700*targetTempExpo))^2
+    local term3 = ((-1350*targetTempExpo)+(((-4*term1^3+term2)^(1/2))/2)+600345)^(1/3)
+    local targetNegCSat = -(term1/(3*term3))-(term3/3)
+ -- Saturation received from above equation needs to be reformatted to a more useful form
+    local targetCoreSat = 1 - (targetNegCSat/99)
+    local targetSat = targetCoreSat * info.maxEnergySaturation
+ -- Calculate the difference between where saturation is and where it needs to be
+    local saturationError = info.energySaturation - targetSat
+ -- Calculate field drain
+    local tempDrainFactor = 0
+    if info.temperature > 8000 then
+		tempDrainFactor = 1 + ((info.temperature-8000)^2 * 0.0000025)
+    elseif info.temperature > 2000 then
+		tempDrainFactor = 1
+    elseif info.temperature > 1000 then
+		tempDrainFactor = (info.temperature-1000)/1000
+    end
+    local baseMaxRFt = (info.maxEnergySaturation / 1000) * reactorOutputMultiplier * 1.5
+    local fieldDrain = math.min(tempDrainFactor * math.max(0.01, (1-coreSat)) * (baseMaxRFt / 10.923556), 2147000000)
+    local fieldNegPercent = 1 - targetShield
+ --local fieldInputRate = fieldDrain / fieldNegPercent
+    local fieldStrengthError = (info.maxFieldStrength * targetShield) - info.fieldStrength
+    local requiredInput = math.min((info.maxFieldStrength * info.fieldDrainRate) / (info.maxFieldStrength - info.fieldStrength), info.maxFieldStrength - info.fieldStrength)
+ --Automations
+   if info.status == "running" then
+    local outputNeeded = math.min(saturationError, (info.maxEnergySaturation/40))-- + info.generationRate
+		outputFlux.setFlowOverride(outputNeeded)
+		inputFlux.setFlowOverride(math.min(fieldStrengthError + requiredInput, info.maxFieldStrength) - info.fieldDrainRate + 1)
+    elseif info.status == "warming_up" then
+		outputFlux.setFlowOverride(0)
+		inputFlux.setFlowOverride(500000000)
+    elseif info.status == "stopping" then
+		outputFlux.setFlowOverride(0)
+		inputFlux.setFlowOverride(requiredInput)
+    if info.temperature > cutoffTemp then
+        print("Reactor Too Hot, shutting down")
+        reactor.stopReactor()
+    end
+    if ((info.fieldStrength / info.maxFieldStrength) * 100) < cutoffField then
+        print("Reactor Field Has Failed, Failsafe Activated, Shutting Down")
+        reactor.stopReactor()
+    end
+    if ((1 - info.fuelConversion / info.maxFuelConversion) * 100) < 0.2 then
+        print("Reactor Fuel Low, Shutting Down")
+		reactor.stopReactor()
+    end
+   end
+        
+        
+        if mon ~= null then
+            gClear()
+            
+            if screenPage == 0 then
+                local clTemp
+                if info.temperature < idealTemp*0.95 then
+                    clTemp = colors.green
+                elseif info.temperature < idealTemp + 1.0 then
+                    clTemp = colors.yellow
+                elseif info.temperature < idealTemp + maxOvershoot then
+                    clTemp = colors.orange
+                else
+                    clTemp = colors.red
+                end
+                
+                gWriteLR("temperature:", math.floor(info.temperature*10.0)/10.0 .. "°C", 2, 0, 7, colors.white, clTemp, colors.black)
+                gWriteLR("set: " .. math.floor(idealTemp) .. "°C", "max: " .. math.floor(idealTemp + maxOvershoot) .. "°C", 2, 0, 8, colors.white, colors.white, colors.black)
+                gDrawStandardProgressBar(9, info.temperature/16000.0, clTemp)               
+                
+                local clField
+                if currentField > idealField*1.05 then
+                    clField = colors.green
+                elseif currentField > idealField*0.95 then
+                    clField = colors.yellow
+                else
+                    clField = colors.red
+                end
+                
+                gWriteLR("field strength:", math.floor(currentField*10000.0)/100.0 .. "%", 2, 0, 11, colors.white, clField, colors.black)
+                gWriteLR("set: " .. math.floor(idealField*1000)/10.0 .. "%", "min: 0.4%", 2, 0, 12, colors.white, colors.white, colors.black)
+                gDrawStandardProgressBar(13, currentField, clField)
+                
+                gWriteLR("status", info.status:upper(), 2, 0, 15, colors.white, colors.white, colors.black)
+                
+                local clFuel
+                if currentFuel > 0.15 then
+                    clFuel = colors.green
+                elseif currentFuel > 0.05 then
+                    clFuel = colors.yellow
+                elseif currentFuel > 0.01 then
+                    clFuel = colors.orange
+                else
+                    clFuel = colors.red
+                end
+                gWriteLR("fuel:", math.floor(currentFuel*10000.0)/100.0 .. "%", 2, 0, 16, colors.white, clFuel, colors.black)
+            elseif screenPage == 1 then
+                local clTemp
+                if info.temperature < idealTemp*0.95 then
+                    clTemp = colors.green
+                elseif info.temperature < idealTemp + 1.0 then
+                    clTemp = colors.yellow
+                elseif info.temperature < idealTemp + maxOvershoot then
+                    clTemp = colors.orange
+                else
+                    clTemp = colors.red
+                end
+                
+                gWriteLR("temp: " .. math.floor(idealTemp) .. " (" .. math.floor(idealTemp + maxOvershoot) .. ")", math.floor(info.temperature*10.0)/10.0 .. "°C", 2, 0, 7, colors.white, clTemp, colors.black)
+                gDrawStandardProgressBar(9, info.temperature/16000.0, clTemp)
+                
+                gWrite("<", 2, 8, colors.white, colors.blue)
+                gWrite("<<", 5, 8, colors.white, colors.blue)
+                gWrite("<<<", 9, 8, colors.white, colors.blue)
+                gWrite("res", 14, 8, colors.white, colors.blue)
+                gWrite(">>>", 19, 8, colors.white, colors.blue)
+                gWrite(">>", 24, 8, colors.white, colors.blue)
+                gWrite(">", 28, 8, colors.white, colors.blue)               
+                
+                local clField
+                if currentField > idealField*1.05 then
+                    clField = colors.green
+                elseif currentField > idealField*0.95 then
+                    clField = colors.yellow
+                else
+                    clField = colors.red
+                end
+                
+                gWriteLR("field: " .. math.floor(idealField*1000)/10.0 .. "% (0.4%)", math.floor(currentField*10000.0)/100.0 .. "%", 2, 0, 11, colors.white, clField, colors.black)
+                gDrawStandardProgressBar(13, currentField, clField)
+                
+                gWrite("<", 2, 12, colors.white, colors.blue)
+                gWrite("<<", 5, 12, colors.white, colors.blue)
+                gWrite("<<<", 9, 12, colors.white, colors.blue)
+                gWrite("res", 14, 12, colors.white, colors.blue)
+                gWrite(">>>", 19, 12, colors.white, colors.blue)
+                gWrite(">>", 24, 12, colors.white, colors.blue)
+                gWrite(">", 28, 12, colors.white, colors.blue)
+                
+                if safeMode then
+                    if openConfirmDialog then
+                        gWrite("DISABLE?", 2, 15, colors.white, colors.black)
+                        gWrite("CONFIRM", 16, 15, colors.white, colors.green)
+                        gWrite("EXIT", 25, 15, colors.white, colors.red)
+                    else
+                        gWrite("safe mode:", 2, 15, colors.white, colors.black)
+                        gWrite("ON", 27, 15, colors.green, colors.black)
+                    end
+                else
+                    gWrite("safe mode:", 2, 15, colors.white, colors.black)
+                    gWrite("OFF", 26, 15, colors.red, colors.black)
+                end
+                
+                if not currentEmergency then
+                    if info.status == "running" or info.status == "online" then
+                        gWrite("STOP", 2, 17, colors.white, colors.red)
+                    elseif info.status == "cold" or info.status == "offline" or info.status == "cooling" then
+                        gWrite("CHARGE", 2, 17, colors.white, colors.blue)
+                    elseif info.status == "stopping" or info.status == "charged" then
+                        gWrite("START", 2, 17, colors.white, colors.green)
+                    elseif info.status == "warming_up" then
+                        gWrite("START", 2, 17, colors.white, colors.green)
+                        gWrite("STOP", 9, 17, colors.white, colors.red)
+                    end
+                end
+                
+                if info.temperature < 2000.0 then
+                    gWrite("END", 26, 17, colors.white, colors.red)
+                end
+            end
+            
+            gWriteLR("Draconic Reactor Number", reactornumber, 2, 0, 1, colors.white, colors.white, colors.black)         
+            
+            gWriteLR("inflow:", newInflow .. " RF/t", 2, 0, 3, colors.white, colors.white, colors.black)
+            gWriteLR("outflow:", outflowMultiplied .. " RF/t", 2, 0, 4, colors.white, colors.white, colors.black)       
+            local gain = outflowMultiplied - newInflow
+            if gain > 0.0 then
+                gWriteLR("-> gain:", gain .. " RF/t", 2, 0, 5, colors.white, colors.green, colors.black)
+            elseif gain < 0.0 then
+                gWriteLR("-> gain:", gain .. " RF/t", 2, 0, 5, colors.white, colors.red, colors.black)
+            elseif gain == 0.0 then
+                gWriteLR("-> gain:", "0 RF/t", 2, 0, 5, colors.white, colors.white, colors.black)
+            end
+            
+            gDrawLine(1, mon.y, 4, colors.gray)
+        end
+        
+        sleep(0.02)
+    end
+end
+ 
+function setup()
+    term.clear()
+    print("Starting program...")    
+    
+    if fs.exists("config.txt") then
+        print("Loading config...")
+        loadConfig()
+        print("Done!")
+    else
+        print("Creating config...")
+        saveConfig()
+        print("Done!")
+    end
+ 
+    if chargeInflow < 0 then
+        chargeInflow = 0
+    end
+    
+    stableTicks = 0
+    
+    setupPeripherals()
+    print("Started!")
+end
+ 
+function saveConfig()
+    local config = fs.open("config.txt", "w")
+    config.writeLine(reactorOutputMultiplier*1000000.0)
+    config.writeLine(maxOvershoot)
+    config.writeLine(minFuel*100.0)
+    config.writeLine(idealTemp)
+    config.writeLine(idealField*1000.0)
+    config.writeLine(maxTempInc)
+    config.writeLine(maxOutflow)
+    config.writeLine(chargeInflow)
+    config.writeLine(shutDownField*1000.0)
+    config.close()
+end
+function loadConfig()
+    local config = fs.open("config.txt", "r")
+    reactorOutputMultiplier = tonumber(config.readLine())/1000000.0
+    maxOvershoot = tonumber(config.readLine())
+    minFuel = tonumber(config.readLine())/100.0
+    idealTemp = tonumber(config.readLine())
+    idealField = tonumber(config.readLine())/1000.0
+    maxTempInc = tonumber(config.readLine())
+    maxOutflow = tonumber(config.readLine())
+    chargeInflow = tonumber(config.readLine())
+    shutDownField = tonumber(config.readLine())/1000.0
+    config.close()
+end
+ 
+function main()
+    setup()
+    if mon == null then
+        update()
+    else
+        parallel.waitForAny(update, clickListener)
+        gClear()
+        gWrite("Program stopped!", 1, 1, colors.white, colors.black)
+    end
+end
+ 
+main()
