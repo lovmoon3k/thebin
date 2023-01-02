@@ -1,0 +1,75 @@
+-- The server computer id
+local server_id = 2
+
+os.pullEvent = os.pullEventRaw
+ 
+-- Function to check if a disk is inserted into any of the computer drives
+function checkDisk()
+	local result = false
+	if disk.isPresent("left") or disk.isPresent("right") then
+		result = true
+	end
+	return result
+end
+ 
+-- Main program loop
+while true do
+	-- Prompt the user to insert a disk into a drive
+	print("Insert an id disk into the drive.")
+	-- Wait for a disk to be inserted into a drive
+	local event, diskSide = os.pullEvent("disk")
+	while not checkDisk() do
+		sleep(1)
+	end
+	local mountPath = disk.getMountPath(diskSide)
+	if fs.exists(mountPath .. "/user_id.txt") and fs.exists(mountPath .. "user_pass.txt") then
+		-- Open the "id" file on the left disk
+		local file = fs.open(mountPath .. "/user_id.txt", "r")
+		-- Read the contents of the file
+		local admin_user_id = file.readAll()
+		-- Close the file
+		file.close()
+		rednet.send(server_id, "add user")
+		rednet.send(server_id, admin_user_id)
+		local _, response = rednet.receive()
+		if (response == "user recognized") then
+			-- Send the user pass
+			local file = fs.open(mountPath .. "/user_pass.txt", "r")
+			-- Read the contents of the file
+			local admin_user_pass = file.readAll()
+			-- Close the file
+			file.close()
+			rednet.send(server_id, admin_user_pass)
+			local _, response = rednet.receive()
+			if (response == "user verified") then
+				-- Receive the new user pass and write it to the file
+				local _, new_admin_user_pass = rednet.receive()
+				local file = fs.open(mountPath .. "/user_pass.txt", "w")
+				file.write(new_admin_user_pass)
+				file.close()
+				local _, response = rednet.receive()
+				if (response == "access granted") then
+					redstone.setOutput("back", true)
+					sleep(4)
+					redstone.setOutput("back", false)
+				else
+					-- Inform the user that the card in the right slot is not an admin account
+					print("The inserted disk does not have sufficient permissions for this door")
+					sleep(3)
+				end
+			else
+				print("The inserted disk has a mismatched user password. Please contact a site administrator.")
+				sleep(3)
+			end
+		else
+			print("The inserted disk is not a recognized user.")
+			sleep(3)
+		end
+	else
+		print("The inserted disk is not a valid id card.")
+		sleep(3)
+	end
+	-- Eject both disks
+	disk.eject("left")
+	disk.eject("right")
+end
