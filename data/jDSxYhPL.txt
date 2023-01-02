@@ -1,0 +1,111 @@
+import fs from "fs";
+import fetch from "node-fetch";
+
+let date = new Date().toISOString().split("T")[0];
+let time = new Date().toISOString().split("T")[1].split(".")[0].replace(/:/g, "-");
+
+let path = `./saved/${date}/${time}`;
+
+let successAmount = 0;
+let failedAmount = 0;
+
+if (!fs.existsSync(path)) {
+	fs.mkdirSync(path, {recursive: true});
+}
+
+let subreddits = [
+	"yuri", //
+	"yaoi", //
+];
+
+subreddits.forEach(async (subreddit) => {
+	try {
+		console.log(`Fetching [33mr/${subreddit}[0m`);
+		let posts = await fetch(`https://reddit.com/r/${subreddit}.json?limit=100`);
+		posts = await posts.json();
+		// Get more posts
+		let after = posts.data.after;
+		let before = posts.data.before;
+
+		while (after != null) {
+			let morePosts = await fetch(`https://reddit.com/r/${subreddit}.json?limit=100&after=${after}`);
+			morePosts = await morePosts.json();
+			posts.data.children = posts.data.children.concat(morePosts.data.children);
+			after = morePosts.data.after;
+		}
+
+		while (before != null) {
+			let morePosts = await fetch(`https://reddit.com/r/${subreddit}.json?limit=100&before=${before}`);
+			morePosts = await morePosts.json();
+			posts.data.children = posts.data.children.concat(morePosts.data.children);
+			before = morePosts.data.before;
+		}
+
+		if (posts.error) {
+			console.log(`[31mSubreddit [33m${subreddit}[31m doesn't exist[0m`);
+			failedAmount++;
+			return;
+		}
+
+		if (posts.data.children.length < 1) {
+			console.log(`[31mSubreddit [33m${subreddit}[31m doesn't have any posts[0m`);
+			failedAmount++;
+			return;
+		}
+
+		fs.mkdirSync(`${path}/${subreddit}`, {recursive: true});
+
+		console.log(`[32mSubreddit [33m${subreddit}[32m has [33m${posts.data.children.length}[32m posts[0m`);
+
+		await posts.data.children.forEach(async (post) => {
+			if (post.data.post_hint != "image") {
+				return;
+			}
+
+			let url = post.data.url;
+			let fileExtension = url.split(".")[url.split(".").length - 1].split("?")[0];
+			let fileName = `${post.data.id}.${fileExtension}`;
+			let filePath = `${path}/${subreddit}/${fileName}`;
+
+			if (fs.existsSync(filePath)) {
+				console.log(`[33m${fileName} [31malready exists[0m`);
+				return;
+			}
+
+			console.log(`Downloading [33m${fileName}[0m`);
+			try {
+				let image = await fetch(url, {timeout: 10000});
+				const destination = fs.createWriteStream(filePath, {flags: "wx"});
+				await image.body.pipe(destination);
+
+				res.body.on("error", (err) => {
+					console.log(`[31mFailed to download [33m${fileName}[0m`);
+					console.log(err);
+					failedAmount++;
+				});
+
+				destination.on("finish", () => {
+					console.log(`[32mDownloaded [33m${fileName}[0m`);
+
+					destination.close();
+
+					if (fs.existsSync(filePath)) {
+						console.log(`[32mSaved [33m${fileName}[0m`);
+						successAmount++;
+					} else {
+						console.log(`[31mFailed to save [33m${fileName}[0m`);
+						failedAmount++;
+					}
+				});
+			} catch {
+				console.log(`[31mFailed to download [33m${fileName}[0m`);
+				failedAmount++;
+			}
+		});
+	} catch {
+		console.log(`[31mFailed to download from [33m${subreddit}[0m`);
+		failedAmount++;
+	}
+});
+
+console.log(`[32mSuccessful downloads: [33m${successAmount}[0m\n[31mFailed downloads: [33m${failedAmount}[0m\nRatio: [33m${(successAmount / (successAmount + failedAmount)) * 100}%[0m Success rate`);
