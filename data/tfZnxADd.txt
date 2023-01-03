@@ -1,0 +1,244 @@
+import random
+import datetime
+import decimal
+
+# region 1. task
+
+def generateFibList(num):
+    lst = [1, 2]
+    while lst[len(lst) - 1] <= num:
+        lst += [lst[len(lst) - 1] + lst[len(lst) - 2]]
+    lst.pop()
+    return lst
+
+def digitsInFibList(num, fibList=None):
+    digits = ""
+    if fibList is None:
+        fibList = generateFibList(num)
+    for fibNum in fibList[::-1]:
+        if num >= fibNum:
+            digits += "1"
+            num -= fibNum
+        else:
+            digits += "0"
+    return digits
+
+def numberOfOnesInFibList(num, fibList):
+    numberOfDigits = 0
+    for fibNum in fibList[::-1]:
+        if num >= fibNum:
+            numberOfDigits += 1
+            num -= fibNum
+    return numberOfDigits
+
+def task1():
+    lst = [237, 12, 65, 56]
+    maxNum = max(lst)
+    fibList = generateFibList(maxNum)
+    maxOnes = 0
+    for num in lst:
+        ones = numberOfOnesInFibList(num, fibList)
+        maxOnes = max(ones, maxOnes)
+
+    print(maxOnes)
+    for num in lst:
+        if numberOfOnesInFibList(num, fibList) == maxOnes:
+            print(num, digitsInFibList(num, fibList))
+
+# endregion
+
+# region 2. task
+
+def task2():
+    for _ in range(10):
+        year = random.randint(1600, 2200)
+        d = datetime.date(year, 12, 31)
+        print(d, d.strftime("%a"))
+
+# endregion
+
+# region 3. task
+
+def millerRabinForX(m, s, r, x):
+    y = pow(x, r, m)
+    if y == 1 or y == (m - 1):
+        return True
+    for _ in range(s):
+        y = (y ** 2) % m
+        if y == 1:
+            return False
+        if y == m - 1:
+            break
+    if y != (m - 1):
+        return False
+
+def millerRabin(m, t=10):
+    s = 0
+    r = m - 1
+    while r % 2 == 0:
+        s, r = s + 1, r // 2
+    for _ in range(t):
+        x = random.randint(2, m - 1)
+        if millerRabinForX(m, s, r, x) == False:
+            return False
+    return True
+
+def bbs(p, q, l):
+    n = p * q
+    r = random.randint(2, n)
+    u = (r * r) % n
+    lst = ""
+    for _ in range(l):
+        u = (u * u) % n
+        lst += str(u % 2)
+    return lst
+
+
+def task3():
+    with open("parcialis2/szamokBBS.txt", "rt") as fin:
+        for row in fin:
+            if row == "\n":
+                continue
+            data = tuple(row.split(", "))
+            n, p, q = data
+            n, p, q = int(n), int(p), int(q)
+            if millerRabin(p) and millerRabin(q) and p % 4 == 3 and q % 4 == 3:
+                lst = bbs(p, q, 8 * n)
+                hexNum = hex(int(lst, 2))
+                print(p, q, hexNum)
+                
+# endregion
+
+# region 4. task
+
+def inverse(a, m):
+    x0, x1 = 1, 0
+    b = m
+    while True:
+        q = a // b
+        r = a - b * q
+        if r == 0:
+            if b != 1:
+                return -1
+            else:
+                return x1 % m
+        x = x0 - q * x1
+        x0, x1 = x1, x
+        a, b = b, r
+
+def generateRandomPrimeNumberByBits(bits):
+    num = random.getrandbits(bits)
+    while (not millerRabin(num)):
+        num = random.getrandbits(bits)
+    return num
+
+def task4():
+    k = 16
+    n = 10
+    p = generateRandomPrimeNumberByBits(k)
+    for _ in range(n):
+        num = random.randint(0, p - 1)
+        inv = inverse(num, p)
+        print(num, p, inv)
+
+# endregion
+
+# region 5. task
+
+def sieveOfEratosthenes(n):
+    primes = list(range(3, n + 1, 2))
+    primes = [2] + primes
+    k = 3
+    while k * k <= n + 1:
+        if k in primes:
+            for i in range(k * k, n + 1, k):
+                if i in primes:
+                    primes.remove(i)
+        k += 2
+    return primes
+
+def primeDivisors(num, primes : list):
+    lst = []
+    numOfPrimes = 0
+    for prime in primes:
+        if num % prime == 0:
+            s = 0
+            while num % prime == 0:
+                num //= prime
+                s += 1
+            lst += [(prime, s)]
+            numOfPrimes += s
+        if num == 1:
+            return lst, numOfPrimes
+
+
+def task5():
+    primes = sieveOfEratosthenes(10000)
+    maxNum, maxS = 0, 0
+    with open("parcialis2/szamok.txt", "rt") as fin:
+        for row in fin:
+            num = int(row)
+            lst, s = primeDivisors(num, primes)
+            print(num, lst, s)
+            if s > maxS:
+                maxNum, maxS = num, s
+    print("Maxi", maxNum, maxS)
+
+# endregion
+
+# region 6. task
+
+def chineseRemainder(aL, mL):
+    mMul = 1
+    for m in mL:
+        mMul *= m
+    
+    mkL = []
+    invMkL = []
+    for m in mL:
+        tmp = mMul // m
+        mkL += [tmp]
+        invTmp = inverse(tmp, m)
+        invMkL += [invTmp]
+    
+    x = 0
+    for i in range(len(mL)):
+        x = (x + aL[i] * mkL[i] * invMkL[i]) % mMul
+    return x
+
+def decToBase256(num):
+    numLst = []
+    while num:
+        numLst = [int(num % 256)] + numLst
+        num //= 256
+    return numLst
+
+def task6():
+    ckL = []
+    with open("parcialis2/rsaC.txt", "rt") as fin:
+        for row in fin:
+            ck = int(row)
+            ckL += [ck]
+    nL = []
+    with open("parcialis2/rsaN.txt", "rt") as fin:
+        for row in fin:
+            n = int(row)
+            nL += [n]
+    
+    x = chineseRemainder(aL=ckL, mL=nL)
+    decimal.getcontext().prec = 100
+    cube = decimal.Decimal(1) / decimal.Decimal(3)
+    #print(cube)
+    x = x ** cube
+    lst = decToBase256(x)
+    #print(lst)
+    outStr = ""
+    for k in lst:
+        outStr += chr(k)
+    print(outStr)
+
+# endregion
+
+
+if __name__ == "__main__":
+    task6()
