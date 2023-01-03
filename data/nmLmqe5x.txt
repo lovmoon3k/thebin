@@ -1,0 +1,55 @@
+{% if PageParameter.Set %}
+{% sql %}
+--The PersonDuplicate table uses PersonAlias instead of PersonIds
+WITH mergeIDs
+AS (
+	SELECT A.Id AS AliasId
+		,P.FirstName
+		,P.LastName
+		,P.Id
+	FROM EntitySetItem E
+	JOIN Person P ON P.Id = E.EntityId
+	JOIN PersonAlias A ON A.PersonId = P.Id
+	WHERE EntitySetId = {{ PageParameter.Set }}
+	)
+	,idCombinations
+AS (
+	SELECT m1.AliasId AS AliasId1
+		,m2.AliasId AS AliasId2
+		,m1.FirstName AS FirstName1
+		,m1.LastName AS LastName1
+		,m2.FirstName AS FirstName2
+		,m2.LastName AS LastName2
+		,m1.Id AS Id1
+		,m2.Id AS Id2
+	FROM mergeIDs m1
+	JOIN mergeIDs m2 ON m1.AliasId <> m2.AliasId
+	)
+SELECT Id1
+	,FirstName1
+	,LastName1
+	,Id2
+	,FirstName2
+	,LastName2
+	,ScoreDetail
+	,FORMAT(ConfidenceScore / 100, 'P') AS ConfidenceScore
+FROM idCombinations I
+JOIN PersonDuplicate P ON P.PersonAliasId = I.AliasId1
+	AND P.DuplicatePersonAliasId = I.AliasId2
+{% endsql %}
+
+<div class='card panel-block'>
+    <div class="panel-heading">
+                <h1 class="panel-title"><i class=""></i>&nbsp;Duplicate Scores</h1>
+            </div>
+    <ul style='margin-top:10px'>
+    {% for item in results %}
+    <li>
+    <a target="_blank" href="/Person/{{ item.Id1 }}">{{ item.FirstName1 }} {{ item.LastName1 }} </a> matches <a target="_blank" href="/Person/{{ item.Id2 }}">{{ item.FirstName2 }} {{ item.LastName2 }} </a> on <strong>{{ item.ScoreDetail | RemoveFirst:'|' | Replace:'|',', '  }} </strong> with a confidence Score of {{ item.ConfidenceScore }}
+    </li>
+    {% endfor %}
+    </ul>
+</div>
+<br>
+
+{% endif %}
