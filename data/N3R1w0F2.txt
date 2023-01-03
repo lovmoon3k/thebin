@@ -1,0 +1,199 @@
+(unless (fboundp 'common-lisp-mode)
+    (defalias 'common-lisp-mode 'lisp-mode))
+(require 'slime)
+
+
+(defun slime-maybe-redirect-inferior-output ()
+   (when (slime-connected-p)
+     (slime-redirect-inferior-output)))
+
+;;; this is used to cause other threads to write output to the slime
+;;; repl buffer, instead of to the inferior lisp buffer
+;;(add-hook 'slime-mode-hook 'slime-maybe-redirect-inferior-output)
+(add-hook 'slime-mode-hook 'enable-paredit-mode)
+
+ (require 'recentf)
+ (pushnew "Map_Sym.txt" recentf-exclude)
+
+(slime-setup '(slime-fancy
+               slime-asdf
+               slime-tramp
+               slime-indentation
+               ;; included in slime-fancy
+               ;; slime-repl
+               ))
+
+;; populate SLIME-LISP-IMPLEMENTATIONS in a portable way
+(defmacro defslime-start (name mapping)
+  `(defun ,name ()
+     (interactive)
+     (let ((slime-default-lisp ,mapping))
+       (slime)
+       (slime-eval '(cl-user::smite)))))
+
+(loop for name in '(mlisp alisp sbcl sbcl-cvs clozure cmucl abcl clisp ecl lispworks mkcl
+                          m1-allegro m1-smp-allegro)
+      for exe-var = (intern (concat (symbol-name name) "-executable"))
+      when (and (boundp exe-var) (eval exe-var))
+      unless (find name slime-lisp-implementations :key 'first)
+      do (push `(,name (,(eval exe-var)) ,@(when (member name '(mlisp alisp))
+                                             `(:env (list (concat "LD_LIBRARY_PATH=" (getenv "LDLPATH"))))))
+               slime-lisp-implementations)
+      (eval `(defun ,name ()
+               (interactive)
+               (let ((slime-default-lisp ',name))
+                 (slime)))))
+(setq slime-default-lisp 'sbcl)
+
+
+;;; Running STRATUS
+;; (push `(stratus-lisp ,(list alisp-executable
+;;                             "-I"
+;;                             (expand-file-name "~/stratus/stratus-trunk/code/bin/stratus.dxl")))
+;;       slime-lisp-implementations)
+
+;; (push `(mission-lisp ,(list alisp-executable
+;;                             "-I"
+;;                             (expand-file-name "~/stratus/stratus-trunk/code/bin/mission.dxl")))
+;;       slime-lisp-implementations)
+
+
+;; (push `(stratus-sim ,(list alisp-executable
+;;                             "-I"
+;;                             (expand-file-name "~/stratus/stratus-trunk/code/bin/simulator.dxl")))
+;;       slime-lisp-implementations)
+
+
+;; (push `(mifde-lisp ,(list alisp-executable
+;;                             "-I"
+;;                             (expand-file-name "~/stratus/stratus-trunk/code/bin/mifd-experiments.dxl")))
+;;       slime-lisp-implementations)
+
+;; (push `(qs-abcl ,(list (expand-file-name "~/prismatic/code/quiksilver/abcl/prism-abcl")
+;;                        "--eval" "(qs)"))
+;;       slime-lisp-implementations)
+
+(push `(shop-sbcl ,(list sbcl-executable
+                         "--dynamic-space-size" "4000"))
+      slime-lisp-implementations)
+
+(push `(yappr-sbcl ,(list sbcl-executable
+                          "--dynamic-space-size" "4000"
+                          "--userinit" "/Users/rpg/lisp/yappr3/yappr3-sbclrc"))
+      slime-lisp-implementations)
+
+(defun yappr-sbcl ()
+  (interactive)
+  (let ((slime-default-lisp 'yappr-sbcl))
+    (slime)))
+
+
+
+;; (defun stratus-lisp ()
+;;   (interactive)
+;;   (let ((slime-default-lisp 'stratus-lisp))
+;;     (slime)))
+
+;; (defun mission-lisp ()
+;;   (interactive)
+;;   (let ((slime-default-lisp 'mission-lisp))
+;;     (slime)))
+
+
+;; (defun stratus-sim ()
+;;   (interactive)
+;;   (let ((slime-default-lisp 'stratus-sim))
+;;     (slime)))
+
+
+;; (defun mifde-lisp ()
+;;   (interactive)
+;;   (let ((slime-default-lisp 'mifde-lisp))
+;;     (slime)))
+
+(defun shop-sbcl ()
+  (interactive)
+  (let ((slime-default-lisp 'shop-sbcl))
+    (slime)))
+
+
+;; (setq lisp-simple-loop-indentation 1
+;;       lisp-loop-keyword-indentation 6
+;;       lisp-loop-forms-indentation 6)
+
+;;(slime-define-key (kbd "M-.") 'slime-edit-definition)
+;;(slime-define-key (kbd "<return>") 'newline-and-indent)
+(define-key slime-mode-map (kbd "C-c l") 'slime-selector)
+(define-key slime-mode-map (kbd "<f3>") 'insert-section-comment)
+(define-key slime-mode-map (kbd "<f4>") 'insert-file-comment)
+(define-key slime-parent-map (kbd "<f6>") 'hyperspec-lookup)
+(define-key slime-mode-map (kbd "C-c c") 'slime-compile-defun)
+(define-key slime-mode-map (kbd "C-c ;") 'comment-region)
+;; replicate Franz ELI behavior
+(define-key slime-mode-map (kbd "C-j") 'newline-and-indent)
+(define-key slime-mode-map (kbd "C-c a") 'slime-arglist)
+(define-key slime-mode-map (kbd "C-c t") 'slime-toggle-trace-fdefinition)
+(define-key slime-mode-map (kbd "C-c d") 'slime-documentation)
+(define-key slime-mode-map (kbd "C-c D") 'slime-documentation-lookup)
+(define-key slime-mode-map (kbd "C-x C-M-e") 'slime-eval-print-last-expression)
+(define-key slime-mode-map (kbd "C-c l") 'slime-selector)
+(define-key slime-repl-mode-map (kbd "C-c l") 'slime-selector)
+(define-key sldb-mode-map (kbd "C-c l") 'slime-selector)
+
+(define-key slime-mode-map (kbd "C-c m") 'slime-macroexpand-1)
+;;; try to get the slime context menu back from aquamacs
+(when (boundp 'osx-key-mode-map)
+  (define-key osx-key-mode-map [down-mouse-3] nil))
+
+;;(setq lisp-indent-function 'common-lisp-indent-function)
+
+(autoload 'cl-template-populate-tempo-map "cl-templates"
+  "Install a substidiary keymap for tempo templates
+of CL forms.")
+
+(defun slime-init-cl-templates ()
+  (let ((tempo-map (make-sparse-keymap "lisp-tempo-map")))
+    (let ((command
+           (define-prefix-command 'slime-cl-template nil
+             "Common Lisp Templates")))
+      (define-key slime-mode-map (kbd "C-c C-c") 'slime-cl-template)
+      (cl-template-populate-tempo-map slime-cl-template)
+      )))
+
+(slime-init-cl-templates)
+
+(add-hook 'lisp-mode-hook
+          '(lambda ()
+             ;;            (setq show-trailing-whitespace t)
+             (make-local-variable 'write-contents-hooks)
+             (add-hook 'write-contents-hooks 'kill-all-tabs-if-applicable)))
+
+;;;---------------------------------------------------------------------------
+;;; Use fic mode and configure it...
+;;;---------------------------------------------------------------------------
+(add-hook 'lisp-mode-hook
+          '(lambda ()
+             (fic-mode)
+             (make-variable-buffer-local 'fic-search-list-re)
+             (setq fic-search-list-re "\\<\\(BUG\\|FIXME\\|KLUDGE\\|TODO\\)")))
+
+;;;---------------------------------------------------------------------------
+;;; Nicer display of docstrings
+;;;---------------------------------------------------------------------------
+;; (defun slime-describe-function (symbol-name)
+;;   (interactive (list (slime-read-symbol-name "Describe symbol: ")))
+;;   (when (not symbol-name)
+;;     (error "No symbol given"))
+;;   (slime-eval-describe `(swank:describe-function ,symbol-name)))
+
+;;;---------------------------------------------------------------------------
+;;; New history behavior
+;;;---------------------------------------------------------------------------
+(setq slime-repl-eli-history-behavior t)
+(define-key slime-repl-mode-map "\M-p" 'slime-repl-previous-input-nomatch)
+(define-key slime-repl-mode-map "\M-P" 'slime-repl-previous-input)
+(define-key slime-repl-mode-map "\M-n" 'slime-repl-next-input-nomatch)
+(define-key slime-repl-mode-map "\M-N" 'slime-repl-next-input)
+
+
+(provide 'slime-config)
