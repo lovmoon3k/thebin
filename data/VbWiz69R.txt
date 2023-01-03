@@ -1,0 +1,126 @@
+local TS = game:GetService("TeleportService")
+local TweenService = game:GetService("TweenService")
+local placeId = (10760289632)
+local leaveGuiEvent = game.ReplicatedStorage.LeaveGuiEvent--Instert a remote event in ReplicatedStorage and name it to LeaveGuiEvent
+local TransitionEvent = game.ReplicatedStorage.TransitionEvent--Instert a remote event in ReplicatedStorage and name it to TransitionEvent
+local list = {}
+local gui = script.Parent.GuiPart.SurfaceGui
+local billboard = script.Parent.billboardPart.billboardGui
+local timer
+local teleporting = false
+local spawnTeleport = script.Parent.spawn
+local Seats = script.Parent.Parent.Bus.Seats:GetChildren()
+local Min_Players = 1
+local Max_Players = 12
+local PlayersCount = script.Parent.PlayersCount
+local Debounce = false
+
+local function updateGui()
+	gui.Frame.players.Text = #list
+	billboard.Frame.players.Text = #list
+	PlayersCount.Value = #list
+end
+
+local function removeFromList(character)
+	for i=1,#list do
+		if list[i] == character.Name then
+			table.remove(list,i)
+			updateGui()
+		end
+	end
+end
+
+local function teleportPlayers()
+	if #list >= Min_Players then
+		script.Parent.GuiPart.SurfaceGui.Frame.Status.Text = "Teleporting..."
+		script.Parent.billboardPart.billboardGui.Frame.Status.Text = "Teleporting..."
+		script.Parent.GuiPart.SurfaceGui.Frame.Status.TextColor3 = Color3.new(1,0,0)
+		local playersToTeleport = {}
+		local teleportTime = 0
+		for i=1,#list do
+			if game.Players:findFirstChild(list[i]) then
+				table.insert(playersToTeleport,game.Players:findFirstChild(list[i]))
+				TransitionEvent:FireClient(game.Players:findFirstChild(list[i]))
+			else
+				table.remove(list,i)	
+			end
+		end 
+		local code = TS:ReserveServer(placeId)
+		teleporting = true
+		TS:TeleportToPrivateServer(placeId,code,playersToTeleport)
+		repeat wait() until #list <= 0
+		script.Parent.GuiPart.SurfaceGui.Frame.Status.Text = "READY"
+		script.Parent.GuiPart.SurfaceGui.Frame.Status.TextColor3 = Color3.new(0.333333, 1, 0)
+		teleporting = false
+	else
+		billboard.Frame.players.Text = "1 Players Neeeded"
+		gui.Frame.players.Text = "1 Players Neeeded"
+		wait(2.5)
+		billboard.Frame.players.Text = #list.."/"..Max_Players
+		gui.Frame.players.Text = #list.."/"..Max_Players
+	end
+end
+
+script.Parent.BusEnter.Touched:Connect(function(hit)
+	if hit.Parent:findFirstChild("Humanoid") then
+		if teleporting == false then
+			local char = hit.Parent
+			local player = game.Players:FindFirstChild(char.Name)
+			local alreadyExists = false
+			
+			for i=1,#list do
+				if list[i] == char.Name then
+					alreadyExists = true
+				end
+			end
+			
+			if alreadyExists == false then
+				if #list < Max_Players then -- Many Players have been teleported.
+					table.insert(list,char.Name)
+					char.PrimaryPart.CFrame = spawnTeleport.CFrame
+					if Debounce then return end
+					local player = game.Players:GetPlayerFromCharacter(hit.Parent)
+					for i, v in pairs(Seats) do
+						if Seats.Occupant == nil then
+							local Check = Instance.new("Weld")
+							Check.Name = "Check"
+							Check.Parent = player.Character
+							Check.Parent.Humanoid.JumpPower = 0
+							Check.Parent.Humanoid.WalkSpeed = 0
+						end
+					end
+					Seats[math.random(1, #Seats)]:Sit(player.Character.Humanoid)
+					updateGui()
+					game.ServerStorage.ExitGui:Clone().Parent = player.PlayerGui
+				end
+				player.CharacterRemoving:connect(function(character)
+					removeFromList(character)
+				end)
+			end
+			
+		end
+	end
+end)
+
+leaveGuiEvent.OnServerEvent:Connect(function(player)
+	player.Character.Humanoid.Sit = false
+	wait()
+	player:LoadCharacter()
+end)
+
+PlayersCount:GetPropertyChangedSignal("Value"):Connect(function()
+	gui.Frame.players.Text = PlayersCount.Value.."/"..Max_Players
+	billboard.Frame.players.Text = PlayersCount.Value.."/"..Max_Players
+end)
+
+while wait() do
+	timer = 41
+	for i=1,timer do
+		timer = timer - 1
+		gui.Frame.time.Text = timer
+		billboard.Frame.time.Text = timer
+		wait(1)
+	end
+	teleportPlayers()
+end
+
