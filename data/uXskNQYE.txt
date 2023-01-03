@@ -1,0 +1,50 @@
+#include <Arduino.h>
+
+#define PWM_PIN 23
+#define TACH_PIN 22
+
+volatile int ticks;
+const int ticks_per_rev = 2;
+volatile uint32_t old_tick_ts;
+volatile uint32_t tick_ts;
+static uint32_t ts = 0;
+
+static void pwm_set(uint8_t value, void *state)
+{
+  // input is 8-bit
+  // write a 4-bit duty
+  ledcWrite(0, value >> 4);
+}
+
+static void update_ticks() {
+  if((ticks++)==(ticks_per_rev-1)) {
+    old_tick_ts = tick_ts;
+    tick_ts = millis();
+    ticks = 0;
+  }
+}
+void setup()
+{
+  ticks = 0;
+  tick_ts = 0;
+  old_tick_ts = 0;
+  Serial.begin(115200);
+  ledcAttachPin(PWM_PIN, 0);
+  ledcSetup(0, 25 * 1000, 4);
+  attachInterrupt(TACH_PIN,update_ticks,RISING);
+  Serial.println("Booted");
+  pwm_set(255,nullptr);
+}
+
+void loop()
+{
+  double rpm = NAN;
+  if(tick_ts>old_tick_ts && old_tick_ts!=0) {
+    rpm = (60*1000.0)/(tick_ts-old_tick_ts);
+  }
+  if(millis()>ts+250) {
+    ts=millis();
+    Serial.print(rpm);
+    Serial.println(" RPM");
+  }
+}
