@@ -1,0 +1,73 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <windows.h>
+#include <stdio.h>
+
+int main()
+{
+    for (int i = 0; i <= 255; i++)
+    {
+        printf("\nChecking Opcode 0x%02x ...\n", i);
+
+        for (int j = 0; j <= 255; j++)
+        {
+            STARTUPINFO si;
+            PROCESS_INFORMATION pi;
+
+            ZeroMemory(&si, sizeof(si));
+            si.cb = sizeof(si);
+            ZeroMemory(&pi, sizeof(pi));
+
+            char cmdline[256];
+            sprintf(cmdline, "IllegalOpcodes.exe %d %d", i, j);
+
+            if (!CreateProcess(NULL, cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+            {
+                printf("CreateProcess failed (%d).\n", GetLastError());
+                return 1;
+            }
+
+            WaitForSingleObject(pi.hProcess, 1000);
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+        }
+    }
+
+    return 0;
+}
+
+
+------------------- IllegalOpcodes.cpp -------------------
+
+
+#include <windows.h>
+#include <stdio.h>
+
+int main(int argc, char* argv[])
+{
+    int opcode1 = atoi(argv[1]);
+    int opcode2 = atoi(argv[2]);
+
+    LPVOID mem = VirtualAlloc(NULL, 2, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    DWORD oldProtect = VirtualProtect(mem, 2, PAGE_EXECUTE_READWRITE, &oldProtect);
+
+    // Write two byte opcodes at the 4K page end.
+    *((unsigned char*)mem + 0xFFE) = opcode1;
+    *((unsigned char*)mem + 0xFFF) = opcode2;
+
+    __try
+    {
+        // Execute opcodes...
+        ((void(*)())((unsigned char*)mem + 0xFFE))();
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        if (GetExceptionCode() == EXCEPTION_ILLEGAL_INSTRUCTION)
+        {
+            printf(" 0x%02x,0x%02x ", opcode1, opcode2);
+        }
+    }
+
+    VirtualFree(mem, 0, MEM_RELEASE);
+
+    return 0;
+}
