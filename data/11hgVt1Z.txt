@@ -1,0 +1,69 @@
+from PyQt5 import QtWidgets, uic, QtCore, QtTest
+import sys
+import serial
+import time
+from css_colors import CSS_COLORS
+
+arduino = serial.Serial(port='/dev/ttyACM0', baudrate=9600, timeout=.05)
+
+
+class Ui(QtWidgets.QMainWindow):
+
+    def __init__(self):
+        # Call the inherited classes __init__ method
+        super(Ui, self).__init__()
+        uic.loadUi('ui.ui', self)  # Load the .ui file
+
+        # load widget
+        self.red_slider = self.findChild(QtWidgets.QSlider, 'red_slider')
+        self.green_slider = self.findChild(QtWidgets.QSlider, 'green_slider')
+        self.blue_slider = self.findChild(QtWidgets.QSlider, 'blue_slider')
+        self.css_color_selection = self.findChild(
+            QtWidgets.QListWidget, 'css_color_selection')
+
+        self.red_value_label = self.findChild(
+            QtWidgets.QLabel, 'red_value_label')
+        self.green_value_label = self.findChild(
+            QtWidgets.QLabel, 'green_value_label')
+        self.blue_value_label = self.findChild(
+            QtWidgets.QLabel, 'blue_value_label')
+
+        # bind functions to QtWidgets
+        self.red_slider.valueChanged.connect(
+            lambda: self.slide(self.red_slider))
+        self.green_slider.valueChanged.connect(
+            lambda: self.slide(self.green_slider))
+        self.blue_slider.valueChanged.connect(
+            lambda: self.slide(self.blue_slider))
+
+        # fill css color selection widget
+        self.css_color_selection.addItems(CSS_COLORS.keys())
+        self.css_color_selection.doubleClicked.connect(self.color_selected)
+
+        # Show the GUI
+        self.show()
+
+    def slide(self, slider):
+        slider_color = slider.objectName().split('_')[0]
+
+        lbl = self.findChild(QtWidgets.QLabel, f'{slider_color}_value_label')
+
+        slider_val = slider.value()
+        data = f' {slider_color[0]}{slider_val}'
+
+        arduino.write(bytes(data, 'utf-8'))
+        lbl.setText(str(slider_val))
+
+    @QtCore.pyqtSlot(QtCore.QModelIndex)
+    def color_selected(self, index):
+        color = index.data()
+        rgb_value = CSS_COLORS[color]
+        self.red_slider.setValue(rgb_value[0])
+        self.green_slider.setValue(rgb_value[1])
+        self.blue_slider.setValue(rgb_value[2])
+
+
+if __name__ == '__main__':
+    app = QtWidgets.QApplication(sys.argv)
+    window = Ui()
+    app.exec_()
