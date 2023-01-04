@@ -1,0 +1,88 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <semaphore.h>
+
+char buffer = ' ';
+
+sem_t mutex;
+sem_t full;
+sem_t empty;
+
+void *Producer(void *arg) {
+        int k,x;
+        char i;
+
+        for(i = 'a'; i <= 'z'; i++) {
+                x = 0;
+                for(k = 0; k < 10000000; k++)
+                        x++;
+                sem_wait(&empty);
+                sem_wait(&mutex);
+                buffer = i;
+                sem_post(&mutex);
+                sem_post(&full);
+        }
+        printf("Producer thread ended.\n");
+        pthread_exit(NULL);
+}
+
+void *Consumer (void *arg) {
+        char i, a;
+        int k, x;
+
+        for(i = 'a'; i <= 'z'; i++) {
+                sem_wait(&full);
+                sem_wait(&mutex);
+                a = buffer;
+                sem_post(&mutex);
+                sem_post(&empty);
+                printf("%c\n", a);
+                if(a == 'z')
+                        break;
+                x = 0;
+                for(k = 0;k < 5000000; k++)
+                        x++;
+        }
+        printf("Consumer thread ended.\n");
+        pthread_exit(NULL);
+}
+
+int main(int argc, char *argv[]) {
+        pthread_t prod, cons;
+        int status;
+
+        if(sem_init(&mutex, 0, 1) == -1) {
+                perror("Init semaphore");
+                exit(1);
+        }
+        if(sem_init(&empty, 0, 1) == -1) {
+                perror("Init semaphore");
+                exit(1);
+        }
+
+        if(sem_init(&full, 0, 0) == -1) {
+                perror("Init semaphore");
+                exit(1);
+        }
+    	
+		status = pthread_create(&prod, NULL, Producer, NULL);
+
+        if(status != 0) {
+                perror("Create thread Producer");
+                exit(1);
+        }
+
+        status = pthread_create(&cons, NULL, Consumer, NULL);
+
+        if(status != 0) {
+                perror("Create thread Consumer");
+                exit(1);
+        }
+    
+        pthread_join(prod, NULL);
+        pthread_join(cons, NULL);
+
+        printf("Main thread ended.\n");
+        pthread_exit(NULL);
+}
