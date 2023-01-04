@@ -1,0 +1,56 @@
+using Microsoft.Build.Framework;
+using Microsoft.Build.Utilities;
+using NuGet.Configuration;
+using NuGet.Packaging;
+using NuGet.Packaging.Core;
+using NuGet.Protocol;
+using NuGet.Protocol.Core.Types;
+using System.IO;
+
+namespace MyProject
+{
+    public class CopyFileFromNuGetPackage : Task
+    {
+        [Required]
+        public string PackageId { get; set; }
+
+        [Required]
+        public string PackageVersion { get; set; }
+
+        [Required]
+        public string SourceFilePath { get; set; }
+
+        [Required]
+        public string DestinationFilePath { get; set; }
+
+        public override bool Execute()
+        {
+            var packageIdentity = new PackageIdentity(PackageId, NuGetVersion.Parse(PackageVersion));
+            var packageSource = new PackageSource("https://api.nuget.org/v3/index.json");
+            var packageDownloadContext = new PackageDownloadContext(packageSource, null, false, null, NullLogger.Instance);
+            var packageExtractionContext = new PackageExtractionContext(
+                PackageSaveMode.Defaultv3,
+                XmlDocFileSaveMode.None,
+                ClientPolicyContext.GetClientPolicy(NullLogger.Instance, null),
+                NullLogger.Instance);
+
+            using (var sourceCacheContext = new SourceCacheContext())
+            {
+                var packageSourceProvider = new PackageSourceProvider(Settings.LoadDefaultSettings(null), new[] { packageSource });
+                var packageMetadataResource = Repository.Provider.GetCoreV3().GetResource<PackageMetadataResource>();
+                var packageMetadata = packageMetadataResource.GetMetadata(packageIdentity, sourceCacheContext, NullLogger.Instance, packageSourceProvider);
+                var packageDownloadResource = Repository.Provider.GetCoreV3().GetResource<PackageDownloadResource>();
+                var packageStream = packageDownloadResource.GetStream(packageIdentity, packageDownloadContext);
+                var packageReader = new PackageReader(packageStream);
+
+                var fileStream = packageReader.GetFile(SourceFilePath);
+                using (var destinationStream = File.Create(DestinationFilePath))
+                {
+                    fileStream.CopyTo(destinationStream);
+                }
+            }
+
+            return true;
+        }
+    }
+}
