@@ -1,0 +1,52 @@
+// ==UserScript==
+// @name        shopee.vn add product sold count filter
+// @namespace   https://greasyfork.org/en/users/85671-jcunews
+// @version     1.0.1
+// @license     AGPL v3
+// @author      jcunews
+// @description Context: https://www.reddit.com/r/userscripts/comments/zynyrs/request_minimum_sold_unit_filter_on_shopee/
+// @match       https://shopee.vn/*
+// @grant       none
+// @run-at      document-start
+// ==/UserScript==
+
+((rx, minSold) => {
+  minSold = 0;
+  rx = /(\d+(?:,\d+)?)(k)?/;
+  function check(ele, a) {
+    if (a = ele.querySelector('.r6HknA')) {
+      if (a = a.textContent.match(rx)) {
+        a = parseFloat(a[1].replace(",", ".")) * (a[2] ? 1000 : 1)
+      } else a = 0;
+      ele.style.display = a >= minSold ? "" : "none"
+    }
+  }
+  (new MutationObserver(recs => {
+    recs.forEach(rec => {
+      rec.addedNodes.forEach((node, a) => {
+        if (node.tagName) {
+          if (!window.soldFilter && (a = document.querySelector('.shopee-filter-panel>button'))) {
+            a.previousElementSibling.insertAdjacentHTML("beforebegin", `
+<div id="soldFilter" class="shopee-filter-group ">
+  <div class="shopee-filter-group__header">Minimum Sold</div>
+  <div class="shopee-filter-group__body">
+    <div><input id="soldFilterInp" type="number" min="0" value="0"></div>
+  </div>
+  <button style="background-color:rgb(238,77,45)" class="shopee-button-solid shopee-button-solid--primary hdzZKE">Apply</button>
+</div>`);
+            soldFilter.lastElementChild.onclick = () => {
+              soldFilterInp.value = soldFilterInp.value.replace(/[^0-9]/g, "");
+              if (isNaN(soldFilterInp.valueAsNumber)) soldFilterInp.valueAsNumber = 0;
+              minSold = soldFilterInp.valueAsNumber;
+              document.querySelectorAll('.shopee-search-item-result__item').forEach(check)
+            };
+            a.addEventListener("click", () => soldFilterInp.valueAsNumber = minSold = 0, true)
+          }
+          if (a = node.closest('.shopee-search-item-result__item')) {
+            check(a)
+          } else node.querySelectorAll('.shopee-search-item-result__item').forEach(check)
+        }
+      })
+    })
+  })).observe(document, {childList: true, subtree: true})
+})()
