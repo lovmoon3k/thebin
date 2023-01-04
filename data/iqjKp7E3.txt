@@ -1,0 +1,142 @@
+Внутри пода ИНОГДА не происходит резолв имен, ответ которых превышает 512 байт 
+В этот проблемный момент в логах coredns-подов 
+
+# kubectl logs --tail=1 -f -l app.kubernetes.io/name=coredns -n kube-system
+[ERROR] plugin/errors: 2 www.googleapis.com. A: dial tcp 10.31.70.1:53: i/o timeout
+[ERROR] plugin/errors: 2 www.googleapis.com. AAAA: dial tcp 10.31.70.2:53: i/o timeout
+
+
+При этом резолв таких имен(размер ответа которых превышает 512 байт) ВСЕГДА выполняется успешно 
+- при запросе с самих нод
+- при запросе с того же пода если вместо IP-адреса сервиса kube-dns(10.96.0.10) в поле nameserver использовать 
+ip-адреса dns-серверов, которые указаны в /etc/resolv.conf на нодах (10.31.70.1,10.31.70.2) или общедоступные DNS-сервера(например, 8.8.8.8)
+
+То есть
+pods -- > coredns pod -- > node dns config -- > node nameserver -- > Иногда timeout(неуспешное разименование)
+pods -- > node nameserver(10.31.70.1,10.31.70.2) -- > Всегда OK
+pods -- > Public DNS(8.8.8.8) -- > Всегда OK
+
+Резолв доменных имен, размер ответа которых не превышает 512 байт и соответственно не требует от клиента на
+переключение протокола с UDP на TCP выполняется ВСЕГДА успешно
+
+При успешном резолве через tcpdump внутри пода можно увидеть, что переключение протокола выполняется успешно
+
+Сначала важные, по-моему мнению строки
+17:44:23.092391 - proto UDP (17), length 515
+17:44:23.093225 - proto TCP (6), length 1090
+17:44:23.115249 - proto UDP (17), length 431
+
+Полный вывод tcpdump
+17:44:23.089986 eth0  Out IP (tos 0x0, ttl 64, id 51214, offset 0, flags [DF], proto UDP (17), length 64)
+    nginx-5db77f8f67-9cccp.34049 > kube-dns.kube-system.svc.cluster.local.53: [bad udp cksum 0xec01 -> 0xe200!] 13864+ A? www.googleapis.com. (36)
+17:44:23.090023 eth0  Out IP (tos 0x0, ttl 64, id 51215, offset 0, flags [DF], proto UDP (17), length 64)
+    nginx-5db77f8f67-9cccp.34049 > kube-dns.kube-system.svc.cluster.local.53: [bad udp cksum 0xec01 -> 0x92e4!] 34089+ AAAA? www.googleapis.com. (36)
+17:44:23.092391 eth0  In  IP (tos 0x0, ttl 63, id 44025, offset 0, flags [DF], proto UDP (17), length 515)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.34049: [bad udp cksum 0xedc4 -> 0x454e!] 13864| q: A? www.googleapis.com. 16/4/5 www.googleapis.com. [30s] A 216.58.212.170, www.googleapis.com. [30s] A 142.250.184.202, www.googleapis.com. [30s] A 142.250.186.42, www.googleapis.com. [30s] A 142.250.186.106, www.googleapis.com. [30s] A 216.58.212.138, www.googleapis.com. [30s] A 142.250.186.138, www.googleapis.com. [30s] A 142.250.184.234, www.googleapis.com. [30s] A 172.217.23.106, www.googleapis.com. [30s] A 142.250.186.74, www.googleapis.com. [30s] A 172.217.18.10, www.googleapis.com. [30s] A 142.250.186.170, www.googleapis.com. [30s] A 172.217.16.202, www.googleapis.com. [30s] A 142.250.74.202, www.googleapis.com. [30s] A 172.217.16.138, www.googleapis.com. [30s] A 142.250.185.234, www.googleapis.com. [30s] A 142.250.185.202 ns: googleapis.com. [30s] NS ns2.google.com., googleapis.com. [30s] NS ns1.google.com., googleapis.com. [30s] NS ns4.google.com., googleapis.com. [30s] NS ns3.google.com. ar: ns4.google.com. [30s] AAAA 2001:4860:4802:38::a, ns1.google.com. [30s] AAAA 2001:4860:4802:32::a, ns3.google.com. [30s] AAAA 2001:4860:4802:36::a, ns2.google.com. [30s] A 216.239.34.10, ns1.google.com. [30s] A 216.239.32.10 (487)
+17:44:23.092669 eth0  Out IP (tos 0x0, ttl 64, id 58008, offset 0, flags [DF], proto TCP (6), length 60)
+    nginx-5db77f8f67-9cccp.48624 > kube-dns.kube-system.svc.cluster.local.53: Flags [S], cksum 0xebf2 (incorrect -> 0x0670), seq 1445726375, win 28800, options [mss 1440,sackOK,TS val 3694783532 ecr 0,nop,wscale 7], length 0
+17:44:23.092750 eth0  In  IP (tos 0x0, ttl 63, id 0, offset 0, flags [DF], proto TCP (6), length 60)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.48624: Flags [S.], cksum 0xebf2 (incorrect -> 0xbace), seq 80597764, ack 1445726376, win 28560, options [mss 1440,sackOK,TS val 1568741165 ecr 3694783532,nop,wscale 7], length 0
+17:44:23.092757 eth0  Out IP (tos 0x0, ttl 64, id 58009, offset 0, flags [DF], proto TCP (6), length 52)
+    nginx-5db77f8f67-9cccp.48624 > kube-dns.kube-system.svc.cluster.local.53: Flags [.], cksum 0xebea (incorrect -> 0x5836), seq 1, ack 1, win 225, options [nop,nop,TS val 3694783532 ecr 1568741165], length 0
+17:44:23.092787 eth0  Out IP (tos 0x0, ttl 64, id 58010, offset 0, flags [DF], proto TCP (6), length 128)
+    nginx-5db77f8f67-9cccp.48624 > kube-dns.kube-system.svc.cluster.local.53: Flags [P.], cksum 0xec36 (incorrect -> 0xaf48), seq 1:77, ack 1, win 225, options [nop,nop,TS val 3694783532 ecr 1568741165], length 76 [prefix length(36) != length(74)] (invalid)
+17:44:23.092797 eth0  In  IP (tos 0x0, ttl 63, id 33028, offset 0, flags [DF], proto TCP (6), length 52)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.48624: Flags [.], cksum 0xebea (incorrect -> 0x57eb), seq 1, ack 77, win 224, options [nop,nop,TS val 1568741165 ecr 3694783532], length 0
+17:44:23.093225 eth0  In  IP (tos 0x0, ttl 63, id 33029, offset 0, flags [DF], proto TCP (6), length 1090)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.48624: Flags [P.], cksum 0xeff8 (incorrect -> 0xf45f), seq 1:1039, ack 77, win 224, options [nop,nop,TS val 1568741166 ecr 3694783532], length 1038 13864* q: A? www.googleapis.com. 16/4/8 www.googleapis.com. [30s] A 172.217.18.10, www.googleapis.com. [30s] A 172.217.16.202, www.googleapis.com. [30s] A 142.250.185.202, www.googleapis.com. [30s] A 172.217.23.106, www.googleapis.com. [30s] A 142.250.186.106, www.googleapis.com. [30s] A 142.250.186.170, www.googleapis.com. [30s] A 172.217.16.138, www.googleapis.com. [30s] A 142.250.184.234, www.googleapis.com. [30s] A 216.58.212.170, www.googleapis.com. [30s] A 142.250.185.234, www.googleapis.com. [30s] A 142.250.186.138, www.googleapis.com. [30s] A 142.250.186.74, www.googleapis.com. [30s] A 142.250.74.202, www.googleapis.com. [30s] A 142.250.184.202, www.googleapis.com. [30s] A 142.250.186.42, www.googleapis.com. [30s] A 216.58.212.138 ns: googleapis.com. [30s] NS ns2.google.com., googleapis.com. [30s] NS ns1.google.com., googleapis.com. [30s] NS ns4.google.com., googleapis.com. [30s] NS ns3.google.com. ar: ns3.google.com. [30s] A 216.239.36.10, ns3.google.com. [30s] AAAA 2001:4860:4802:36::a, ns1.google.com. [30s] AAAA 2001:4860:4802:32::a, ns2.google.com. [30s] A 216.239.34.10, ns2.google.com. [30s] AAAA 2001:4860:4802:34::a, ns1.google.com. [30s] A 216.239.32.10, ns4.google.com. [30s] AAAA 2001:4860:4802:38::a, ns4.google.com. [30s] A 216.239.38.10 (1036)
+17:44:23.093231 eth0  Out IP (tos 0x0, ttl 64, id 58011, offset 0, flags [DF], proto TCP (6), length 52)
+    nginx-5db77f8f67-9cccp.48624 > kube-dns.kube-system.svc.cluster.local.53: Flags [.], cksum 0xebea (incorrect -> 0x53c9), seq 77, ack 1039, win 242, options [nop,nop,TS val 3694783533 ecr 1568741166], length 0
+17:44:23.115249 eth0  In  IP (tos 0x0, ttl 63, id 44027, offset 0, flags [DF], proto UDP (17), length 431)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.34049: [bad udp cksum 0xed70 -> 0x31de!] 34089 q: AAAA? www.googleapis.com. 4/4/8 www.googleapis.com. [30s] AAAA 2a00:1450:4001:806::200a, www.googleapis.com. [30s] AAAA 2a00:1450:4001:813::200a, www.googleapis.com. [30s] AAAA 2a00:1450:4001:802::200a, www.googleapis.com. [30s] AAAA 2a00:1450:4001:82a::200a ns: googleapis.com. [30s] NS ns4.google.com., googleapis.com. [30s] NS ns3.google.com., googleapis.com. [30s] NS ns1.google.com., googleapis.com. [30s] NS ns2.google.com. ar: ns1.google.com. [30s] AAAA 2001:4860:4802:32::a, ns4.google.com. [30s] A 216.239.38.10, ns2.google.com. [30s] AAAA 2001:4860:4802:34::a, ns3.google.com. [30s] A 216.239.36.10, ns4.google.com. [30s] AAAA 2001:4860:4802:38::a, ns2.google.com. [30s] A 216.239.34.10, ns1.google.com. [30s] A 216.239.32.10, ns3.google.com. [30s] AAAA 2001:4860:4802:36::a (403)
+17:44:28.098327 eth0  In  IP (tos 0x0, ttl 63, id 33030, offset 0, flags [DF], proto TCP (6), length 90)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.48624: Flags [P.], cksum 0xec10 (incorrect -> 0xc442), seq 1039:1077, ack 77, win 224, options [nop,nop,TS val 1568746171 ecr 3694783533], length 38 34089 ServFail- q: AAAA? www.googleapis.com. 0/0/0 (36)
+17:44:28.098339 eth0  Out IP (tos 0x0, ttl 64, id 58012, offset 0, flags [DF], proto TCP (6), length 52)
+    nginx-5db77f8f67-9cccp.48624 > kube-dns.kube-system.svc.cluster.local.53: Flags [.], cksum 0xebea (incorrect -> 0x2c89), seq 77, ack 1077, win 242, options [nop,nop,TS val 3694788538 ecr 1568746171], length 0
+17:44:28.098432 eth0  Out IP (tos 0x0, ttl 64, id 58013, offset 0, flags [DF], proto TCP (6), length 52)
+    nginx-5db77f8f67-9cccp.48624 > kube-dns.kube-system.svc.cluster.local.53: Flags [F.], cksum 0xebea (incorrect -> 0x2c88), seq 77, ack 1077, win 242, options [nop,nop,TS val 3694788538 ecr 1568746171], length 0
+17:44:28.098514 eth0  In  IP (tos 0x0, ttl 63, id 33031, offset 0, flags [DF], proto TCP (6), length 52)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.48624: Flags [F.], cksum 0xebea (incorrect -> 0x2c99), seq 1077, ack 78, win 224, options [nop,nop,TS val 1568746171 ecr 3694788538], length 0
+17:44:28.098520 eth0  Out IP (tos 0x0, ttl 64, id 58014, offset 0, flags [DF], proto TCP (6), length 52)
+    nginx-5db77f8f67-9cccp.48624 > kube-dns.kube-system.svc.cluster.local.53: Flags [.], cksum 0xebea (incorrect -> 0x2c87), seq 78, ack 1078, win 242, options [nop,nop,TS val 3694788538 ecr 1568746171], length 0
+
+
+При НЕУСПЕШНОМ резолве через tcpdump внутри пода
+
+# tcpdump -vvv -i any port 53
+tcpdump: data link type LINUX_SLL2
+tcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 262144 bytes
+
+Сначала важные, по-моему мнению строки
+17:52:22.487441 - proto UDP (17), length 515
+17:52:22.489677 - proto UDP (17), length 431
+17:52:27.490508 eth0  In  IP (tos 0x0, ttl 63, id 24642, offset 0, flags [DF], proto TCP (6), length 90)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.54774: Flags [P.], cksum 0xec10 (incorrect -> 0xc9ce), seq 1:39, ack 77, win 224, options [nop,nop,TS val 1569225563 ecr 3695262927], length 38 587 ServFail- q: A? www.googleapis.com. 0/0/0 (36)
+17:52:32.494666 eth0  In  IP (tos 0x0, ttl 63, id 24643, offset 0, flags [DF], proto TCP (6), length 90)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.54774: Flags [P.], cksum 0xec10 (incorrect -> 0x7277), seq 39:77, ack 77, win 224, options [nop,nop,TS val 1569230567 ecr 3695267930], length 38 12874 ServFail- q: AAAA? www.googleapis.com. 0/0/0 (36)    
+
+Полный вывод tcpdump
+17:52:22.463502 eth0  Out IP (tos 0x0, ttl 64, id 24415, offset 0, flags [DF], proto UDP (17), length 64)
+    nginx-5db77f8f67-9cccp.55019 > kube-dns.kube-system.svc.cluster.local.53: [bad udp cksum 0xec01 -> 0xc3f3!] 587+ A? www.googleapis.com. (36)
+17:52:22.463548 eth0  Out IP (tos 0x0, ttl 64, id 24416, offset 0, flags [DF], proto UDP (17), length 64)
+    nginx-5db77f8f67-9cccp.55019 > kube-dns.kube-system.svc.cluster.local.53: [bad udp cksum 0xec01 -> 0x93d9!] 12874+ AAAA? www.googleapis.com. (36)
+17:52:22.487441 eth0  In  IP (tos 0x0, ttl 62, id 1270, offset 0, flags [DF], proto UDP (17), length 515)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.55019: [udp sum ok] 587| q: A? www.googleapis.com. 16/4/5 www.googleapis.com. [30s] A 142.250.74.202, www.googleapis.com. [30s] A 142.250.185.202, www.googleapis.com. [30s] A 142.250.185.234, www.googleapis.com. [30s] A 172.217.18.10, www.googleapis.com. [30s] A 142.250.184.234, www.googleapis.com. [30s] A 142.250.185.170, www.googleapis.com. [30s] A 142.250.186.138, www.googleapis.com. [30s] A 172.217.23.106, www.googleapis.com. [30s] A 142.250.186.42, www.googleapis.com. [30s] A 142.250.185.138, www.googleapis.com. [30s] A 172.217.18.106, www.googleapis.com. [30s] A 172.217.16.202, www.googleapis.com. [30s] A 142.250.185.74, www.googleapis.com. [30s] A 142.250.185.106, www.googleapis.com. [30s] A 172.217.16.138, www.googleapis.com. [30s] A 142.250.181.234 ns: googleapis.com. [30s] NS ns3.google.com., googleapis.com. [30s] NS ns2.google.com., googleapis.com. [30s] NS ns1.google.com., googleapis.com. [30s] NS ns4.google.com. ar: ns2.google.com. [30s] A 216.239.34.10, ns4.google.com. [30s] A 216.239.38.10, ns4.google.com. [30s] AAAA 2001:4860:4802:38::a, ns3.google.com. [30s] AAAA 2001:4860:4802:36::a, ns2.google.com. [30s] AAAA 2001:4860:4802:34::a (487)
+17:52:22.487580 eth0  Out IP (tos 0x0, ttl 64, id 2122, offset 0, flags [DF], proto TCP (6), length 60)
+    nginx-5db77f8f67-9cccp.54774 > kube-dns.kube-system.svc.cluster.local.53: Flags [S], cksum 0xebf2 (incorrect -> 0x7253), seq 4107965796, win 28800, options [mss 1440,sackOK,TS val 3695262927 ecr 0,nop,wscale 7], length 0
+17:52:22.487686 eth0  In  IP (tos 0x0, ttl 63, id 0, offset 0, flags [DF], proto TCP (6), length 60)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.54774: Flags [S.], cksum 0xebf2 (incorrect -> 0x394f), seq 992950619, ack 4107965797, win 28560, options [mss 1440,sackOK,TS val 1569220560 ecr 3695262927,nop,wscale 7], length 0
+17:52:22.487699 eth0  Out IP (tos 0x0, ttl 64, id 2123, offset 0, flags [DF], proto TCP (6), length 52)
+    nginx-5db77f8f67-9cccp.54774 > kube-dns.kube-system.svc.cluster.local.53: Flags [.], cksum 0xebea (incorrect -> 0xd6b6), seq 1, ack 1, win 225, options [nop,nop,TS val 3695262927 ecr 1569220560], length 0
+17:52:22.487727 eth0  Out IP (tos 0x0, ttl 64, id 2124, offset 0, flags [DF], proto TCP (6), length 128)
+    nginx-5db77f8f67-9cccp.54774 > kube-dns.kube-system.svc.cluster.local.53: Flags [P.], cksum 0xec36 (incorrect -> 0xb485), seq 1:77, ack 1, win 225, options [nop,nop,TS val 3695262927 ecr 1569220560], length 76 [prefix length(36) != length(74)] (invalid)
+17:52:22.487736 eth0  In  IP (tos 0x0, ttl 63, id 24641, offset 0, flags [DF], proto TCP (6), length 52)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.54774: Flags [.], cksum 0xebea (incorrect -> 0xd66b), seq 1, ack 77, win 224, options [nop,nop,TS val 1569220560 ecr 3695262927], length 0
+17:52:22.489677 eth0  In  IP (tos 0x0, ttl 62, id 1273, offset 0, flags [DF], proto UDP (17), length 431)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.55019: [udp sum ok] 12874 q: AAAA? www.googleapis.com. 4/4/8 www.googleapis.com. [30s] AAAA 2a00:1450:4001:800::200a, www.googleapis.com. [30s] AAAA 2a00:1450:4001:80e::200a, www.googleapis.com. [30s] AAAA 2a00:1450:4001:810::200a, www.googleapis.com. [30s] AAAA 2a00:1450:4001:831::200a ns: googleapis.com. [30s] NS ns4.google.com., googleapis.com. [30s] NS ns2.google.com., googleapis.com. [30s] NS ns1.google.com., googleapis.com. [30s] NS ns3.google.com. ar: ns2.google.com. [30s] AAAA 2001:4860:4802:34::a, ns3.google.com. [30s] A 216.239.36.10, ns4.google.com. [30s] AAAA 2001:4860:4802:38::a, ns1.google.com. [30s] A 216.239.32.10, ns1.google.com. [30s] AAAA 2001:4860:4802:32::a, ns3.google.com. [30s] AAAA 2001:4860:4802:36::a, ns2.google.com. [30s] A 216.239.34.10, ns4.google.com. [30s] A 216.239.38.10 (403)
+17:52:27.490508 eth0  In  IP (tos 0x0, ttl 63, id 24642, offset 0, flags [DF], proto TCP (6), length 90)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.54774: Flags [P.], cksum 0xec10 (incorrect -> 0xc9ce), seq 1:39, ack 77, win 224, options [nop,nop,TS val 1569225563 ecr 3695262927], length 38 587 ServFail- q: A? www.googleapis.com. 0/0/0 (36)
+17:52:27.490528 eth0  Out IP (tos 0x0, ttl 64, id 2125, offset 0, flags [DF], proto TCP (6), length 52)
+    nginx-5db77f8f67-9cccp.54774 > kube-dns.kube-system.svc.cluster.local.53: Flags [.], cksum 0xebea (incorrect -> 0xaf2e), seq 77, ack 39, win 225, options [nop,nop,TS val 3695267930 ecr 1569225563], length 0
+17:52:32.494666 eth0  In  IP (tos 0x0, ttl 63, id 24643, offset 0, flags [DF], proto TCP (6), length 90)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.54774: Flags [P.], cksum 0xec10 (incorrect -> 0x7277), seq 39:77, ack 77, win 224, options [nop,nop,TS val 1569230567 ecr 3695267930], length 38 12874 ServFail- q: AAAA? www.googleapis.com. 0/0/0 (36)
+17:52:32.494676 eth0  Out IP (tos 0x0, ttl 64, id 2126, offset 0, flags [DF], proto TCP (6), length 52)
+    nginx-5db77f8f67-9cccp.54774 > kube-dns.kube-system.svc.cluster.local.53: Flags [.], cksum 0xebea (incorrect -> 0x87f0), seq 77, ack 77, win 225, options [nop,nop,TS val 3695272934 ecr 1569230567], length 0
+17:52:32.494747 eth0  Out IP (tos 0x0, ttl 64, id 2127, offset 0, flags [DF], proto TCP (6), length 52)
+    nginx-5db77f8f67-9cccp.54774 > kube-dns.kube-system.svc.cluster.local.53: Flags [F.], cksum 0xebea (incorrect -> 0x87ef), seq 77, ack 77, win 225, options [nop,nop,TS val 3695272934 ecr 1569230567], length 0
+17:52:32.495513 eth0  In  IP (tos 0x0, ttl 63, id 24644, offset 0, flags [DF], proto TCP (6), length 52)
+    kube-dns.kube-system.svc.cluster.local.53 > nginx-5db77f8f67-9cccp.54774: Flags [F.], cksum 0xebea (incorrect -> 0x87ee), seq 77, ack 78, win 224, options [nop,nop,TS val 1569230568 ecr 3695272934], length 0
+17:52:32.495538 eth0  Out IP (tos 0x0, ttl 64, id 2128, offset 0, flags [DF], proto TCP (6), length 52)
+    nginx-5db77f8f67-9cccp.54774 > kube-dns.kube-system.svc.cluster.local.53: Flags [.], cksum 0xebea (incorrect -> 0x87ec), seq 78, ack 78, win 225, options [nop,nop,TS val 3695272935 ecr 1569230568], length 0
+
+
+Конфигурационный файл core-dns имеет вид
+# kubectl get cm coredns -n kube-system -o yaml
+apiVersion: v1
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+           ttl 30
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf {
+           max_concurrent 1000
+        }
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+
