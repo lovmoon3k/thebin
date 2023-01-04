@@ -1,0 +1,77 @@
+/**
+* Get table from pro-football-reference.com
+*
+* @param {string} url The url.
+* @param {boolean} headers default is true.
+* @return {array} table data.
+* @customfunction
+*/
+function FOOTBALL_REF(url, headers = true) {
+  const html = UrlFetchApp.fetch(url).getContentText()
+  const table = /<tbody>(.*?)<\/tbody>/gmsi.exec(html)[1]
+  const rows = table.split("<tr")
+  rows.shift()
+
+  const results = [];
+
+  const latLng = /var destinations = new Array\((.*?)\);/gmsi.exec(html)[1].trim()
+    .split("\n")
+    .reduce((acc, curr) => {
+      const id = /"id" : "(.*?)"/gmsi.exec(curr)[1].trim()
+      const lat = Number(/new google\.maps\.LatLng\((.*?),/gmsi.exec(curr)[1])
+      const lng = Number(/new google\.maps\.LatLng\([\s\S]*?,(.*?)\)/gmsi.exec(curr)[1])
+      acc[id] = { lat, lng }
+      return acc;
+    }, {})
+
+  console.log(latLng)
+  const startLat = Number(/var start = new google\.maps\.LatLng\((.*?),/gmsi.exec(html)[1])
+  const startLng = Number(/var start = new google\.maps\.LatLng\([\s\S]*?,(.*?)\)/gmsi.exec(html)[1])
+
+  rows.forEach((row, i) => {
+    const object = {}
+
+    row.split("<td").forEach(col => {
+      const key = /data-stat="(.*?)"/gmsi.exec(col)[1]
+      let value;
+
+      if (key !== "distance") {
+        value = /">(.*?)<\/a>/gmsi.exec(col)[1]
+      } else {
+        const distanceId = /id="(.*?)"/.exec(col)[1].trim().replace("distance_", "");
+        const target = latLng[distanceId]
+        value = haversine(startLat, startLng, target.lat, target.lng);
+      }
+      object[key] = value
+    })
+
+    if (headers && i === 0) {
+      results.push(Object.keys(object))
+    }
+    results.push(Object.values(object))
+  });
+
+  return results;
+}
+
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const rad = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const latRad1 = toRad(lat1);
+  const latRad2 = toRad(lat2);
+
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(latRad1) * Math.cos(latRad2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const d = rad * c;
+  return Math.round(d / 1.60934);
+}
+
+// Converts numeric degrees to radians
+function toRad(Value) {
+  return Value * Math.PI / 180;
+}
+
+
