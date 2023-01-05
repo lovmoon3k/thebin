@@ -1,0 +1,328 @@
+#include <iostream>
+#include <vector>
+#include <queue>
+
+struct Node {
+    Node* left;
+    Node* right;
+    int value;
+    int height;
+
+    explicit Node(int value, Node* l = nullptr, Node* r = nullptr) {
+        left = l;
+        right = r;
+        this->value = value;
+        height = 1;
+    }
+
+    Node() {
+        height = 1;
+        value = 0;
+        left = nullptr;
+        right = nullptr;
+    }
+};
+
+
+class AVL {
+private:
+    static int height(Node* cur) {
+        return cur ? cur->height : 0;
+    }
+
+    static int bFactor(Node* cur) {
+        if (cur) {
+            return height(cur->right) - height(cur->left);
+        }
+        return 0;
+    }
+
+    static void fixHeight(Node* cur) {
+        cur->height = std::max(height(cur->right), height(cur->left)) + 1;
+    }
+
+    Node* beBalance(Node* cur) {
+        fixHeight(cur);
+        if (bFactor(cur) == 2) {
+            if (bFactor(cur->right) < 0) {
+                cur->right = rotateRight(cur->right);
+            }
+
+            return rotateLeft(cur);
+
+        } else if (bFactor(cur) == -2) {
+            if (bFactor(cur->left) > 0) {
+                cur->left = rotateLeft(cur->left);
+            }
+
+            return rotateRight(cur);
+        }
+        return cur;
+    }
+
+
+    Node* add(int x, Node* cur) {
+        if (!cur) {
+            return new Node(x);
+        }
+
+        if (cur->value < x) {
+            cur->right = add(x, cur->right);
+        } else {
+            cur->left = add(x, cur->left);
+        }
+
+        return beBalance(cur);
+    }
+
+    static Node* rotateRight(Node* y) {
+        Node* x = y->left;
+        y->left = x->right;
+        x->right = y;
+        fixHeight(y);
+        fixHeight(x);
+        return x;
+    }
+
+    Node* rotateLeft(Node* x) {
+        Node* y = x->right;
+        x->right = y->left;
+        y->left = x;
+        fixHeight(x);
+        fixHeight(y);
+        return y;
+    }
+
+    Node* remove_(int x, Node* cur) {
+
+        if (cur == nullptr) {
+            return nullptr;
+        }
+
+        if (cur->value == x) {
+            if (cur->right == nullptr && cur->left == nullptr) {
+                delete cur;
+                return nullptr;
+            }
+
+            if (cur->left == nullptr) {
+                Node* right = cur->right;
+                delete cur;
+                return right;
+            }
+
+            if (cur->right == nullptr) {
+                Node* left = cur->left;
+                delete cur;
+                return left;
+            }
+
+            // If the node has two "children"
+
+            Node* max_node = cur->left;
+            cur->height--;
+            if (cur->left->right == nullptr) {
+                cur->left->height--;
+            }
+
+            while (max_node->right) {
+                max_node->height--;
+                max_node = max_node->right;
+            }
+
+            cur->value = max_node->value;
+            cur->left = remove_(max_node->value, cur->left);
+
+        } else {
+            if (cur->value < x) {
+                cur->right = remove_(x, cur->right);
+            } else {
+                cur->left = remove_(x, cur->left);
+            }
+        }
+        return beBalance(cur);
+    }
+public:
+    std::vector<int> all_elems;
+    Node* root;
+
+    AVL() {
+        root = nullptr;
+    }
+
+    bool exist(int x) const {
+        Node* root_copy = this->root;
+        while (root_copy) {
+            if (x > root_copy->value) {
+                root_copy = root_copy->right;
+            } else if (x < root_copy->value) {
+                root_copy = root_copy->left;
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void insert(int x) {
+        if (exist(x)) {
+            return;
+        }
+
+        root = add(x, root);
+    }
+
+    void remove(int x) {
+        if (exist(x)) {
+            if (root->value == x && root->height == 1) {
+                delete root;
+                root = nullptr;
+                return;
+            }
+            root = remove_(x, root);
+        }
+    }
+
+    int getBalanceRoot() const {
+        return bFactor(root);
+    }
+    int getHeight(Node* cur) const {
+        return cur->height;
+    }
+};
+
+
+struct Node_graph {
+    int64_t a;
+    int64_t b;
+    int num;
+    bool isValid;
+    AVL pot;
+    std::vector<std::pair<Node_graph*, int>> potions;
+    Node_graph() {
+        a = 0;
+        b = 0;
+        isValid = true;
+    }
+};
+
+std::pair<int64_t, int64_t> BFS (Node_graph* nodeGraph, int n) {
+    if (!nodeGraph->isValid) {
+        return {0, 0};
+    }
+
+    std::queue<std::pair<Node_graph*, int64_t>> q;
+    q.push({nodeGraph, 1});
+    std::vector<bool> used(n + 1);
+    used[nodeGraph->num] = true;
+
+
+    int64_t a = nodeGraph->a;
+    int64_t b = nodeGraph->b;
+
+    while (!q.empty()) {
+        Node_graph* v = q.front().first;
+        int64_t count = q.front().second;
+        q.pop();
+
+        for (size_t i = 0; i < v->potions.size(); i++) {
+            Node_graph* to = v->potions[i].first;
+
+            if (!to->isValid) {
+                v->isValid = false;
+                nodeGraph->isValid = false;
+                return {a, b};
+            }
+
+            if (!used[to->num]) {
+                used[to->num] = true;
+                if (to->num > v->num) {
+                    q.push({to, v->potions[i].second});
+                } else {
+                    if (!to->isValid) {
+                        v->isValid = false;
+                        nodeGraph->isValid = false;
+                        return {a, b};
+                    }
+                }
+                a += v->potions[i].second * to->a * count;
+                b += v->potions[i].second * to->b * count;
+            } else {
+                nodeGraph->isValid = false;
+                return {a, b};
+            }
+        }
+    }
+    return {a, b};
+}
+
+int main() {
+
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int n;
+    std::cin >> n;
+
+    std::vector<Node_graph*> graph(n - 2);
+
+    for (auto & i : graph) {
+        i = new Node_graph;
+    }
+
+    int count;
+    int type;
+    for (int i = 0; i < n - 2; i++) {
+        graph[i]->num = i + 3;
+        std::cin >> count;
+        if (count == 0) {
+            graph[i]->isValid = false;
+        }
+        while (count--) {
+            std::cin >> type;
+            if (type == 1) {
+                graph[i]->a++;
+            } else if (type == 2) {
+                graph[i]->b++;
+            } else {
+                if (graph[i]->pot.exist(type)) {
+                    for (auto& t: graph[i]->potions) {
+                        if (t.first == graph[type - 3]) {
+                            t.second++;
+                            break;
+                        }
+                    }
+                } else {
+                    graph[i]->potions.emplace_back(graph[type - 3], 1);
+                    graph[i]->pot.insert(type);
+                }
+            }
+        }
+    }
+
+    for (Node_graph*& nodeGraph : graph) {
+        std::pair<int64_t, int64_t> t = BFS(nodeGraph, n);
+        nodeGraph->a = t.first;
+        nodeGraph->b = t.second;
+    }
+
+    int q;
+    std::cin >> q;
+    int a;
+    int b;
+    int potion;
+    while (q--) {
+        std::cin >> a >> b >> potion;
+
+        if (graph[potion - 3]->isValid) {
+            if (graph[potion - 3]->a <= a && graph[potion - 3]->b <= b) {
+                std::cout << 1;
+            } else {
+                std::cout << 0;
+            }
+        } else {
+            std::cout << 0;
+        }
+
+    }
+}
