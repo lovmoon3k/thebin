@@ -1,0 +1,50 @@
+# Get the manufacturer and serial number of the BIOS
+$biosInfo = Get-WmiObject -Class Win32_BIOS -ErrorAction SilentlyContinue
+$manufacturer = $biosInfo.Manufacturer
+$serialNumber = $biosInfo.SerialNumber
+
+# Select the characters from each field
+$manufacturer = $manufacturer.Substring(0, 4)
+$serialNumber = $serialNumber.Substring($serialNumber.Length - 10)
+
+# Build the name using the selected characters and a "-" separator
+$name = "$manufacturer-$serialNumber"
+
+# Truncate the name to 15 characters if necessary
+if ($name.Length -gt 15) {
+    $name = $name.Substring(0, 15)
+}
+
+# Use the name to set the new computer name
+$newComputerName = $name
+
+# Set the credentials to use to join the domain
+$username = "MDT_BA"
+$password = ConvertTo-SecureString "Sc0rp10ns" -AsPlainText -Force
+$credential = New-Object System.Management.Automation.PSCredential ($username, $password)
+
+# Check the IP address of the device and set the domain to join
+$ipAddress = (Get-NetIPConfiguration).IPv4Address | Select-Object -ExpandProperty IPAddress
+if ($ipAddress -like "10.138.*") {
+    $domain = "curric.glen-katherine-ps.wan"
+} elseif ($ipAddress -like "10.151.*") {
+    $domain = "curric.kangaroo-ground-ps.wan"
+} elseif ($ipAddress -like "10.153.*") {
+    $domain = "curric.panton-hill-ps.wan"
+} elseif ($ipAddress -like "10.155.*") {
+    $domain = "curric.wattle-glen-ps.wan"
+} elseif ($ipAddress -like "10.123.*") {
+    $domain = "curric.wollert-ps.wan"
+} elseif ($ipAddress -like "10.143.*") {
+    $domain = "curric.yarrambat-ps.wan"
+} else {
+    Write-Host "No matching IP address range. Skipping domain join."
+}
+
+# Join the domain if it was set
+if ($domain) {
+    Add-Computer -DomainName $domain -Credential $credential -Confirm:$false -WhatIf:$false -ErrorAction SilentlyContinue
+}
+
+# Rename the computer
+Rename-Computer -NewName $newComputerName -DomainCredential $credential -Force -Confirm:$false -WhatIf:$false -ErrorAction SilentlyContinue
