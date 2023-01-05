@@ -1,0 +1,181 @@
+-- Declare variables
+Declare @DATABASE_NAME varchar(50) = 'shinhan';
+Declare @SCHEMA_NAME varchar(50) = 'dbo';
+
+-- Generate SQL script to union all table from the same group
+-- Example: alert_ofac_APR_2022 and alert_ofac_JAN_2022
+Declare @CONCAT_ALL_TABLE varchar(max) = '';
+Select
+	@CONCAT_ALL_TABLE = @CONCAT_ALL_TABLE + '
+Union All 
+Select * From ' + + @DATABASE_NAME + '.' + @SCHEMA_NAME + '.' + Table_Name + ' 
+'
+FROM
+	INFORMATION_SCHEMA.TABLES
+WHERE
+	TABLE_NAME LIKE 'EPHIST%'
+ORDER BY
+	TABLE_NAME
+Set
+	@CONCAT_ALL_TABLE = Stuff(@CONCAT_ALL_TABLE, 1, 10, '');
+
+PRINT(@CONCAT_ALL_TABLE);
+
+
+-- Create a table from from Union all tables genrate from script above (Paste the result from above) 
+-- DON'T NEED TO RUN THIS IN SHINHAN (still not need, all tables from Shinhan are different) 
+IF NOT EXISTS (SELECT * FROM EPHIST_FULL)
+BEGIN
+
+CREATE TABLE EPHIST_FULL FROM ()
+	Select * From EPHIST1_2022_SEP
+)
+END;
+
+
+--Create view of all column infomations
+CREATE VIEW COLUMNS_INFO AS (
+SELECT
+	*
+FROM
+	INFORMATION_SCHEMA.COLUMNS
+)
+;
+
+
+-- Create table validate_data store informations from all columns to validate data from each column.
+CREATE TABLE shinhan.dbo.validate_data (
+	TABLE_CATALOG varchar(255) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+	TABLE_SCHEMA varchar(255) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+	TABLE_NAME varchar(255) COLLATE SQL_Latin1_General_CP1_CI_AS NULL,
+	COLUMN_NAME varchar(255) COLLATE SQL_Latin1_General_CP1_CI_AS NULL
+);
+
+-- Populate data from INFORMATION_SCHEMA.COLUMNS into validate_data
+INSERT INTO validate_data (TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME)
+SELECT TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME
+FROM COLUMNS_INFO;
+
+-- Alter validate_data able and add validate requirement data columns and set default to 1 (true)
+-- Added columns: C_1, R_1, A_1, A_2, A_3, A_4
+ALTER TABLE validate_data
+ADD C_1 bit not null default 1;
+ALTER TABLE validate_data
+ADD R_1 bit not null default 1;
+ALTER TABLE validate_data
+ADD A_1 bit not null default 1;
+ALTER TABLE validate_data
+ADD A_2 bit not null default 1;
+ALTER TABLE validate_data
+ADD A_3 bit not null default 1;
+ALTER TABLE validate_data
+ADD A_4 bit not null default 1;
+
+
+-- START VALIDATE DATA --
+-- A while loop though each Rows in table validate_data to get TABLE_NAME and COLUMN_NAME
+-- => Generate script to go through all data from that COLUMN_NAME from TABLE_NAME and validate data if it met the requirement.
+-- => Execute each statement after being generated
+
+
+-- Validate data C.1
+DECLARE @counter INT = 0; -- Decalre Counter variable to run While loop
+Declare @VALIDATE_SQL_C_1 nvarchar(max) = '';
+-- While loop Generate SQL script to validate data and execute each statement
+--Example output:
+	--	IF ( SELECT COUNT(*) FROM COLUMNS_INFO WHERE LEN([CHARACTER_MAXIMUM_LENGTH]) = 0 OR [CHARACTER_MAXIMUM_LENGTH] IS NULL )  > 0 
+	--	BEGIN
+	--	UPDATE validate_data SET C_1 = 0
+	--	WHERE TABLE_NAME = 'COLUMNS_INFO'
+	--	AND COLUMN_NAME = 'CHARACTER_MAXIMUM_LENGTH';
+	--	END
+WHILE @counter < (SELECT COUNT(*) FROM validate_data)
+BEGIN
+Select
+	@VALIDATE_SQL_C_1 =
+	'IF '
+	+ '( ' 
+	+ 'SELECT COUNT(*) FROM ' + TABLE_NAME + ' ' 
+	+ 'WHERE ' 
+	+ 'LEN(' + '[' +  COLUMN_NAME + ']' + ') = 0 ' -- Check if length of a data point is = 0
+	+ 'OR ' + '[' +  COLUMN_NAME + '] ' + 'IS NULL ' -- Check if data point is null
+	+ ') ' 
+	+ ' > 0
+' -- If > 0 of column satisfy one of the above requirement, set the C_1 requirement to 0 (false)
+	+ 'BEGIN
+'
+	+ 'UPDATE ' + 'validate_data '
+	+ 'SET C_1 = 0
+'
+	+ 'WHERE TABLE_NAME = ' + '''' + TABLE_NAME + '''
+'
+	+ 'AND COLUMN_NAME = ' + '''' +  COLUMN_NAME + ''';
+'
+	+ 'END
+
+'
+FROM
+	validate_data
+ORDER BY
+	TABLE_NAME
+OFFSET @counter ROWS FETCH NEXT 1 ROWS ONLY; -- Set Offset to counter to skips through executed statements
+	;
+SET @counter = @counter + 1;
+
+-- Print and Execute script
+PRINT(@VALIDATE_SQL_C_1);
+EXEC(@VALIDATE_SQL_C_1);
+
+SET @VALIDATE_SQL_C_1 = ''
+END;
+
+
+-- Validate data R.1
+Declare @VALIDATE_SQL_R_1 nvarchar(max) = '';
+SET @counter = 0;
+-- While loop Generate SQL script to validate data and execute each statement
+--Example output
+	--IF ( SELECT COUNT(sub_table.counter) FROM (SELECT COUNT(*) as counter FROM EPHIST2_2022_SEP GROUP BY [overide_funds_balance_loaded] HAVING COUNT([overide_funds_balance_loaded]) > 1) as sub_table ) > 0
+	--BEGIN
+	--UPDATE validate_data SET R_1 = 0
+	--WHERE TABLE_NAME = 'EPHIST2_2022_SEP'
+	--AND COLUMN_NAME = 'overide_funds_balance_loaded';
+	--END
+WHILE @counter < (SELECT COUNT(*) FROM validate_data)
+BEGIN
+Select
+	@VALIDATE_SQL_R_1 = 
+	'IF '
+	+ '( SELECT COUNT(sub_table.counter) FROM (' 
+	+ 'SELECT COUNT(*) as counter FROM ' + TABLE_NAME + ' ' + 'GROUP BY ' + '[' + COLUMN_NAME + '] ' + 'HAVING COUNT(' + '[' + COLUMN_NAME + '])' + ' > 1' 
+	+ ') as sub_table )' -- Check if there is a data point that appear > 1 in table
+	+ ' > 0
+' -- If > 0 of column satisfy one of the above requirement, set the R_1 requirement to 0 (false)
+	+ 'BEGIN
+'
+	+ 'UPDATE ' + 'validate_data '
+	+ 'SET R_1 = 0
+'
+	+ 'WHERE TABLE_NAME = ' + '''' + TABLE_NAME + '''
+'
+	+ 'AND COLUMN_NAME = ' + '''' +  COLUMN_NAME + ''';
+'
+	+ 'END
+
+'
+FROM
+	validate_data
+ORDER BY
+	TABLE_NAME
+OFFSET @counter ROWS FETCH NEXT 1 ROWS ONLY;
+	;
+SET @counter = @counter + 1;
+
+-- Print and Execute script
+PRINT(@VALIDATE_SQL_R_1);
+EXEC(@VALIDATE_SQL_R_1);
+
+SET @VALIDATE_SQL_R_1 = ''
+END;
+
+-- END VALIDATE DATA --
