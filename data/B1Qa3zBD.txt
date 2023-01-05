@@ -1,0 +1,145 @@
+CREATE PROCEDURE [dbo].[p_bb_Get_Detailed_Txn_Report_Business]
+	@PACode VARCHAR(25) = NULL,
+	@SACode VARCHAR(25) = NULL,
+	@FromDate DATE,
+	@ToDate DATE
+AS
+BEGIN
+	-- =============================================
+	-- Author:		<Binayak Upadhyaya>
+	-- Create date: <30 NOV 2015>
+	-- Description:	
+	--			 Get Transaction for Approved Transaction For Report for B2B Txn 
+	-- EXEC p_bb_Get_Detailed_Txn_Report_Business @PACode='MY0001',@SACode=NULL,@FromDate='2016-01-01',@ToDate='2017-01-18'
+	-- =============================================
+	IF (LEN(LTRIM(RTRIM(@PACode))) = 0)
+	BEGIN
+		SET @PACode = NULL;
+	END;
+
+	IF (LEN(LTRIM(RTRIM(@SACode))) = 0)
+	BEGIN
+		SET @SACode = NULL;
+	END;
+
+	SELECT a.tran_id AS [Txn No],
+		rsp.rsp_name as [State],
+		a.created_on AS [Txn Date & Time],
+		a.is_approve_date AS [Approval Date & Time],
+		ISNULL(sender_first_name, '') + ' ' + ISNULL(sender_middle_name, '') + ' ' + ISNULL(sender_last_name, '') AS [Company Name],
+		sender.id_card_type_no AS [Company Registration No],
+		sender.sender_dob AS [Business Registration Date],
+		sender.address AS [Address],
+		sender.mailing_address AS [Mailing Address],
+		ISNULL(cntry_code_tbl.CountryName, '') AS [Country],
+		sender.handphone as [Sender Contact No],
+		-- sender.details AS [Product/Services],
+		nb.nature_of_business_text as [Nature of Business],
+		a.sender_employer_name AS [Name of Authorize Person],
+		nationality.ref_desc AS [Nationality of Authorize Person],
+		authPerson.id_card_type_no AS [Card No],
+		idCardAuth.id_card_type_name AS [Card Type],
+		authPerson.contact_no AS [Authorize Person Contact No],
+		CASE 
+			WHEN a.parent_agent_cd = 'MY0001'
+				THEN designation.ref_desc
+			ELSE ISNULL(authPerson.designation, '')
+			END AS [Designation],
+		ISNULL(receiver_first_name, '') + ' ' + ISNULL(receiver_middle_name, '') + ' ' + ISNULL(receiver_last_name, '') AS [Receiver Name],
+		a.receiver_handphone AS [Receiver Contact No],
+		a.receiver_bank_ac_no AS [Account No],
+		a.receiver_address AS [Receiver Address],
+		rcvr_sndr_rln.ref_desc AS [Relationship],
+		CONVERT(VARCHAR, CAST(a.total_coll_amount AS MONEY), 1) AS [Transaction Amount],
+		sourceOfFund.ref_desc AS [Source Of Fund],
+		reson_remit.ref_desc AS [Purpose Of Remittance],
+		pay_mode.ref_desc AS [Payout Mode],
+		c.CountryName AS [Payout Country],
+		a.parent_pay_agent_cd [Receiver Payout Agent],
+		a.parent_coll_sub_agent_cd AS [Branch Code],
+		subAgent.sub_agent_name [Branch Name],
+		a.created_by AS [Teller ID],
+		creBy.[user_name] AS [Teller Name],
+		a.is_approve_by [Approver ID],
+		ISNULL(appByAdmin.user_name, appBy.user_name) AS [Approver Name],
+		CASE 
+			WHEN a.refund_type = 'Y'
+				THEN 'Refund'
+			WHEN a.refund_type = 'N'
+				THEN 'Deduct Service Charge'
+			ELSE remit.remit_action_name
+			END AS [Status Of Txn],
+		CASE 
+			WHEN a.action_cd = 18
+				THEN 'Yes'
+			ELSE 'No'
+			END AS [Sender OFAC],
+		CASE 
+			WHEN a.action_cd = 19
+				THEN 'Yes'
+			ELSE 'No'
+			END AS [Receiver OFAC],
+		'Yes' AS [Peps & Cft Name Checked]
+	--,actionHist.comments AS [Remarks]
+	--,a.pay_crncy_cd + ' '+ CONVERT(varchar, CAST((a.total_coll_amount - a.total_charge - g.GstAmt)  AS money), 1) [Payable Amount]			
+	FROM dbo.tran_mst AS a --LEFT JOIN [dbo].[tran_action_hist] actionHist on a.tran_id = actionHist.tran_id AND actionHist.action_cd = 11
+	INNER JOIN dbo.vw_sender_mst sender
+		ON a.sender_auto_id = sender.sender_auto_id
+	LEFT JOIN gst_txn_details g
+		ON a.tran_id = g.MtradeId
+	LEFT JOIN [dbo].[remit_action] remit
+		ON a.action_cd = remit.remit_action_cd
+	LEFT JOIN remit_user creBy
+		ON a.created_by = creBy.remit_user_cd
+			AND a.parent_agent_cd = creBy.parent_agent_cd
+	LEFT JOIN remit_user appBy
+		ON a.is_approve_by = appBy.remit_user_cd
+			AND a.parent_agent_cd = appBy.parent_agent_cd
+	LEFT JOIN remit_user appByAdmin
+		ON a.is_approve_by = appByAdmin.remit_user_cd
+			AND appByAdmin.parent_agent_cd = '000000'
+	LEFT JOIN vw_company_authorised_personnel authPerson
+		ON a.sender_auto_id = authPerson.sender_auto_id
+			AND a.authorized_person_id_no = authPerson.id_card_type_no
+	LEFT JOIN [dbo].[ref_code_table_dtl] pay_mode
+		ON a.payment_mode_cd = pay_mode.ref_code
+			AND pay_mode.ref_rec_type = 'PAYMENT_MODE'
+	LEFT JOIN [dbo].[ref_code_table_dtl] nationality
+		ON authPerson.cntry_cd = nationality.ref_code
+			AND nationality.ref_rec_type = 'NATIONALITY'
+	LEFT JOIN [dbo].[ref_code_table_dtl] designation
+		ON authPerson.designation = designation.ref_code
+			AND designation.ref_rec_type = 'DESIGNATION'
+	LEFT JOIN [dbo].[ref_code_table_dtl] rcvr_sndr_rln
+		ON a.relation_with_sender_cd = rcvr_sndr_rln.ref_code
+			AND rcvr_sndr_rln.ref_rec_type = 'RELATIONSHIP'
+	LEFT JOIN [dbo].[ref_code_table_dtl] sourceOfFund
+		ON a.source_of_fund_cd = sourceOfFund.ref_code
+			AND sourceOfFund.ref_rec_type = 'SOURCE_OF_FUND'
+	LEFT JOIN [dbo].[ref_code_table_dtl] reson_remit
+		ON a.reason_of_remittance_cd = reson_remit.ref_code
+			AND reson_remit.ref_rec_type = 'REMITTANCE_REASON'
+	LEFT OUTER JOIN vw_countryCodeMap AS c WITH (NOLOCK)
+		ON a.paying_cntry_cd = c.CountryCd2
+	LEFT JOIN [dbo].[id_card_type] idCardAuth
+		ON sender.id_card_type_cd = idCardAuth.id_card_type_cd
+	LEFT JOIN dbo.sub_agent subAgent
+		ON a.parent_agent_cd = subAgent.parent_agent_cd
+		and a.parent_coll_sub_agent_cd = subAgent.sub_agent_cd
+	left join region_state_province rsp
+		on rsp.cntry_cd = subAgent.cntry_cd
+		and rsp.rsp_cd = subAgent.rsp_cd
+	LEFT JOIN vw_countryCodeMap cntry_code_tbl
+		ON sender.cntry_cd = cntry_code_tbl.CountryCd2
+	left outer join bb_company_nature_business nb
+		on sender.sender_auto_id = nb.sender_auto_id
+	WHERE (a.is_approve = 1)
+		AND (
+			a.remit_type = 'B2B'
+			OR a.remit_type = 'B2P'
+			)
+		AND a.tran_date BETWEEN @FromDate
+			AND @ToDate
+		AND (@PACode is null or a.parent_agent_cd = @PACode)
+		AND (@SACode is null or a.parent_coll_sub_agent_cd = @SACode);
+END;
