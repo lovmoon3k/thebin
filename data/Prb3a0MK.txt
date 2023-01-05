@@ -1,0 +1,76 @@
+#define _CRT_SECURE_NO_WARNINGS 1
+#include <vector>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+static inline double sqr(double x) { return x * x; }
+
+class Vector {
+public:
+	explicit Vector(double x = 0, double y = 0, double z = 0) {
+		coord[0] = x;
+		coord[1] = y;
+		coord[2] = z;
+	}
+	double& operator[](int i) { return coord[i]; }
+	double operator[](int i) const { return coord[i]; }
+
+	Vector& operator+=(const Vector& v) {
+		coord[0] += v[0];
+		coord[1] += v[1];
+		coord[2] += v[2];
+		return *this;
+	}
+
+	double norm2() const {
+		return sqr(coord[0]) + sqr(coord[1]) + sqr(coord[2]);
+	}
+
+	double coord[3];
+};
+
+Vector operator+(const Vector& a, const Vector& b) {
+	return Vector(a[0] + b[0], a[1] + b[1], a[2] + b[2]);
+}
+Vector operator-(const Vector& a, const Vector& b) {
+	return Vector(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+Vector operator*(const Vector& a, double b) {
+	return Vector(a[0]*b, a[1]*b, a[2]*b);
+}
+Vector operator*(double a, const Vector& b) {
+	return Vector(a*b[0], a*b[1], a*b[2]);
+}
+
+double dot(const Vector& a, const Vector& b) {
+	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+
+int main() {
+	int W = 512;
+	int H = 512;
+
+	Vector center(0.2, 0.1, 0.);
+
+	std::vector<unsigned char> image(W*H * 3, 0);
+#pragma omp parallel for
+	for (int i = 0; i < H; i++) {
+		for (int j = 0; j < W; j++) {
+			
+			Vector v(j / (double)W - 0.5, i / (double)H - 0.5, 0.);
+			double gaussianVal = exp(-(v-center).norm2()/(2*sqr(0.2)));
+
+			image[(i*W + j) * 3 + 0] = 127* gaussianVal;   // RED
+			image[(i*W + j) * 3 + 1] = 50 * gaussianVal;  // GREEN
+			image[(i*W + j) * 3 + 2] = 255 * gaussianVal;  // BLUE
+		}
+	}
+	stbi_write_png("image.png", W, H, 3, &image[0], 0);
+
+	return 0;
+}
