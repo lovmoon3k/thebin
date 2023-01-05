@@ -1,0 +1,57 @@
+const express = require('express')
+const bodyParser = require('body-parser')
+const app = express()
+
+app.use(bodyParser.json())
+app.use(
+  bodyParser.urlencoded({
+    extended: true,
+})
+)
+
+const Pool = require('pg').Pool
+const pool = new Pool({
+  user: 'root',
+  host: 'localhost',
+  database: 'root',
+  password: 'mysecret',
+  port: 5432,
+})
+
+async function importItem(prod_id, subprod_id, quantity)
+{
+	res = await pool.query(
+		`BEGIN;
+		DO
+		$$
+		declare
+			selected_prod "Product"%rowtype;
+			import_id "Import".id%type;
+		begin
+			insert into "Import" (created_at) values (default) returning id into import_id ;
+			select * from "Product"  into selected_prod where prod_id=${prod_id} AND subprod_id=${subprod_id};
+		
+			if not found then
+				insert into "Product" (prod_id, subprod_id) VALUES (${prod_id}, ${subprod_id});
+			end if;
+			
+			insert into "ImportItem" (import_id, prod_id, subprod_id, quantity) VALUES (import_id, ${prod_id}, ${subprod_id}, ${quantity});
+		end;
+		$$;
+		COMMIT;`
+	)
+	return res
+}
+
+app.get('/', async(req, res)=>{
+	try{
+		const prod = importItem(1, 1, 50)
+		res.status(200).json(prod)
+	}catch(err){
+		res.status(500).send()
+	}
+})
+const port = 3000
+app.listen(port, () => {
+  console.log(`App running on port ${port}.`)
+})
