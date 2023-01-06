@@ -1,0 +1,158 @@
+package com.mysticsbiomes.common.item;
+
+import com.mysticsbiomes.client.entity.Butterfly;
+import com.mysticsbiomes.common.util.CreativeTabUtils;
+import net.minecraft.ChatFormatting;
+import net.minecraft.Util;
+import net.minecraft.client.resources.language.I18n;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.DoubleTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TranslatableComponent;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.animal.Bee;
+import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.level.Level;
+
+import java.util.List;
+
+/**
+ * Item used to hold & contain bees & butterflies.
+ */
+public class BugHabitatItem extends Item {
+
+    public BugHabitatItem() {
+        super(new Properties().stacksTo(1).tab(CreativeTabUtils.TAB));
+    }
+
+    @Override
+    public InteractionResult interactLivingEntity(ItemStack stack, Player player, LivingEntity entity, InteractionHand hand) {
+        if (NBTHelper.hasMob(stack) || !entity.isAlive()) {
+            return InteractionResult.FAIL;
+        }
+
+        if (!(entity instanceof Bee || entity instanceof Butterfly)) {
+            return InteractionResult.FAIL;
+        }
+
+        CompoundTag nbt = NBTHelper.getBaseTag(stack);
+
+        if (!player.level.isClientSide) {
+            CompoundTag data = entity.serializeNBT();
+
+            nbt.put(NBTHelper.MOB_DATA, data);
+            nbt.putString(NBTHelper.MOB_NAME, entity.getType().getDescriptionId());
+            nbt.putFloat(NBTHelper.MOB_HEALTH, Math.round((entity.getHealth() * 10) / 10.0));
+            nbt.putFloat(NBTHelper.MOB_MAX_HEALTH, entity.getMaxHealth());
+
+            if (player.isCreative()) {
+                ItemStack newLasso = new ItemStack(this);
+                NBTHelper.setBaseTag(newLasso, nbt);
+                player.addItem(newLasso);
+            }
+
+            entity.discard();
+            player.inventoryMenu.broadcastChanges();
+        }
+        return InteractionResult.SUCCESS;
+    }
+
+    @Override
+    public InteractionResult useOn(UseOnContext context) {
+        Player player = context.getPlayer();
+        ItemStack stack = context.getItemInHand();
+        Direction facing = context.getClickedFace();
+        BlockPos pos = context.getClickedPos().offset(facing.getStepX(), facing.getStepY(), facing.getStepZ());
+        Level world = context.getLevel();
+
+        if (!NBTHelper.hasMob(stack)) return InteractionResult.FAIL;
+
+        if (!player.mayUseItemAt(pos, facing, stack)) return InteractionResult.FAIL;
+
+        if (!context.getLevel().isClientSide()) {
+            CompoundTag nbt = NBTHelper.getBaseTag(stack);
+            CompoundTag mobData = nbt.getCompound(NBTHelper.MOB_DATA);
+
+            DoubleTag x = DoubleTag.valueOf(pos.getX() + 0.5);
+            DoubleTag y = DoubleTag.valueOf(pos.getY());
+            DoubleTag z = DoubleTag.valueOf(pos.getZ() + 0.5);
+            ListTag mobPos = NBTHelper.createNBTList(x, y, z);
+            mobData.put("Pos", mobPos);
+
+            Entity mob = EntityType.loadEntityRecursive(mobData, world, entity -> {
+                return entity;
+            });
+            if (mob != null) world.addFreshEntity(mob);
+
+            stack.removeTagKey(NBTHelper.MOB);
+            stack.hurtAndBreak(1, player, wutTheFak -> {});
+        }
+
+        return InteractionResult.SUCCESS;
+    }
+
+    @Override
+    public Component getName(ItemStack stack) {
+        return new TranslatableComponent(this.getDescriptionId(stack)).withStyle(ChatFormatting.AQUA);
+    }
+
+    @Override
+    public void appendHoverText(ItemStack stack, Level world, List<Component> tooltip, TooltipFlag flag) {
+        if (NBTHelper.hasMob(stack)) {
+            CompoundTag nbt = NBTHelper.getBaseTag(stack);
+            String name = nbt.getString(NBTHelper.MOB_NAME);
+            double health = nbt.getDouble(NBTHelper.MOB_HEALTH);
+            double maxHealth = nbt.getDouble(NBTHelper.MOB_MAX_HEALTH);
+
+            tooltip.add(new TranslatableComponent(name).withStyle(ChatFormatting.GRAY));
+            tooltip.add(new TranslatableComponent(health + " / " + maxHealth).withStyle(ChatFormatting.GRAY));
+        } else {
+            tooltip.add(new TranslatableComponent("Right click a bug to capture it!").withStyle(ChatFormatting.GRAY));
+        }
+    }
+
+    public static class NBTHelper {
+        // base
+        public static final String MOB = "capturedMob";
+        // tags under capturedMob tag
+        public static final String MOB_NAME = "mobName";
+        public static final String MOB_DATA = "mobData";
+        public static final String MOB_HEALTH = "mobHealth";
+        public static final String MOB_MAX_HEALTH = "mobMaxHealth";
+
+        public static CompoundTag getBaseTag(ItemStack stack) {
+            return stack.getOrCreateTagElement(MOB);
+        }
+
+        public static void setBaseTag(ItemStack stack, CompoundTag nbt) {
+            stack.getOrCreateTag().put(MOB, nbt);
+        }
+
+        public static boolean hasMob(ItemStack stack) {
+            return stack.getOrCreateTag().contains(MOB);
+        }
+
+        public static ListTag createNBTList(Tag... tags) {
+            ListTag list = new ListTag();
+            for (Tag i: tags) list.add(i);
+
+            return list;
+        }
+    }
+
+}
