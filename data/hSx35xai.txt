@@ -1,0 +1,328 @@
+package nl.zeeezel.carrotnetwork.grinding.voorraadinkoop;
+
+import nl.zeeezel.carrotnetwork.CarrotNetwork;
+import nl.zeeezel.carrotnetwork.economy.EconomyUtil;
+import nl.zeeezel.carrotnetwork.grinding.bessen.BessenUtil;
+import nl.zeeezel.carrotnetwork.grinding.wheat.WheatUtil;
+import nl.zeeezel.carrotnetwork.mysql.DataEnum;
+import nl.zeeezel.carrotnetwork.util.ItemManager;
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.Material;
+import org.bukkit.block.Block;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.SkullMeta;
+
+import java.util.HashMap;
+
+public class VoorraadEvent implements Listener {
+
+    // VERKOPEN RICHTING SPELER
+    public HashMap<Player, VoorraadEnum> startVerkoop = new HashMap<Player, VoorraadEnum>();
+    public HashMap<Player, VoorraadEnum> stap2Welk = new HashMap<Player, VoorraadEnum>();
+    public HashMap<Player, Integer> stap2Aantal = new HashMap<Player, Integer>();
+
+    public HashMap<Player, VoorraadEnum> startInkoopMap = new HashMap<Player, VoorraadEnum>();
+    public HashMap<Player, VoorraadEnum> stap2WelkInkoop = new HashMap<Player, VoorraadEnum>();
+    public HashMap<Player, Integer> stap2AantalInkoop = new HashMap<Player, Integer>();
+
+    @EventHandler
+    public void click(InventoryClickEvent e) {
+        Player p = (Player) e.getWhoClicked();
+        VoorraadInventory voorraadInventory = new VoorraadInventory();
+
+
+        //HOOFD KEUZE MENU
+        if (e.getView().getTitle().equalsIgnoreCase(ChatColor.RED + "Hoofdmenu Voorraad")) {
+            e.setCancelled(true);
+            if (e.getSlot() == 0) {
+                voorraadInventory.openGraanInventory(p);
+            } else if (e.getSlot() == 4) {
+                voorraadInventory.openDruifInventory(p);
+            } else {
+                p.closeInventory();
+            }
+
+
+            // KEUZE MENU GRAAN
+        } else if (e.getView().getTitle().equalsIgnoreCase(ChatColor.GOLD + "Graan menu")) {
+            e.setCancelled(true);
+            if (e.getSlot() == 2) {
+                startVerkoop(p, VoorraadEnum.GRAAN);
+            } else if (e.getSlot() == 6) {
+                startInkoop(p, VoorraadEnum.GRAAN);
+            }
+
+
+            // KEUZE MENU DRUIF
+        } else if (e.getView().getTitle().equalsIgnoreCase(ChatColor.GREEN + "Druif menu")) {
+            e.setCancelled(true);
+            if (e.getSlot() == 2) {
+                startVerkoop(p, VoorraadEnum.DRUIVEN);
+            } else if (e.getSlot() == 6) {
+                startInkoop(p, VoorraadEnum.DRUIVEN);
+            }
+        }
+    }
+
+    public void startInkoop(Player p, VoorraadEnum soort) {
+
+        if (p.hasPermission(soort.getInkoopPermission())) {
+            startVerkoop.put(p, soort);
+            p.sendMessage(ChatColor.GOLD + "Hoeveel " + soort.getInkoopName() + " wil je inkopen? (" + CarrotNetwork.plugin.data.getVoorraad(soort.getDatabaseKey()) + "x beschikbaar)");
+
+        } else {
+            p.sendMessage(ChatColor.RED + "Je hebt geen permissie om " + soort.getName() + " te inkopen! (" + soort.getInkoopPermission() + ")");
+        }
+
+
+        p.closeInventory();
+
+
+    }
+
+    @EventHandler
+    public void aChat(AsyncPlayerChatEvent e) {
+
+        ItemManager itemManager = new ItemManager();
+        Player p = e.getPlayer();
+        EconomyUtil econ = new EconomyUtil(p);
+
+        if (startVerkoop.containsKey(p)) {
+            e.setCancelled(true);
+            if (isInt(e.getMessage())) {
+                VoorraadEnum voorraadEnum = startVerkoop.get(p);
+                int aantal = Integer.parseInt(e.getMessage());
+                int prijs = aantal * voorraadEnum.getPrijsInkoop();
+                int voorraad = CarrotNetwork.plugin.data.getVoorraad(voorraadEnum.getDatabaseKey());
+                if (voorraad >= aantal) {
+                    if (econ.genoegGeld(prijs)) {
+                        startVerkoop.remove(p);
+                        stap2Welk.put(p, voorraadEnum);
+                        stap2Aantal.put(p, aantal);
+                        p.sendMessage(ChatColor.GOLD + "Weet je zeker dat je " + aantal + "x " + voorraadEnum.getInkoopName() + " wilt inkopen? (ja/nee)");
+                        return;
+                    } else {
+                        p.sendMessage(ChatColor.RED + "Je hebt niet genoeg geld om " + aantal + "x " + voorraadEnum.getInkoopName() + " in te kopen!");
+                        startVerkoop.remove(p);
+                    }
+                } else {
+                    p.sendMessage(ChatColor.RED + "Zoveel " + voorraadEnum.getInkoopName() + " zijn er niet beschikbaar! ");
+                    startVerkoop.remove(p);
+                }
+
+            } else {
+                p.sendMessage(ChatColor.RED + "Dit is geen nummer!");
+                startVerkoop.remove(p);
+            }
+
+        } else if (stap2Welk.containsKey(p)) {
+            e.setCancelled(true);
+            if (e.getMessage().equalsIgnoreCase("ja")) {
+                VoorraadEnum voorraadEnum = stap2Welk.get(p);
+                int aantal = stap2Aantal.get(p);
+                int prijs = aantal * voorraadEnum.getPrijsInkoop();
+
+                voegPunten(p, aantal, voorraadEnum, false);
+
+                if (voorraadEnum.equals(VoorraadEnum.GRAAN)) {
+                    econ.koop(prijs);
+                    CarrotNetwork.plugin.data.addVoorraad(DataEnum.GRAANINHOUD, -aantal);
+                    for (int i = 0; i < aantal; i++) {
+                        p.getInventory().addItem(itemManager.getMeel());
+                    }
+                } else if (voorraadEnum.equals(VoorraadEnum.DRUIVEN)) {
+                    econ.koop(prijs);
+                    CarrotNetwork.plugin.data.addVoorraad(DataEnum.DRUIFINHOUD, -aantal);
+                    for (int i = 0; i < aantal; i++) {
+                        p.getInventory().addItem(itemManager.getDruif());
+                    }
+
+                }
+            } else {
+                stap2Welk.remove(p);
+                stap2Aantal.remove(p);
+            }
+        }
+
+    }
+
+    @EventHandler
+    public void onchatVerkoop(AsyncPlayerChatEvent e) {
+        Player p = e.getPlayer();
+        EconomyUtil econ = new EconomyUtil(p);
+
+        if (startInkoopMap.containsKey(p)) {
+            e.setCancelled(true);
+            if (isInt(e.getMessage())) {
+
+                VoorraadEnum voorraadEnum = startInkoopMap.get(p);
+                int aantal = Integer.parseInt(e.getMessage());
+                int prijs = aantal * voorraadEnum.getPrijsVerkoop();
+
+                if(aantal <= getItemStackInInventory(p, voorraadEnum)){
+
+                    p.sendMessage(ChatColor.GOLD + "Wil jij " + aantal + "x " + voorraadEnum.getName() + " verkopen voor " + prijs + " euro?");
+                    startInkoopMap.remove(p);
+                    stap2AantalInkoop.put(p, aantal);
+                    stap2WelkInkoop.put(p, voorraadEnum);
+
+                }else{
+                    p.sendMessage(ChatColor.RED + "Zoveel kan jij niet verkopen!");
+                    startInkoopMap.remove(p);
+                }
+
+
+            }
+
+        }else if(stap2AantalInkoop.containsKey(p)){
+            if(e.getMessage().equalsIgnoreCase("ja")){
+                e.setCancelled(true);
+                VoorraadEnum voorraadEnum = stap2WelkInkoop.get(p);
+                int aantal = stap2AantalInkoop.get(p);
+                int prijs = aantal * voorraadEnum.getPrijsVerkoop();
+                if(aantal <= getItemStackInInventory(p, voorraadEnum)){
+                    econ.addMoney(prijs);
+                    verkoopItem(p, voorraadEnum, aantal);
+                    voegPunten(p, aantal, voorraadEnum, true);
+                    stap2AantalInkoop.remove(p);
+                    stap2WelkInkoop.remove(p);
+
+                    CarrotNetwork.plugin.data.addVoorraad(voorraadEnum.getDatabaseKey(), aantal);
+
+                }else{
+                    stap2AantalInkoop.remove(p);
+                    stap2WelkInkoop.remove(p);
+                    p.sendMessage(ChatColor.RED + "Verkoop is niet doorgegaan! Omdat je nog maar " + getItemStackInInventory(p, voorraadEnum) + " " + voorraadEnum.getName() + " hebt ipv " + aantal);
+                }
+            }else{
+                p.sendMessage(ChatColor.RED + "Verkoop is niet doorgegaan!");
+            }
+        }
+    }
+
+    private void voegPunten(Player p, int hoeveel, VoorraadEnum voorraadEnum, boolean verkoopisTrue) {
+
+        switch(voorraadEnum){
+
+            case GRAAN:
+                if(verkoopisTrue){
+                    CarrotNetwork.plugin.data.geefStats(p.getUniqueId(), DataEnum.GRAAN_VERKOCHT, hoeveel);
+                }else{
+                    CarrotNetwork.plugin.data.geefStats(p.getUniqueId(), DataEnum.GRAAN_INGEKOCHT, hoeveel);
+                }
+                break;
+            case DRUIVEN:
+                if(verkoopisTrue){
+                    CarrotNetwork.plugin.data.geefStats(p.getUniqueId(), DataEnum.DRUIVEN_VERKOCHT, hoeveel);
+                }else{
+                    CarrotNetwork.plugin.data.geefStats(p.getUniqueId(), DataEnum.DRUIVEN_INGEKOCHT, hoeveel);
+                }
+                break;
+
+        }
+
+    }
+
+    private void startVerkoop(Player p, VoorraadEnum soort) {
+
+        if (p.hasPermission(soort.getVerkoopPermission())) {
+            startInkoopMap.put(p, soort);
+            p.sendMessage(ChatColor.GOLD + "Hoeveel " + soort.getName() + " wil je verkopen? (" + getItemStackInInventory(p, soort) + " beschikbaar!)");
+        } else {
+            p.sendMessage(ChatColor.RED + "Je hebt geen permissie om " + soort.getName() + " te verkopen! (" + soort.getVerkoopPermission() + ")");
+        }
+
+
+        p.closeInventory();
+
+
+    }
+
+    public boolean isInt(String s) {
+        try {
+            Integer.parseInt(s);
+        } catch (NumberFormatException nfe) {
+            return false;
+        }
+        return true;
+    }
+
+    public int getItemStackInInventory(Player p, VoorraadEnum soort) {
+        Inventory inv = p.getInventory();
+        ItemStack is = soort.getItemStack();
+        int check = 0;
+        for (ItemStack item : inv.getContents()) {
+            if (item != null) {
+                if(item.getItemMeta().getDisplayName().equalsIgnoreCase(soort.getItemStack().getItemMeta().getDisplayName())) {
+                    check = item.getAmount();
+                }
+            }
+        }
+        return check;
+    }
+
+    public void verkoopItem(Player p, VoorraadEnum soort, int aantal) {
+
+        Inventory inv = p.getInventory();
+        ItemManager itemManager = new ItemManager();
+        int aantaltest = 0;
+        for(ItemStack invItem : p.getInventory().getContents()) {
+            if(invItem != null) {
+                if(invItem.getType().equals(soort.getItemStack().getType())) {
+                    int preAmount = invItem.getAmount();
+                    int newAmount = Math.max(0, preAmount - aantal);
+                    aantal = Math.max(0, aantal - preAmount);
+                    invItem.setAmount(newAmount);
+                    if(aantal == 0) {
+                        break;
+                    }
+                }
+            }
+        }
+              //      if(item.getAmount() <= aantal) {
+
+
+                //        p.sendMessage("DEBUG1");
+                //        item.setAmount(item.getAmount() - aantal);
+                  //  }else {
+                 //       p.getInventory().remove(item);
+                   //     p.sendMessage("DEBUG2");
+                  //  }
+
+
+    }
+
+    @EventHandler
+    public void interact(PlayerInteractEvent e){
+        Player p = e.getPlayer();
+        Block block = e.getClickedBlock();
+        if(block != null){
+            if(block.getType() == Material.BROWN_GLAZED_TERRACOTTA){
+                if(e.getAction() == Action.RIGHT_CLICK_BLOCK) {
+                    VoorraadInventory inv = new VoorraadInventory();
+                    inv.openHoofdInventory(p);
+                }
+            }else if(block.getType() == Material.ANVIL || block.getType() == Material.GRINDSTONE){
+                if(!p.isOp()) {
+                    if (e.getAction() == Action.RIGHT_CLICK_BLOCK) {
+                        e.setCancelled(true);
+                        p.closeInventory();
+                        p.sendMessage(ChatColor.RED + "Ooops! Je hebt hier geen toestemming voor!");
+                    }
+                }
+            }
+        }
+    }
+
+
+
+}
