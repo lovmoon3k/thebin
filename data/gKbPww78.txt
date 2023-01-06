@@ -1,0 +1,78 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+
+#define PORT 12345
+#define BUFSIZE 1024
+
+int main(int argc, char *argv[]) {
+    int sockfd, newsockfd, n;
+    socklen_t clilen;
+    char buffer[BUFSIZE];
+    struct sockaddr_in serv_addr, cli_addr;
+    fd_set write_fds;
+    int max_fd;
+
+    /* Create a socket */
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        perror("ERROR opening socket");
+        exit(1);
+    }
+
+    /* Set all bytes in the buffer to 0 */
+    memset(buffer, 0, BUFSIZE);
+
+    /* Set all values in serv_addr to 0 */
+    memset(&serv_addr, 0, sizeof(serv_addr));
+
+    /* Set the fields in serv_addr */
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = INADDR_ANY;
+    serv_addr.sin_port = htons(PORT);
+
+    /* Bind the socket to the address and port */
+    if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
+        perror("ERROR on binding");
+        exit(1);
+    }
+
+    /* Listen for incoming connections */
+    listen(sockfd, 5);
+    clilen = sizeof(cli_addr);
+
+    /* Accept an incoming connection */
+    newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
+    if (newsockfd < 0) {
+        perror("ERROR on accept");
+        exit(1);
+    }
+
+    /* Initialize the write file descriptor set */
+    FD_ZERO(&write_fds);
+    FD_SET(newsockfd, &write_fds);
+    max_fd = newsockfd;
+
+    /* Wait for the write file descriptor set to be ready for writing */
+    select(max_fd + 1, NULL, &write_fds, NULL, NULL);
+
+    /* Check if the write file descriptor is ready for writing */
+    if (FD_ISSET(newsockfd, &write_fds)) {
+        /* Write to the socket */
+        n = write(newsockfd, "Hello, client!\n", 15);
+        if (n < 0) {
+            perror("ERROR writing to socket");
+            exit(1);
+        }
+    }
+
+    /* Close the sockets */
+    close(newsockfd);
+    close(sockfd);
+
+    return 0;
+}
