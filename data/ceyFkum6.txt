@@ -1,0 +1,352 @@
+package games.coob.laserturrets.model;
+
+import games.coob.laserturrets.settings.TurretSettings;
+import games.coob.laserturrets.util.Hologram;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
+import org.bukkit.Location;
+import org.bukkit.entity.EntityType;
+import org.bukkit.inventory.ItemStack;
+import org.mineacademy.fo.SerializeUtil;
+import org.mineacademy.fo.Valid;
+import org.mineacademy.fo.collection.SerializedMap;
+import org.mineacademy.fo.model.ConfigSerializable;
+import org.mineacademy.fo.model.Tuple;
+import org.mineacademy.fo.remain.CompMaterial;
+
+import javax.annotation.Nullable;
+import java.util.*;
+
+@Getter
+@ToString
+public class TurretData implements ConfigSerializable { // TODO create ammo
+
+	private Location location;
+
+	private CompMaterial material;
+
+	private String id;
+
+	private String type;
+
+	private UUID owner;
+
+	private boolean broken;
+
+	private List<ItemStack> currentLoot;
+
+	private Set<UUID> playerBlacklist = new HashSet<>();
+
+	private Set<EntityType> mobBlacklist = new HashSet<>();
+
+	private boolean mobWhitelistEnabled;
+
+	private boolean playerWhitelistEnabled;
+
+	private List<TurretData.TurretLevel> turretLevels = new ArrayList<>();
+
+	private double currentHealth;
+
+	private int currentLevel;
+
+	private Hologram hologram;
+
+	public void setLocation(final Location location) {
+		this.location = location;
+	}
+
+	public void setMaterial(final CompMaterial material) {
+		this.material = material;
+	}
+
+	public void setType(final String type) {
+		this.type = type;
+	}
+
+	public void setId(final String id) {
+		this.id = id;
+	}
+
+	public void setOwner(final UUID uuid) {
+		this.owner = uuid;
+	}
+
+	public void setBroken(final boolean broken) {
+		this.broken = broken;
+	}
+
+	public void setBrokenAndFill(final boolean broken) {
+		this.broken = broken;
+
+		if (this.isBroken()) {
+			final List<Tuple<ItemStack, Double>> lootChances = this.turretLevels.get(this.currentLevel - 1).getLootChances();
+			this.currentLoot = randomItemPercentageList(lootChances);
+		}
+	}
+
+	private List<ItemStack> randomItemPercentageList(final List<Tuple<ItemStack, Double>> lootChanceList) {
+		final List<ItemStack> items = new ArrayList<>();
+
+		for (final Tuple<ItemStack, Double> lootChance : lootChanceList) {
+			if (lootChance != null) {
+				final Random random = new Random();
+				final double randomPercentage = random.nextDouble();
+
+				if (lootChance.getValue() >= randomPercentage)
+					items.add(lootChance.getKey());
+			}
+		}
+
+		return items;
+	}
+
+	public void setHologram(final Hologram hologram) {
+		this.hologram = hologram;
+	}
+
+	public void setCurrentLevel(final int level) {
+		this.currentLevel = level;
+	}
+
+	public void setCurrentLoot(final @Nullable List<ItemStack> items) {
+		this.currentLoot = items;
+	}
+
+	public void removeCurrentLoot(final ItemStack itemStack) {
+		this.getCurrentLoot().remove(itemStack);
+	}
+
+	public void addPlayerToBlacklist(final UUID uuid) {
+		this.playerBlacklist.add(uuid);
+	}
+
+	public void removePlayerFromBlacklist(final UUID uuid) {
+		if (this.playerBlacklist != null)
+			this.playerBlacklist.remove(uuid);
+	}
+
+	public boolean isPlayerListedAsAlly(final UUID uuid) {
+		if (this.playerBlacklist != null)
+			return this.playerBlacklist.contains(uuid);
+		else return false;
+	}
+
+	public void setPlayerBlacklist(final Set<UUID> playerBlacklist) {
+		this.playerBlacklist = playerBlacklist;
+	}
+
+	public void setMobWhitelistEnabled(final boolean whitelist) {
+		this.mobWhitelistEnabled = whitelist;
+	}
+
+	public void setPlayerWhitelistEnabled(final boolean whitelist) {
+		this.playerWhitelistEnabled = whitelist;
+	}
+
+	public void setCurrentHealth(final double health) {
+		this.currentHealth = health;
+	}
+
+	public void addMobToBlacklist(final EntityType entityType) {
+		this.mobBlacklist.add(entityType);
+	}
+
+	public void removeMobFromBlacklist(final EntityType entityType) {
+		this.mobBlacklist.remove(entityType);
+	}
+
+	public boolean isMobListedAsAlly(final EntityType entityType) {
+		return this.mobBlacklist.contains(entityType);
+	}
+
+	public void setMobBlacklist(final @Nullable Set<EntityType> entityTypes) {
+		this.mobBlacklist = entityTypes;
+	}
+
+	public TurretLevel getLevel(final int level) {
+		final boolean outOfBounds = level <= 0 || level >= this.turretLevels.size() + 1;
+
+		if (!outOfBounds)
+			return this.turretLevels.get(level - 1);
+
+		return null;
+	}
+
+	public TurretLevel addLevel() {
+		final TurretData.TurretLevel level = new TurretData.TurretLevel(this);
+
+		turretLevels.add(level);
+
+		return this.turretLevels.get(this.turretLevels.size() - 1);
+	}
+
+	public void createLevel(final String turretType) {
+		final TurretData.TurretLevel level = addLevel();
+		final List<TurretSettings.LevelData> levels = TurretSettings.findTurretSettings(turretType).getLevels();
+
+		levels.get(levels.size() - 1).setLevelData(level);
+	}
+
+	public void removeLevel(final int level) {
+		Valid.checkBoolean(getLevels() >= level, "Cannot remove level " + level + " because the turret only has " + getLevels() + " levels.");
+		this.turretLevels.remove(level - 1);
+	}
+
+	public void setTurretLevels(final List<TurretData.TurretLevel> levels) {
+		this.turretLevels = levels;
+	}
+
+	public int getLevels() {
+		return this.turretLevels.size();
+	}
+
+	private String toHash(final Location location, final CompMaterial material) {
+		return SerializeUtil.serializeLoc(location) + " | " + material;
+	}
+
+	@Override
+	public SerializedMap serialize() {
+		final SerializedMap map = new SerializedMap();
+
+		map.put("Block", toHash(this.location, this.material));
+		map.put("Id", this.id);
+		map.put("Type", this.type);
+		map.put("Owner", this.owner);
+		map.putIf("Player_Blacklist", this.playerBlacklist);
+		map.putIf("Mob_Blacklist", this.mobBlacklist);
+		map.putIf("Current_Loot", this.currentLoot);
+		map.put("Use_Player_Whitelist", this.playerWhitelistEnabled);
+		map.put("Use_Mob_Whitelist", this.mobWhitelistEnabled);
+		map.put("Current_Health", this.currentHealth);
+		map.put("Current_Level", this.currentLevel);
+		map.put("Broken", this.broken); // TODO check if it causes errors (was Destroyed)
+		map.putIf("Hologram", this.hologram);
+		map.put("Levels", this.turretLevels);
+
+		return map;
+	}
+
+	public static TurretData deserialize(final SerializedMap map) {
+		final TurretData turretData = new TurretData();
+
+		final String hash = map.getString("Block");
+		final String id = map.getString("Id");
+		final String type = map.getString("Type");
+		final UUID owner = map.getUUID("Owner");
+		final Set<UUID> blacklist = map.getSet("Player_Blacklist", UUID.class);
+		final Set<EntityType> entityTypes = map.getSet("Mob_Blacklist", EntityType.class);
+		final List<ItemStack> currentLoot = map.getList("Current_Loot", ItemStack.class);
+		final boolean playerWhitelist = map.getBoolean("Use_Player_Whitelist", false);
+		final boolean mobWhitelist = map.getBoolean("Use_Mob_Whitelist", false); // Add default value to load it if the key doesn't exist
+		final double currentHealth = map.getDouble("Current_Health");
+		final Integer level = map.getInteger("Current_Level");
+		final boolean destroyed = map.getBoolean("Destroyed", false);
+		final String[] split = hash.split(" \\| ");
+		final Location location = SerializeUtil.deserializeLocation(split[0]);
+		final CompMaterial material = CompMaterial.valueOf(split[1]);
+		final Hologram hologram = map.get("Hologram", Hologram.class, new Hologram(location.clone().add(0.5, 0.5, 0.5)));
+		final List<TurretLevel> levels = map.getList("Levels", TurretLevel.class, turretData);
+
+		turretData.setMaterial(material);
+		turretData.setLocation(location);
+		turretData.setId(id);
+		turretData.setType(type);
+		turretData.setOwner(owner);
+		turretData.setPlayerBlacklist(blacklist);
+		turretData.setMobBlacklist(entityTypes);
+		turretData.setCurrentLoot(currentLoot);
+		turretData.setPlayerWhitelistEnabled(playerWhitelist);
+		turretData.setMobWhitelistEnabled(mobWhitelist);
+		turretData.setCurrentLevel(level);
+		turretData.setCurrentHealth(currentHealth);
+		turretData.setBroken(destroyed);
+		turretData.setHologram(hologram);
+		turretData.setTurretLevels(levels);
+
+		return turretData;
+	}
+
+	@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+	public final static class TurretLevel implements ConfigSerializable {
+
+		private final TurretData turretData;
+
+		@Getter
+		private double price;
+
+		@Getter
+		private List<Tuple<ItemStack, Double>> lootChances = new ArrayList<>();
+
+		@Getter
+		private int range;
+
+		@Getter
+		private boolean laserEnabled;
+
+		@Getter
+		private double laserDamage;
+
+		@Getter
+		private double maxHealth;
+
+		public void setPrice(final double price) {
+			this.price = price;
+		}
+
+		public void setRange(final int range) {
+			this.range = range;
+		}
+
+		public void setLaserEnabled(final boolean laserEnabled) {
+			this.laserEnabled = laserEnabled;
+		}
+
+		public void setLaserDamage(final double laserDamage) {
+			this.laserDamage = laserDamage;
+		}
+
+		public void setLootChances(final @Nullable List<Tuple<ItemStack, Double>> lootChances) {
+			this.lootChances = lootChances;
+		}
+
+		public void setMaxHealth(final double health) {
+			this.maxHealth = health;
+		}
+
+		public static TurretLevel deserialize(final SerializedMap map, final TurretData turretData) {
+			final double price = map.getDouble("Price");
+			final List<Tuple<ItemStack, Double>> lootChances = map.getTupleList("Loot_Chances", ItemStack.class, Double.class);
+			final int range = map.getInteger("Range");
+			final boolean laserEnabled = map.getBoolean("Laser_Enabled");
+			final double laserDamage = map.getDouble("Laser_Damage");
+			final double maxHealth = map.getDouble("Max_Health");
+
+			final TurretLevel level = new TurretLevel(turretData);
+
+			level.setPrice(price);
+			level.setLootChances(lootChances);
+			level.setRange(range);
+			level.setLaserEnabled(laserEnabled);
+			level.setLaserDamage(laserDamage);
+			level.setMaxHealth(maxHealth);
+
+			return level;
+		}
+
+		@Override
+		public SerializedMap serialize() {
+			final SerializedMap map = new SerializedMap();
+
+			map.put("Price", this.price);
+			map.put("Range", this.range);
+			map.put("Max_Health", this.maxHealth);
+			map.put("Laser_Enabled", this.laserEnabled);
+			map.put("Laser_Damage", this.laserDamage);
+			map.putIf("Loot_Chances", this.lootChances);
+
+			return map;
+		}
+	}
+}
