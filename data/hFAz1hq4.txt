@@ -1,0 +1,227 @@
+import pygame
+import random
+
+class State:
+    def __init__(self, manager):
+        self.manager = manager
+
+    def on_focus(self): pass
+    def on_leave(self): pass
+    def on_init(self, *args): pass
+
+    def on_draw(self, surface): pass
+    def on_event(self, event): pass
+    def on_update(self, delta, ticks): pass
+
+    def on_quit(self):
+        self.manager.quit()
+
+class StateMachine:
+    def __init__(self, manager):
+        self.state = None
+        self.manager = manager
+        self.next_state = None
+
+    def __call__(self):
+        self.update()
+        if self.state:
+            return self.state
+        else:
+            State(self.manager)
+
+    def set(self, state):
+        if state:
+            if self.state is None:
+                state.on_focus()
+                self.state = state
+            else:
+                self.next_state = state
+
+    def update(self):
+        if self.next_state:
+            if self.state:
+                self.state.on_leave()
+
+            self.state = self.next_state
+            self.state.on_focus()
+            self.next_state = None
+
+class DisplayEngine:
+    def __init__(self, manager, caption, width, height, fps, flags):
+        pygame.display.set_caption(caption)
+        self.surface = pygame.display.set_mode((width, height), flags)
+        self.rect = self.surface.get_rect()
+        self.clock = pygame.time.Clock()
+        self.running = False
+        self.delta = 0
+        self.fps = fps
+
+        self.state_machine = StateMachine(manager)
+
+    def loop(self, state=None):
+        self.running = True
+        self.state_machine.set(state)
+
+        while self.running:
+            state = self.state_machine()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    state.on_quit()
+                else:
+                    state.on_event(event)
+
+            ticks = pygame.time.get_ticks()
+            state.on_draw(self.surface)
+            state.on_update(self.delta, ticks)
+            pygame.display.flip()
+            self.delta = self.clock.tick(self.fps) * 0.001
+
+class StateControl:
+    def __init__(self, state, *args):
+        self.active = isinstance(state, State)
+        self.state = state
+        self.args = args
+
+    def get(self, manager, *args):
+        if not self.active:
+            return self.state(smanager, *self.args)
+
+        return self.state
+
+ # Store what to be share across all states
+class Manager:
+    def __init__(self, caption, width, height, fps=60, flags=0):
+        self.engine = DisplayEngine(self, caption, width, height, fps, flags)
+        self.controls = {}
+        self.images = None
+
+    def add_state(self, key, state, *args):
+        self.controls[key] = StateControl(state, *args)
+
+    def run(self, state=None):
+        self.engine.loop(state)
+
+    def set_state(self, state, *args):
+        if isinstance(state, State):
+            state.on_init(*args)
+            self.engine.state_machine.next_state = state
+        elif isinstance(state, (int, str)):
+            self.engine.state_machine.next_state = self.controls[state].get(self, *args)
+        else:
+            print("Must be state or state key")
+
+    def quit(self):
+        self.engine.running = False
+
+# *** ****************** *** #
+# *** Example Code Below *** #
+# *** ****************** *** #
+
+FIREWORK_ALPHA = 200
+
+class TickTimer:
+    def __init__(self, interval, callback, user_data=None):
+        self.next_tick = pygame.time.get_ticks() + interval
+        self.user_data = user_data
+        self.callback = callback
+        self.interval = interval
+
+    def tick(self, ticks):
+        count = 0
+        while ticks > self.next_tick:
+            self.next_tick += self.interval
+            count += 1
+
+        if count > 0:
+            self.callback(self, count)
+
+class ImageHandler:
+    def __init__(self):
+        self.firework = self.create_fireworks()
+
+    def create_fireworks(self):
+        colors = 'red', 'yellow', 'blue', 'purple', 'pink'
+        firework = []
+        for color in colors:
+            size = random.randint(5, 9)
+            surface = pygame.Surface((size, size))
+            surface.fill(color)
+            surface.set_alpha(FIREWORK_ALPHA)
+            firework.append(surface)
+
+        return firework
+
+class FireWork(pygame.sprite.Sprite):
+    def __init__(self, image, position, vector, speed, *groups):
+        super().__init__(*groups)
+        self.oimage = image
+        self.image = image
+        self.rect = image.get_rect(center=position)
+        self.center = pygame.Vector2(self.rect.center)
+        self.start = pygame.Vector2(self.rect.center)
+        self.vector = vector
+        self.speed = speed
+        self.timer = TickTimer(500, self.timer_update)
+
+    def shrink(self):
+        if self.rect.width >= 3:
+            size = self.rect.width - 1
+            alpha = self.image.get_alpha()
+            self.image = pygame.transform.scale(self.oimage, (size, size))
+            self.image.set_alpha(alpha)
+            self.rect = self.image.get_rect(center=self.center)
+
+    def timer_update(self, timer, counter):
+        self.shrink()
+
+    def update(self, delta, ticks):
+        alpha = FIREWORK_ALPHA - int(self.center.distance_to(self.start) * 1.5)
+        self.center += self.vector * delta * self.speed
+        self.rect.center = self.center
+        self.image.set_alpha(alpha)
+        self.timer.tick(ticks)
+        if alpha < 50:
+            self.kill()
+
+class Example(State):
+    def __init__(self, manager):
+        super().__init__(manager)
+        self.fireworks = pygame.sprite.Group()
+
+    def add_firework(self, event):
+        rnd = random.randint
+        n = rnd(4, 6)
+        a_begin = 180
+        a_interval = a_begin // n
+        a_end = a_begin + a_interval
+        for i in range(n):
+            angle = rnd(a_begin, a_end)
+            a_begin += a_interval
+            a_end += a_interval
+            vector = pygame.Vector2()
+            vector.from_polar((1, angle))
+            image = random.choice(self.manager.images.firework)
+            pos = vector * 2 + event.pos
+            speed = rnd(40, 60)
+            FireWork(image, pos, vector, speed, self.fireworks)
+
+    def on_draw(self, surface):
+        surface.fill('black')
+        self.fireworks.draw(surface)
+
+    def on_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:
+                self.add_firework(event)
+
+    def on_update(self, delta, ticks):
+        self.fireworks.update(delta, ticks)
+
+if __name__ == '__main__':
+    pygame.init()
+    manager = Manager("Example", 800, 600)
+    manager.images = ImageHandler()
+    state = Example(manager)
+    manager.run(state)
+    pygame.quit()
