@@ -1,0 +1,197 @@
+<# PARAMETERS #>
+param(
+   [parameter(helpMessage     ="Convert - DDS to TIF")]
+      [bool]$loopScript       =0,   
+   [parameter(helpMessage     ="Convert - DDS to TIF")]
+      [bool]$DDStoTIF         =0,
+   [parameter(helpMessage     ="Import - Bitmaps")]
+      [bool]$Bitmaps          =0,
+   [parameter(helpMessage     ="Import - Models")]
+      [bool]$Models           =1,
+   [parameter(helpMessage     ="Import - Models(First Person)")]
+      [bool]$ModelsFP         =1,
+   [parameter(helpMessage     ="Import - Models(Projectiles)")]
+      [bool]$ModelsProjectiles=0,
+   [parameter(helpMessage     ="Import - Animations(First Person)")]
+      [bool]$FPModelAnimations=0,
+   [parameter(helpMessage     ="Import - Sounds")]
+      [bool]$Sounds           =0,
+   [parameter(helpMessage     ="Extract - Tags to Data")]
+      [bool]$StealTags        =0,
+   [parameter(helpMessage     ="Extract - Tags to Data")]
+      [bool]$stealBitmaps     =0
+   )
+
+<# INCLUDES #>
+. "P:\Program Files\Steam\steamapps\common\H3EK\init.ps1" -windowName "UT2k4" -outputFile "ut2k4_output"
+
+<# WEAPON ARRAY #>
+$weaponList=[System.Collections.ArrayList]::new()
+$weaponList.Add("Assault_Rifle")
+$weaponList.Add("Assault_Rifle_2k3")
+#$weaponList.Add("AVRiL")
+#$weaponList.Add("Ball_Launcher")
+#$weaponList.Add("Bio_Rifle")
+#$weaponList.Add("Flak_Cannon")
+#$weaponList.Add("Grenade_Launcher")
+#$weaponList.Add("Ion_Painter")
+#$weaponList.Add("Lightning_Gun")
+#$weaponList.Add("Link_Gun")
+#$weaponList.Add("Link_Gun_2k3")
+#$weaponList.Add("Mine_Layer")
+#$weaponList.Add("Minigun")
+#$weaponList.Add("Redeemer")
+#$weaponList.Add("Rocket_Launcher")
+#$weaponList.Add("Shield_Gun")
+#$weaponList.Add("Shock_Rifle")
+#$weaponList.Add("Shock_Rifle_2k3")
+#$weaponList.Add("Sniper_Rifle")
+#$weaponList.Add("Target_Painter")
+#$weaponList.Add("Translocator")
+#$weaponList.Add("Translocator2k3")
+
+<# VARIABLES #>
+[string]$dirRoot          =("P:\Program Files\Steam\steamapps\common\H3EK")
+[string]$dirFMod          =("$dirRoot"+"\fmod\PC")
+[string]$dirProject       =("m00kz\Objects\Weapons\ut2k4")
+[string]$dirTags          =("$dirRoot"+"\tags\"+"$dirProject")
+[string]$dirData          =("$dirRoot"+"\data\"+"$dirProject")
+[string]$dirTagsSound     =("$dirTags"+"\SOUND")
+[string]$dirDataSound     =("$dirData"+"\SOUND")
+[string]$dirDataSoundRaw  =("$dirData"+"\SOUND_RAW")
+[string]$dirDataSoundFixed=("$dirData"+"\SOUND_FIXES")
+
+<# FUNCTIONS #>
+function convertDDStoTIF{#Convert Unreal-extracted *.DDS files to Halo-compatible *.TIFF
+   printActionName -actionName "BITMAPS - DDS TO TIF"
+   $ddsFiles=Get-ChildItem $dirData -File -recurse -include *.dds
+   forEach($ddsFile in $ddsFiles){
+      Push-Location $ddsFile.PSParentPath
+      & "$dirData\texconv.exe" $ddsFile.fullname -y -ft tif -f R8G8B8A8_UNORM
+      Pop-Location
+      }
+   return
+   }
+
+function importBitmaps{#Import *.TIFF files to .bitmap tags
+   printActionName -actionName "BITMAPS - TIF TO TAGS"
+   foreach($w in $weaponList){
+      .\tool.exe bitmaps $dirProject\$w\bitmaps
+      }
+   return
+   }
+
+function importModels{#Import third person *.JMS models to *.model tags
+   printActionName -actionName "MODELS - JMS TO TAGS"
+   foreach($w in $weaponList){
+      .\tool.exe bulk-import-model-folder $dirProject\$w\models final
+      }
+   return
+   }
+
+function importModelsFP{#Import first person *.JMS models to *.model tags
+   printActionName -actionName "MODELS(FP)- JMS TO TAGS"
+   foreach($w in $weaponList){
+      .\tool.exe bulk-import-model-folder $dirProject\$w\fp\models final
+      }
+   return
+   }
+
+   function importModelsProjectiles{#Import projectile *.JMS models to *.model tags
+      printActionName -actionName "MODELS - JMS TO TAGS"
+      foreach($w in $weaponList){
+         $projectileFolders=get-childitem -Force -Recurse("$dirData\$w\projectiles")
+         foreach ($projectileFolder in ($projectileFolders).Name){
+            .\tool.exe bulk-import-model-folder $dirProject\$w\projectiles\$projectileFolder\models final
+            }
+         }
+      return
+      }
+
+function importFPModelAnimations{#Import *.JMA / *.JMM / etc animation files to *.model_animation_graph tags
+   printActionName -actionName "ANIMATIONS(FP)- JMA TO TAGS"
+   foreach($w in $weaponList){
+      write-host (".\tool.exe fp-model-animations-uncompressed $dirProject\$w\fp objects\characters\masterchief\fp $dirProject\$w\fp\models")
+      .\tool.exe fp-model-animations "$dirProject\$w\fp" "objects\characters\masterchief\fp" "$dirProject\$w\fp\models"}
+   return
+   }
+function runSounds{#Audio pipeline
+   restoreSoundDefaults
+   convertWAVtoH3
+   importSound
+   return
+   }
+
+function restoreSoundDefaults{#Restore our audio setup to default so we're not risking breaking references
+   remove-item   -Force -Recurse("$dirDataSound"+"\")
+   remove-item   -Force -Recurse("$dirTagsSound"+"\")
+   Copy-Item     -Force         ("$dirFMod"+"\BACKUP\sfx.fsb.info") -Destination("$dirFMod"+"\sfx.fsb.info")
+   Copy-Item     -Force         ("$dirFMod"+"\BACKUP\sfx.fsb")      -Destination("$dirFMod"+"\sfx.fsb")
+   Copy-Item     -Force -Recurse("$dirDataSoundRaw"+"\")            -Destination("$dirDataSound"+"\")
+   get-childitem -Force -Recurse("$dirDataSound"+"\")               -include *.wav
+   | foreach-object{remove-item -Force -path $_.fullname}
+   return
+   }
+
+function convertWAVtoH3{#Convert unreal-exported .WAV files to 16-bit PCM format
+   $wavFiles=Get-ChildItem "$dirDataSoundRaw" -File -recurse -include *.wav
+   forEach($wav in $wavFiles){
+      $wavStructure=$wav -replace ".*RAW"
+      $wavSource   =("$dirDataSoundRaw"+"$wavStructure")
+      $wavDest     =("$dirDataSound"   +"$wavStructure")
+      & "$dirData\ffmpeg.exe" -y -acodec pcm_s16le -i $wavSource $wavDest
+      }
+   foreach($item in Get-ChildItem $dirDataSoundFixed){
+      Copy-Item -Force -Recurse $item -Destination $dirDataSound
+      }#Manually-converted *.wav files in case ffmpeg breaks any of them
+   return
+   }
+
+function importSound{#Import 16-bit PCM .wavs(Stored in sfx.fsb, indexed in sfx.fsb.info, refrenced by *.sound tags)
+   foreach($subFolder in Get-ChildItem $dirDataSound){
+      foreach($soundFolder in Get-ChildItem $subFolder){
+         $parsedFolder=$soundFolder -replace ".*data\\"
+         .\tool.exe sounds-single-layer $parsedFolder test sfx
+         }
+      }
+   return
+   }
+
+function stealTags{# LITERALLY STEAL BUNGIE'S TAGS
+   $RIPDIR = "fx\"
+   $RIPFROM = ("$dirRoot"+"\tags\"+"$RIPDIR")
+   foreach($tag in Get-ChildItem($RIPFROM) *.* -recurse
+   | Where-Object{! $_.PSIsContainer}){
+      $parsedTag=($tag).fullname -replace ".*h3ek\\"
+      .\tool.exe extract-import-info $parsedTag
+      }
+   return
+   }
+
+<# MAIN ROUTINE #>
+function mainRoutine(){
+   setWindow
+   Push-Location $dirRoot
+   if($DDStoTIF)         {convertDDStoTIF}
+   if($Bitmaps)          {importBitmaps}
+   if($Models)           {importModels}
+   if($ModelsFP)         {importModelsFP}
+   if($ModelsProjectiles){importModelsProjectiles}
+   if($FPModelAnimations){importFPModelAnimations}
+   if($Sounds)           {runSounds}
+   if($StealTags)        {stealTags}
+}
+
+while ($loopScript){
+   mainRoutine
+   promptForRestart
+   }
+
+if (!$loopScript){
+   mainRoutine
+   endScript
+   exit
+   }
+
+<# you're gay #>
+
