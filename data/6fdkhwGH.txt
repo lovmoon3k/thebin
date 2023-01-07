@@ -1,0 +1,293 @@
+#include<bits/stdc++.h>
+using namespace std;
+
+struct gnode{//gift
+  string gname;
+  bool good;
+  bool given;
+};
+
+struct snode{//stu
+  string sname;
+  string swant;
+  string gname;
+  bool good;
+  gnode *give;
+  gnode *get;
+  snode *link;
+  int mood;
+};
+
+struct mnode{//mood
+  int mp;
+  mnode *link;
+  snode *head;
+};
+
+struct prtnode{//for print
+  string sname;
+  string getname;
+};
+
+bool veccmp(prtnode a, prtnode b){
+  return a.sname<=b.sname;
+}
+
+snode *findsnode(snode* scurr, string tgt){
+  if(scurr==NULL) return NULL;
+  while(1){
+    if(scurr->sname==tgt) return scurr; //found target
+    if(scurr->link==NULL) return NULL; //reach the end and still not found
+    scurr=scurr->link; //move to next node
+  }
+}
+
+void printlist(snode* scurr){
+  if(scurr==NULL) return;
+  vector<prtnode> sortstu;
+  prtnode tmpnode;
+  
+  while(1){//get data
+    tmpnode.sname=scurr->sname;
+    scurr->get==NULL ? tmpnode.getname="0" : tmpnode.getname=scurr->get->gname; //who doesn't get a gift print 0, else print giftname
+    //cout << tmpnode.sname << " " << tmpnode.getname << endl;
+    sortstu.push_back(tmpnode);//add data to sortstu
+    if(scurr->link==NULL) break; //reach the end
+    scurr=scurr->link; //move to next node
+  }
+  sort(sortstu.begin(), sortstu.end(), veccmp); //sort by name
+  for(int i=0; i<sortstu.size(); i++){
+    cout << " -> " << sortstu[i].sname << "(" << sortstu[i].getname << ")" ;
+  }cout << endl;
+}
+
+////////
+//main function
+////////
+int main(int argc, char *argv[]){
+  ifstream fin(argv[1]);
+  
+  //init moodlist
+  mnode *lhead=new mnode;
+  mnode *mcurr=new mnode;
+  mcurr=lhead; //start from listhead
+  for(int i=-2; i<=2; i++){
+    mnode *bdmood=new mnode;
+    bdmood->mp=i;
+    bdmood->link=NULL;
+    mcurr->link=bdmood; //link to next node
+    mcurr=bdmood; //move to next node
+  }
+
+  for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=0; mcurr=mcurr->link); //mcurr move to mood[0]
+  
+  //init student node
+  int n;
+  fin >> n;
+  vector<snode*> stulist; //store input sequence
+  snode *scurr=new snode;
+  for(int i=0; i<n; i++){    
+    snode *sip=new snode; //stunode
+    gnode *gip=new gnode; //giftnode
+    fin >> sip->sname >> sip->swant >> gip->gname >> gip->good;
+    gip->given=0;
+    sip->give=gip; //stunode link to giftnode
+    sip->get=NULL;
+    sip->mood=0;
+    if(i==0){//link to mood[0]
+      mcurr->head=sip;
+      scurr=sip;
+    }
+    else{//link to next node
+      scurr->link=sip;
+      scurr=sip;
+    }
+    
+    stulist.push_back(sip);
+  }
+  
+  //first print
+  for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=0; mcurr=mcurr->link); //mcurr move to mood[0]
+  scurr=mcurr->head; //start from mood[0]'s head
+  cout << mcurr->mp;
+  printlist(scurr);
+  cout <<endl;  
+  
+  //host's friends priority
+  queue<string> hostfrd;
+  string tmphf;
+  while(fin >> tmphf) hostfrd.push(tmphf);
+  
+  //first exchange
+  while(!hostfrd.empty()){
+    //cout << hostfrd.front() <<endl;
+    for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=0; mcurr=mcurr->link);//mcurr move to mood[0]
+    snode *exchgstu=findsnode(mcurr->head, hostfrd.front());
+    hostfrd.pop();
+    snode *stuwant=findsnode(mcurr->head, exchgstu->swant);
+    
+    //cout << exchgstu->sname << " " << stuwant->sname <<" " << stuwant->give->given << endl;
+    
+    
+    if(!stuwant->give->given){//want gift have not been given to others
+      exchgstu->get=stuwant->give;//student get the gift
+      stuwant->give->given=1;
+    }
+    else continue;
+    
+    //cout << exchgstu->get->gname << endl;
+    
+    
+    if(stuwant->give->good){//mood+2
+      exchgstu->mood=2;
+      for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=2; mcurr=mcurr->link); //mcurr move to mood[2]
+
+      //push to mood[2]
+      if(mcurr->head==NULL){//from head
+        mcurr->head=exchgstu;
+      }
+      else{//from end
+        scurr=mcurr->head;//start from mood[2] head
+        while(scurr->link!=NULL){//reach the end
+          scurr=scurr->link;
+        }
+        scurr->link=exchgstu;
+      }
+
+      //remove from mood[0]
+      for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=0; mcurr=mcurr->link);//mcurr move to mood[0]
+      snode *sprev=new snode;
+      for (sprev=mcurr->head; sprev!=NULL&&sprev->link!=exchgstu; sprev=sprev->link);//find previous stunode
+      if(mcurr->head==exchgstu) mcurr->head=exchgstu->link; //exchgstu is head
+      else sprev->link=exchgstu->link;
+    }
+    else{//mood-2
+      exchgstu->mood=-2;
+      for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=-2; mcurr=mcurr->link); //mcurr move to mood[-2]
+
+      //push
+      if(mcurr->head==NULL){//from head
+        mcurr->head=exchgstu;
+      }
+      else{//from end
+        scurr=mcurr->head;
+        while(scurr->link!=NULL){
+          scurr=scurr->link;
+        }
+        scurr->link=exchgstu;
+      }
+      
+      //remove from mood[0]
+      for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=0; mcurr=mcurr->link);//mcurr move to mood[0]
+      snode *sprev=new snode;
+      for (sprev=mcurr->head; sprev!=NULL&&sprev->link!=exchgstu; sprev=sprev->link);
+      if(mcurr->head==exchgstu) mcurr->head=exchgstu->link; //exchgstu is head
+      else sprev->link=exchgstu->link;
+    }
+    exchgstu->link=NULL;//delete the link between exchgstu and mood[0]
+  }
+  
+  //cout result
+  for(int i=-2; i<=2; i+=2){
+    for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=i; mcurr=mcurr->link);//mcurr move to mood[i]
+    scurr=mcurr->head; //start from mood[0] head
+    cout << mcurr->mp;
+    if(scurr==NULL) continue;//nothing to print
+    printlist(scurr);
+  }
+  cout << endl;
+  
+  //second exchange
+  for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=0; mcurr=mcurr->link);//mcurr move to mood[0]
+  scurr=mcurr->head; //start from mood[0] head
+  while(1){
+    snode *exchgstu=scurr;
+    for(int i=0; i<stulist.size(); i++){ //assign gift
+      if(exchgstu->sname!=stulist[i]->sname && stulist[i]->give->given==0){ //find the first not given gift from stulist
+        exchgstu->get=stulist[i]->give;
+        stulist[i]->give->given=1;
+        break;
+      }
+    }
+    
+    if(exchgstu->get->good){//mood+1
+      exchgstu->mood=1;
+      for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=1; mcurr=mcurr->link); //mcurr move to mood[1]
+
+      //push
+      if(mcurr->head==NULL){//from head
+        mcurr->head=exchgstu;
+      }
+      else{//from end
+        scurr=mcurr->head;
+        while(scurr->link!=NULL){
+          scurr=scurr->link;
+        }
+        scurr->link=exchgstu;
+      }
+
+      //remove from mood[0]
+      for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=0; mcurr=mcurr->link);//mcurr move to mood[0]
+      snode *sprev=new snode;
+      for (sprev=mcurr->head; sprev!=NULL&&sprev->link!=exchgstu; sprev=sprev->link);
+      if(mcurr->head==exchgstu) mcurr->head=exchgstu->link; //exchgstu is head
+      else sprev->link=exchgstu->link;
+    }
+    else{//mood-1
+      exchgstu->mood=-1;
+      for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=-1; mcurr=mcurr->link); //mcurr move to mood[-1]
+
+      //push
+      if(mcurr->head==NULL){//from head
+        mcurr->head=exchgstu;
+      }
+      else{//from end
+        scurr=mcurr->head;
+        while(scurr->link!=NULL){
+          scurr=scurr->link;
+        }
+        scurr->link=exchgstu;
+      }
+
+      //remove from mood[0]
+      for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=0; mcurr=mcurr->link);//mcurr move to mood[0]
+      snode *sprev=new snode;
+      for (sprev=mcurr->head; sprev!=NULL&&sprev->link!=exchgstu; sprev=sprev->link);
+      if(mcurr->head==exchgstu) mcurr->head=exchgstu->link; //exchgstu is head
+      else sprev->link=exchgstu->link;
+    }
+    exchgstu->link=NULL;//delete the link between exchgstu and mood[0]
+    
+    for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=0; mcurr=mcurr->link);//mcurr move to mood[0]
+    if(mcurr->head==NULL) break;//no studentin mood[0]
+    scurr=mcurr->head; //start from mood[0] head again
+  }
+  
+  //cout result
+  for(int i=-2; i<=2; i++){
+    for (mcurr=lhead->link; mcurr!=NULL&&mcurr->mp!=i; mcurr=mcurr->link);//mcurr move to mood[i]
+    scurr=mcurr->head; //start from mood[0] head
+    
+    if(scurr==NULL) continue;//nothing to print
+    cout << mcurr->mp;
+    printlist(scurr);
+  }
+  cout << endl;
+  
+  //cout final mood
+  for(int i=0; i<stulist.size(); i++){//cout as input sequence
+    cout << stulist[i]->sname << " " << stulist[i]->get->gname << " ";
+    switch(stulist[i]->mood){
+      case -2:
+        cout << ":(((" << endl; break;
+      case -1:
+        cout << ":(" << endl; break;
+      case 1:
+        cout << ":)" << endl; break;
+      case 2:
+        cout << ":)))" << endl; break;
+    }
+  
+  }
+  fin.close();
+}
