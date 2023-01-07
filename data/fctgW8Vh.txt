@@ -1,0 +1,65 @@
+const { PI, sqrt, sin, cos, asin, acos } = Math;
+
+const neighborCount = 3;
+const neighborAngleStep = PI*2/neighborCount;
+
+const coordToVertex = ([ lat, lon ]) => [
+	sin(lon)*cos(lat),
+	sin(lat),
+	cos(lon)*cos(lat),
+];
+
+const vertexToCoord = ([ x, y, z ]) => {
+	const lat = asin(y);
+	const rad = sqrt(x*x + z*z);
+	if (rad === 0) {
+		return [ lat, 0 ];
+	}
+	const lon = acos(z/rad)*(x >= 0 ? 1 : -1);
+	return [ lat, lon ];
+};
+
+const forEachNeighbor = ([ cx, cy, cz ], radius, handler) => {
+	const sinLat = cy;
+	const cosLat = sqrt(1 - cy*cy);
+	const yRad = sqrt(cx*cx + cz*cz);
+	const [ sinLon, cosLon ] = (yRad === 0) ? [ 0, 1 ] : [ cx/yRad, cz/yRad ];
+	const zRad = sin(radius);
+	const zIni = cos(radius);
+	for (let i=0; i<neighborCount; ++i) {
+		const angle = i*neighborAngleStep;
+		const [ x0, y0, z0 ] = [ sin(angle)*zRad, cos(angle)*zRad, zIni ];
+		const [ y1, z1 ] = [ y0*cosLat + z0*sinLat, z0*cosLat - y0*sinLat ];
+		const [ x2, z2 ] = [ x0*cosLon + z1*sinLon, z1*cosLon - x0*sinLon ];
+		handler([ x2, y1, z2 ]);
+	}
+};
+
+class Searcher {
+	constructor({ coord, objectiveFunction, radius = 0.1 }) {
+		this.vertex = coordToVertex(coord);
+		this.error = objectiveFunction(this.vertex);
+		this.radius = radius;
+		this.objectiveFunction = objectiveFunction;
+	}
+	iterate() {
+		let improved = false;
+		forEachNeighbor(this.vertex, this.radius, (vertex) => {
+			const error = this.objectiveFunction(vertex);
+			if (error < this.error) {
+				this.error = error;
+				this.vertex = vertex;
+				improved = true;
+			}
+		});
+		if (improved) {
+			this.radius *= 1.2;
+		} else {
+			this.radius *= 0.5;
+		}
+		return this;
+	}
+	get coord() {
+		return vertexToCoord(this.vertex);
+	}
+}
