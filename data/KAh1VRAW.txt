@@ -1,0 +1,132 @@
+import pygame
+import random
+from pygame.sprite import Group, Sprite
+
+class Entity(Sprite):
+    def __init__(self, image, position, anchor="center"):
+        super().__init__()
+        self.image = image
+        self.rect = image.get_rect()
+        setattr(self.rect, anchor, position)
+        self.center = pygame.Vector2(self.rect.center)
+
+    def move(self, vector):
+        self.center += vector
+        self.rect.center = self.center
+
+class Bullet(Entity):
+    def __init__(self, vector, speed, image, position, anchor="center"):
+        super().__init__(image, position, anchor)
+        self.vector = vector
+        self.speed = speed
+
+    def update(self, delta, area):
+        self.move(self.vector * self.speed * delta)
+        if not self.rect.colliderect(area):
+            self.kill()
+
+class Shooter:
+    def __init__(self, position, color, direction):
+        self.bullets = Group()
+        self.vector = pygame.Vector2(direction) * 8
+        self.position = pygame.Vector2(position)
+        self.create_bullet(color)
+        # Higher number is slower
+        self.rate_of_fire = 30
+        self.ticks = -1
+
+    def create_bullet(self, color):
+        self.image = pygame.Surface((4, 1), pygame.SRCALPHA)
+        self.image.fill(color)
+
+    def shoot(self):
+        position = self.position + self.vector
+        angle = self.vector.as_polar()[1]
+        image = pygame.transform.rotate(self.image, -angle)
+        bullet = Bullet(self.vector.copy(), 90, image, position)
+        self.bullets.add(bullet)
+
+    def update(self, delta, ticks):
+        if self.ticks == -1:
+            self.ticks = ticks
+        else:
+            while ticks > self.ticks:
+                self.shoot()
+                self.ticks += self.rate_of_fire
+                self.vector.rotate_ip(2)
+
+class Pen:
+    def __init__(self, font, color):
+        self.font = font
+        self.color = color
+
+    def render(self, text):
+        return self.font.render(text, 1, self.color)
+
+class Label(Sprite):
+    def __init__(self, name, pen, position):
+        super().__init__()
+        self.pen = pen
+        self.name = name
+        self.image = pen.render(name)
+        self.rect = self.image.get_rect(topleft=position)
+
+    def update_value(self, value):
+        self.image = self.pen.render(self.name + " {}".format(value))
+        self.rect = self.image.get_rect(topleft = self.rect.topleft)
+
+def main():
+    pygame.display.set_caption("Shooters")
+    surface = pygame.display.set_mode((800, 600))
+    clock = pygame.time.Clock()
+    rect = surface.get_rect()
+    running = True
+    delta = 0
+    fps = 60
+
+    shooters = []
+    colors = list(pygame.color.THECOLORS.keys())
+    direction = pygame.Vector2()
+    number_of_shooters = 100
+    for i in range(number_of_shooters):
+        position = random.randint(50, rect.w - 50), random.randint(50, rect.h - 50)
+        direction.from_polar((1, random.randint(0, 360)))
+        shooters.append(Shooter(position,
+                                random.choice(colors),
+                                direction.copy()))
+
+    lab_interval = 100
+    lab_ticks = 0
+    pen = Pen(pygame.font.Font(None, 30), 'lightblue')
+    lab_count = Label("Bullet Count", pen, (10, 10))
+    lab_fps =Label("Fps", pen, (rect.centerx, 10))
+    labels = Group(lab_count, lab_fps)
+
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+        surface.fill('black')
+        for shooter in shooters:
+            shooter.bullets.draw(surface)
+            shooter.bullets.update(delta, rect)
+
+        labels.draw(surface)
+
+        ticks = pygame.time.get_ticks()
+        for shooter in shooters:
+            shooter.update(delta, ticks)
+
+        if ticks > lab_ticks:
+            lab_ticks = ticks + lab_interval
+            count = sum([len(s.bullets) for s in shooters])
+            lab_count.update_value(count)
+            lab_fps.update_value(int(clock.get_fps()))
+
+        pygame.display.flip()
+        delta = clock.tick(fps) * 0.001
+
+pygame.init()
+main()
+pygame.quit()
