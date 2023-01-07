@@ -1,0 +1,170 @@
+dataFile = "data.conf"
+data = {
+  modem = "back",
+  password = "default password",
+  remotePort = 9999,
+  stationary = true,
+  redstone = {"top"},
+  floor = 0
+}
+remoteData = nil
+
+local replyPort = math.random(1, 65535)
+if replyPort == data.port then
+  replyPort = replyPort + 1 -- not today
+end
+function redstone(value)
+  for i, v in ipairs(data.redstone) do
+    rs.setOutput(v, value)
+  end
+end
+
+function loadData()
+  if not fs.exists(dataFile) then
+    saveData()
+  end
+  local hd = fs.open(dataFile, "r")
+  local deet = hd.readAll()
+  hd.close()
+  data = textutils.unserialize(deet)
+end
+function saveData()
+  local hd = fs.open(dataFile, "w")
+  hd.write(textutils.serialize(data))
+  hd.close()
+end
+loadData()
+local ldata = {
+  floor = 0
+}
+local modem = peripheral.wrap(data.modem)
+local transit = false
+
+modem.open(replyPort)
+modem.open(data.remotePort)
+
+function fetchData()
+  modem.transmit(data.remotePort, replyPort, textutils.serialize({
+    auth = data.password,
+    command = "data"
+  }))
+  local timer = os.startTimer(3)
+  while true do
+    local event, modemSide, senderChannel, replyChannel, message, senderDistance = os.pullEvent()
+    if event == "modem_message" then
+      local rdat = textutils.unserialize(message)
+      if rdat ~= nil and rdat.auth == data.password then
+        remoteData = rdat.data
+        ldata.floor = rdat.floor
+        break
+      end
+    elseif event == "timer" then
+      error("No reply received within timeout")
+    end
+  end
+  os.cancelTimer(timer)
+end
+
+fetchData()
+term.clear()
+
+offsetY = 0
+function drawData()
+  term.setBackgroundColor(colors.blue)
+  term.setTextColor(colors.black)
+  term.clear()
+  local w, h = term.getSize()
+  local numLen = 0
+
+  for i, v in pairs(remoteData) do
+    local numText = tostring(i)
+    numLen = math.max(numLen, #numText + 1)
+    offsetY = math.min(offsetY, i)
+  end
+  for i, v in pairs(remoteData) do
+    local lh = i - offsetY + 1
+    term.setCursorPos(1, lh)
+    local l_accent = nil
+    local l_main = nil
+    local l_textMain = nil
+    local l_textAccent = nil
+    if i % 2 == 1 then
+      l_main = colors.gray
+      l_accent = colors.lightGray
+      l_textMain = colors.black
+      l_textAccent = colors.black
+    else
+      l_main = colors.lightGray
+      l_accent = colors.gray
+      l_textMain = colors.black
+      l_textAccent = colors.black
+    end
+    if i == ldata.floor then
+      l_main = colors.orange
+      l_accent = colors.red
+      l_textMain = colors.yellow
+      l_textAccent = colors.yellow
+    end
+
+    term.setTextColor(l_textMain)
+    term.setBackgroundColor(l_main)
+    term.write(string.rep(" ", w))
+
+    term.setTextColor(l_textAccent)
+    term.setBackgroundColor(l_accent)
+    term.setCursorPos(1, lh)
+    term.write(string.rep(" ", numLen))
+    term.setCursorPos(numLen - (#tostring(i)), lh)
+    term.write(tostring(i))
+
+    term.setTextColor(l_textMain)
+    term.setBackgroundColor(l_main)
+    term.setCursorPos(numLen + 2, lh)
+    term.write(v.name)
+  end
+  if transit then
+    term.setTextColor(colors.white)
+    term.setBackgroundColor(colors.black)
+    local text = "IN TRANSIT"
+    term.setCursorPos(0, h)
+    term.write(string.rep(" ", w + 1))
+    term.setCursorPos(w / 2 - #text / 2, h)
+    term.write(text)
+  end
+end
+
+drawData()
+while true do
+  local event = table.pack(os.pullEvent())
+  if not transit then
+    if event[1] == "mouse_click" then
+      local x = event[3]
+      local y = event[4]
+
+      local floor = (y + offsetY) - 1
+      modem.transmit(data.remotePort, replyPort, textutils.serialize({
+        command = "go",
+        floor = floor,
+        auth = data.password
+      }))
+    end
+  end
+  if event[1] == "modem_message" then
+    if event[3] == data.remotePort then
+      local rdat = textutils.unserialize(event[5])
+      if rdat ~= nil and rdat.auth == data.password then
+        if rdat.command == "update" then
+          remoteData = rdat.data
+          ldata.floor = rdat.floor
+          if data.stationary and data.floor == rdata.floor then
+            redstone(true)
+          end
+        elseif rdat.command == "transit" then
+          transit = rdat.data
+          redstone(false)
+        end
+      end
+    end
+  end
+  drawData()
+end
