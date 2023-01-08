@@ -1,0 +1,565 @@
+/*
+ * GccApplication1.c
+ *
+ * Created: 11/5/2022 4:21:42 PM
+ * Author : Gui
+ */ 
+
+#define F_CPU 1000000UL
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+#define OCR_MAX 1499
+#define OCR_MIN 499
+volatile uint16_t count;
+volatile uint16_t count2;
+volatile uint16_t count3;
+volatile uint16_t count4;
+volatile uint16_t count100;
+volatile uint16_t incremx;
+volatile uint16_t incremy;
+volatile uint16_t adx;
+volatile uint16_t ady;
+volatile uint16_t ldr;
+volatile uint16_t contpir1=0;
+volatile uint16_t contpir2=0;
+volatile uint8_t flag_modo = 0;
+volatile uint8_t flag_armado = 0;
+volatile uint8_t flag_armar = 0;
+volatile uint8_t flag_alarme = 0;
+volatile uint8_t flag_diminui;
+volatile uint8_t flag_botao=0;
+volatile uint8_t flag_detect1=0;
+volatile uint8_t flag_detect2=0;
+volatile uint8_t flag_apitar=0;
+volatile uint8_t ran_num = 0;
+volatile uint16_t count10;
+
+volatile unsigned char receiver_buffer;
+volatile unsigned char flag_usart = 0;
+volatile unsigned char modo = 0;
+
+void m_manual()
+{
+	flag_modo = 0;
+	count10 = 0;
+}
+
+void m_auto()
+{
+	flag_modo = 1;
+	flag_diminui = 0;
+	count10 = 0;
+}
+
+void m_random()
+{
+	flag_modo = 2;
+	flag_diminui = 0;
+	count10 = 0;
+}
+
+void alarme()
+{
+	flag_alarme = 1;
+	flag_armado = 1;
+	flag_armar = 1; 
+	flag_apitar = 0;
+}
+
+void alarmeoff()
+{
+	flag_alarme = 0;
+	flag_armado = 0;
+	flag_armar = 0;
+	flag_apitar = 0;
+	OCR2A = 0;
+}
+
+int ADC_Read(char channel)
+{
+	ADMUX = 0x60 | (channel & 0x07);
+	ADCSRA |= (1<<ADSC); //Iniciar conversao
+	while((ADCSRA & (1<<ADSC)) != 0);  //esperar que conversao termine
+	if(ADCH > 240 && flag_modo != 0)
+	{
+		m_manual();
+	}
+	return ADCH;		
+}
+
+int servox(int adx)
+{
+	int increm = 0;
+	if(adx < 109)
+	{
+		increm = -25;
+	}
+	if(adx>151)
+	{
+		increm = 25;
+	}
+	if(adx > 110 && adx < 150)
+	{
+		increm = 0;
+	}
+	if((OCR1A+increm) > OCR_MAX || (OCR1A+increm) < OCR_MIN )
+	{
+		increm = 0;
+	}
+	return increm;
+}
+int servoy(int ady)
+{
+	int increm = 0;
+	if(ady < 109)
+	{
+		increm = -25;
+	}
+	if(ady>151)
+	{
+		increm = 25;
+	}
+	if(ady > 110 && ady < 150)
+	{
+		increm = 0;
+	}
+	
+	if((OCR1B+increm) > OCR_MAX || (OCR1B+increm) < OCR_MIN )
+	{
+		increm = 0;
+	}
+	return increm;
+}
+
+int dservoy(char ady)
+{
+	int increm = 0;
+	switch(ady)
+	{
+		case '+':
+		increm = 50;
+		break;
+		
+		case '-':
+		increm = -50;
+		break;
+	}
+	
+	if((OCR1B+increm) > OCR_MAX || (OCR1B+increm) < OCR_MIN )
+	{
+		increm = 0;
+	}
+	return increm;
+}
+
+int dservox(char adx)
+{
+	int increm = 0;
+	switch(adx)
+	{
+		case '+':
+		increm = 50;
+		break;
+		
+		case '-':
+		increm = -50;
+		break;
+	}
+	
+	if((OCR1A+increm) > OCR_MAX || (OCR1A+increm) < OCR_MIN )
+	{
+		increm = 0;
+	}
+	return increm;
+}
+
+void manual()
+{
+	incremx = servox(adx);
+	incremy = servoy(ady);
+	OCR1A = OCR1A + incremx;
+	OCR1B = OCR1B + incremy;
+	count10=0;
+}
+
+void rando()
+{
+	if((OCR1A+1) > OCR_MAX)
+	{
+		flag_diminui = 1;
+	}
+	if((OCR1A-1) < OCR_MIN )
+	{
+		flag_diminui = 0;
+	}
+	
+	if(OCR1A == 375 && flag_diminui == 0)
+	{
+		if(ran_num >50)
+		{
+			flag_diminui = 0;
+		}
+		else
+		{
+			flag_diminui = 1;
+		}
+	}
+	if(OCR1A == 500 && flag_diminui == 0)
+	{
+		if(ran_num > 50)
+		{
+			flag_diminui = 0;
+		}
+		else
+		{
+			flag_diminui = 1;
+		}
+	}
+	
+	if(OCR1A == 750 && flag_diminui == 0)
+	{
+		if(ran_num >50)
+		{
+			flag_diminui = 0;
+		}
+		else
+		{
+			flag_diminui = 1;
+		}
+	}
+	
+	if(OCR1A == 375 && flag_diminui == 1)
+	{
+		if(ran_num > 50)
+		{
+			flag_diminui = 0;
+		}
+		else
+		{
+			flag_diminui = 1;
+		}
+	}
+	if(OCR1A == 500 && flag_diminui == 1)
+	{
+		if(ran_num > 50)
+		{
+			flag_diminui = 0;
+		}
+		else
+		{
+			flag_diminui = 1;
+		}
+	}
+	
+	if(OCR1A == 750 && flag_diminui == 1)
+	{
+		if(ran_num > 50)
+		{
+			flag_diminui = 0;
+		}
+		else
+		{
+			flag_diminui = 1;
+		}
+	}
+	if(OCR1A < OCR_MAX && flag_diminui == 0)
+	{
+		
+		OCR1A = OCR1A + 1;
+		
+	}
+	if(OCR1A > OCR_MIN && flag_diminui == 1)
+	{
+		OCR1A = OCR1A - 1;
+	}
+	
+	
+	count10 = 0;
+}
+void automatico()
+{
+	if(flag_detect1 == 1 && flag_detect2 == 1)
+	{
+		if(contpir1 > contpir2)
+		{
+			flag_detect1 = 0;
+		}
+		else
+		{
+			flag_detect2 = 0;
+		}
+	}
+	if(flag_detect1 == 1)
+	{
+		OCR1A = 1499;
+	}
+	if(flag_detect2 == 1)
+	{
+		OCR1A = 500;
+	}
+	
+	else
+	{
+		if((OCR1A+5) > OCR_MAX)
+		{
+			flag_diminui = 1;
+		}
+		if((OCR1A-5) < OCR_MIN )
+		{
+			flag_diminui = 0;
+		}
+		if(OCR1A < OCR_MAX && flag_diminui == 0)
+		{
+			
+			OCR1A = OCR1A + 5;
+			
+		}
+		if(OCR1A > OCR_MIN && flag_diminui == 1)
+		{
+			OCR1A = OCR1A - 5;
+		}
+	}
+	count10 = 0;
+}
+void init()
+{
+	DDRD = 0b11100011; //portd como saidas e pd2 PD4 e pd4 como entrada
+	PORTD = 0b00010000; //pull up no e pd4
+	DDRC = 0x00; //portc como entradas
+	DDRB = 0b10111111; //portb como saidas
+	PORTB = 0b01000000;
+	
+	ADCSRA |= ((1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0)); //Ativar conversor com prescaler 128
+	ADMUX  |= 0x60; //(REFS0-)Usar Avcc como referencia; (ADC1 - MUX0); (ADLAR- Colocar res da conversao no registo ADCH)
+	ADCSRA |= (1<<ADEN);
+	
+	TCCR2A |= (1<<WGM21) | (1<<COM2A0); //modo fast pwm
+	TCCR2B |= (1<<CS21) | (1<<WGM22);
+	OCR2A = 0; //buzzer ~3khz ocr=40
+	
+	TCCR1A |=  (1<<COM1A1) | (1<<COM1B1) | (1<<WGM11);		//colocar timer 1 em modo fast pwm com top ICR 
+	TCCR1B |= (1<<WGM12) | (1<<WGM13) | (1<<CS10); //1 prescaler
+	ICR1 = 19999;  //timer1 tem 16 bits, usar 19999 para freq = 50hz
+	OCR1A = 1499; //inicia servo em 0 graus
+	OCR1B = 1000; //inicia servo em 0 graus
+	
+	TCCR0A |= (1<<WGM01); //CTC
+	TCCR0B |=  (1 << CS01); // PRESCALER 8
+	TIMSK0 |= (1 << OCIE0A);
+	 OCR0A = 124;//1ms interrup
+	
+	UBRR0 = 12;
+	UCSR0A = (1<<U2X0); //Duplicar velocidade do uart
+	UCSR0B |= (1<<RXCIE0) | (1<<RXEN0) | (1<< TXEN0); //ativar interrupcao, modo de receber e envio
+	UCSR0C |= (1<<UCSZ01) | (1<<UCSZ00); //ler dados de 8 bi
+	
+	sei();
+	
+}
+
+
+void selmodo(void)
+{
+	switch (receiver_buffer)
+	{
+		//modo web
+		case'm':
+		m_manual();
+		break;
+		
+		case 'c':
+		OCR1B = OCR1B + dservoy('-');
+		break;
+		case 'b':
+		OCR1B = OCR1B + dservoy('+');
+		break;
+		case 'd':
+		OCR1A = OCR1A +  dservox('-');
+		break;
+		case 'e':
+		OCR1A = OCR1A + dservox('+');
+		break;
+		
+		//modo automatico
+		case 'a':
+		m_auto();
+		break;
+		
+		//modo random
+		case 'r':
+		m_random();
+		break;
+		
+		case 'L':
+		alarme();
+		break;
+		
+		case 'X':
+		alarmeoff();
+		break;
+	}
+}
+
+
+int main(void)
+{
+	init();
+	
+	while (1)
+	{
+	adx = ADC_Read(2);
+	ady = ADC_Read(1);
+	ldr = ADC_Read(5);
+	ran_num = rand() % 101;
+	}
+	return 0;
+}
+
+ISR(USART_RX_vect)
+{
+	receiver_buffer = UDR0;
+	flag_usart = 1;
+	selmodo();
+}
+
+ISR (TIMER0_COMPA_vect)
+{
+	
+	//ler switch analogico
+	if((PIND & 0b00010000) == 0b00000000 && flag_armado == 0)
+	{
+		alarme();
+	}
+
+	if((PIND & 0b00010000) == 0b00010000 && flag_armado == 1)
+	{
+		alarmeoff();
+	}
+	
+	//switch que altera modo de funcionamento
+	if((PINB & 0b01000000) == 0b00000000 && flag_botao == 0) //debounce
+	{
+	count4 = 0;
+	flag_botao = 1;
+	}
+	if( count4 == 500 && flag_botao == 1)
+	{
+		flag_botao = 0;
+		flag_modo++;
+		switch(flag_modo)
+		{
+			case 0:
+			m_manual();
+			break;
+			
+			case 1:
+			m_auto();
+			break;
+			
+			case 2:
+			m_random();
+			break;
+			
+			case 3:
+			m_manual();
+			break;	
+		}
+	}
+	count4++;
+	
+	//modo manual
+	if(count10 == 20 && flag_modo == 0)
+	{
+		manual();
+	}
+	
+	//modo automatico
+	if(count10 == 10 && flag_modo == 1)
+	{
+		automatico();
+	}
+	
+		
+	//modo random
+	if(count10 == 5 && flag_modo == 2)
+	{
+		rando();
+	}
+	count10++;
+	// sensor 1
+	if((PIND & 0b00000100) == 0b00000100)
+	{
+		flag_detect1 = 1;
+		flag_apitar = 1;
+		contpir1++;
+	}
+	else
+	{
+		contpir1 = 0;
+		flag_detect1 = 0;
+	}
+	
+	//sensor 2
+	if((PIND & 0b00001000) == 0b00001000)
+	{
+		flag_detect2 = 1;
+		flag_apitar = 1;
+		contpir2++;
+	}
+	else
+	{
+		contpir2 = 0;
+		flag_detect2 = 0;
+	}
+	
+	if(count100 > 100) count100 = 0;
+	if(count100 == 100 && flag_apitar == 1 && flag_alarme == 1)
+	{
+		switch(OCR2A)
+		{
+			case 0:
+			OCR2A = 40;
+			break;
+			
+			case 40:
+			OCR2A = 0;
+			break;
+		}
+		count100 = 0;
+	}
+	count100++;
+	
+	if (count == 500)
+	{
+		PORTD ^= (1<<7);
+		
+		if(ldr > 220)
+		{
+			PORTB = PORTB & (~(1<<7));
+		}
+		else
+		{
+			PORTB = PORTB | (1<<7);
+		}
+		count=0;
+		 //para buzzer apitar quando armado
+		if(flag_alarme == 1 && flag_armar == 1)
+		{
+		if(OCR2A == 0)
+		{
+			
+			OCR2A = 40;
+		}
+		else
+		{
+			OCR2A = 0;
+			flag_armar=0;
+		}
+	
+		}
+	}
+		count++;
+}
