@@ -1,0 +1,50 @@
+diff --git a/src/widgets/previewjob.cpp b/src/widgets/previewjob.cpp
+index 203316f85..91dfe7f5b 100644
+--- a/src/widgets/previewjob.cpp
++++ b/src/widgets/previewjob.cpp
+@@ -10,6 +10,7 @@
+ 
+ #include "previewjob.h"
+ #include "kio_widgets_debug.h"
++#include "kioglobal_p.h"
+ 
+ #if defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID)
+ #define WITH_SHM 1
+@@ -834,12 +835,24 @@ int PreviewJobPrivate::getDeviceId(const QString &path)
+         qCWarning(KIO_WIDGETS) << "Could not get device id for file preview, Invalid url" << path;
+         return 0;
+     }
++#ifdef Q_OS_WIN
++    const QString p = url.adjusted(QUrl::StripTrailingSlash).toLocalFile();
++    const QByteArray pathBA = QFile::encodeName(path);
++    QT_STATBUF buf;
++    QT_LSTAT(pathBA.constData(), &buf);
++    int id = buf.st_dev;
++    currentDeviceId = id;
++    deviceIdMap[path] = id;
++
++    return id;
++#else
+     state = PreviewJobPrivate::STATE_DEVICE_INFO;
+     KIO::Job *job = KIO::statDetails(url, StatJob::SourceSide, KIO::StatDefaultDetails | KIO::StatInode, KIO::HideProgressInfo);
+     job->addMetaData(QStringLiteral("no-auth-prompt"), QStringLiteral("true"));
+     q->addSubjob(job);
+ 
+     return idUnknown;
++#endif
+ }
+ 
+ void PreviewJobPrivate::createThumbnail(const QString &pixPath)
+diff --git a/tests/previewtest.cpp b/tests/previewtest.cpp
+index 2f80ceaaa..3153cd8a7 100644
+--- a/tests/previewtest.cpp
++++ b/tests/previewtest.cpp
+@@ -22,7 +22,7 @@ PreviewTest::PreviewTest()
+     QString path;
+     KIconLoader().loadMimeTypeIcon(QStringLiteral("video-x-generic"), KIconLoader::Desktop, 256, KIconLoader::DefaultState, QStringList(), &path);
+ 
+-    m_url->setText(path);
++    m_url->setText("C:\\Users\\george\\Videos\\bbb.jpg");
+     layout->addWidget(m_url, 0, 0);
+     QPushButton *btn = new QPushButton(QStringLiteral("Generate"), this);
+     connect(btn, &QAbstractButton::clicked, this, &PreviewTest::slotGenerate);
