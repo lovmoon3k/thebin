@@ -1,0 +1,84 @@
+#!/usr/bin/env node
+
+// requires pfsense api
+
+const async = require("async");
+const axios = require("axios");
+const _ = require("lodash");
+const mailer = require("nodemailer-promise");
+
+const cfg = {
+    pfsense: {
+        user: "admin",
+        pass: "admin",
+        endpoint: "https://router/api/v1/services/dhcpd/lease",
+    },
+    mailer: {
+        smtp: {
+            service: 'gmail',
+            auth: {
+                user: "med@gmail.com",
+                pass: "secure",
+            },
+        },
+        headers: {
+            from: 'med@gmail.com',
+            to: 'med@gmail.com',
+            subject: 'new pfsense leases found',
+        }
+    }
+}
+
+const leases = [];
+
+async.waterfall([
+    function (cb) {
+
+        axios.get(cfg.pfsense.endpoint, {
+            auth: {
+                username: cfg.pfsense.user,
+                password: cfg.pfsense.pass,
+            }
+        })
+            .then(function (res) {
+
+                _.forEach(res.data.data, (lease) => {
+                    if (lease.type === "dynamic") {
+                        leases.push(lease);
+                    }
+                });
+
+            })
+            .catch(function (err) {
+                console.log(err);
+            })
+            .then(function () {
+                cb();
+            });
+
+    },
+    function (cb) {
+
+        if (leases.length > 0) {
+
+            const body = JSON.stringify(leases, null, 4);
+
+            const sendEmail = mailer.config(cfg.mailer.smtp);
+
+            sendEmail({
+                from: cfg.mailer.headers.from,
+                to: cfg.mailer.headers.to,
+                subject: cfg.mailer.headers.subject,
+                text: body,
+            })
+                .then(function (info) {
+                    // console.log(info);
+                    cb();
+                })
+                .catch(function (err) { throw err });
+
+        } else {
+            cb();
+        }
+    },
+]);

@@ -1,0 +1,92 @@
+// XAML WPF code
+<Grid>
+    <Border Width="502" Height="502" BorderThickness="1" BorderBrush="Red">
+        <Image x:Name="Img" Width="500" Height="500"/>
+    </Border>
+</Grid>
+
+// C# Code
+
+private readonly WriteableBitmap bitmap;
+
+public MainWindow() {
+    InitializeComponent();
+    this.Img.Source = this.bitmap = new WriteableBitmap(500, 500, 96d, 96d, PixelFormats.Bgr24, null);
+    this.Img.MouseMove += this.Img_MouseMove;
+}
+
+private void Img_MouseMove(object sender, MouseEventArgs e) {
+    unsafe {
+        const int w = 5, h = 5;
+        Point p = e.GetPosition(this.Img);
+        if (p.X <= (500 - w) && p.Y <= (500 - h)) {
+            this.bitmap.Lock();
+            DrawRectangleFast(this.bitmap, (int) p.X, (int) p.Y, w, h, Colors.Red);
+            this.bitmap.Unlock();
+        }
+    }
+}
+
+public readonly struct COLOUR {
+    public readonly byte r;
+    public readonly byte g;
+    public readonly byte b;
+
+    public COLOUR(byte r, byte g, byte b) {
+        this.r = r;
+        this.g = g;
+        this.b = b;
+    }
+}
+
+[DllImport("../../../Debug/FrameControl.Native.dll", CallingConvention = CallingConvention.Cdecl)]
+public static extern void draw_pixel(IntPtr backBuf, int bbpx, int stride, int l, int t, int w, int h, COLOUR colour);
+
+public static void DrawRectangleFast(WriteableBitmap bitmap, int left, int top, int width, int height, Color color) {
+    draw_pixel(bitmap.BackBuffer, bitmap.Format.BitsPerPixel / 8, bitmap.BackBufferStride, left, top, width, height, new COLOUR(color.R, color.G, color.B));
+    bitmap.AddDirtyRect(new Int32Rect(left, top, width, height));
+}
+
+// C++ Lib Side
+//   Transformed code a bit with the help of this post:
+//   https://stackoverflow.com/questions/443867/drawing-pixels-in-wpf
+
+#define EXPORT _declspec(dllexport)
+
+#include <stdint.h>
+
+struct COLOUR {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+};
+
+extern "C" {
+    EXPORT void draw_pixel(uint8_t* bbuf, int bytePerPx, int stride, int left, int top, int w, int h, COLOUR col) {
+        // Compute the pixel's color
+        int colorData = col.r << 16; // R
+        colorData |= col.g << 8; // G
+        colorData |= col.b << 0; // B
+        for (int y = 0; y < h; y++) {
+            // Get a pointer to the back buffer
+
+            // int* would not work for some reason
+            
+            // this could also be type char* or int. It cannot be a non-byte pointer, because 
+            // the offset calculations done below this line are byte-based, meaning the 
+            // compiler will include the size of the type in the offset calclations. 
+            uint8_t* pBackBuffer = bbuf;
+
+            // Find the address of the pixel to draw
+            pBackBuffer += (top + y) * stride;
+            pBackBuffer += left * bytePerPx;
+
+            for (int x = 0; x < w; x++) {
+                // Assign the color data to the pixel
+                *(int*) pBackBuffer = colorData;
+                // Increment the address of the pixel to draw
+                pBackBuffer += bytePerPx;
+            }
+        }
+    }
+}
