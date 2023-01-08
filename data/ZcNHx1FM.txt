@@ -1,0 +1,201 @@
+#include <bits/stdc++.h>
+
+using namespace std;
+
+namespace my_namespace {
+
+    class queue_empty_exception : public exception {
+    public:
+        char *what() const throw() {
+            return "Error: Queue is empty!";
+        }
+    };
+
+    template<typename T>
+    struct queue {
+
+        unsigned long long N_op = 0;
+
+        queue() : queue_size(0) { N_op++; } // + 1
+
+        ~queue() {
+            clear(); // 2n + 4
+            N_op+= (2 * queue_size + 4);
+        }
+
+        void clear() { // 2n + 4
+            for (node *it = begin; it != nullptr; begin = it) { // 3 + 2n
+                it = begin->next; // + 1
+                delete begin; // + 1
+            }
+            queue_size = 0; // + 1
+
+        }
+
+        void push(T value) { // + 8
+            if (!queue_size) { // + 1
+                end = new node(value); // + 3
+                begin = end; // + 1
+                N_op+=5;
+            } else {
+                end->next = new node(value); // + 4
+                end = end->next; // + 2
+                N_op+=7;
+            }
+            ++queue_size; // + 1
+            N_op++;
+        }
+
+        void pop() { // + 6
+            if (!queue_size) { // + 1
+                throw queue_empty_exception();
+            }
+            --queue_size; // + 1
+            node *next = begin->next; // + 2
+            delete begin; // + 1
+            begin = next; // + 1
+            N_op+=6;
+        }
+
+        T front() { // + 3
+            if (!queue_size) { // + 1
+                throw queue_empty_exception();
+            }
+            N_op+=3;
+            return begin->value; // + 2
+        }
+
+        bool empty() {
+            N_op+=2;
+            return queue_size <= 0; // + 2
+        }
+
+        size_t size() {
+            N_op++;
+            return queue_size; // + 1
+        }
+
+    private:
+
+        struct node {
+            T value;
+            node *next;
+
+            node(T value, node *next = nullptr) : value(value), next(next) { } //  + 2
+        };
+
+        size_t queue_size;
+        node *begin = nullptr;
+        node *end = nullptr;
+
+    };
+
+    template<typename T>
+    void shift_queue(size_t count, queue<T> &q) { // + 3 + 15 * n
+        for (size_t i = 0; i < count; ++i) { //  + 3 + 15 * n
+            q.push(q.front()); // + 9
+            q.pop(); // + 6
+        }
+        q.N_op += 3;
+    }
+
+
+    template<typename T>
+    ostream &operator<<(ostream &os, queue<T> &q) {
+        for (size_t i = 0; i < q.size(); ++i) { // + 4 + 18 * n
+            os << q.front() << ' '; // + 3
+            q.push(q.front()); // + 9
+            q.pop(); // + 6
+        }
+        q.N_op += 5;
+        return os; // + 1
+    }
+
+    void sort(size_t l, size_t r, queue<int> &q) {
+        size_t size = q.size(), mid_index = (r + l) / 2; // + 2 + 3
+        shift_queue(mid_index, q); // + 3 + 15 * n
+        queue<int> less_q, equal_q, greater_q; // + 3
+        int mid_value = q.front(); // + 1 + 3
+        equal_q.push(mid_value); // + 6
+        q.pop(); // + 6
+        for (size_t i = 0; i < r - mid_index - 1; ++i) { // + 4 + n/2 * 19
+            if (q.front() > mid_value) // + 4
+                greater_q.push(q.front()); // + 9
+            else if (q.front() < mid_value) // + 4
+                less_q.push(q.front()); // + 9
+            else
+                equal_q.push(q.front()); // + 9
+            q.pop(); // + 6
+        }
+        shift_queue(size - r + l, q); //3 + 15 * n
+        for (size_t i = 0; i < mid_index - l; ++i) { // 4 + n/2 * 19
+            if (q.front() > mid_value) // + 4
+                greater_q.push(q.front()); // + 9
+            else if (q.front() < mid_value) // + 4
+                less_q.push(q.front()); // + 4
+            else
+                equal_q.push(q.front()); // + 9
+            q.pop(); // + 6
+            q.N_op+=4;
+        }
+        shift_queue(size - r + l, q); // + 3 + 15*n
+        size_t l_size = less_q.size(), g_size = greater_q.size(); // + 4
+        for (; !less_q.empty();) { // 2 + n * 15
+            q.push(less_q.front()); // + 9 
+            less_q.pop(); // + 6
+        }
+        for (; !equal_q.empty();) { // 2 + 15 * n
+            q.push(equal_q.front()); // + 9
+            equal_q.pop(); // + 6
+        }
+        for (; !greater_q.empty();) { // + 2 + 15*n
+            q.push(greater_q.front()); // + 9
+            greater_q.pop(); // + 6
+        }
+        shift_queue(size - r, q); // + 3 + 15* n
+        q.N_op += 21;
+        if (g_size > 1) // + 1
+            sort(r - g_size, r, q);
+        if (l_size > 1)
+            sort(l, l + l_size, q);
+    }
+}
+
+int main() {
+    my_namespace::queue<int> q;
+    while (true) {
+        int a;
+        cin >> a;
+        if (a == -1)
+            break;
+        else if (a == 1) {
+            int b;
+            cin >> b;
+            q.push(b);
+        } else if (a == 2) {
+            try {
+                q.pop();
+            } catch (exception& e) {
+                cout << e.what() << endl;
+            }
+        } else if (a == 3) {
+            try {
+                cout << q.front() << endl;
+            } catch (my_namespace::queue_empty_exception& e) {
+                cout << e.what() << endl;
+            }
+        } else if (a == 4) {
+            q.clear();
+        } else if (a == 5) {
+            cout << q << endl;
+            my_namespace::sort(0, q.size(), q);
+            cout << q << endl;
+        } else if (a == 6) {
+            int b;
+            cin >> b;
+            for (int i = 0; i < b; ++i) {
+                q.push(rand() % 1000);
+            }
+        }
+    }
+}
