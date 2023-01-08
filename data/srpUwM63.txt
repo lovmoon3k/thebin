@@ -1,0 +1,642 @@
+// Ball bouncing in a hexagonal grid
+// "pixel" unit bouncing simulator
+// Code by yclee126
+//
+// (The controls are also displayed in the HUD)
+//
+// Mouse:
+// Left drag: Draw walls
+// Right drag: Erase walls
+// Middle drag: Place a ball
+// Middle click: Delete a ball
+// Wheel: Speed (higher=slower)
+//
+// Keyboard:
+// T: Clear trails
+// W: Clear walls
+// B: Clear balls
+// A: Clear all
+// SPACE: Pause/Play
+// S: Step (hold it to "accelerate" in play mode)
+// C: Ball-ball collision
+ 
+// Code for Processing 3
+
+// Hex pattern in array
+/*
+
+x
+0 2 4 6
+ 1 3 5 7
+0 2 4 6
+ 1 3 5 7
+
+y
+0 0 0 0
+ 0 0 0 0
+1 1 1 1
+ 1 1 1 1
+
+The point is that it closely resembles the rectangular array AND it stays connected no matter what the size is.
+
+*/
+
+// ball collision rules:
+// 1. To change the direction, it must be blocked in the path. (can pass through narrow alleys)
+// 2. When it's blocked in the path, count each connected blocks in the cw and ccw direction, and bias the reflected path by its sum.
+// well, this is quite complicated, so I just used a lookup table in the code.
+
+// Hexagonal directions are counted from 12'o clock in the cw direction.
+/*
+    0
+ 5     1
+
+ 4     2
+    3
+*/
+
+
+// global parameters
+// screen size is determined by hex_r and xCount, yCount -- be careful when putting large values
+final float hex_r = 40; // hexagon radius
+final float hex_h = hex_r*sqrt(3); // hexagon height (flat side down)
+final int xCount = 19;
+final int yCount = 10;
+final boolean halfY = false; // remove half of hexagons from the bottom row
+final boolean flipField = false; // flip xy
+
+final int screenOffset = 30;
+final HashMap<String, Integer> collisionMap = new HashMap<String, Integer>(); // key: unwrapped wall in cw direction, value: delta direction
+final boolean DEBUG = false;
+
+final int TRAIL = 1;
+final int WALL = 2;
+final int BALL = 4;
+
+
+// global variables
+final byte[][] hexTiles = new byte[yCount][xCount];
+final ArrayList<HexBall> hexBalls = new ArrayList<HexBall>();
+
+int ballSpeed = 6;
+boolean ballCollision = true;
+
+boolean paused = false;
+boolean updateStep = false;
+int steps = 0;
+
+Point initMouseTile;
+boolean deleteBall = false;
+boolean addNew = false;
+int lastNewBallDir = 0;
+
+
+class Point {
+  int x, y;
+  
+  Point(int _x, int _y) {
+    x = _x;
+    y = _y;
+  }
+}
+
+class PointF {
+  float x, y;
+  
+  PointF(float _x, float _y) {
+    x = _x;
+    y = _y;
+  }
+}
+
+class HexBall {
+  int x, y, dir;
+  
+  HexBall(int _x, int _y, int _dir) {
+    x = _x;
+    y = _y;
+    dir = _dir;
+  }
+  
+  void update() {
+    // keep going to current direction
+    Point nextTile = getTileTo(x, y, dir);
+    
+    // check if collided
+    if(isWall(nextTile)) {
+      // "unwrap" surrounding 5 tiles in cw direction and find it on the list
+      String wall = "";
+      for(int i = -2; i <= 2; i ++) {
+        String result = isWall(x, y, applyDeltaDir(dir, i)) ? "1" : "0";
+        wall += result;
+      }
+      
+      int deltaDir = collisionMap.get(wall);
+      int finalDir = applyDeltaDir(dir, deltaDir);
+      nextTile = getTileTo(x, y, finalDir);
+      
+      // before actually moving check if there's a wall -- in this case update dir only
+      if(!isWall(nextTile)){
+        x = nextTile.x;
+        y = nextTile.y;
+      }
+      dir = finalDir;
+    }
+    
+    // keep going to this direction
+    else {
+      x = nextTile.x;
+      y = nextTile.y;
+    }
+  }
+  
+  void draw() {
+    pushStyle();
+    
+    // draw hex tile
+    fill(255, 0, 0, 128);
+    drawHexTile(x, y);
+    
+    // draw arrow indicating current direction
+    fill(0, 0, 0, 100);
+    stroke(0, 0);
+    drawArrowOnTile(x, y, dir*60);
+    
+    popStyle();
+  }
+}
+
+
+void settings() {
+  // adjust to hex count and size
+  int screenX = (int)(2*screenOffset+2*hex_r+3f/2*hex_r*(xCount-1));
+  int screenY = (int)(2*screenOffset+3f/2*hex_h+hex_h*(yCount-1) - (halfY ? hex_h/2 : 0));
+  
+  if(flipField) {
+     int temp = screenX;
+     screenX = screenY;
+     screenY = temp;
+  }
+  
+  size(screenX, screenY);
+}
+
+void setup() {
+  // init map (why there's no easy static way, Java?)
+  // key: unwrapped wall in cw direction, value: delta direction
+  collisionMap.put("00100", 3);
+  collisionMap.put("01110", 3);
+  collisionMap.put("11111", 3);
+  collisionMap.put("00101", 3);
+  collisionMap.put("10100", 3);
+  collisionMap.put("01101", 3);
+  collisionMap.put("10110", 3);
+  collisionMap.put("10101", 3);
+  
+  collisionMap.put("01100", 2);
+  collisionMap.put("00110", -2);
+  collisionMap.put("11110", 2);
+  collisionMap.put("01111", -2);
+  
+  collisionMap.put("11100", 1);
+  collisionMap.put("00111", -1);
+  collisionMap.put("11101", 1);
+  collisionMap.put("10111", -1);
+  
+  // add a ball
+  // hexBalls.add(new HexBall(0, 9, 1));
+}
+
+public void draw() {
+  background(255);
+  
+  // draw controls
+  fill(128);
+  textSize(screenOffset/2);
+  
+  textAlign(LEFT, TOP);
+  text("Mouse: L/R: draw/erase walls, M: add/remove balls, ↕: speed (" + ballSpeed + ")", 0, 0);
+  
+  textAlign(LEFT, BOTTOM);
+  text("Keys: clear Trails/Walls/Balls/All | SPACE(" + (paused ? "||" : ">") + ")/Step(" + steps + ") | Collision(" + (ballCollision ? "o" : "x") + ")", 0, height);
+  
+  
+  //add offset
+  translate(screenOffset, screenOffset);
+  
+  // flip xy
+  if (flipField) {
+    scale(-1, 1);
+    rotate(radians(90));
+  }
+  
+  // draw tile background
+  fill(255);
+  strokeWeight(hex_h/40);
+  for(int y = 0; y < yCount; y ++){
+    for(int x = 0; x < xCount; x ++){
+      
+      if(!tileInBound(x, y)){
+        continue;  
+      }
+      hexTiles[y][x] &= ~BALL; // remove prev "ball wall"s
+      
+      // render walls and trails
+      if(isWall(x, y)){
+        fill(140);
+      } else if((hexTiles[y][x] & TRAIL) > 0){
+        fill(255, 210, 180);
+      } else {
+        fill(255);
+      }
+      
+      drawHexTile(x, y);
+    }
+  }
+  
+  // get mouse pos and highlight it
+  Point tilePos = getTilePos(getMouseX(), getMouseY());
+  if (tilePos != null) {
+    fill(50, 128);
+    drawHexTile(tilePos.x, tilePos.y, !flipField);
+  }
+  
+  // draw hexballs
+  fill(255, 128, 0);
+  for(int i = 0; i < hexBalls.size(); i ++) {
+    HexBall ball = hexBalls.get(i);
+    
+    // update position
+    if(!paused && frameCount % ballSpeed == 0 || updateStep) {
+      ball.update();
+    }
+    
+    // draw ball and apply to the wall
+    ball.draw();
+    hexTiles[ball.y][ball.x] |= TRAIL;
+    if(ballCollision) {
+      hexTiles[ball.y][ball.x] |= BALL;
+    }
+  }
+  
+  // handle step
+  if (updateStep) {
+    steps += 1;
+  } else if(!paused) {
+    steps = 0;
+  }
+  updateStep = false; // always clear the steps variable, even the balls are not there
+}
+
+boolean tileInBound(int x, int y) {
+  if(halfY && y == yCount-1 && x%2 == 1){
+    return false;
+  }
+  return x >= 0 && x < xCount && y >= 0 && y < yCount;
+}
+
+Point getTilePos(int x, int y) {
+  // accurate hex tile positioning
+  
+  // rectangular pos
+  int xPos = (int)(x / (3f/2*hex_r));
+  int yPos = (int)((y - (xPos%2 == 0 ? 0 : hex_h/2)) / hex_h);
+  
+  Point pos = new Point(xPos, yPos);
+  
+  // check if xpos lies in the vertical zig-zag zone and correct it
+  // that is, the two small trialgles notated 4 and 5
+  //
+  // |   |       |
+  // |555#########
+  // |55#|       |#
+  // |5# |       | #
+  // |#  |       |  #
+  // #   |       |   #
+  // |#  |       |  #
+  // |4# |       | #
+  // |44#|       |#
+  // |444#########
+  // |   |       |
+
+  // modulo'd values
+  float xm = x%(3f/2*hex_r);
+  float ym = (y - (xPos%2 == 0 ? 0 : hex_h/2)) % hex_h;
+  
+  if (xm < hex_r/2*abs(ym/(hex_h/2)-1)) {
+    if (ym < hex_h/2) {
+      pos = getTileTo(xPos, yPos, 5);      
+    } else {
+      pos = getTileTo(xPos, yPos, 4);
+    }
+  }
+  
+  // check if out of bounds
+  if (!tileInBound(pos.x, pos.y)) {
+     pos = null; 
+  }
+  
+  // no need for correction, return the pos
+  return pos;
+}
+
+PointF getTileCoord(int x, int y) {
+  // calc coords
+  float xCoord = hex_r + 3f/2*hex_r*x;
+  float yCoord = hex_h/2 + (x%2 == 1 ? hex_h/2 : 0) + hex_h*y;
+  
+  return new PointF(xCoord, yCoord);
+}
+
+void drawHexTile(int x, int y) {
+  drawHexTile(x, y, false);  
+}
+
+void drawHexTile(int x, int y, boolean drawNumbers) {
+  // calc coords
+  PointF point = getTileCoord(x, y);
+  
+  // draw polygon
+  polygon(point.x, point.y, hex_r, 6);
+  
+  // draw text (debug)
+  if(drawNumbers || DEBUG) {
+    pushStyle();
+    
+    fill(0);
+    textSize(20);
+    textAlign(CENTER, CENTER);
+    text(String.format("%d, %d", x, y), point.x, point.y);
+    
+    popStyle();
+  }
+}
+
+Point getTileTo(int x, int y, int dir) {
+  // "I'm here, what's the next tile to this direction?"
+  // wrapping is allowed
+  
+  int newX = 0, newY = 0;
+  
+  // assume it's heading to direction 0
+  switch(dir) {
+    case 0:
+    newX = x;
+    newY = y - 1;
+    break;
+    
+    case 1:
+    newX = x + 1;
+    newY = y - (x%2 == 0 ? 1 : 0);
+    break;
+    
+    case 2:
+    newX = x + 1;
+    newY = y + (x%2 == 1 ? 1 : 0);
+    break;
+    
+    case 3:
+    newX = x;
+    newY = y + 1;
+    break;
+    
+    case 4:
+    newX = x - 1;
+    newY = y + (x%2 == 1 ? 1 : 0);
+    break;
+    
+    case 5:
+    newX = x - 1;
+    newY = y - (x%2 == 0 ? 1 : 0);
+    break;
+  }
+  
+  return new Point(newX, newY);
+}
+
+void drawArrowOnTile(int x, int y, float a) {
+  pushMatrix();
+  
+  // move to position
+  PointF p = getTileCoord(x, y);
+  translate(p.x, p.y);
+  rotate(radians(a));
+  
+  // draw arrow
+  beginShape();
+  
+  // arrow head
+  vertex(-hex_r*0.5f, 0);
+  vertex(0, -hex_r*0.6f);
+  vertex(hex_r*0.5f, 0);
+  
+  // arrow body 
+  vertex(hex_r*0.2f, 0);
+  vertex(hex_r*0.2f, hex_r*0.6f);
+  vertex(-hex_r*0.2f, hex_r*0.6f);
+  vertex(-hex_r*0.2f, 0);
+  
+  endShape(CLOSE);
+  
+  popMatrix(); 
+}
+
+void polygon(float x, float y, float radius, int npoints) {
+  float angle = TWO_PI / npoints;
+  beginShape();
+  for (float a = 0; a < TWO_PI; a += angle) {
+    float sx = x + cos(a) * radius;
+    float sy = y + sin(a) * radius;
+    vertex(sx, sy);
+  }
+  endShape(CLOSE);
+}
+
+boolean isWall(int x, int y, int dir) {
+  Point point = getTileTo(x, y, dir);
+  return isWall(point);
+}
+
+boolean isWall(Point p) {
+  return isWall(p.x, p.y);
+}
+
+boolean isWall(int x, int y) {
+  // out of bounds check
+  if (!tileInBound(x, y)) {
+    return true;
+  }
+  
+  // actual array check
+  return hexTiles[y][x] >= WALL;
+}
+
+
+int applyDeltaDir(int currDir, int deltaDir) {
+  int finalDir = (currDir + deltaDir) % 6;
+  finalDir += finalDir < 0 ? 6 : 0;
+  return finalDir;
+}
+
+
+void mousePressed() {
+  initMouseTile = getTilePos(getMouseX(), getMouseY());
+  addNew = false;
+  deleteBall = false;
+  mouseCallback();
+}
+
+void mouseReleased() {
+  if(initMouseTile != null){
+    if(addNew){
+      HexBall newBall = new HexBall(initMouseTile.x, initMouseTile.y, lastNewBallDir); 
+      hexBalls.add(newBall);
+      hexTiles[newBall.y][newBall.x] |= TRAIL;
+    }
+    else if(deleteBall){
+      for(int i = 0; i < hexBalls.size(); i ++){
+        HexBall ball = hexBalls.get(i);
+        if (ball.x == initMouseTile.x && ball.y == initMouseTile.y) {
+          hexBalls.remove(i);
+          i --;
+        }
+      }
+    }
+  }
+}
+
+void mouseDragged() {
+  mouseCallback();
+}
+
+void keyPressed() {
+  switch(key) {
+     case 'a':
+      hexBalls.clear();
+      for(int y = 0; y < yCount; y ++){
+        for(int x = 0; x < xCount; x ++){
+          hexTiles[y][x] = 0;
+        }
+      }
+      break;
+     
+     case 'c':
+      ballCollision = !ballCollision;
+      break;
+     
+     case 't':
+      for(int y = 0; y < yCount; y ++){
+        for(int x = 0; x < xCount; x ++){
+          hexTiles[y][x] &= ~TRAIL;
+        }
+      }
+      break;
+     
+     case 'b':
+      hexBalls.clear();
+      break;
+     
+     case 'w':
+      for(int y = 0; y < yCount; y ++){
+        for(int x = 0; x < xCount; x ++){
+          hexTiles[y][x] &= ~WALL;
+        }
+      }
+      break;
+     
+     case ' ':
+      paused = !paused;
+      break;
+      
+     case 's':
+      updateStep = true;
+      break;
+  }
+}
+
+int getMouseX() {
+  return (flipField ? mouseY : mouseX) - screenOffset;
+}
+
+int getMouseY() {
+  return (flipField ? mouseX : mouseY) - screenOffset;
+}
+
+void mouseCallback() {
+  Point tilePos = getTilePos(getMouseX(), getMouseY());
+  
+  // draw walls
+  if(mouseButton == LEFT && tilePos != null) {
+    hexTiles[max(min(tilePos.y, yCount-1), 0)][max(min(tilePos.x, xCount-1), 0)] |= WALL;    
+  }
+  
+  // erase walls
+  else if(mouseButton == RIGHT && tilePos != null) {
+    hexTiles[max(min(tilePos.y, yCount-1), 0)][max(min(tilePos.x, xCount-1), 0)] &= ~WALL;
+  }
+  
+  // delete (on the same tile) / place a ball
+  else if(mouseButton == CENTER && initMouseTile != null) {
+    // delete if possible
+    if(tilePos != null && tilePos.x == initMouseTile.x && tilePos.y == initMouseTile.y) {
+       addNew = false;
+       deleteBall = true;
+      
+       // draw a cross
+      pushStyle();
+      pushMatrix();
+      
+      fill(0, 0, 0);
+      stroke(0, 0);
+      rectMode(CENTER);
+      
+      PointF pos = getTileCoord(initMouseTile.x, initMouseTile.y);
+      
+      translate(pos.x, pos.y);
+      rotate(radians(45));
+      rect(0, 0, hex_r*1.2, hex_r*0.2); 
+      rotate(radians(90));
+      rect(0, 0, hex_r*1.2, hex_r*0.2); 
+      
+      popMatrix();
+      popStyle();
+    }
+    
+    // add a new one
+    else {
+      addNew = true;
+      deleteBall = false;
+      
+      // get delta from the center of the tile
+      PointF initPoint = getTileCoord(initMouseTile.x, initMouseTile.y);
+      float delta_x = getMouseX() - initPoint.x;
+      float delta_y = -(getMouseY() - initPoint.y);
+      float angle = degrees(atan2(delta_y, delta_x));
+      
+      // clockwise from 12'o clock
+      angle = (-angle+180-90+360) % 360;
+      
+      // add 30deg offset to center the ranges
+      angle = (angle+30) % 360;
+      
+      // save the direction
+      lastNewBallDir = (int)(angle / 60);
+      
+      // display the angle
+      pushStyle();
+      fill(0, 0, 0);
+      stroke(0, 0);
+      drawArrowOnTile(initMouseTile.x, initMouseTile.y, lastNewBallDir*60);
+      popStyle();
+    }
+  }
+}
+
+void mouseWheel(MouseEvent event) {
+  if (event.getCount() > 0) {
+    ballSpeed = min(ballSpeed+1, 60);
+  }
+  else {
+    ballSpeed = max(ballSpeed-1, 1);
+  }
+}
