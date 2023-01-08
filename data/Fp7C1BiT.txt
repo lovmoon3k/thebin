@@ -1,0 +1,157 @@
+
+#include <stdint.h>
+#include "stm32f4xx.h"
+
+
+#if !defined(__SOFT_FP__) && defined(__ARM_FP)
+  #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
+#endif
+
+volatile uint16_t adc_data[30], pwm1, pwm2, pwm3;
+
+
+void initGPIO() {
+	//Omogocanje ur
+	SET_BIT(RCC->AHB1ENR, (RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN)); //PORT A,B
+
+	SET_BIT(GPIOA->MODER, (GPIO_MODER_MODER0_1|GPIO_MODER_MODER4_1|GPIO_MODER_MODER6_1//11 = analog
+		|GPIO_MODER_MODER0_0|GPIO_MODER_MODER4_0|GPIO_MODER_MODER6_0));
+
+	SET_BIT(GPIOB->MODER, (GPIO_MODER_MODER6_1|GPIO_MODER_MODER7_1|GPIO_MODER_MODER8_1));//10 = alternate
+	CLEAR_BIT(GPIOB->MODER, (GPIO_MODER_MODER6_0|GPIO_MODER_MODER7_0|GPIO_MODER_MODER8_0));
+
+	SET_BIT(GPIOB->AFR[0], 0x22000000);//AF2 (TIM4)
+	SET_BIT(GPIOB->AFR[1], 0x2);//AF2 (TIM4)
+}
+
+//str. 287
+void initADC1() {
+	SET_BIT(RCC->APB2ENR,RCC_APB2ENR_ADC1EN);//VKLOP URE ADC1
+//						RES 8 BIT		UPORABA ADC_SQRx
+	SET_BIT(ADC1->CR1, (ADC_CR1_RES_1 | ADC_CR1_SCAN));
+	CLEAR_BIT(ADC1->CR1, 							   (ADC_CR1_RES_0));
+
+//						CONTINUOUS		DMA				DMA VEDNO	EOC VEDNO
+	SET_BIT(ADC1->CR2, (ADC_CR2_CONT | ADC_CR2_DMA | ADC_CR2_DDS | ADC_CR2_EOCS));
+
+	CLEAR_BIT(ADC1->CR2, (ADC_CR2_ALIGN));//D PORAVNAVA PODATKOV
+
+	SET_BIT(ADC1->SMPR2,//Sample time 480 ciklov 0-2 (Tc=480+12->16.4 us)
+			(
+				ADC_SMPR2_SMP0_0 | ADC_SMPR2_SMP0_1 | ADC_SMPR2_SMP0_2
+				 |ADC_SMPR2_SMP4_0 | ADC_SMPR2_SMP4_1 | ADC_SMPR2_SMP4_2
+				 |ADC_SMPR2_SMP6_0 | ADC_SMPR2_SMP6_1 | ADC_SMPR2_SMP6_2
+			));
+	//						10				3 PRETVORBE
+	SET_BIT(ADC1->SQR1, (ADC_SQR1_L_1 ));
+
+
+	SET_BIT(ADC1->SQR3, ((4<<5) | (6<<10)));//Sekvenca meritev: c0,c4,c6
+
+	SET_BIT(ADC->CCR, (ADC_CCR_ADCPRE_0 | ADC_CCR_ADCPRE_1));//Prescaler /8
+	SET_BIT(ADC->CCR,(ADC_CCR_DELAY_0 | ADC_CCR_DELAY_1 | ADC_CCR_DELAY_2 | ADC_CCR_DELAY_3));
+
+
+
+	SET_BIT(ADC1->CR2, (ADC_CR2_ADON));
+	uint32_t delay = 10000;
+	while (delay--);
+
+}
+void initDMA() {
+	SET_BIT(RCC->AHB1ENR ,RCC_AHB1ENR_DMA2EN);//VKLOP URE DMA2
+							//Circ mode		  pointer se veca  		16b	perif.		16b mem.
+	SET_BIT(DMA2_Stream0->CR ,(DMA_SxCR_CIRC | DMA_SxCR_MINC | DMA_SxCR_PSIZE_0 | DMA_SxCR_MSIZE_0) );
+	CLEAR_BIT(DMA2_Stream0->CR ,(DMA_SxCR_DIR_0 | DMA_SxCR_DIR_1 | DMA_SxCR_PSIZE_1 | DMA_SxCR_MSIZE_1
+			//Ch. 0
+			| DMA_SxCR_CHSEL_0 | DMA_SxCR_CHSEL_1 | DMA_SxCR_CHSEL_2));
+
+	DMA2_Stream0->NDTR =30;//St. podatkov
+	DMA2_Stream0->PAR = (uint32_t)&ADC1->DR;//Zacetni naslov za podatke
+	DMA2_Stream0->M0AR = (uint32_t) adc_data;//Zacetni naslov za podatke
+
+	SET_BIT(DMA2_Stream0->CR ,DMA_SxCR_EN);//VKLOP DMA2
+
+}
+void initPWM(){
+	//RCC
+	SET_BIT(RCC->APB1ENR, (RCC_APB1ENR_TIM4EN)); //Vklop ure
+	//CR1
+	SET_BIT(TIM4->CR1,(TIM_CR1_ARPE));
+	CLEAR_BIT(TIM4->CR1,(TIM_CR1_URS | TIM_CR1_DIR|TIM_CR1_OPM));//Up-counter, no one-pulse mode
+
+	//Nastavitev kanalov
+	SET_BIT(TIM4->CCMR1, (TIM_CCMR1_OC1M_0 |TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_2//PWM M 2
+			|TIM_CCMR1_OC2M_0 |TIM_CCMR1_OC2M_1 | TIM_CCMR1_OC2M_2
+			|TIM_CCMR1_OC1PE | TIM_CCMR1_OC2PE));
+	SET_BIT(TIM4->CCMR2, (TIM_CCMR2_OC3M_0 |TIM_CCMR2_OC3M_1 | TIM_CCMR2_OC3M_2
+			| TIM_CCMR2_OC3PE
+			));
+
+	SET_BIT(TIM4->EGR,TIM_EGR_UG);
+
+	SET_BIT(TIM4->CCER,(TIM_CCER_CC1E | TIM_CCER_CC2E | TIM_CCER_CC3E));
+	CLEAR_BIT(TIM4->CCER,(TIM_CCER_CC1P | TIM_CCER_CC2P | TIM_CCER_CC3P));
+
+	TIM4->PSC = 0;
+	TIM4->ARR = 255;
+
+	SET_BIT(TIM4->CR1,TIM_CR1_CEN);
+
+}
+//str. 287
+void initTimer6(){
+	//RCC
+	SET_BIT(RCC->APB1ENR, (RCC_APB1ENR_TIM6EN)); //Vklop ure
+	//CR1
+	SET_BIT(TIM6->CR1,(TIM_CR1_ARPE | TIM_CR1_URS | TIM_CR1_CEN));// Auto preload, enable
+	CLEAR_BIT(TIM6->CR1,(TIM_CR1_DIR|TIM_CR1_OPM | TIM_CR1_UDIS));//Up-counter, no one-pulse mode
+	//CR2
+	//DIER
+	SET_BIT(TIM6->DIER, (TIM_DIER_UIE));
+	//EGR
+	//PSC, ARR
+	TIM6->PSC = 16000-1;
+	TIM6->ARR = 10;
+	//egr
+	TIM6->EGR |= TIM_EGR_UG;
+	//SR
+	CLEAR_BIT(TIM6->SR, (TIM_SR_UIF));
+	NVIC_EnableIRQ(TIM6_DAC_IRQn);
+
+}
+
+void TIM6_DAC_IRQHandler(void) {
+	pwm1 = 0;
+	pwm2 = 0;
+	pwm3 = 0;
+	for (uint8_t i = 0; i<30; i+=3){
+		pwm1+=adc_data[i];
+		pwm2+=adc_data[i+1];
+		pwm3+=adc_data[i+2];
+	}
+	pwm1 *=.1;
+	pwm2 *=.1;
+	pwm3 *=.1;
+
+	TIM4->CCR1 = (uint32_t)pwm1;
+	TIM4->CCR2 = (uint32_t)pwm2;
+	TIM4->CCR3 = (uint32_t)pwm3;
+
+
+
+	CLEAR_BIT(TIM6->SR, (TIM_SR_UIF));
+}
+
+int main(void) {
+	initGPIO();
+	initADC1();
+	initDMA();
+	//Vklop ADC1
+	ADC1->SR = 0;
+	SET_BIT(ADC1->CR2, (ADC_CR2_SWSTART));//start meritev
+	initPWM();
+	initTimer6();
+
+	for(;;);
+}
