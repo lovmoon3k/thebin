@@ -1,0 +1,103 @@
+create table Logs(
+	logid int identity(1,1) not null,
+	date date not null,
+	tablename varchar(50) not null,
+	operationdetails varchar(200) not null
+	)
+go 
+
+create trigger t_categ_insert
+on Production.Categories
+instead of insert 
+as 
+   begin
+	   if not exists(select * from Production.Categories pc, inserted where inserted.categoryname = pc.categoryname)
+			begin
+			insert into Production.Categories (categoryname, description) 
+			values ((select categoryname from inserted),(select description from inserted))
+			insert into Logs (date, tablename, operationdetails)
+			values (getdate(), 'Production.Categories', 'COMPLETED - adding new category')
+			select * from inserted
+			end
+		else
+			begin
+			insert into Logs (date, tablename, operationdetails)
+			values (getdate(), 'Production.Categories', 'ERROR category already exists - adding new category: ')
+			select 'Category already exists'
+			end
+	end
+go 
+
+insert into Production.Categories (categoryname, description)
+values ('Boxes', 'paper boxes')
+
+insert into Production.Categories (categoryname, description)
+values ('Cars', 'best cars ever!')
+
+select * from Production.Categories
+select * from Logs
+go
+
+create trigger t_categ_update
+on Production.Categories
+instead of update
+as
+begin
+	if exists(select categoryname from Production.Categories where categoryname in (select categoryname from inserted))
+		begin
+		insert into Logs (date, tablename, operationdetails)
+		values (getdate(), 'Production.Categories', 'ERROR already exists - updating category name to: ' + (select categoryname from inserted))
+		select 'Category already exists'
+		end
+	else
+		begin
+		update Production.Categories set categoryname = (select categoryname from inserted)
+		where categoryname = (select categoryname from deleted)
+		insert into Logs (date, tablename, operationdetails) 
+		values (getdate(), 'Production.Categories', 'COMPLETED - updating category name')
+		select * from inserted
+		end
+end
+go
+
+UPDATE Production.Categories SET categoryname = 'Boxy Boxes' WHERE categoryname = 'Boxes'
+UPDATE Production.Categories SET categoryname = 'Supercars' WHERE categoryname = 'Cars'
+UPDATE Production.Categories SET categoryname = 'Boxy Boxes' WHERE categoryname = 'Supercars'
+
+select * from Production.Categories
+select * from Logs
+go
+
+create trigger t_categ_delete
+on Production.Categories
+instead of delete
+as
+begin
+	if not exists (select categoryname from deleted)
+		begin
+		insert into Logs (date, tablename, operationdetails)
+		values (getdate(), 'Production.Categories', 'ERROR doen`t exists - deleting category')
+		select 'Category doen`t exists'
+		end
+	else if exists( select productname from Production.Products where categoryid in (select categoryid from deleted))
+		begin
+		insert into Logs (date, tablename, operationdetails)
+		values (getdate(), 'Production.Categories', 'ERROR used in other tables - deleting category')
+		select 'Category is used in other tables'
+		end
+	else
+		begin
+		delete from Production.Categories where categoryname = (select categoryname from deleted);
+		insert into Logs (date, tablename, operationdetails)
+		values (getdate(), 'Production.Categories', 'COMPLETED - deleting category')
+		select *, 'deleted' from deleted
+		end
+end
+go
+
+delete from  Production.Categories where categoryname ='Seafood'
+delete from  Production.Categories where categoryname ='Supercars'
+
+select * from Production.Categories
+select * from Production.Products
+select *from Logs
