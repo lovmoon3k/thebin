@@ -1,0 +1,131 @@
+// Entity Framework Classic
+// Doc: https://entityframework-classic.net/include
+
+// @nuget: Z.EntityFramework.Classic
+
+using System;
+using System.Collections.Generic;
+using System.Data.Entity;
+using System.Linq;
+
+public class Program
+{
+	public static void Main()
+	{
+		GenerateData();
+
+		using (var context = new EntityContext())
+		{
+			var list = context.Customers
+				.Include(customer => customer.Orders)
+					.ThenInclude(order => order.OrderDetails)
+					.ThenInclude(orderDetail => orderDetail.Product)
+						.AlsoInclude(product => product.Category)
+						.AlsoInclude(product => product.Supplier)
+				.ToList();
+			
+			
+			FiddleHelper.WriteTable("Customers", list);
+			FiddleHelper.WriteTable("Orders", list.SelectMany(x => x.Orders).ToList());	
+			FiddleHelper.WriteTable("OrderDetails", list.SelectMany(x => x.Orders.SelectMany(y => y.OrderDetails)));	
+			FiddleHelper.WriteTable("Products", list.SelectMany(x => x.Orders.SelectMany(y => y.OrderDetails.Select(z => z.Product))));	
+			FiddleHelper.WriteTable("Categories", list.SelectMany(x => x.Orders.SelectMany(y => y.OrderDetails.Select(z => z.Product.Category))));		
+			FiddleHelper.WriteTable("Suppliers", list.SelectMany(x => x.Orders.SelectMany(y => y.OrderDetails.Select(z => z.Product.Supplier))));		
+		}
+	}
+		 
+	public static void GenerateData()
+	{
+		
+		using (var context = new EntityContext())
+		{
+			// Supplier
+			var supplier = context.Suppliers.Add(new Supplier() { Name = "ZZZ Projects" });
+			
+			// Category
+			var category = context.Categories.Add(new Category() { Name = "EntityFramework", Description = "Entity Framework is an ORM made by Microsoft. It allows performing CRUD operations without having to write SQL queries. It supports Code First, Database First, Stored Procedure, Transaction, etc." });
+			
+			// Product
+			var productEFClassic = context.Products.Add(new Product() { Name = "Entity Framework Classic", Category = category, Supplier = supplier });
+			var productEFExtensions = context.Products.Add(new Product() { Name = "Entity Framework Extensions", Category = category, Supplier = supplier });
+			
+			// Customer
+			var customer = context.Customers.Add(new Customer() { Name ="Customer_A", Description = "Description", IsActive = true, LastLogin = new DateTime(2010,1,1) });
+			
+			// Order
+			var order = context.Order.Add(new Order() { Customer = customer, OrderDate = DateTime.Now, OrderDetails = new List<OrderDetail>() });
+
+			// Order Detail
+			order.OrderDetails.Add(new OrderDetail() { Product = productEFClassic, Quantity = 4 });
+			order.OrderDetails.Add(new OrderDetail() { Product = productEFExtensions, Quantity = 19 });
+			
+			context.SaveChanges();	
+		}
+	}
+
+	public class EntityContext : DbContext
+	{
+		public EntityContext() : base(FiddleHelper.GetConnectionStringSqlServer())
+		{
+
+		}
+		
+		public DbSet<Customer> Customers { get; set; }
+		public DbSet<Order> Order { get; set; }
+		public DbSet<OrderDetail> OrderDetails { get; set; }
+		public DbSet<Product> Products { get; set; }
+		public DbSet<Category> Categories { get; set; }
+		public DbSet<Supplier> Suppliers { get; set; }
+	}
+	
+	
+	public class Customer
+	{
+		public int CustomerID { get; set; }
+		public string Name { get; set; }
+		public string Description { get; set; }
+		public DateTime LastLogin { get; set; }
+		public Boolean IsActive { get; set; }
+		
+		public List<Order> Orders { get; set; }
+	}
+	
+	public class Order
+	{
+		public int OrderID { get; set; }
+		public DateTime OrderDate { get; set; }
+		
+		public Customer Customer { get; set; }
+		public List<OrderDetail> OrderDetails { get; set; }
+	}
+	
+	public class OrderDetail
+	{
+		public int OrderDetailID { get; set; }
+		public int Quantity { get; set; }
+
+		public Product Product { get; set; }
+	}
+	
+	public class Product
+	{
+		public int ProductID { get; set; }
+		public string Name { get; set; }
+		
+		public Category Category { get; set; }
+		public Supplier Supplier { get; set; }
+	}
+	
+	public class Category
+	{
+		public int CategoryID { get; set; }
+		public string Name { get; set; }
+		public string Description { get; set; }
+	}
+	
+	public class Supplier
+	{
+		public int SupplierID { get; set; }
+		public string Name { get; set; }
+	}
+}
