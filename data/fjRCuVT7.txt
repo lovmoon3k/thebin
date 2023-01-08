@@ -1,0 +1,139 @@
+namespace REghZy.FrameControl {
+    /// <summary>
+    /// Interaction logic for MainWindow.xaml
+    /// </summary>
+    public partial class MainWindow : Window {
+        [DllImport("gdi32.dll")] 
+        public static extern IntPtr CreateDC(
+            [MarshalAs(UnmanagedType.LPStr)] string lpszDriver,
+            [MarshalAs(UnmanagedType.LPStr)] string lpszDevice,
+            [MarshalAs(UnmanagedType.LPStr)] string lpszOutput,
+            IntPtr pdm);
+        [DllImport("gdi32.dll")] 
+        public static extern bool DeleteObject(IntPtr hObject);
+        [DllImport("gdi32.dll")]
+        public static extern bool SelectObject(IntPtr hObject);
+        [DllImport("user32.dll")]
+        static extern bool ReleaseDC(IntPtr hWnd, IntPtr hDc);
+
+        [DllImport("gdi32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern int BitBlt(
+            IntPtr hDC,
+            int x,
+            int y,
+            int nWidth,
+            int nHeight,
+            IntPtr hSrcDC,
+            int xSrc,
+            int ySrc,
+            int dwRop);
+
+        private long lastFrameTime;
+
+        public static IntPtr DESKTOP = CreateDC("DISPLAY", null, null, IntPtr.Zero);
+        public readonly Bitmap result;
+        public readonly IntPtr ptr;
+
+        public Graphics g;
+
+        private long nextRunTicks;
+
+        public MainWindow() {
+            InitializeComponent();
+
+            this.result = new Bitmap(1920, 1080, PixelFormat.Format24bppRgb);
+
+            Task.Run(async () => {
+                while (true) {
+                    Timer_Tick();
+                    // DateTime time = DateTime.Now;
+                    // if (time.Ticks > this.nextRunTicks) {
+                    //     this.nextRunTicks = time.Ticks + TimeSpan.FromMilliseconds(1d).Ticks;
+                    //     Timer_Tick();
+                    // }
+                    // else {
+                    //     await Task.Delay(1);
+                    // }
+                }
+            });
+        }
+
+        public static void RunTaskOnMainThread(Action action) {
+            TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
+            Application.Current.Dispatcher.Invoke(() => {
+                try {
+                    action();
+                }
+                finally {
+                    tcs.TrySetResult(true);
+                }
+            });
+
+            tcs.Task.Wait();
+        }
+
+
+        private void Timer_Tick() {
+            long start = DateTime.Now.Ticks;
+            Capture(this.result, () => {
+                try {
+                    BitmapSource source = Imaging.CreateBitmapSourceFromHBitmap(this.result.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                    source.Freeze();
+                    RunTaskOnMainThread(() => {
+                        this.Display.Text = $"Difference: {new DateTime(start - this.lastFrameTime).Millisecond} millis";
+                        this.Frame.Source = source;
+                    });
+                }
+                catch (Exception e) {
+                }
+                finally {
+                    // DeleteObject(this.result.GetHbitmap());
+                }
+            });
+
+            this.lastFrameTime = start;
+        }
+
+        public static void Capture(Bitmap bitmap, Action callback) {
+            Rectangle bounds = new Rectangle(0, 0, 1920, 1080);
+            using (Graphics g = Graphics.FromImage(bitmap)) {
+                int width = bounds.Size.Width;
+                int height = bounds.Size.Height;
+                try {
+                    if (BitBlt(g.GetHdc(), 0, 0, width, height, DESKTOP, bounds.Left, bounds.Top, 13369376) == 0) // 13369376 == SourceCopy
+                        throw new Win32Exception();
+                    callback();
+                }
+                finally {
+                    g.ReleaseHdc();
+                    // DeleteObject(hdc);
+                }
+                // g.CopyFromScreen(new Point(bounds.Left, bounds.Top), Point.Empty, bounds.Size);
+            }
+
+            // Rectangle bounds = new Rectangle(0, 0, 1920, 1080);
+            // using (Bitmap result = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format24bppRgb)) {
+            //     using (Graphics g = Graphics.FromImage(result)) {
+            //         g.CopyFromScreen(new Point(bounds.Left, bounds.Top), Point.Empty, bounds.Size);
+            //         BitmapData data = result.LockBits(bounds, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            //         try {
+            //             unsafe {
+            //                 return Image.WrapMemory<Rgb24>((void*) data.Scan0, bounds.Width, bounds.Height).CloneAs<Rgb24>();
+            //             }
+            //         }
+            //         finally {
+            //             result.UnlockBits(data);
+            //         }
+            //     }
+            // }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct Rect {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+    }
+}
