@@ -1,0 +1,124 @@
+local TransitionEvent = game.ReplicatedStorage.TransitionEvent
+local TeleportService = game:GetService("TeleportService")
+local TeleportID = 11156840762 -- Change to your game ID
+
+local Players = {}
+local IsTeleporting = false
+local TeleportPoint = script.Parent.TeleportPoint
+local PlayersAllowed = script.Parent.PlayersAllowed
+
+local Gate = script.Parent.Gate
+local Timer
+
+local Frame = Gate.SurfaceGui:WaitForChild("Frame")
+local PlayerNumber = Frame:WaitForChild("PlayerNumber")
+local TimeNumber = Frame:WaitForChild("TimeNumber")
+local ExitEvent = game.ReplicatedStorage.ExitEvent
+
+local Truck = script.Parent.Parent.Truck
+local Seats = Truck:GetChildren()
+local Debounce = false
+
+local teleporting = false
+local MaxPlayers = 12
+
+game.Players.RespawnTime = 0
+
+function Refresh()
+	PlayerNumber.Text = #Players
+end
+
+local function RemoveFromList(Char)
+	for i = 1,#Players do
+		if Players[i] == Char.Name then
+			table.remove(Players, i)
+			Char.Humanoid.JumpPower = 50
+			Refresh()
+		end
+	end
+end
+
+
+local function Teleport()
+	if #Players > 0 then
+		local TeleportPlayers = {}
+
+		for i = 1, #Players do
+			if game.Players:FindFirstChild(Players[i]) then
+				table.insert(TeleportPlayers, game.Players:FindFirstChild(Players[i]))
+				TransitionEvent:FireClient(game.Players:FindFirstChild(Players[i]))
+			else
+				table.remove(Players, i)
+			end
+		end
+
+		local Code = TeleportService:Teleport(TeleportID)
+		
+		IsTeleporting = true
+		--TeleportService:TeleportToPrivateServer(TeleportID, Code, TeleportPlayers)
+		
+		repeat wait() until #Players <= 0
+		
+		IsTeleporting = false
+	end
+end
+
+
+Gate.Touched:Connect(function(hit)
+    if hit.Parent:findFirstChild("Humanoid") then
+        if teleporting == false then
+            local char = hit.Parent
+            local player = game.Players:FindFirstChild(char.Name)
+            local alreadyExists = false
+
+            for i=1,#Players do
+                if Players[i] == char.Name then
+                    alreadyExists = true
+                end
+            end
+
+            if alreadyExists == false then
+                if #Players < MaxPlayers then -- Many Players have been teleported.
+                    table.insert(Players,char.Name)
+                    char.PrimaryPart.CFrame = TeleportPoint.CFrame
+                    if Debounce then return end
+                    local player = game.Players:GetPlayerFromCharacter(hit.Parent)
+                    for i, v in pairs(Seats) do
+                        if Seats.Occupant == nil then
+                            local Check = Instance.new("Weld")
+                            Check.Name = "Check"
+                            Check.Parent = player.Character
+                            Check.Parent.Humanoid.JumpPower = 0
+                            Check.Parent.Humanoid.WalkSpeed = 0
+                        end
+                    end
+                    Seats[math.random(1, #Seats)]:Sit(player.Character.Humanoid)
+                    Refresh()
+                    game.ServerStorage.ExitGui:Clone().Parent = player.PlayerGui
+                end
+                player.CharacterRemoving:connect(function(character)
+                    RemoveFromList(character)
+                end)
+            end
+
+        end
+    end
+end)
+
+ExitEvent.OnServerEvent:Connect(function(player)
+    if player.Character then
+        player:LoadCharacter()
+        RemoveFromList(player.Character)
+    end
+end)
+
+while wait() do
+	Timer = 20
+	
+	for i = 1, Timer do
+		Timer = Timer - 1
+		TimeNumber.Text = Timer
+		wait(1)
+	end
+	Teleport()
+end
