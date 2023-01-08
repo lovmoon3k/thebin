@@ -1,0 +1,92 @@
+os.loadAPI("elevator.lua")
+
+dataFile = "data.conf"
+data = {
+  lastFloor = 0,
+  floorData = {
+    [0] = { name = "floor" }
+  },
+  password = "default password",
+  port = 9999,
+
+  gearshift = "back",
+  sequenced = "right",
+  floorTime = 3.2,
+  modem = "top",
+  orientation = true
+}
+
+function loadData()
+  if not fs.exists(dataFile) then
+    saveData()
+  end
+  local hd = fs.open(dataFile, "r")
+  local deet = hd.readAll()
+  hd.close()
+  data = textutils.unserialize(deet)
+end
+function saveData()
+  local hd = fs.open(dataFile, "w")
+  hd.write(textutils.serialize(data))
+  hd.close()
+end
+loadData()
+local modem = peripheral.wrap(data.modem)
+modem.open(data.port)
+elevator.init(data.gearshift, data.sequenced, data.floorTime, data.orientation, data.floorData, data.lastFloor)
+
+while true do
+  local event, modemSide, senderChannel, replyChannel, message, senderDistance = os.pullEvent("modem_message")
+  local rData = textutils.unserialize(message)
+  if rData ~= nil and rData.auth == data.password then
+    print(rData.command)
+    if rData.command == "go" then
+      local goTo = rData.floor
+      print(" - Going to ".. goTo)
+      if goTo ~= data.lastFloor then
+        local down = data.lastFloor - goTo > 0
+        local diff = math.abs(data.lastFloor - goTo)
+        modem.transmit(data.port, data.port, textutils.serialize({
+          auth = data.password,
+          command = "update",
+          data = data.floorData,
+          floor = data.lastFloor,
+          transit = true
+        }))
+        for i=1,diff do
+          if down then
+            print("   - Down one...")
+            elevator.down()
+          else
+            print("    - Up one...")
+            elevator.up()
+          end
+          data.lastFloor = elevator.getFloor()
+          saveData()
+          print("     - Floor: " .. data.lastFloor .. ", Transit: yes")
+          modem.transmit(data.port, data.port, textutils.serialize({
+            auth = data.password,
+            command = "update",
+            data = data.floorData,
+            floor = data.lastFloor,
+            transit = true
+          }))
+        end
+        modem.transmit(data.port, data.port, textutils.serialize({
+          auth = data.password,
+          command = "update",
+          data = data.floorData,
+          floor = data.lastFloor,
+          transit = false
+        }))
+          print("     - Floor: " .. data.lastFloor .. ", Transit: false")
+      end
+    elseif rData.command == "data" then
+      modem.transmit(replyChannel, data.port, textutils.serialize({
+        auth = data.password,
+        data = data.floorData,
+        floor = data.lastFloor
+      }))
+    end
+  end
+end
