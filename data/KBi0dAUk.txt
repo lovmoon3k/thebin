@@ -1,0 +1,120 @@
+def squeeze_excite_block(inputs, ratio=16):
+    init = inputs       ## (b, 128, 128, 32)
+    channel_axis = -1
+    filters = init.shape[channel_axis]
+    se_shape = (1, 1, filters)
+
+    se = GlobalAveragePooling3D()(init)     ## (b, 32)   -> (b, 1, 1, 32)
+    se = Reshape(se_shape)(se)
+    se = Dense(filters//ratio, activation="relu", use_bias=False)(se)
+    se = Dense(filters, activation="sigmoid", use_bias=False)(se)
+
+    x = Conv2D(1, 1, padding='same', activation='sigmoid', kernel_initializer='he_normal', use_bias=False)(inputs)
+    x = BatchNormalization()(x)
+    x = Multiply()([x, se])
+    return x
+
+
+# Spatial attention modules are interesting for their simplicity in implementation
+# Check out the following link:
+# https://medium.com/visionwizard/understanding-attention-modules-cbam-and-bam-a-quick-read-ca8678d1c671
+# https://paperswithcode.com/method/spatial-attention-module
+
+def spatial_attention_block(inputs):
+    """
+    Spatial Attention Module utilizing the inter-spatial relationship of features.
+    """
+    kernel_size = 7
+    
+    avg_pool = K.mean(inputs, axis=-1, keepdims=True)
+    max_pool = K.max(inputs, axis=-1, keepdims=True)
+
+    x = Concatenate()([avg_pool, max_pool])
+
+    x = ConvLSTM2D(1, kernel_size, padding='same', activation='sigmoid', kernel_initializer='he_normal', use_bias=False)(x)
+
+    outputs = Multiply()([inputs, x])
+    return outputs
+
+
+def channel_attention(x, ratio=8):
+    batch, frame, _, _, channel = x.shape
+
+    ## Shared layers
+    l1 = Dense(channel//ratio, activation="relu", use_bias=False)
+    l2 = Dense(channel, use_bias=False)
+
+    ## Global Average Pooling
+    x1 = GlobalAveragePooling3D()(x)
+    x1 = l1(x1)
+    x1 = l2(x1)
+
+    ## Global Max Pooling
+    x2 = GlobalMaxPooling3D()(x)
+    x2 = l1(x2)
+    x2 = l2(x2)
+
+    ## Add both the features and pass through sigmoid
+    feats = x1 + x2
+    feats = Activation("sigmoid")(feats)
+    feats = Multiply()([x, feats])
+
+    return feats
+
+
+
+
+#LRCN with attention
+
+
+def create_lrcn_model_functional():
+
+    input = Input(shape=(SEQUENCE_LENGTH, IMAGE_HEIGHT, IMAGE_WIDTH, 3))
+    x = (Conv2D(16, (3, 3), padding='same',activation = 'relu'))(input)
+    #x = TimeDistributed(Conv2D(32, (3, 3), padding='same',activation = 'relu'),input_shape = (SEQUENCE_LENGTH, IMAGE_HEIGHT, IMAGE_WIDTH, 3))
+    x = TimeDistributed(MaxPooling2D((4, 4)))(x)
+    x = TimeDistributed(Dropout(0.25))(x)
+    x = TimeDistributed(Conv2D(32, (3, 3), padding='same',activation = 'relu'))(x)
+    x = TimeDistributed(MaxPooling2D((4, 4)))(x)
+    x = TimeDistributed(Dropout(0.25))(x)
+    x = TimeDistributed(Conv2D(64, (3, 3), padding='same',activation = 'relu'))(x)
+    x = TimeDistributed(MaxPooling2D((2, 2)))
+    x = TimeDistributed(Dropout(0.25))(x)
+
+
+    # Added attention here. however, we can set them anywhere we want.
+    # Just to demonstrate concatenated all of the attentions, we might want to use a single one and see the effects
+
+    x1 = squeeze_excite_block(x)
+    x2 = spatial_attention_block(x)
+    x3 = channel_attention(x)
+
+    #x = Concatenate()([x1,x2,x3]) 
+    #x = x1   
+    x = x2 
+    #x = x3                                 
+
+    x = TimeDistributed(Conv2D(128, (3, 3), padding='same',activation = 'relu'))(x)
+    x = TimeDistributed(MaxPooling2D((2, 2)))(x)
+    x = TimeDistributed(Dropout(0.25))(x)
+
+    x = TimeDistributed(Flatten())(x)
+    x = LSTM(32)(x)
+    
+    outputs = Dense(len(CLASSES_LIST), activation = "softmax")(x)
+    
+    # outputs=Dense(dense_units, trainable=True, activation=activation)(attention_layer)
+    
+    model = Model(input, outputs, name="functional_lrcn_model")
+    
+    return model
+
+
+
+# Construct the required LRCN with attention model.
+functional_lrcn_model = create_lrcn_model_functional()
+
+# Display the success message.
+print("Model Created Successfully!")
+
+functional_lrcn_model.summary()
