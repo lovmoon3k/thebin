@@ -1,0 +1,35 @@
+pub struct PacketReader<'reader, R> {
+    pub reader: &'reader mut R,
+    pub buffer: std::vec::Vec<u8>,
+}
+impl<'reader, R> PacketReader<'reader, R>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    pub fn new(reader: &'reader mut R) -> Self {
+        Self {
+            reader,
+            buffer: Default::default(),
+        }
+    }
+    pub async fn read<T>(&mut self) -> Result<PaddedMessage<T>>
+    where
+        T: Serialize + DeserializeOwned,
+    {
+        let size = self.reader.read_u32().await?;
+        let buffer_size = size as usize;
+
+        assert_eq!(
+            buffer_size as u32, size,
+            "packet too large for this architecture..."
+        );
+        self.buffer.resize(buffer_size, 0);
+        let _ = self
+            .reader
+            .read_exact(&mut self.buffer)
+            .await
+            .wrap_err_with(|| format!("reading the expected data of size {size}"))?;
+        let value = from_bytes::<T>(&mut self.buffer).wrap_err("deserializing packet data")?;
+        Ok(PaddedMessage { size, value })
+    }
+}
