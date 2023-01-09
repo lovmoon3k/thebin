@@ -1,0 +1,113 @@
+class Report:
+    @staticmethod
+    def generate_image(input_name: str,
+                       dynamics_slr: dict,
+                       dynamics_count_vac: dict,
+                       dynamics_slr_name: dict,
+                       dynamics_count_vac_name: dict,
+                       dynamics_slr_cities: dict,
+                       dynamics_count_vac_cities: dict):
+        fig = plt.figure(figsize=(10, 6))
+        plt.rcParams['font.size'] = '8'
+        width = 0.4
+        years = np.arange(len(dynamics_slr.keys()))
+        ax = fig.add_subplot(221)
+        ax.bar(years - width / 2,
+               dynamics_slr.values(),
+               width,
+               label='средняя з/п')
+        ax.bar(years + width / 2,
+               dynamics_slr_name.values(),
+               width,
+               label=f'з/п {input_name}')
+        ax.set_title('Уровень зарплат по годам')
+        ax.set_xticks(years, dynamics_slr.keys(), rotation='vertical')
+        ax.set_xticklabels(dynamics_slr.keys())
+        ax.legend()
+
+        bx = fig.add_subplot(222)
+        bx.bar(years - width / 2,
+               dynamics_count_vac.values(),
+               width,
+               label='Количество вакансий')
+        bx.bar(years + width / 2,
+               dynamics_count_vac_name.values(),
+               width,
+               label=f'Количество вакансий\n{input_name}')
+        bx.set_title('Количество вакансий по годам')
+        bx.set_xticks(years, dynamics_slr.keys(), rotation='vertical')
+        bx.set_xticklabels(dynamics_slr.keys())
+        bx.legend()
+        bx.grid(axis='y')
+
+        dynamics_slr_cities_rev = dict(reversed(list(dynamics_slr_cities.items())[:10]))
+        cities_slr = np.arange(len(dynamics_slr_cities_rev.keys()))
+        cx = fig.add_subplot(223)
+        cx.barh(cities_slr - width / 2, dynamics_slr_cities_rev.values(), width + 0.2)
+        cx.set_title('Уровень зарплат по годам')
+        cx.set_yticks(cities_slr)
+        cx.set_yticklabels(dynamics_slr_cities_rev.keys())
+        cx.grid(axis='x')
+
+        dx = fig.add_subplot(224)
+        dynamics_count_vac_cit_rev = dict(reversed(list(dynamics_count_vac_cities.items())))
+        dx.pie(dynamics_count_vac_cit_rev.values(),
+               labels=dynamics_count_vac_cit_rev.keys())
+        dx.set_title('Доля вакансий по городам')
+        dx.axis('equal')
+        fig.tight_layout()
+        
+        fig.savefig('graph.png')
+
+    def generate_excel(self,
+                       input_name: str,
+                       dynamics_slr: dict,
+                       dynamics_count_vac: dict,
+                       dynamics_slr_name: dict,
+                       dynamics_count_vac_name: dict,
+                       dynamics_slr_cities: dict,
+                       dynamics_count_vac_cities: dict):
+        workbook = Workbook()
+        stats_by_year = workbook.worksheets[0]
+        stats_by_year.title = "Cтатистика по годам"
+        stats_by_city = workbook.create_sheet("Cтатистика по городам")
+
+        stats_by_year.append(['Год', 'Средняя зарплата', f"Средняя зарплата - {input_name}",
+                              'Количество вакансий', f"Количество вакансий - {input_name}"])
+        for i, year in enumerate(dynamics_slr.keys(), 2):
+            stats_by_year.cell(row=i, column=1, value=year)
+            for j, dictionary in enumerate((dynamics_slr, dynamics_count_vac,
+                                            dynamics_slr_name, dynamics_count_vac_name), 2):
+                stats_by_year.cell(row=i, column=j, value=dictionary[year])
+
+        stats_by_city.append(['Город', 'Уровень зарплат', '', 'Город', 'Доля вакансий'])
+        for i, city in enumerate(dynamics_slr_cities.keys(), 2):
+            stats_by_city.cell(row=i, column=1, value=city)
+            stats_by_city.cell(
+                row=i, column=2, value=dynamics_slr_cities[city])
+        for i, city in enumerate(dynamics_count_vac_cities.keys(), 2):
+            stats_by_city.cell(row=i, column=4, value=city)
+            stats_by_city.cell(
+                row=i, column=5, value=dynamics_count_vac_cities[city])
+
+        self.workbook(workbook)
+        workbook.save('report.xlsx')
+
+    @staticmethod
+    def workbook(wb):
+        bold_font = Font(bold=True)
+        thin = Side(border_style="thin", color="000000")
+        outline = Border(top=thin, left=thin, right=thin, bottom=thin)
+        for worksheet in wb.worksheets:
+            for column_cells in worksheet.columns:
+                length = max(len(str(cell.value) if cell.value is not None else "")
+                             for cell in column_cells)
+                worksheet.column_dimensions[column_cells[0]
+                                            .column_letter].width = length + 3
+            for cell in worksheet[1]:
+                cell.font = bold_font
+            for column in tuple(worksheet.columns):
+                if column[1].value is None:
+                    continue
+                for cell in column:
+                    cell.border = outline
