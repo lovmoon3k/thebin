@@ -1,0 +1,285 @@
+--Made by Diemiers#4209
+--Sorry for grammar english is not my main language
+
+--Trajectory Class
+--Creating trajectory class
+--Rocket will change it's move direction based on information that trajectory object gives
+
+local Trajectory = {}
+Trajectory.__index = Trajectory
+Trajectory.Debug = true 
+
+function Trajectory.new()
+	local self = setmetatable({},Trajectory)
+	--[[Points in trajectory
+		I planned to use this array to have ability to draw your own trajectory in game
+		But right now i dont use it at all
+	--]]
+	
+	self.points = {}
+	--Random seeds for perlin noise of the rockets
+	self.seed1 = math.random(1,91239)+0.3123
+	self.seed2 = math.random(1,91239)+0.3123
+	return self 
+end
+
+--Method for creating debug parts basicly makes rocket trajectory visible
+function Trajectory:TryCreateDebugPart(p1,d2vector,posx,S) 
+	if Trajectory.Debug then 
+		local part = Instance.new("Part",workspace)
+		part.Anchored = true
+		part.Size = Vector3.new(1,1,1)
+		part.CanCollide = false
+		part.Color = Color3.new(0,1,0)
+		part.Position = p1 + ( d2vector.Unit * posx) +Vector3.new(0,S,0)
+		part:SetAttribute("Rocket",true)
+	end
+end
+
+--Generates trajectory path : Right now its gennerates ballistic trajectory
+--This method is almost useless right now because rocket uses other trajectory mode but i still use it for generating visualisation of trajectory path--
+function Trajectory:GenPath (part,startp,targetp,xzspeed) 
+	startp = startp+Vector3.new(0,0.001,0)
+	local p1 = startp
+	local p2 = targetp
+	local Vector = p2-p1
+	local d2vector = Vector3.new(Vector.X,0,Vector.Z)
+	local t = Vector.Magnitude/xzspeed
+	local g = workspace.Gravity
+	local vel = (t/2)*g
+	local velocity = Vector.Unit*xzspeed + Vector3.new(0,vel,0)
+	for i = 1,100 do 
+		local ct = t*(i/100) 
+		local posx = ct * xzspeed* (d2vector.Magnitude/Vector.Magnitude)
+		local S = ((Vector.Unit*xzspeed).Y+vel) * ct - ((ct^2)*g)/2
+		self:TryCreateDebugPart(p1,d2vector,posx,S) 
+		self.points[i] = p1 + ( d2vector.Unit * posx) +Vector3.new(0,S,0)
+	end
+end
+
+--This method is used to get move direction for a rocket
+--Basicly it finds in what area of the trajectory rocket is located and returns trajectory position for that location
+--It gets position from the points array
+function Trajectory:GetNextPos(part,startp,targetp) 
+
+	startp = startp+Vector3.new(0,0.0001,0)  -- Preventing nan values with litle vector
+	local p1 = startp
+	local p2 = targetp
+	local Vector = p2-p1
+	local d2vector = Vector3.new(Vector.X,0,Vector.Z) --2d projection of vector between rocket start position and rocket target position
+
+	local CurrentS = d2vector.Unit:Dot((part.Position-startp).Unit) * (part.Position-startp).Magnitude --Value of how much of the trajectory rocket moved
+	local amm = math.clamp(CurrentS/d2vector.Magnitude,0,1)  * 100
+	local nextcel =  math.clamp(math.ceil(amm/10)*10,15,100) 
+	local pos = self.points[nextcel]
+	return pos 
+
+end
+
+
+-- This method calculates current trajectory position on the given CurrentS
+function Trajectory:CalculatePos(CurrentS,g,speed,d2vector,t,Vector,xzspeed,vel,p1)
+	local ct = math.clamp(CurrentS/speed,0,d2vector.Magnitude/speed) 
+	local S = ((Vector.Unit*xzspeed).Y+vel) * ct - ((ct^2)*g)/2 --Ballistic parabola function
+	local nextp = p1 + ( d2vector.Unit * CurrentS) +Vector3.new(0,S,0) -- Final trajectory position
+	return nextp 
+end
+
+
+--This method is used to get move direction for a rocket
+--it is almost same as GetNextPos but its gets position by calculating it and adding random noise
+
+function Trajectory:GetNextPosR(part,startp,targetp,xzspeed)
+
+	local seed1 = self.seed1
+	local seed2 = self.seed2
+
+	startp = startp+Vector3.new(0,0.0001,0) -- Adding litle vector to prevent nan values
+	local p1 = startp
+	local p2 = targetp
+	local Vector = p2-p1
+	local d2vector = Vector3.new(Vector.X,0,Vector.Z)
+
+	local t = Vector.Magnitude/xzspeed
+	local g = workspace.Gravity
+	local vel = (t/2)*g
+	local speed =xzspeed* (d2vector.Magnitude/Vector.Magnitude) --Speed projection
+
+	--print(part.Position-startp)
+	local CurrentS =math.clamp(d2vector.Unit:Dot((part.Position-startp).Unit) * (part.Position-startp).Magnitude ,150,d2vector.Magnitude ) 
+
+	--Getting 2 points on the trajectory graph
+	local posi1 = self:CalculatePos(CurrentS,g,speed,d2vector,t,Vector,xzspeed,vel,p1)
+	local posi2 = self:CalculatePos(CurrentS+200,g,speed,d2vector,t,Vector,xzspeed,vel,p1) --200 is hardcoded DeltaCurrentS
+
+	local angledframe = CFrame.new(posi1,posi2)
+	angledframe = angledframe - angledframe.Position
+
+	local distanation =  posi2  --Calculating next position
+	if not (d2vector.Magnitude-CurrentS < 500 )then --If distantion is lower than hardcoded value then rocket stop adding noise to direction
+		local manevur=  (angledframe*CFrame.new(math.noise(CurrentS/30,seed1)*300,math.noise(CurrentS/30,seed2 )*300,0)).Position --Adding noise offset to next position
+		distanation += manevur
+	end
+	return 	distanation
+end
+
+
+type Trajectroy = typeof(Trajectory.new())
+
+--Rocket Class
+
+local Rocket = {}
+
+Rocket.__index = Rocket
+
+function Rocket.new(Trajectory: Trajectroy)
+	local self = setmetatable({},Rocket)
+	self.Part = nil 
+	self.Target = nil
+	self.BallisticTrajectory = Trajectory
+	self.Type = 1 
+	return self 
+end
+
+function Rocket:SetPart(part)
+
+	self.Part = part 
+	self.VectorForce = part.VectorForce
+	self.Mass =  self.Part.Mass
+	self.Ves = self.Part.Mass* workspace.Gravity 
+	self.VectorForce = self.Part.VectorForce
+
+end
+
+function Rocket:CalculateForce(Acceleration) 
+	local force = Acceleration*self.Mass +self.Ves
+	return force 
+end
+
+--Method that launches rocket
+function Rocket:Start()	
+	local startacc = script.Configuration.StartAcceleration.Value
+	local force = 	self:CalculateForce(script.Configuration.StartAcceleration.Value) --Calculates force needed to get rocket up
+	self.VectorForce.Force = Vector3.new(0,0,-force)
+	task.wait(1)
+	--Stopping the force
+	self.VectorForce.Force = Vector3.new(0,0,0)
+	--Making the rocket rotate and move to target
+	self:MoveToTarget()
+end
+
+--Makes rocket rotate and then move to target
+function Rocket:MoveToTarget()
+
+	self.Part.AlignOrientation.Enabled = true 
+	self.StartPos = self.Part.Position 
+	local ForceStarted = false 
+	self.BallisticTrajectory:GenPath(self.Part,self.StartPos,self.Target,250)
+
+	local startingtime = tick() 
+	local finspe =  nil 
+	self.TrustVectoringConnection = game:GetService("RunService").Heartbeat:Connect(function()
+		--Setting rocket Direction
+		self.Part.AlignOrientation.CFrame = CFrame.new(self.Part.Position,self.BallisticTrajectory:GetNextPosR(self.Part,self.StartPos,self.Target,250 ))
+		if ForceStarted then
+			--Setting rocket velocity and calculating current speed based on acceleration
+			local speed = math.clamp( script.Configuration.Acceleration.Value*( tick()-startingtime ) ,0,400)
+			self.Part.LinearVelocity.Enabled = true
+			self.Part.LinearVelocity.VectorVelocity =self.Part.CFrame.LookVector* speed
+		end 
+	end)
+
+	task.wait(1)
+	--After we wait rocket will activate force and move on the trajectory
+
+	startingtime = tick()
+	ForceStarted = true
+	--Effects
+	self.Part.FIRE.e.Fire.Enabled = true 
+	self.Part.FIRE.e.Smoke.Smoke.Enabled = true 
+	--Explosion on touch
+	local gottoched = false 
+	local TouchConnection
+	TouchConnection =self.Part.Touched:connect(function(Target:Part)
+		if not gottoched and (not Target:GetAttribute("Rocket")) then
+			task.spawn(function()
+
+				--Making rocket invisible and creating explosion
+				--Also disabling physics and collisions
+				--I dont remove rocket body instance simple because particles will dissapear fast because they are parented to rocket body idk i have to fix it
+
+				self.Part.CanCollide = false 
+				self.Part.CanTouch = false 
+				self.Part.CanQuery = false
+				--Rocket.Part.Parent = game.Lighting
+				self.Part.Anchored = true
+				self.Part.Transparency = 1 
+				for i,v in pairs(self.Part:GetDescendants()) do 
+					if v:IsA("ParticleEmitter")  then 
+						v.Enabled = false 
+					elseif v:IsA("BasePart")  then
+						v.Anchored = true 
+						v.CanCollide = false 
+						v.CanQuery = false
+						v.CanTouch = false 
+					end 
+				end
+				local boomef = game.Lighting.boom:Clone()
+				boomef:SetPrimaryPartCFrame(CFrame.new( self.Part.Position ))
+				boomef.Parent = workspace
+				--boomef.Position = Rocket.Part.Position 
+				local bom= 	Instance.new("Explosion",workspace)
+				bom.BlastRadius = 10000
+				bom.BlastPressure= 300000
+				bom.Position = self.Part.Position
+				task.wait(2)
+				for i,v in pairs(boomef:GetDescendants()) do 
+					if v:IsA("ParticleEmitter") and v.Name ~= "s" then 
+						v.Enabled = false 
+					elseif v.Name == "s" then 
+						task.spawn(function()
+							task.wait(10)
+							v.Enabled = false
+
+						end)
+					end 
+				end
+			end)
+			--Prevent another activation
+			gottoched = true  
+			TouchConnection:Disconnect()
+		end
+	end)
+
+end
+
+--Setting Rocket Target Position 
+function Rocket:SetTargetPosition(pos)
+	self.Target = pos 
+end
+
+
+--Rocket Factory 
+
+local RocketFactory = {}
+
+--Creates rocket
+function RocketFactory:CreateRocket(RocketBody: Part, TargetPosition: Vector3)
+	local rocket = Rocket.new(Trajectory.new())
+	rocket:SetPart(RocketBody)
+	rocket:SetTargetPosition(TargetPosition)
+	return rocket
+end
+
+--Creates rocket body at position
+function RocketFactory:CreateRocketBody(position: Vector3)
+	local RocketBody = script.RocketBody:Clone()
+	RocketBody.Parent = workspace
+	local Platform = RocketBody.Platform
+	Platform.CFrame = CFrame.new(position)
+	RocketBody.CFrame = (Platform.CFrame * CFrame.Angles(math.pi/2, -0, 0)) + Vector3.new(0,(19.773/2)+0.01,0)
+	--RocketBody.Anchored = false
+	return RocketBody	
+end
+
+return RocketFactory
