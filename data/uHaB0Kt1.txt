@@ -1,0 +1,168 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <stdbool.h>
+#include <assert.h>
+#define CHUNK 128
+#define LINE_MAX_SIZE 200
+#define MAX_TITLE_LEN 100
+#define FILE_PREF "out"
+#define FILE_NAME "movies.csv"
+#define ISNULL(p) if (p == NULL) return NULL;
+#define CONCAT(x, y) (x""y)
+
+typedef struct {
+    char title[MAX_TITLE_LEN];
+    int year;
+    uint64_t budget;
+} Movie;
+
+typedef enum {
+    SORT_BY_YEAR = 1, SORT_BY_TITLE, SORT_BY_BUDGET
+} SortedByEnum;
+
+FILE *safeOpenFile(const char *const path, const char *const mode) {
+    FILE *file = NULL;
+    file = fopen(path, mode);
+    if (file == NULL) {
+        perror("opening error!");
+        exit(EXIT_FAILURE);
+    }
+    return file;
+}
+
+void safeCloseFile(FILE *file) {
+    if (fclose(file) == EOF) {
+        perror(NULL);
+    }
+}
+
+void getValue(char s[], char val[]) {
+    static char *p = NULL;
+    memset(val, 0, sizeof(char) * MAX_TITLE_LEN);
+    if (s != NULL) {
+        p = s;
+    }
+    while (*p != ',') {
+        strncat(val, p, 1);
+        p++;
+    }
+    p++;
+}
+
+Movie processLine(char s[]) {
+    static char val[MAX_TITLE_LEN];
+    Movie movie = {};
+
+    getValue(s, val);
+    movie.year = strtoll(val, NULL, 10);
+
+    getValue(NULL, val);
+
+    getValue(NULL, val);
+    strcpy(movie.title, val);
+
+    for (int i = 0; i < 3; i++) {
+        getValue(NULL, val);
+    }
+
+    getValue(NULL, val);
+    movie.budget = strtoll(val, NULL, 10);
+
+    return movie;
+}
+
+void printMovie(FILE *file, const Movie *const movie) {
+    fprintf(file, "{");
+    fprintf(file, " title: %s,", movie->title);
+    fprintf(file, " year: %d,", movie->year);
+    fprintf(file, " budget: %" PRId64, movie->budget);
+    fprintf(file, " }\n");
+}
+
+void printMovieArr(FILE *file, Movie movies[], int n) {
+    for (int i = 0; i < n; i++) {
+        printMovie(file, &movies[i]);
+    }
+}
+
+Movie *read(int *n) {
+    FILE *file = safeOpenFile(FILE_NAME, "r");
+    Movie *movies = NULL;
+    int index = 0, currSize = 0;
+    static char line[LINE_MAX_SIZE];
+    fgets(line, LINE_MAX_SIZE, file);
+    while (fgets(line, LINE_MAX_SIZE, file)) {
+        Movie movie = processLine(line);
+        if (index == currSize) {
+            currSize += CHUNK;
+            movies = (Movie*)realloc(movies, sizeof(Movie) * currSize);
+            ISNULL(movies);
+        }
+        movies[index++] = movie;//*/
+    }
+
+    movies = (Movie*)realloc(movies, sizeof(Movie) * index);
+    ISNULL(movies);
+    *n = index;//*/
+    safeCloseFile(file);
+    return movies;
+}
+
+void swap(Movie *a, Movie *b) {
+    Movie aux = *a;
+    *a = *b;
+    *b = aux;
+}
+
+void bubbleSort(Movie movies[], int n, SortedByEnum sortedBy) {
+    bool sorted;
+    do {
+        sorted = true;
+        for (int i = 1; i < n; i++) {
+            switch(sortedBy) {
+                case SORT_BY_TITLE:
+                    if (strcmp(movies[i - 1].title, movies[i].title) > 0) {
+                        swap(&movies[i - 1], &movies[i]);
+                        sorted = false;
+                    }
+                    break;
+                case SORT_BY_YEAR:
+                    if (movies[i - 1].year > movies[i].year) {
+                        swap(&movies[i - 1], &movies[i]);
+                        sorted = false;
+                    }
+                    break;
+                case SORT_BY_BUDGET:
+                    if (movies[i - 1].budget > movies[i].budget) {
+                        swap(&movies[i - 1], &movies[i]);
+                        sorted = false;
+                    }
+                    break;
+                default:
+                    assert(false);
+            }
+        }
+    } while(!sorted);
+}
+
+int main(void) {
+    int n;
+    Movie *movies = read(&n);
+    if (movies == NULL) {
+        fprintf(stderr, "error at realloc!\n");
+        exit(-1);
+    }
+
+    for (int i = 1; i <= 3; i++) {
+        char fname[10];
+        sprintf(fname, "%s%d.txt", FILE_PREF, i);
+        FILE *file = safeOpenFile(fname, "w");
+        bubbleSort(movies, n, (SortedByEnum)i);
+        printMovieArr(file, movies, n);
+        safeCloseFile(file);
+    }
+    return 0;
+}
