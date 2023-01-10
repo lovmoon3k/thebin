@@ -1,0 +1,1 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ttwizz/Roblox/master/UniversalTriggerBot.lua", true))()

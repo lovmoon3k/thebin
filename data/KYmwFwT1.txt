@@ -1,0 +1,188 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include "bits/stdc++.h"
+using namespace std;
+#define all(a) a.begin(), a.end()
+#define int long long
+const int c = 500, mod = 1e9 + 7;
+
+inline int gilbertOrder(int x, int y, int pow, int rotate) {
+	if (pow == 0) {
+		return 0;
+	}
+	int hpow = 1ll << (pow - 1);
+	int seg = (x < hpow) ? ( (y < hpow) ? 0 : 3) : ((y < hpow) ? 1 : 2);
+	seg = (seg + rotate) & 3;
+	const int rotateDelta[4] = { 3, 0, 0, 1 };
+	int nx = x & (x ^ hpow), ny = y & (y ^ hpow);
+	int nrot = (rotate + rotateDelta[seg]) & 3;
+	int subSquareSize = 1ll << (2 * pow - 2);
+	int ans = seg * subSquareSize;
+	int add = gilbertOrder(nx, ny, pow - 1, nrot);
+	ans += (seg == 1 || seg == 2) ? add : (subSquareSize - add - 1);
+	return ans;
+}
+
+struct Query {
+	int l, r, ind, ord;
+	Query(int _l, int _r, int _i) : l(_l), r(_r), ind(_i) {
+		ord = gilbertOrder(l, r, 21, 0);
+	};
+	bool operator<(const Query& other) {
+		return ord < other.ord;
+	}
+};
+struct Fenwick {
+	int n;
+	vector<int> t;
+	Fenwick(int _n) : n(_n) {
+		t.resize(_n + 1);
+	}
+	void upd(int i, int x) {
+		for (; i <= n; i += i & -i) {
+			t[i] += x;
+			t[i] = (t[i] + mod) % mod;
+		}
+	}
+	int get(int i) {
+		int res = 0;
+		for (; i; i -= i & -i) {
+			res = (res + t[i]) % mod;
+		}
+		return res;
+	}
+	int sum(int l, int r) {
+		return (get(r) - get(l - 1) + mod) % mod;;
+	}
+};
+int binpow(int a, int n) {
+	int res = 1;
+	while (n) {
+		if (n & 1) {
+			res = (res * a) % mod;
+		}
+		a = (a * a) % mod;
+		n /= 2;
+	}
+	return res;
+}
+int inv(int x) {
+	return binpow(x, mod - 2);
+}
+signed main() {
+#ifdef _DEBUG
+	freopen("input.txt", "r", stdin);
+	freopen("output.txt", "w", stdout);
+#endif
+	ios_base::sync_with_stdio(false);
+	cin.tie(nullptr);
+	int div = inv(2);
+	int n, q; cin >> n >> q;
+	vector<int> a(n), pref(n + 1);
+	for (int i = 0; i < n; i++) {
+		cin >> a[i];
+		pref[i + 1] = pref[i] + a[i];
+		pref[i + 1] %= mod;
+	}
+	auto get_sum = [&](int l, int r) {
+		return (pref[r + 1] - pref[l] + mod) % mod;
+	};
+	int mxa = 0;
+	vector<int> b = a;
+	{
+		sort(all(b));
+		b.resize(unique(all(b)) - b.begin());
+		for (int& i : a) {
+			i = lower_bound(all(b), i) - b.begin();
+		}
+		mxa = (int)b.size() + 1;
+	}
+	vector<Query> mo;
+	vector<int> ans(q);
+	for (int i = 0; i < q; i++) {
+		int l, r; cin >> l >> r;
+		l--, r--;
+		mo.push_back(Query(l, r, i));
+	}
+	sort(all(mo));
+	int res = 0;
+	if (is_sorted(all(a))) {
+		int seg_sum = 0, index = 0;
+		auto add = [&](int x, bool left) {
+			int right = (left ? seg_sum : 0);
+			res = (res + 2ll * right) % mod;
+			res = (res + 2ll * (b[x] * (!left ? index : 0)) % mod) % mod;
+			seg_sum += b[x];
+			seg_sum %= mod;
+			index++;
+		};
+		auto del = [&](int x, bool left) {
+			seg_sum = (seg_sum - b[x] + mod) % mod;
+			int right = (left ? seg_sum : 0);
+			res = (res - 2ll * right + mod) % mod;
+			res = (res - 2ll * (b[x] * (!left ? index - 1 : 0)) % mod + 2ll * mod) % mod;
+			index--;
+		};
+
+		int l = 0, r = -1;
+		for (const Query& i : mo) {
+			while (l > i.l) {
+				add(a[--l], 1);
+			}
+			while (r < i.r) {
+				add(a[++r], 0);
+			}
+			while (l < i.l) {
+				del(a[l++], 1);
+			}
+			while (r > i.r) {
+				del(a[r--], 0);
+			}
+			int f = (res - ((i.r - i.l) * (get_sum(i.l, i.r))) % mod + mod) % mod;
+			ans[i.ind] = (f * (i.r - i.l + 1)) % mod;
+			ans[i.ind] *= 3ll;
+			ans[i.ind] %= mod;;
+		}
+		for (int& i : ans) {
+			cout << i << '\n';
+		}
+		return 0;
+	}
+
+	Fenwick T(mxa), kth(mxa);
+	auto add = [&](int x) {
+		int right = T.sum(x + 1, mxa);
+		res = (res + 2ll * right) % mod;
+		res = (res + 2ll * (b[x] * (kth.get(x))) % mod) % mod;
+		T.upd(x + 1, b[x]);
+		kth.upd(x + 1, 1);
+	};
+	auto del = [&](int x) {
+		int right = T.sum(x + 2, mxa);
+		res = (res - 2ll * right + mod) % mod;
+		res = (res - 2ll * (b[x] * (kth.get(x))) % mod + 2ll * mod) % mod;
+		T.upd(x + 1, -b[x]);
+		kth.upd(x + 1, -1);
+	};
+	int l = 0, r = -1;
+	for (const Query& i : mo) {
+		while (l > i.l) {
+			add(a[--l]);
+		}
+		while (r < i.r) {
+			add(a[++r]);
+		}
+		while (l < i.l) {
+			del(a[l++]);
+		}
+		while (r > i.r) {
+			del(a[r--]);
+		}
+		int f = (res - ((i.r - i.l) * (get_sum(i.l, i.r))) % mod + mod) % mod;
+		ans[i.ind] = (f * (i.r - i.l + 1)) % mod;
+		ans[i.ind] *= 3ll;
+		ans[i.ind] %= mod;;
+	}
+	for (int& i : ans) {
+		cout << i << '\n';
+	}
+}
