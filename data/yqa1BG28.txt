@@ -1,0 +1,82 @@
+// NOTE: RaycastCommand gives really slow results in editor and can only be tested in build!
+// Spawns randomly 100 cubes and shoots 1000 rays to random directions with normal Raycast and then with RaycastCommand
+// I tried splitting the batch to multiple jobs, but it only gave worse results on my PC
+
+using System.Diagnostics;
+using TMPro;
+using Unity.Collections;
+using Unity.Jobs;
+using UnityEngine;
+using Random = UnityEngine.Random;
+
+public class RaycastTest : MonoBehaviour
+{
+    private const int CASTS = 1000;
+    
+    public LayerMask m_mask;
+    public TextMeshProUGUI m_resultRaycast;
+    public TextMeshProUGUI m_resultRaycastCommand;
+
+    private QueryParameters m_queryParameters;
+    private NativeArray<RaycastCommand> m_commands = new (CASTS, Allocator.Persistent);
+    private NativeArray<RaycastHit> m_results = new (CASTS, Allocator.Persistent);
+
+    private Stopwatch m_sw = new();
+    private JobHandle m_handle = new ();
+
+    private void Awake()
+    {
+        m_queryParameters = new QueryParameters(m_mask);
+        for (int i = 0; i < 100; i++)
+        {
+            GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.transform.position = new Vector3(Random.Range(1f, 10f), Random.Range(1f, 10f), Random.Range(1f, 10f));
+        }
+    }
+
+    private void Update()
+    {
+        TestRaycast();
+        TestRaycastCommand();
+    }
+
+    private void TestRaycast()
+    {
+        m_sw.Restart();
+        int hitCount = 0;
+        for(int i = 0; i < CASTS; i++)
+        {
+            Vector3 dir = new Vector3(Random.Range(0f, 1f), Random.Range(0f, 1f), Random.Range(0f, 1f)).normalized;
+            if (Physics.Raycast(Vector3.zero, dir, 100, m_mask))
+            {
+                hitCount++;
+            }
+        }
+        m_sw.Stop();
+
+        m_resultRaycast.text = $"Raycast | Hits: {hitCount} - Time: {m_sw.Elapsed.TotalMilliseconds:f4} - Ticks: {m_sw.ElapsedTicks}";
+    }
+    
+    private void TestRaycastCommand()
+    {
+        m_sw.Restart();
+        m_handle.Complete();
+        int hitCount = 0;
+        for (int i = 0; i < CASTS; i++)
+        {
+            RaycastHit hit = m_results[i];
+            if (hit.collider != null)
+                hitCount++;
+        }
+        
+        for(int i = 0; i < CASTS; i++)
+        {
+            Vector3 dir = new Vector3(Random.Range(0f, 1f), Random.Range(0f, 1f), Random.Range(0f, 1f)).normalized;
+            m_commands[i] = new RaycastCommand(Vector3.zero, dir, m_queryParameters, 100f);
+        }
+        m_handle = RaycastCommand.ScheduleBatch(m_commands, m_results, minCommandsPerJob: 1000);
+        m_sw.Stop();
+        
+        m_resultRaycastCommand.text = $"RaycastCommand | Hits: {hitCount} - Time: {m_sw.Elapsed.TotalMilliseconds:f4} - Ticks: {m_sw.ElapsedTicks}";
+    }
+}
