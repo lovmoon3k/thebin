@@ -1,0 +1,87 @@
+/*  https://www.reddit.com/r/olkb/comments/105i70g/key_toggling_macro/
+ *  https://www.reddit.com/r/olkb/comments/107uzdj/weird_key_macro_help/
+ *  This user wanted to be able to tap certains keys and have them held down until they are tapped again.
+ *  This behavior should only happen when hold key mode is active, and should only apply to specific keys.
+ *  After a key is toggled off (no longer held), it should be automatically tapped again after a delay.
+ *  Hold key mode is toggled on and off with the custom HOLD_TOG keycode
+ *  Place all of this code in keymap.c
+ */
+
+const uint16_t keys_to_hold[] = {};  // set your holdkey keycodes here, example: { KC_Q, KC_W, KC_E, KC_R }
+const UNTOGGLE_TAP_DELAY = 35;       // set the delay in milliseconds to tap a holdkey after being toggled off
+
+
+
+enum custom_keycodes {
+    HOLD_TOG = SAFE_RANGE,  // custom keycode called HOLD_TOG that toggles hold_key_mode_active
+    // OTHER_MACROS, ...
+}
+
+struct holdkey {
+    uint16_t key;  // keycode to hold
+    bool held;     // is it being held? 
+};
+
+const size_t num_holdkeys = sizeof(keys_to_hold) / sizeof(uint16_t);  // calculate number of defined holdkeys
+struct key holdkeys[num_holdkeys];                                    // create an empty array of holdkey structs
+
+for (int i = 0; i < num_holdkeys; i++) {                              // populate the holdkeys array with keys_to_hold
+    holdkeys[i] = (struct holdkey){keys_to_hold[i], false};
+}
+
+// deferred execution callback
+uint16_t delayed_keycode;
+uint32_t tap_after_delay(uint32_t trigger_time, void *cb_arg) {
+    tapcode_16(delayed_keycode);
+    return 0;
+}
+
+// call this function after toggling hold key mode off
+void reset_holdkeys_status() {
+	for (int i = 0; i < num_holdkeys; i++) {		// loop through all holdkeys
+    	if (holdkeys[i].held)						// if a holdkey is held down
+            unregister_code16(holdkeys[i].key);		//   send a keyup event for the held keycode
+        holdkeys[i].held = false;					// set held status to false
+    }
+}
+
+bool hold_key_mode_active = false;
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    // holdkey specific code
+    if (hold_key_mode_active  &&  record->event.pressed) {  // when a key is pressed while hold key mode is active
+        for (int i = 0; i < num_holdkeys; i++) {            // loop thru all holdkeys
+            if (keycode == holdkeys[i].key) {               // if the keycode pressed matches this holdkey
+                holdkeys[i].held = !holdkeys[i].held        // flip the held status of this holdkey
+                if (holdkeys[i].held) {                     // if holdkey.held is now true
+                    register_code16(keycode);               // send a keydown event for the pressed keycode
+                } else {                                    // otherwise, if holdkey.held is now false
+                    unregister_code16(keycode);             // send a keyup event for the pressed keycode
+                    delayed_keycode = keycode;                              // save the keycode to tap later
+                    defer_exec(UNTOGGLE_TAP_DELAY, tap_after_delay, NULL);  // tap keycode again after UNTOGGLE_TAP_DELAY
+                }
+                break;
+            }
+        }
+    }
+    
+    // normal macro code
+    switch(keycode) {
+        case HOLD_TOG:
+            if (record->event.pressed) {                        // when HOLD_TOG key is pressed
+                hold_key_mode_active = !hold_key_mode_active;   // toggle hold key mode
+                if (!hold_key_mode_active)						// when hold key mode is toggled off
+                    reset_holdkeys_status();					//   unhold all active holdkeys
+            }        
+            break;
+
+    //  case OTHER_MACROS: ...
+        
+    }
+    return true;
+}
+
+
+
+
+
