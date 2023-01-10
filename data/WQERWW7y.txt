@@ -1,0 +1,181 @@
+//the mod will make any save, even a fresh save, get all achievements, upgrades, and many other values as suitable for a combo attempt. After initial launch, using ResetAll(); will reset the game and minigames according to the variables without resetting the variables, so you can change the variables after launch to change the conditions for the combo. To change the variables to suit your own needs, you'll have to set the variables yourself using a script, which can be done by copying over the variables to your own pastebin, changing the values of the variables, and running that script after this one. Currently, there's no functionality for setting custom nat buffs or selecting a specific pantheon, but I might add that in a future update.
+
+
+let iniSeed='R'; //use 'R' to randomize seed, otherwise set as a specific seed
+let iniC=2e66 //initial cookie count
+let iniCE=1e75 //cookies earned count
+let iniP=1e21 //prestige level
+let iniLumps=105 //lump count
+let iniBC=1045; //cursor amount, used to determine other building amounts
+let wizCount=851; //specifically wizard towers
+//let buildingRelList=[-14, -25, -36, -17, -17, -1, -0, -58, -19, -19, -19, -17, -4, -27, -2, -52, -24, -33] //supposedly good non-EB count for 2.048, although fairly unoptimized
+let buildingRelList=[-5, -34, -20, -17, -17, -16, -0, -42, -19, -10, -27, -18, -17, -19, -12, -32, -43, -35] //supposedly good EB count for 2.048, numbers represent how many fewer to buy compared to the previous building, "-0" is used for wizard towers as that is instead set to a specific amount afterwards
+let chooseLump=0 //4 is caramelized
+let d1Aura=13 //13 is Epoch Manipulator
+let d2Aura=4 //4 is Dragon Harvest
+let forceFtHoF='blood frenzy' //'blood frenzy' is elder frenzy, setting as something that isn't a buff will result in random outcome
+let gardenSeed=14 //14 means currently holding whiskerbloom seed
+let gardenP1=[6, 60] //defalut [6, 60] (being fairly grown golden clover), will be planted on half of the columns
+let gardenP2=[17, 60] //default [17, 60] (being fairly grown nursetulip), will be planted on the other half of the columns
+let officeL=5 //5 is palace of greed
+let fortuneG=0 //0 to make GC fortune unclicked
+var boughtSF=0 //0 or 1, 0 to make SF available
+let boughtCE=0 //make chocolate egg available
+let setSeason='halloween' //'halloween' makes it halloween, duh
+
+eval("Game.getNewTicker="+Game.getNewTicker.toString().replace("!manual && Game.T>Game.fps*10 && Game.Has('Fortune cookies') && Math.random()<(Game.HasAchiev('O Fortuna')?0.04:0.02)","true")) //force fortunes until all fortunes are clicked
+
+function ResetGame() {
+
+  if (iniSeed=='R') {Game.seed=Game.makeSeed();} else {Game.seed=iniSeed;};
+  console.log(Game.seed);
+  Game.cookies=iniC;
+  Game.cookiesEarned=iniCE;
+  Game.prestige=iniP;
+  Game.popups=0;
+  var leftout=['Steamed cookies','Ultrascience','Gold hoard','Neuromancy','Perfect idling','Wrinkler doormat','Reindeer season','Eternal seasons','Turbo-charged soil','A really good guide book','Magic shenanigans','Occult obstruction','Glucose-charged air'];
+  for (var i in Game.Upgrades) 
+    {
+      if (Game.Upgrades[i].pool=='toggle' || leftout.indexOf(Game.Upgrades[i].name)!=-1) {}
+      else if (1) Game.Upgrades[i].earn();
+    }
+  Game.Upgrades['Chocolate egg'].bought=boughtCE;
+  Game.Upgrades['Sugar frenzy'].bought=boughtSF;
+  Game.upgradesToRebuild=1;
+  Game.recalculateGains=1;
+  Game.SetAllAchievs(1);
+  Game.popups=0;
+  Game.MaxSpecials();
+  Game.nextResearch=0;
+  Game.researchT=-1;
+  Game.upgradesToRebuild=1;
+  let buildCount=iniBC;
+  for (let i = 0; i < 19; i++)
+    {
+      Game.ObjectsById[i].amount=buildCount
+      buildCount+=buildingRelList[i]
+    }
+  Game.ObjectsById[7].amount=wizCount
+  Game.recalculateGains=1;
+  Game.popups=1;
+
+  Game.killBuffs();
+  Game.killShimmers();
+  Game.fortuneGC=fortuneG
+  Game.fortuneCPS=1
+  Game.lumpCurrentType=chooseLump;
+  Game.lumpT=Date.now()-Game.lumpRipeAge;
+  Game.baseSeason=setSeason;
+  Game.season=setSeason;
+  Game.elderWrath=0;
+  Game.pledgeT=Game.getPledgeDuration();
+  Game.CollectWrinklers();
+  Game.dragonAura=d1Aura
+  Game.dragonAura2=d2Aura
+
+  for (let i = 0; i < 19; i++)
+    {
+      var me=Game.ObjectsById[i];
+      if (i==0) {me.level=19;} else {me.level=9;};
+      me.levelUp(true);
+    }
+  };
+
+function ResetMinigames() {
+  
+  for (let i = 0; i < 19; i++)
+    {
+      var me=Game.ObjectsById[i];
+      if (me.minigame && me.minigame.onRuinTheFun) me.minigame.onRuinTheFun();
+    }
+  Game.lumps=iniLumps
+
+  for (let i = 0; i < 9999; i++) {
+    Math.seedrandom(Game.seed+'/'+i);
+    if (Math.random()<(1-0.15)) {
+      Math.random();
+      Math.random();
+      var choices=[];
+      choices.push('frenzy','multiply cookies');
+      if (!Game.hasBuff('Dragonflight')) choices.push('click frenzy');
+      if (Math.random()<0.1) choices.push('cookie storm','cookie storm','blab');
+      if (Game.BuildingsOwned>=10 && Math.random()<0.25) choices.push('building special');
+      if (Math.random()<0.15) choices=['cookie storm drop'];
+      if (Math.random()<0.0001) choices.push('free sugar lump');
+      let chosen=choose(choices);
+      if (chosen!=forceFtHoF) {continue;};
+      Game.Objects['Wizard tower'].minigame.spellsCastTotal=i
+      Game.Notify('Successfully found a '+forceFtHoF,'Your seed is '+Game.seed,[11,5]);
+      break
+      }
+    else {
+      Math.random();
+      Math.random();
+      var choices=[];
+      choices.push('clot','ruin cookies');
+      if (Math.random()<0.1) choices.push('cursed finger','blood frenzy');
+      if (Math.random()<0.003) choices.push('free sugar lump');
+      if (Math.random()<0.1) choices=['blab'];
+      var chosen=choose(choices);
+      if (chosen!=forceFtHoF) {continue;};
+      Game.Objects['Wizard tower'].minigame.spellsCastTotal=i
+      Game.Notify('Successfully found a '+forceFtHoF,'Your seed is '+Game.seed,[11,5])
+      break
+      }
+    }
+  if (chosen!=forceFtHoF) {Game.Notify('Failed to find a '+forceFtHoF,'Your seed is '+Game.seed,[15, 5])};
+  Game.Objects['Wizard tower'].minigame.magic=Game.Objects['Wizard tower'].minigame.magicM
+  Game.lumpRefill=0;
+
+  for (var y=0;y<6;y++)
+    {
+    for (var x=0;x<6;x++)
+      {
+      if (x==0 || x==2 || x==4) {Game.Objects['Farm'].minigame.plot[y][x]=[gardenP1[0], gardenP2[1]]} else {Game.Objects['Farm'].minigame.plot[y][x]=[gardenP2[0], gardenP2[1]]}
+      }
+    }
+
+  Game.Objects['Farm'].minigame.freeze=0;
+  Game.Objects['Farm'].minigame.soil=2;
+  Game.Objects['Farm'].minigame.nextStep=Date.now();
+  Game.Objects['Farm'].minigame.seedSelected=gardenSeed;
+
+  Game.Objects['Bank'].minigame.officeLevel=officeL;
+
+  Game.Objects['Temple'].minigame.reset();
+  Game.Objects['Temple'].minigame.dragging=Game.Objects['Temple'].minigame.gods.decadence;
+  Game.Objects['Temple'].minigame.slotGod(Game.Objects['Temple'].minigame.gods.decadence, 0);
+  var div=l('templeGod'+1);
+  div.className='ready templeGod titleFont';
+  div.style.transform='none';
+  l('templeSlot'+0).appendChild(div);
+  Game.Objects['Temple'].minigame.dragging=Game.Objects['Temple'].minigame.gods.seasons;
+  Game.Objects['Temple'].minigame.slotGod(Game.Objects['Temple'].minigame.gods.seasons, 1);
+  var div=l('templeGod'+4);
+  div.className='ready templeGod titleFont';
+  div.style.transform='none';
+  l('templeSlot'+1).appendChild(div);
+  Game.Objects['Temple'].minigame.dragging=Game.Objects['Temple'].minigame.gods.labor;
+  Game.Objects['Temple'].minigame.slotGod(Game.Objects['Temple'].minigame.gods.labor, 2);
+  var div=l('templeGod'+6);
+  div.className='ready templeGod titleFont';
+  div.style.transform='none';
+  l('templeSlot'+2).appendChild(div);
+  Game.Objects['Temple'].minigame.dragging=false;
+  Game.Objects['Temple'].minigame.swaps=3
+
+  if (!Game.Has('Golden switch [on]')) {Game.UpgradesById[332].earn();Game.UpgradesById[331].bought = 0;}
+  var newShimmer=new Game.shimmer('golden',{noWrath:true});
+  newShimmer.spawnLead=1;
+  newShimmer.force='building special'
+  Game.gainBuff('frenzy',600,7);
+  Game.gainBuff('dragon harvest',600,17);
+  };
+
+function ResetAll() {
+  ResetGame();
+  ResetMinigames();
+  };
+
+ResetGame();
+setTimeout(ResetMinigames, 5000);
