@@ -1,0 +1,81 @@
+const validateSnilsChecksum = (e): boolean => {
+  const snilsString = e.value;
+  if (snilsString.length !== 11) return false;
+
+  const checkSum = snilsString.slice(-2);
+  const number = snilsString.slice(0, snilsString.length - 2);
+
+  //Подсчитываем сумму
+  const numberLength = number.length;
+
+  let summ = 0;
+
+  for (let i = 0; i < numberLength; i++) {
+    const parsed = parseInt(number.charAt(i));
+
+    if (isNaN(parsed)) {
+      return false;
+    }
+
+    summ += parsed * (numberLength - i);
+  }
+
+  if (summ > 0) {
+    let mod = summ % 101;
+    const mod_str = mod.toString();
+
+    if (mod_str.length > 2) {
+      mod = mod_str === '100' ? 0 : mod % 100;
+    }
+
+    const padded_mod = mod.toString().padStart(2, '0');
+
+    if (padded_mod === checkSum) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+export const SnilsEditor = forwardRef((p: IFormatSnilsEditor, ref) => {
+  const { validationRules, ...rest } = p;
+  const [validType, setValidType] = useState(true);
+
+  const validatorRef = useRef<Validator>(null);
+  const onValidated = useCallback(
+    e => {
+      setValidType(e.isValid);
+    },
+    [validationRules],
+  );
+
+  const validateSnilsEditor = () => {
+    if (validatorRef.current) {
+      return validatorRef.current.instance.validate();
+    }
+  };
+
+  useImperativeHandle(
+    ref,
+    (): Omit<ICustomEditor, 'setValue' | 'getLabelText'> => ({
+      setValidType: setValidType,
+      validate: validateSnilsEditor,
+      disableValidator: () => _.noop(),
+      enableValidator: () => _.noop(),
+      focusOn: () => _.noop(),
+      disable: () => _.noop(),
+      enable: () => _.noop(),
+      setReadOnly: () => _.noop(),
+      refreshDataBeforeNextOpen: () => _.noop(),
+    }),
+    [],
+  );
+  return (
+    <TextBox mask={'000-000-000 00'} isValid={validType}>
+      <Validator ref={validatorRef} validationRules={validationRules} onValidated={onValidated}>
+        <CustomRule validationCallback={validateSnilsChecksum} message="Неверная контрольная сумма" />
+      </Validator>
+    </TextBox>
+  );
+});
