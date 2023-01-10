@@ -1,0 +1,55 @@
+function addNote(instrument, index, data, pitch, velocity)
+	local numNotes = 48
+	
+	local originalNumData = #data
+	-- Only runs if index is bigger than #data, and populates 0's until index
+	-- note that index is 0-based and inclusive
+	for i=originalNumData+1,index-1,1 do
+		data[i] = 0
+	end
+	
+	local instrumentData = pcmSets[instrument]
+	local numInstrumentData = #instrumentData
+	
+	-- Early pitching attempt, hopefully becomes FFT later
+	
+	local pitchMult = math.pow(2,((numNotes/2)-pitch)/12)
+	-- Gives us 0.25 to 4 for 48 notes, or 1/4 to 4x freq
+	
+	local curDataIndex = 1
+	for i=1, numInstrumentData, 1 do
+	-- This handles both duplicating notes and interpolating
+		while curDataIndex <= i*pitchMult do
+			local curData = data[index+curDataIndex] or 0
+			
+			local newData
+			if pitchMult < 1 then
+				newData = InterpolateHermite(instrumentData[i-1] or 0, instrumentData[i] or 0, instrumentData[i+1] or 0, instrumentData[i+2] or 0, (i*pitchMult)-curDataIndex) * (velocity/128)
+			else -- No interpolation when duplicating?
+				newData = instrumentData[i]*(velocity/128)
+			end
+						
+			-- Next we try a thing to mix them well
+			local m
+			-- Make them unsigned
+			local newDataU = newData + 128
+			local curDataU = curData + 128
+			if newDataU < 128 or curDataU < 128 then
+				m = newDataU * curDataU / 128
+			else
+				m = 2 * (newDataU + curDataU) - (newDataU * curDataU) / 128 - 256
+			end
+			-- Sign it...
+			if m == 256 then m = 255 end
+			
+			m = (m - 128)*0.9 -- Keep volume from oversaturating...
+			
+			data[index+curDataIndex] = m
+			
+			curDataIndex = curDataIndex + 1
+		end
+		-- then keep duplicating it if it's still positive
+		
+	end
+	return data
+end
