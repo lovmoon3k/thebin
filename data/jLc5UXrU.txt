@@ -1,0 +1,107 @@
+let cancelPayment = await request({
+				uri: `${config.internal_gateway.url_cms}${config.internal_gateway.hero_cancel_payment_request}`,
+				method: 'POST',
+				headers: {
+					'Authorization': `Bearer ${apiSignature}`,
+					'Content-Type': 'application/json',
+				},
+				body: {
+					member_code: data.courier_code
+				},
+				json:true
+			})
+			/*if(cancelPayment.code == 200){
+				return res.status(400).send({
+					msg:"Just for test, Cancel hero payments is works"
+				})
+			}*/
+			if(cancelPayment.code != 200){
+				return res.status(400).send({
+					msg:cancelPayment.code_message
+				})
+			}
+
+			let courierData = await InternalMember.findOne({member_code:data.courier_code})
+			let adminData = await InternalMember.findOne({member_code:res.locals.auth.member_code})
+			let admin = await AdminHub.findOne({admin_hub_code:res.locals.auth.admin_hub_code})
+
+			if(admin.cashier_code === '' || admin.cashier_code === undefined || admin.cashier_code === null){
+				return res.send({
+					msg: 'Cannot Find Admin Hub Cashier Code',
+					status : false
+				})
+			}
+
+			// if(admin.admin_hub_code !== adminCourier.admin_hub_code){
+			// 	return res.send({
+			// 		msg: "Courier can't store money to different Courier AdminHub",
+			// 		status : false
+			// 	})
+			// }
+
+			data.cashier_code = admin.cashier_code;
+			let shipments = [];
+			for(let index=0 ; index<data.shipment_list.length ; index++){
+				shipments.push(data.shipment_list[index].shipment_code);
+			}
+
+		  	let options = {
+				uri: `${config.internal_gateway.url}${member_code}${config.internal_gateway.post_collect_money}`,
+				method: 'POST',
+				headers: {
+					'Authorization': `Bearer ${apiSignature}`,
+					'Content-Type': 'application/json',
+				},
+				body: data,
+				json:true
+			};
+			let result = await request(options)
+
+			if(result.code_message == "Success"){
+				let courierDeposits = []
+				let courierMoney = await CourierMoney.findOne({
+					where: {
+						'courier_code': data.courier_code
+					},
+					order: [
+						['closed_at', 'DESC']
+					],
+					raw: true
+				});
+
+				if(courierMoney){
+					let courierMoneyDetails = await CourierMoneyDetail.findAll({
+						where:{
+								status: "accepted",
+								'courier_money_id': courierMoney.id,
+								'shipment_code': {
+									[Op.in]: shipments
+								}
+						},
+						raw: true
+					});
+					let now = new Date()
+					now.setMilliseconds(0)
+					for(let cmDetails of courierMoneyDetails){
+						courierDeposits.push({
+							admin_hub_code : courierData? courierData.admin_hub_code : res.locals.auth.admin_hub_code,
+							cashier_code : data.cashier_code,
+							code : courierMoney.code,
+							closed_at: courierMoney.closeAt,
+							courier_code: courierData ? courierData.member_code : data.courier_code,
+							courier_name: courierData ? courierData.name : "",
+							received_code : adminData.member_code,
+							received_name : adminData.name,
+							courier_money_id: courierMoney.id,
+							shipment_code: cmDetails.shipment_code,
+							transaction_type: cmDetails.transaction_type,
+							amount: cmDetails.amount,
+							status: cmDetails.status,
+							remark: cmDetails.remark,
+							created_at: now,
+						})
+					}
+					let response = await CourierDeposit.insertMany(courierDeposits)
+				}
+
+			}
