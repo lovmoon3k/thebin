@@ -1,0 +1,1051 @@
+__SUBMISSION__
+
+#include <execution>
+#include <random>
+
+#include "compare_performance.h"
+#include "stream_wrapper.h"
+#include "test_runner.h"
+
+namespace tests {
+
+using namespace std;
+
+const std::vector<int> ratings1 = {1, 2, 3, 4, 5};
+const std::vector<int> ratings2 = {-1, -2, 30, -3, 44, 5};
+const std::vector<int> ratings3 = {12, -20, 80, 0, 8, 0, 0, 9, 67};
+const std::vector<int> ratings4 = {7, 0, 3, -49, 5};
+const std::vector<int> ratings5 = {81, -6, 7, 94, -7};
+const std::vector<int> ratings6 = {41, 8, -7, 897, 5};
+const std::vector<int> ratings7 = {543, 0, 43, 4, -5};
+const std::vector<int> ratings8 = {91, 7, 3, -88, 56};
+const std::vector<int> ratings9 = {0, -87, 93, 66, 5};
+const std::vector<int> ratings10 = {11, 2, -43, 4, 895};
+const int max_ratings_length = 10;
+const int max_rating_value = 100;
+
+void TestNoStopWords() {
+    std::string stop_words;
+    SearchServer search_server(stop_words);
+
+    search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL, ratings1);
+    search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL, ratings2);
+    search_server.AddDocument(2, "ухоженный пёс выразительные глаза", DocumentStatus::ACTUAL,
+                              ratings3);
+
+    SearchServer const_search_server = search_server;
+
+    const std::string query = "пушистый и ухоженный кот";
+    const auto documents = const_search_server.FindTopDocuments(query, DocumentStatus::ACTUAL);
+    for (const Document& document : documents) {
+        std::cout << "{ "
+                  << "document_id = " << document.id << ", "
+                  << "relevance = " << document.relevance << ", "
+                  << "rating = " << document.rating << " }" << std::endl;
+    }
+}
+
+void TestOneDocumentExcluded() {
+    std::string stop_words = "белый кот и модный ошейник";
+    SearchServer search_server(stop_words);
+
+    search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL, ratings1);
+    search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL, ratings2);
+    search_server.AddDocument(2, "ухоженный пёс выразительные глаза", DocumentStatus::ACTUAL,
+                              ratings3);
+
+    const SearchServer const_search_server = search_server;
+
+    const std::string query = "пушистый и ухоженный кот";
+    const auto documents = const_search_server.FindTopDocuments(query, DocumentStatus::ACTUAL);
+    for (const Document& document : documents) {
+        std::cout << "{ "
+                  << "document_id = " << document.id << ", "
+                  << "relevance = " << document.relevance << ", "
+                  << "rating = " << document.rating << " }" << std::endl;
+    }
+}
+
+void TestAllDocumentsExcluded() {
+    std::string stop_words = "белый кот и модный ошейник";
+    SearchServer search_server(stop_words);
+
+    search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL, ratings1);
+    search_server.AddDocument(1, "белый кот и модный ошейник", DocumentStatus::ACTUAL, ratings1);
+    search_server.AddDocument(2, "белый кот и модный ошейник", DocumentStatus::ACTUAL, ratings1);
+
+    const SearchServer const_search_server = search_server;
+
+    const std::string query = "пушистый и ухоженный кот";
+    const auto documents = const_search_server.FindTopDocuments(query, DocumentStatus::ACTUAL);
+
+    for (const Document& document : documents) {
+        std::cout << "{ "
+                  << "document_id = " << document.id << ", "
+                  << "relevance = " << document.relevance << ", "
+                  << "rating = " << document.rating << " }" << std::endl;
+    }
+}
+
+void TestGeneral() {
+    std::string stop_words = "и в на";
+    SearchServer search_server(stop_words);
+
+    search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL, ratings1);
+    search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL, ratings2);
+    search_server.AddDocument(2, "ухоженный пёс выразительные глаза", DocumentStatus::ACTUAL,
+                              ratings3);
+
+    const SearchServer const_search_server = search_server;
+
+    const std::string query = "пушистый ухоженный кот -ошейник";
+    const auto documents = const_search_server.FindTopDocuments(query, DocumentStatus::ACTUAL);
+    for (const Document& document : documents) {
+        std::cout << "{ "
+                  << "document_id = " << document.id << ", "
+                  << "relevance = " << document.relevance << ", "
+                  << "rating = " << document.rating << " }" << std::endl;
+    }
+}
+
+void TestStatuses() {
+    std::string stop_words = "и в на";
+    SearchServer search_server(stop_words);
+
+    search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL, ratings1);
+    search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL, ratings2);
+    search_server.AddDocument(2, "ухоженный пёс выразительные глаза", DocumentStatus::ACTUAL,
+                              ratings3);
+    search_server.AddDocument(3, "белый модный кот", DocumentStatus::IRRELEVANT, ratings1);
+    search_server.AddDocument(4, "пушистый кот пёс", DocumentStatus::IRRELEVANT, ratings2);
+    search_server.AddDocument(5, "ухоженный ошейник выразительные глаза",
+                              DocumentStatus::IRRELEVANT, ratings3);
+    search_server.AddDocument(6, "кот и ошейник", DocumentStatus::BANNED, ratings1);
+    search_server.AddDocument(7, "пёс и хвост", DocumentStatus::BANNED, ratings2);
+    search_server.AddDocument(8, "модный пёс пушистый хвост", DocumentStatus::BANNED, ratings3);
+    search_server.AddDocument(9, "кот пушистый ошейник", DocumentStatus::REMOVED, ratings1);
+    search_server.AddDocument(10, "ухоженный кот и пёс", DocumentStatus::REMOVED, ratings2);
+    search_server.AddDocument(11, "хвост и выразительные глаза", DocumentStatus::REMOVED, ratings3);
+
+    const SearchServer const_search_server = search_server;
+
+    const std::string query = "пушистый ухоженный кот -ошейник";
+    const auto documentsA = const_search_server.FindTopDocuments(query, DocumentStatus::ACTUAL);
+    const auto documentsI = const_search_server.FindTopDocuments(query, DocumentStatus::IRRELEVANT);
+    const auto documentsB = const_search_server.FindTopDocuments(query, DocumentStatus::BANNED);
+    const auto documentsR = const_search_server.FindTopDocuments(query, DocumentStatus::REMOVED);
+
+    for (const Document& document : documentsA) {
+        std::cout << "{ "
+                  << "document_id = " << document.id << ", "
+                  << "relevance = " << document.relevance << ", "
+                  << "rating = " << document.rating << " }" << std::endl;
+    }
+
+    for (const Document& document : documentsI) {
+        std::cout << "{ "
+                  << "document_id = " << document.id << ", "
+                  << "relevance = " << document.relevance << ", "
+                  << "rating = " << document.rating << " }" << std::endl;
+    }
+
+    for (const Document& document : documentsB) {
+        std::cout << "{ "
+                  << "document_id = " << document.id << ", "
+                  << "relevance = " << document.relevance << ", "
+                  << "rating = " << document.rating << " }" << std::endl;
+    }
+
+    for (const Document& document : documentsR) {
+        std::cout << "{ "
+                  << "document_id = " << document.id << ", "
+                  << "relevance = " << document.relevance << ", "
+                  << "rating = " << document.rating << " }" << std::endl;
+    }
+}
+
+void TestDefaultStatus() {
+    std::string stop_words = "и в на";
+    SearchServer search_server(stop_words);
+
+    search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL, ratings1);
+    search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL, ratings2);
+    search_server.AddDocument(2, "ухоженный пёс выразительные глаза", DocumentStatus::ACTUAL,
+                              ratings3);
+    search_server.AddDocument(3, "белый модный кот", DocumentStatus::IRRELEVANT, ratings1);
+    search_server.AddDocument(4, "пушистый кот пёс", DocumentStatus::IRRELEVANT, ratings2);
+    search_server.AddDocument(5, "ухоженный ошейник выразительные глаза",
+                              DocumentStatus::IRRELEVANT, ratings3);
+    search_server.AddDocument(6, "кот и ошейник", DocumentStatus::BANNED, ratings1);
+    search_server.AddDocument(7, "пёс и хвост", DocumentStatus::BANNED, ratings2);
+    search_server.AddDocument(8, "модный пёс пушистый хвост", DocumentStatus::BANNED, ratings3);
+    search_server.AddDocument(9, "кот пушистый ошейник", DocumentStatus::REMOVED, ratings1);
+    search_server.AddDocument(10, "ухоженный кот и пёс", DocumentStatus::REMOVED, ratings2);
+    search_server.AddDocument(11, "хвост и выразительные глаза", DocumentStatus::REMOVED, ratings3);
+
+    const SearchServer const_search_server = search_server;
+
+    const std::string query = "пушистый ухоженный кот -ошейник";
+    const auto documents = const_search_server.FindTopDocuments(query);
+
+    for (const Document& document : documents) {
+        std::cout << "{ "
+                  << "document_id = " << document.id << ", "
+                  << "relevance = " << document.relevance << ", "
+                  << "rating = " << document.rating << " }" << std::endl;
+    }
+}
+
+void PrintMatchDocumentResultUTest(int document_id, const std::vector<std::string_view>& words,
+                                   DocumentStatus status) {
+    std::cout << "{ "
+              << "document_id = " << document_id << ", "
+              << "status = " << static_cast<int>(status) << ", "
+              << "words =";
+    for (const auto& word : words) {
+        std::cout << ' ' << word;
+    }
+    std::cout << "}" << std::endl;
+}
+
+void PrintDocumentUTest(const Document& document) {
+    std::cout << "{ "
+              << "document_id = " << document.id << ", "
+              << "relevance = " << document.relevance << ", "
+              << "rating = " << document.rating << " }" << std::endl;
+}
+
+void TestMatchDocument() {
+    std::string stop_words = "и в на";
+    SearchServer search_server(stop_words);
+
+    search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL, ratings1);
+    search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL, ratings2);
+    search_server.AddDocument(2, "ухоженный пёс выразительные глаза", DocumentStatus::ACTUAL,
+                              ratings3);
+    search_server.AddDocument(3, "белый модный кот", DocumentStatus::IRRELEVANT, ratings1);
+    search_server.AddDocument(4, "пушистый кот пёс", DocumentStatus::IRRELEVANT, ratings2);
+    search_server.AddDocument(5, "ухоженный ошейник выразительные глаза",
+                              DocumentStatus::IRRELEVANT, ratings3);
+    search_server.AddDocument(6, "кот и ошейник", DocumentStatus::BANNED, ratings1);
+    search_server.AddDocument(7, "пёс и хвост", DocumentStatus::BANNED, ratings2);
+    search_server.AddDocument(8, "модный пёс пушистый хвост", DocumentStatus::BANNED, ratings3);
+    search_server.AddDocument(9, "кот пушистый ошейник", DocumentStatus::REMOVED, ratings1);
+    search_server.AddDocument(10, "ухоженный кот и пёс", DocumentStatus::REMOVED, ratings2);
+    search_server.AddDocument(11, "хвост и выразительные глаза", DocumentStatus::REMOVED, ratings3);
+
+    const std::string query = "пушистый ухоженный кот -ошейник";
+    const auto documents = search_server.FindTopDocuments(query);
+
+    std::cout << "Top documents for query:" << std::endl;
+    for (const Document& document : documents) {
+        PrintDocumentUTest(document);
+    }
+
+    std::cout << "Documents' statuses:" << std::endl;
+    const int document_count = search_server.GetDocumentCount();
+    for (int document_id = 0; document_id < document_count; ++document_id) {
+        const auto [words, status] = search_server.MatchDocument(query, document_id);
+        PrintMatchDocumentResultUTest(document_id, words, status);
+    }
+}
+
+void TestDoubleComparison() {
+    std::string stop_words = "и в на";
+    SearchServer search_server(stop_words);
+
+    search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL, ratings1);
+    search_server.AddDocument(1, "пушистый хвост кот", DocumentStatus::ACTUAL, ratings2);
+    search_server.AddDocument(2, "пушистый кот хвост", DocumentStatus::ACTUAL, ratings3);
+
+    const std::string query = "пушистый кот пушистый хвост";
+    const auto documents = search_server.FindTopDocuments(query);
+
+    std::cout << "Top documents for query:" << std::endl;
+    for (const Document& document : documents) {
+        PrintDocumentUTest(document);
+    }
+}
+
+void TestLambdaFilterStatus() {
+    std::string stop_words = "и в на";
+    SearchServer lambda_search_server(stop_words);
+
+    lambda_search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL,
+                                     ratings1);
+    lambda_search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL,
+                                     ratings2);
+    lambda_search_server.AddDocument(2, "ухоженный пёс выразительные глаза", DocumentStatus::ACTUAL,
+                                     ratings3);
+    lambda_search_server.AddDocument(3, "белый модный кот", DocumentStatus::IRRELEVANT, ratings4);
+    lambda_search_server.AddDocument(4, "пушистый кот пёс", DocumentStatus::IRRELEVANT, ratings5);
+    lambda_search_server.AddDocument(5, "ухоженный ошейник выразительные глаза",
+                                     DocumentStatus::IRRELEVANT, ratings6);
+    lambda_search_server.AddDocument(6, "кот и ошейник", DocumentStatus::BANNED, ratings7);
+    lambda_search_server.AddDocument(7, "пёс и хвост", DocumentStatus::BANNED, ratings8);
+    lambda_search_server.AddDocument(8, "модный пёс пушистый хвост", DocumentStatus::BANNED,
+                                     ratings9);
+    lambda_search_server.AddDocument(9, "кот пушистый ошейник", DocumentStatus::REMOVED, ratings10);
+    lambda_search_server.AddDocument(10, "ухоженный кот и пёс", DocumentStatus::REMOVED, ratings2);
+    lambda_search_server.AddDocument(11, "хвост и выразительные глаза", DocumentStatus::REMOVED,
+                                     ratings3);
+
+    const std::string lambda_query = "пушистый ухоженный кот";
+    cout << "ACTUAL by default:" << endl;
+    const auto documents = lambda_search_server.FindTopDocuments(lambda_query);
+    for (const Document& document : documents) {
+        PrintDocumentUTest(document);
+    }
+
+    cout << "ACTUAL:" << endl;
+    const auto documentsA = lambda_search_server.FindTopDocuments(
+        lambda_query, [](int document_id, DocumentStatus status, int rating) {
+            return status == DocumentStatus::ACTUAL;
+        });
+    for (const Document& document : documentsA) {
+        PrintDocumentUTest(document);
+    }
+    cout << "REMOVED:" << endl;
+    const auto documentsR = lambda_search_server.FindTopDocuments(
+        lambda_query, [](int document_id, DocumentStatus status, int rating) {
+            return status == DocumentStatus::REMOVED;
+        });
+    for (const Document& document : documentsR) {
+        PrintDocumentUTest(document);
+    }
+}
+
+void TestLambdaFilterId() {
+    std::string stop_words = "и в на";
+    SearchServer lambda_search_server(stop_words);
+
+    lambda_search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL,
+                                     ratings1);
+    lambda_search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL,
+                                     ratings2);
+    lambda_search_server.AddDocument(2, "ухоженный пёс выразительные глаза", DocumentStatus::ACTUAL,
+                                     ratings3);
+    lambda_search_server.AddDocument(3, "белый модный кот", DocumentStatus::IRRELEVANT, ratings4);
+    lambda_search_server.AddDocument(4, "пушистый кот пёс", DocumentStatus::IRRELEVANT, ratings5);
+    lambda_search_server.AddDocument(5, "ухоженный ошейник выразительные глаза",
+                                     DocumentStatus::IRRELEVANT, ratings6);
+    lambda_search_server.AddDocument(6, "кот и ошейник", DocumentStatus::BANNED, ratings7);
+    lambda_search_server.AddDocument(7, "пёс и хвост", DocumentStatus::BANNED, ratings8);
+    lambda_search_server.AddDocument(8, "модный пёс пушистый хвост", DocumentStatus::BANNED,
+                                     ratings9);
+    lambda_search_server.AddDocument(9, "кот пушистый ошейник", DocumentStatus::REMOVED, ratings10);
+    lambda_search_server.AddDocument(10, "ухоженный кот и пёс", DocumentStatus::REMOVED, ratings2);
+    lambda_search_server.AddDocument(11, "хвост и выразительные глаза", DocumentStatus::REMOVED,
+                                     ratings3);
+
+    const std::string lambda_query = "пушистый ухоженный кот";
+    cout << "Even ids:" << endl;
+    const auto documentsEven = lambda_search_server.FindTopDocuments(
+        lambda_query, [](int document_id, DocumentStatus status, int rating) {
+            return document_id % 2 == 0;
+        });
+    for (const Document& document : documentsEven) {
+        PrintDocumentUTest(document);
+    }
+    cout << "Ids < 7" << endl;
+    const auto documentsLess7 = lambda_search_server.FindTopDocuments(
+        lambda_query, [](int document_id, DocumentStatus status, int rating) {
+            return document_id < 7;
+        });
+    for (const Document& document : documentsLess7) {
+        PrintDocumentUTest(document);
+    }
+}
+
+void TestLambdaFilterRating() {
+    std::string stop_words = "и в на";
+    SearchServer lambda_search_server(stop_words);
+
+    lambda_search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL,
+                                     ratings1);
+    lambda_search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL,
+                                     ratings2);
+    lambda_search_server.AddDocument(2, "ухоженный пёс выразительные глаза", DocumentStatus::ACTUAL,
+                                     ratings3);
+    lambda_search_server.AddDocument(3, "белый модный кот", DocumentStatus::IRRELEVANT, ratings4);
+    lambda_search_server.AddDocument(4, "пушистый кот пёс", DocumentStatus::IRRELEVANT, ratings5);
+    lambda_search_server.AddDocument(5, "ухоженный ошейник выразительные глаза",
+                                     DocumentStatus::IRRELEVANT, ratings6);
+    lambda_search_server.AddDocument(6, "кот и ошейник", DocumentStatus::BANNED, ratings7);
+    lambda_search_server.AddDocument(7, "пёс и хвост", DocumentStatus::BANNED, ratings8);
+    lambda_search_server.AddDocument(8, "модный пёс пушистый хвост", DocumentStatus::BANNED,
+                                     ratings9);
+    lambda_search_server.AddDocument(9, "кот пушистый ошейник", DocumentStatus::REMOVED, ratings10);
+    lambda_search_server.AddDocument(10, "ухоженный кот и пёс", DocumentStatus::REMOVED, ratings2);
+    lambda_search_server.AddDocument(11, "хвост и выразительные глаза", DocumentStatus::REMOVED,
+                                     ratings3);
+
+    const std::string lambda_query = "пушистый ухоженный кот";
+    cout << "Ratings > 10:" << endl;
+    const auto documentsRatingBigger10 = lambda_search_server.FindTopDocuments(
+        lambda_query, [](int document_id, DocumentStatus status, int rating) {
+            return rating > 10;
+        });
+    for (const Document& document : documentsRatingBigger10) {
+        PrintDocumentUTest(document);
+    }
+    cout << "Even ratings:" << endl;
+    const auto documentsEvenRating = lambda_search_server.FindTopDocuments(
+        lambda_query, [](int document_id, DocumentStatus status, int rating) {
+            return rating % 2 == 0;
+        });
+    for (const Document& document : documentsEvenRating) {
+        PrintDocumentUTest(document);
+    }
+}
+
+void TestLambdaFilterAll() {
+    std::string stop_words = "и в на";
+    SearchServer lambda_search_server(stop_words);
+
+    lambda_search_server.AddDocument(0, "белый кот и модный ошейник", DocumentStatus::ACTUAL,
+                                     ratings1);
+    lambda_search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL,
+                                     ratings2);
+    lambda_search_server.AddDocument(2, "ухоженный пёс выразительные глаза", DocumentStatus::ACTUAL,
+                                     ratings3);
+    lambda_search_server.AddDocument(3, "белый модный кот", DocumentStatus::IRRELEVANT, ratings4);
+    lambda_search_server.AddDocument(4, "пушистый кот пёс", DocumentStatus::IRRELEVANT, ratings5);
+    lambda_search_server.AddDocument(5, "ухоженный ошейник выразительные глаза",
+                                     DocumentStatus::IRRELEVANT, ratings6);
+    lambda_search_server.AddDocument(6, "кот и ошейник", DocumentStatus::BANNED, ratings7);
+    lambda_search_server.AddDocument(7, "пёс и хвост", DocumentStatus::BANNED, ratings8);
+    lambda_search_server.AddDocument(8, "модный пёс пушистый хвост", DocumentStatus::BANNED,
+                                     ratings9);
+    lambda_search_server.AddDocument(9, "кот пушистый ошейник", DocumentStatus::REMOVED, ratings10);
+    lambda_search_server.AddDocument(10, "ухоженный кот и пёс", DocumentStatus::REMOVED, ratings2);
+    lambda_search_server.AddDocument(11, "хвост и выразительные глаза", DocumentStatus::REMOVED,
+                                     ratings3);
+
+    const std::string lambda_query = "пушистый ухоженный кот";
+    cout << "Ratings > 10 and Id < 7:" << endl;
+    const auto documents1 = lambda_search_server.FindTopDocuments(
+        lambda_query, [](int document_id, DocumentStatus status, int rating) {
+            return rating > 10 && document_id < 7;
+        });
+    for (const Document& document : documents1) {
+        PrintDocumentUTest(document);
+    }
+    cout << "Even ratings and ACTUAL:" << endl;
+    const auto documents2 = lambda_search_server.FindTopDocuments(
+        lambda_query, [](int document_id, DocumentStatus status, int rating) {
+            return document_id % 2 == 0 && status == DocumentStatus::ACTUAL;
+        });
+    for (const Document& document : documents2) {
+        PrintDocumentUTest(document);
+    }
+}
+
+void TestSearchServerConstruction() {
+    const auto check_search = [](SearchServer search_server) {
+        // добавляем документ, содержащий стоп-слова
+        search_server.AddDocument(0, "кот в мешке", DocumentStatus::ACTUAL, {1, 2, 3});
+
+        // Стоп слово найти не получится
+        if (const auto docs = search_server.FindTopDocuments("в"); !docs.empty()) {
+            std::cout << "стоп слова не должны быть найдены" << std::endl;
+        }
+
+        // А не стоп слово - получится
+        if (const auto docs = search_server.FindTopDocuments("кот"); docs.empty()) {
+            std::cout << "не стоп-слово, присутствующее в документе, должно быть найдено"
+                      << std::endl;
+        }
+    };
+
+    std::string stop_words = "и в на";
+
+    check_search(SearchServer{stop_words});
+    check_search(SearchServer{vector<string>{"и", "в", "на"}});
+    check_search(SearchServer{set<string>{"и", "в", "на"}});
+}
+
+void TestDocumentConstruction() {
+    if (const Document doc; doc.id != 0 || doc.relevance != 0.0 || doc.rating != 0) {
+        std::cout << "ошибка в default-конструкторе класса Document" << std::endl;
+    }
+
+    if (const Document doc(1, 2.0, 3); doc.id != 1 || doc.relevance != 2.0 || doc.rating != 3) {
+        std::cout << "ошибка в параметризованном конструкторе класса Document" << std::endl;
+    }
+
+    std::cout << "ok" << std::endl;
+}
+
+void TestThrowConstruct() {
+    PRACTIKUM_ASSERT_THROWS(SearchServer{std::string("и н\x02а в")}, std::invalid_argument);
+    const auto vec = std::vector<std::string>{"и", "в", "на\x1e"};
+    PRACTIKUM_ASSERT_THROWS(SearchServer{vec}, std::invalid_argument);
+    const auto s = std::set<std::string>{"и", "в", "на\x1e"};
+    PRACTIKUM_ASSERT_THROWS(SearchServer{s}, std::invalid_argument);
+}
+
+void TestThrowAddDocument() {
+    SearchServer search_server{std::string("и в на")};
+    search_server.AddDocument(0, "кот в мешке", DocumentStatus::ACTUAL, {1, 2, 3});
+    search_server.AddDocument(1, "чук и гек пьют иван-чай", DocumentStatus::ACTUAL, {3});
+
+    PRACTIKUM_ASSERT_THROWS(
+        search_server.AddDocument(2, "чук \x02 гек", DocumentStatus::ACTUAL, {3}),
+        std::invalid_argument);
+    PRACTIKUM_ASSERT_THROWS(
+        search_server.AddDocument(-3, "скворец на ветке", DocumentStatus::ACTUAL, {1, 2, 3}),
+        std::invalid_argument);
+    PRACTIKUM_ASSERT_THROWS(
+        search_server.AddDocument(0, "пёс в мешке", DocumentStatus::ACTUAL, {1, 2, 3}),
+        std::invalid_argument);
+}
+
+void TestThrowFindDocument() {
+    SearchServer search_server{std::string("и в на")};
+    search_server.AddDocument(0, "кот в мешке", DocumentStatus::ACTUAL, {1, 2, 3});
+    search_server.AddDocument(1, "чук и гек пьют иван-чай", DocumentStatus::ACTUAL, {3});
+
+    PRACTIKUM_ASSERT_THROWS(const auto docs = search_server.FindTopDocuments("кот -"),
+                            std::invalid_argument);
+    PRACTIKUM_ASSERT_THROWS(const auto docs = search_server.FindTopDocuments("--кот"),
+                            std::invalid_argument);
+    PRACTIKUM_ASSERT_THROWS(const auto docs = search_server.FindTopDocuments("кот \x02"),
+                            std::invalid_argument);
+}
+
+void TestThrowMatchDocument() {
+    SearchServer search_server{std::string("и в на")};
+    search_server.AddDocument(0, "кот в мешке", DocumentStatus::ACTUAL, {1, 2, 3});
+    search_server.AddDocument(1, "чук и гек пьют иван-чай", DocumentStatus::ACTUAL, {3});
+
+    PRACTIKUM_ASSERT_THROWS(const auto docs = search_server.MatchDocument("кот -", 0),
+                            std::invalid_argument);
+    PRACTIKUM_ASSERT_THROWS(const auto docs = search_server.MatchDocument("--кот", 0),
+                            std::invalid_argument);
+    PRACTIKUM_ASSERT_THROWS(const auto docs = search_server.MatchDocument("кот \x02", 0),
+                            std::invalid_argument);
+}
+
+/*void TestPaginate() {
+    SearchServer search_server(std::string("и в на"));
+
+    search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL, {7, 2, 7});
+    search_server.AddDocument(2, "пушистый пёс и модный ошейник", DocumentStatus::ACTUAL, {1, 2,
+3}); search_server.AddDocument(3, "большой кот модный ошейник ", DocumentStatus::ACTUAL, {1, 2, 8});
+    search_server.AddDocument(4, "большой пёс скворец евгений", DocumentStatus::ACTUAL, {1, 3, 2});
+    search_server.AddDocument(5, "большой пёс скворец василий", DocumentStatus::ACTUAL, {1, 1, 1});
+
+    const auto search_results = search_server.FindTopDocuments("пушистый пёс");
+    int page_size = 2;
+    const auto pages = Paginate(search_results, page_size);
+
+    // Выводим найденные документы по страницам
+    for (auto page = pages.begin(); page != pages.end(); ++page) {
+        std::cout << *page << std::endl;
+        std::cout << "Разрыв страницы" << std::endl;
+    }
+}*/
+
+/*void TestRequestQueue() {
+    SearchServer search_server(std::string("и в на"));
+    RequestQueue request_queue(search_server);
+
+    search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL, {7, 2, 7});
+    search_server.AddDocument(2, "пушистый пёс и модный ошейник", DocumentStatus::ACTUAL, {1, 2,
+3}); search_server.AddDocument(3, "большой кот модный ошейник ", DocumentStatus::ACTUAL, {1, 2, 8});
+    search_server.AddDocument(4, "большой пёс скворец евгений", DocumentStatus::ACTUAL, {1, 3, 2});
+    search_server.AddDocument(5, "большой пёс скворец василий", DocumentStatus::ACTUAL, {1, 1, 1});
+
+    // 1439 запросов с нулевым результатом
+    for (int i = 0; i < 1439; ++i) {
+        request_queue.AddFindRequest("пустой запрос");
+    }
+    // все еще 1439 запросов с нулевым результатом
+    request_queue.AddFindRequest("пушистый пёс");
+    // новые сутки, первый запрос удален, 1438 запросов с нулевым результатом
+    request_queue.AddFindRequest("большой ошейник");
+    // первый запрос удален, 1437 запросов с нулевым результатом
+    request_queue.AddFindRequest("скворец");
+    std::cout << "Запросов, по которым ничего не нашлось " << request_queue.GetNoResultRequests();
+
+}*/
+
+std::string JoinStrings(const std::vector<std::string>& strings) {
+    std::string out;
+    for (const auto& str : strings) {
+        out += str;
+        out += " ";
+    }
+    out.erase(out.size() - 1);
+    return out;
+}
+
+std::string MakeDocumentString(const std::vector<std::string>& words, int size, int seed,
+                               bool with_minus) {
+    std::vector<std::string> v_words;
+    std::sample(words.begin(), words.end(), std::back_inserter(v_words), size, std::mt19937(seed));
+    if (with_minus) {
+        for (auto& word : v_words) {
+            word = "-" + word;
+        }
+    }
+    return JoinStrings(v_words);
+}
+
+std::vector<int> MakeRandomVector(int seed) {
+    std::mt19937 gen(seed);
+    std::uniform_int_distribution<int> len(1, max_ratings_length);
+    std::uniform_int_distribution<int> val(-max_rating_value, max_rating_value);
+    std::vector<int> out(len(gen));
+    for (auto& elem : out) {
+        elem = val(gen);
+    }
+    return out;
+}
+
+void TestTopDocuments() {
+    const int stop_words_size = 30;
+    const int query_size = 40;
+    const int document_size = 50;
+    const int num_minus_words = 5;
+
+    std::vector<std::string> words;
+    std::string alphanum = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    std::mt19937 gen(12345);
+    std::uniform_int_distribution<int> len(1, alphanum.size() / 2);
+    for (int j = 0; j < 100; ++j) {
+        std::string word;
+        std::sample(alphanum.begin(), alphanum.end(), std::back_inserter(word), len(gen),
+                    std::mt19937((j)));
+        words.push_back(word);
+    }
+
+    std::string stop = MakeDocumentString(words, stop_words_size, 0, false);
+
+    std::string query = MakeDocumentString(words, query_size, 42, false);
+
+    std::string minus_words = MakeDocumentString(words, num_minus_words, 100, true);
+
+    SearchServer search_server(stop);
+
+    for (int i = 0; i < 10; ++i) {
+        search_server.AddDocument(i, MakeDocumentString(words, document_size, i + 1, false),
+                                  DocumentStatus::ACTUAL, MakeRandomVector(i + 1));
+    }
+
+    const SearchServer const_search_server = search_server;
+    const auto documents = const_search_server.FindTopDocuments(query, DocumentStatus::ACTUAL);
+
+    for (const Document& document : documents) {
+        std::cout << "{ "
+                  << "document_id = " << document.id << ", "
+                  << "relevance = " << document.relevance << ", "
+                  << "rating = " << document.rating << " }" << std::endl;
+    }
+}
+
+/*void TestRemoveDuplicates() {
+    SearchServer search_server(std::string("и в на"));
+
+    search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL, {7, 2, 7});
+    search_server.AddDocument(2, "пушистый пёс и модный ошейник", DocumentStatus::ACTUAL, {1, 2});
+
+    // дубликат документа 2, будет удалён
+    search_server.AddDocument(3, "пушистый пёс и модный ошейник", DocumentStatus::ACTUAL, {1, 2});
+
+    // отличие только в стопсловах, считаем дубликатом
+    search_server.AddDocument(4, "пушистый пёс модный ошейник", DocumentStatus::ACTUAL, {1, 2});
+
+    // множество слов такое же считаем дубликатом
+    search_server.AddDocument(5, "пушистый пушистый пёс модный модный ошейник",
+DocumentStatus::ACTUAL, {1, 2});
+
+    // добавились новые слова, дубликатом не является
+    search_server.AddDocument(6, "пушистый пёс и не очень модный ошейник", DocumentStatus::ACTUAL,
+{1, 2});
+
+    // множество слов такое же как в id 6, несмотря на другой порядок, считаем дубликатом
+    search_server.AddDocument(7, "очень модный ошейник не очень пушистый пёс",
+DocumentStatus::ACTUAL, {1, 2});
+
+    std::cout << "Документов до удаления дубликатов: " << search_server.GetDocumentCount() <<
+std::endl;
+    {
+        CaptStream coutCapt(std::cout);
+        RemoveDuplicates(search_server);
+    }
+
+    std::set<int> ids;
+    std::copy(search_server.begin(), search_server.end(), std::inserter(ids, ids.end()));
+    std::cout << "Оставшиеся документы:" << std::endl;
+    for(int id : ids) {
+        std::cout << id << std::endl;
+    }
+    std::cout << "Документов после удаления дубликатов: " << search_server.GetDocumentCount() <<
+std::endl;
+}*/
+
+void TestRemoveDocuments() {
+    SearchServer search_server(std::string("и в на"));
+
+    search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL, {7, 2, 7});
+    search_server.AddDocument(2, "пушистый пёс и модный ошейник", DocumentStatus::ACTUAL, {1, 2});
+    search_server.AddDocument(3, "пушистый пёс и модный ошейник", DocumentStatus::ACTUAL, {1, 2});
+    search_server.AddDocument(4, "пушистый пёс модный ошейник", DocumentStatus::ACTUAL, {1, 2});
+    search_server.AddDocument(5, "пушистый пушистый пёс модный модный ошейник",
+                              DocumentStatus::ACTUAL, {1, 2});
+    search_server.AddDocument(6, "пушистый пёс и не очень модный ошейник", DocumentStatus::ACTUAL,
+                              {1, 2});
+    search_server.AddDocument(7, "очень модный ошейник не очень пушистый пёс",
+                              DocumentStatus::ACTUAL, {1, 2});
+
+    std::cout << "Документов до удаления: " << search_server.GetDocumentCount() << std::endl;
+    search_server.RemoveDocument(1);
+    search_server.RemoveDocument(2);
+    search_server.RemoveDocument(3);
+    std::cout << "Документов после удаления: " << search_server.GetDocumentCount() << std::endl;
+}
+
+void TestIterate() {
+    SearchServer search_server(std::string("и в на"));
+
+    search_server.AddDocument(1, "пушистый кот пушистый хвост", DocumentStatus::ACTUAL, {7, 2, 7});
+    search_server.AddDocument(2, "пушистый пёс и модный ошейник", DocumentStatus::ACTUAL, {1, 2});
+    search_server.AddDocument(3, "пушистый пёс и модный ошейник", DocumentStatus::ACTUAL, {1, 2});
+    search_server.AddDocument(4, "пушистый пёс модный ошейник", DocumentStatus::ACTUAL, {1, 2});
+    search_server.AddDocument(5, "пушистый пушистый пёс модный модный ошейник",
+                              DocumentStatus::ACTUAL, {1, 2});
+    search_server.AddDocument(6, "пушистый пёс и не очень модный ошейник", DocumentStatus::ACTUAL,
+                              {1, 2});
+    search_server.AddDocument(7, "очень модный ошейник не очень пушистый пёс",
+                              DocumentStatus::ACTUAL, {1, 2});
+
+    int count = 0;
+    for (const int document_id : search_server) {
+        ++count;
+        std::cout << document_id << std::endl;
+    }
+    std::cout << "Проитерированно документов: " << count << std::endl;
+    std::cout << "Всего документов: " << search_server.GetDocumentCount() << std::endl;
+}
+
+std::string GenerateWord(std::mt19937& generator, int max_length) {
+    const int length = std::uniform_int_distribution(1, max_length)(generator);
+    std::string word;
+    word.reserve(length);
+    for (int i = 0; i < length; ++i) {
+        word.push_back(std::uniform_int_distribution('a', 'z')(generator));
+    }
+    return word;
+}
+
+std::vector<std::string> GenerateDictionary(std::mt19937& generator, int word_count,
+                                            int max_length) {
+    std::vector<std::string> words;
+    words.reserve(word_count);
+    for (int i = 0; i < word_count; ++i) {
+        words.push_back(GenerateWord(generator, max_length));
+    }
+    std::sort(words.begin(), words.end());
+    words.erase(std::unique(words.begin(), words.end()), words.end());
+    return words;
+}
+
+std::string GenerateQuery(std::mt19937& generator, const std::vector<std::string>& dictionary,
+                          int max_word_count) {
+    const int word_count = std::uniform_int_distribution(1, max_word_count)(generator);
+    std::string query;
+    for (int i = 0; i < word_count; ++i) {
+        if (!query.empty()) {
+            query.push_back(' ');
+        }
+        query
+            += dictionary[std::uniform_int_distribution<int>(0, dictionary.size() - 1)(generator)];
+    }
+    return query;
+}
+
+std::vector<std::string> GenerateQueries(std::mt19937& generator,
+                                         const std::vector<std::string>& dictionary,
+                                         int query_count, int max_word_count) {
+    std::vector<std::string> queries;
+    queries.reserve(query_count);
+    for (int i = 0; i < query_count; ++i) {
+        queries.push_back(GenerateQuery(generator, dictionary, max_word_count));
+    }
+    return queries;
+}
+
+void TestProcessQueries() {
+    std::mt19937 generator(46);
+    const auto dictionary = GenerateDictionary(generator, 10, 25);
+    const auto documents = GenerateQueries(generator, dictionary, 100, 10);
+
+    SearchServer search_server(dictionary[0]);
+    for (size_t i = 0; i < documents.size(); ++i) {
+        search_server.AddDocument(i, documents[i], DocumentStatus::ACTUAL, {int(i)});
+    }
+
+    const auto queries = GenerateQueries(generator, dictionary, 10, 7);
+    const auto documents_lists = ProcessQueries(search_server, queries);
+
+    for (const auto& documents : documents_lists) {
+        for (const Document& document : documents) {
+            std::cout << "{ "
+                      << "document_id = " << document.id << ", "
+                      << "relevance = " << document.relevance << ", "
+                      << "rating = " << document.rating << " }" << std::endl;
+        }
+    }
+}
+
+std::vector<std::vector<Document>> ProcessQueriesBaseline(const SearchServer& search_server,
+                                                          const std::vector<std::string>& queries) {
+    std::vector<std::vector<Document>> documents_lists;
+    documents_lists.reserve(queries.size());
+    for (const std::string& query : queries) {
+        documents_lists.push_back(search_server.FindTopDocuments(query));
+    }
+    return documents_lists;
+}
+
+void TestProcessQueriesParallel() {
+    std::mt19937 generator(234524);
+
+    const auto dictionary = GenerateDictionary(generator, 1000, 25);
+    const auto documents = GenerateQueries(generator, dictionary, 10000, 10);
+
+    SearchServer search_server(dictionary[0]);
+    for (size_t i = 0; i < documents.size(); ++i) {
+        search_server.AddDocument(i, documents[i], DocumentStatus::ACTUAL, {int(i)});
+    }
+
+    const auto queries = GenerateQueries(generator, dictionary, 1000, 7);
+
+    std::vector<std::vector<Document>> baseline_result;
+    std::vector<std::vector<Document>> student_result;
+
+    constexpr auto THRESHOLD = 0.5;
+
+    const auto baseline_elapsed
+        = practicum::MeasureTime([&search_server, &queries, &baseline_result]() {
+              baseline_result = ProcessQueriesBaseline(search_server, queries);
+          });
+
+    std::cerr << "baseline elapsed: " << baseline_elapsed / 1000. << " ms" << std::endl;
+
+    const auto student_elapsed
+        = practicum::MeasureTime([&search_server, &queries, &student_result]() {
+              student_result = ProcessQueries(search_server, queries);
+          });
+
+    std::cerr << "student elapsed: " << student_elapsed / 1000. << " ms" << std::endl;
+
+    std::vector<size_t> baseline_sizes;
+    std::vector<size_t> student_sizes;
+    for (const auto& docs : baseline_result) {
+        baseline_sizes.push_back(docs.size());
+    }
+    for (const auto& docs : student_result) {
+        student_sizes.push_back(docs.size());
+    }
+
+    practikum::Assert(baseline_sizes == student_sizes, "results mismatch");
+
+    practikum::Assert(
+        student_elapsed < THRESHOLD * baseline_elapsed,
+        "student/baseline ratio: " + std::to_string(student_elapsed / baseline_elapsed)
+            + " > target: " + std::to_string(THRESHOLD));
+}
+
+void TestProcessQueriesJoined() {
+    std::mt19937 generator(49);
+    const auto dictionary = GenerateDictionary(generator, 10, 25);
+    const auto documents = GenerateQueries(generator, dictionary, 100, 10);
+
+    SearchServer search_server(dictionary[0]);
+    for (size_t i = 0; i < documents.size(); ++i) {
+        search_server.AddDocument(i, documents[i], DocumentStatus::ACTUAL, {int(i)});
+    }
+
+    const auto queries = GenerateQueries(generator, dictionary, 10, 7);
+
+    for (const Document& document : ProcessQueriesJoined(search_server, queries)) {
+        std::cout << "Document " << document.id << " matched with relevance " << document.relevance
+                  << std::endl;
+    }
+}
+
+std::vector<Document> ProcessQueriesJoinedBaseline(const SearchServer& search_server,
+                                                   const std::vector<std::string>& queries) {
+    std::vector<Document> documents;
+    for (const string& query : queries) {
+        const auto local_documents = search_server.FindTopDocuments(query);
+        documents.insert(documents.end(), local_documents.begin(), local_documents.end());
+    }
+    return documents;
+}
+
+void TestProcessQueriesJoinedParallel() {
+    std::mt19937 generator(7454563);
+
+    const auto dictionary = GenerateDictionary(generator, 2000, 25);
+    const auto documents = GenerateQueries(generator, dictionary, 20000, 10);
+
+    SearchServer search_server(dictionary[0]);
+    for (size_t i = 0; i < documents.size(); ++i) {
+        search_server.AddDocument(i, documents[i], DocumentStatus::ACTUAL, {int(i)});
+    }
+
+    const auto queries = GenerateQueries(generator, dictionary, 2000, 7);
+
+    int baseline_result;
+    int student_result;
+
+    constexpr auto THRESHOLD = 0.5;
+
+    const auto baseline_elapsed
+        = practicum::MeasureTime([&search_server, &queries, &baseline_result]() {
+              auto result = ProcessQueriesJoinedBaseline(search_server, queries);
+              baseline_result = std::distance(result.begin(), result.end());
+          });
+
+    std::cerr << "baseline elapsed: " << baseline_elapsed / 1000. << " ms" << std::endl;
+
+    const auto student_elapsed
+        = practicum::MeasureTime([&search_server, &queries, &student_result]() {
+              auto result = ProcessQueriesJoined(search_server, queries);
+              student_result = std::distance(result.begin(), result.end());
+          });
+
+    std::cerr << "student elapsed: " << student_elapsed / 1000. << " ms" << std::endl;
+
+    practikum::AssertEqual(baseline_result, student_result, "results mismatch");
+
+    practikum::Assert(
+        student_elapsed < THRESHOLD * baseline_elapsed,
+        "student/baseline ratio: " + std::to_string(student_elapsed / baseline_elapsed)
+            + " > target: " + std::to_string(THRESHOLD));
+}
+
+string GenerateQueryWithStops(mt19937& generator, const vector<string>& dictionary, int word_count,
+                              double minus_prob = 0) {
+    string query;
+    for (int i = 0; i < word_count; ++i) {
+        if (!query.empty()) {
+            query.push_back(' ');
+        }
+        if (uniform_real_distribution<>(0, 1)(generator) < minus_prob) {
+            query.push_back('-');
+        }
+        query += dictionary[uniform_int_distribution<int>(0, dictionary.size() - 1)(generator)];
+    }
+    return query;
+}
+
+void TestMatchDocumentParallel() {
+    std::mt19937 generator(76);
+
+    const auto dictionary = GenerateDictionary(generator, 1000, 10);
+    const auto documents = GenerateQueries(generator, dictionary, 10'000, 70);
+
+    const string query = GenerateQueryWithStops(generator, dictionary, 500, 0.1);
+
+    SearchServer search_server(dictionary[0]);
+    for (size_t i = 0; i < documents.size(); ++i) {
+        search_server.AddDocument(i, documents[i], DocumentStatus::ACTUAL, {1, 2, 3});
+    }
+
+    constexpr auto THRESHOLD = 0.5;
+
+    int result = 0;
+    int result_seq = 0;
+    int result_par = 0;
+
+    const auto elapsed = practicum::MeasureTime([&search_server, &query, &result]() {
+        const int document_count = search_server.GetDocumentCount();
+        for (int id = 0; id < document_count; ++id) {
+            const auto [words, status] = search_server.MatchDocument(query, id);
+            result += words.size();
+        }
+    });
+
+    std::cout << elapsed / 1000. << " ";
+
+    const auto elapsed_seq = practicum::MeasureTime([&search_server, &query, &result_seq]() {
+        const int document_count = search_server.GetDocumentCount();
+        for (int id = 0; id < document_count; ++id) {
+            const auto [words, status]
+                = search_server.MatchDocument(std::execution::seq, query, id);
+            result_seq += words.size();
+        }
+    });
+
+    std::cout << elapsed_seq / 1000. << " ";
+
+    const auto elapsed_par = practicum::MeasureTime([&search_server, &query, &result_par]() {
+        const int document_count = search_server.GetDocumentCount();
+        for (int id = 0; id < document_count; ++id) {
+            const auto [words, status]
+                = search_server.MatchDocument(std::execution::par, query, id);
+            result_par += words.size();
+        }
+    });
+
+    std::cout << elapsed_par / 1000. << " ";
+
+    practikum::AssertEqual(result, result_seq, "results mismatch");
+    practikum::AssertEqual(result, result_par, "results mismatch");
+
+    practikum::Assert(
+        elapsed_par < THRESHOLD * elapsed_seq,
+        "par/seq ratio: " + std::to_string(elapsed_par / elapsed_seq)
+            + " > target: " + std::to_string(THRESHOLD));
+
+    practikum::Assert(
+        elapsed_par < THRESHOLD * elapsed,
+        "par/seq(implicit) ratio: " + std::to_string(elapsed_par / elapsed)
+            + " > target: " + std::to_string(THRESHOLD));
+}
+
+}  // namespace tests
+
+int main() {
+    using namespace tests;
+
+    practikum::TestRunner tr;
+    tr.RegisterTest("no_stop_words", "no_stop_words", TestNoStopWords);
+    tr.RegisterTest("one_document_excluded", "one_document_excluded", TestOneDocumentExcluded);
+    tr.RegisterTest("all_documents_excluded", "all_documents_excluded", TestAllDocumentsExcluded);
+    tr.RegisterTest("general", "general", TestGeneral);
+    tr.RegisterTest("status", "status", TestStatuses);
+    tr.RegisterTest("status_default", "status_default", TestDefaultStatus);
+    tr.RegisterTest("match", "match", TestMatchDocument);
+    tr.RegisterTest("double_comparison", "double_comparison", TestDoubleComparison);
+    tr.RegisterTest("lambda_status", "lambda_status", TestLambdaFilterStatus);
+    tr.RegisterTest("lambda_id", "lambda_id", TestLambdaFilterId);
+    tr.RegisterTest("lambda_rating", "lambda_rating", TestLambdaFilterRating);
+    tr.RegisterTest("lambda_all", "lambda_all", TestLambdaFilterAll);
+    tr.RegisterTest("server_constructor", "server_constructor", TestSearchServerConstruction);
+    tr.RegisterTest("document_constructor", "document_constructor", TestDocumentConstruction);
+    tr.RegisterTest("throw_construct", "throw_construct", TestThrowConstruct);
+    tr.RegisterTest("throw_add", "throw_add", TestThrowAddDocument);
+    tr.RegisterTest("throw_find", "throw_find", TestThrowFindDocument);
+    tr.RegisterTest("throw_match", "throw_match", TestThrowMatchDocument);
+    // tr.RegisterTest("paginate", "paginate", TestPaginate);
+    // tr.RegisterTest("rqueue", "rqueue", TestRequestQueue);
+    tr.RegisterTest("top", "top", TestTopDocuments);
+    // tr.RegisterTest("duplicates", "duplicates", TestRemoveDuplicates);
+    // tr.RegisterTest("remove_documents", "remove_documents", TestRemoveDocuments);
+    tr.RegisterTest("iterate", "iterate", TestIterate);
+    tr.RegisterTest("process_queries", "process_queries", TestProcessQueries);
+    tr.RegisterTest("process_queries_par", "process_queries_par", TestProcessQueriesParallel);
+    tr.RegisterTest("process_queries_joined", "process_queries_joined", TestProcessQueriesJoined);
+    tr.RegisterTest("process_queries_joined_par", "process_queries_joined_par",
+                    TestProcessQueriesJoinedParallel);
+    tr.RegisterTest("match_document_par", "match_document_par", TestMatchDocumentParallel);
+    tr.Dispatch();
+
+    return 0;
+}
