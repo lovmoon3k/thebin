@@ -1,0 +1,141 @@
+//javascript
+//upload data
+//upload data
+$(".form_part_upload").on('submit',function(e){
+    e.preventDefault();
+    $.ajax({
+        url:"<?= site_url('part/upload') ?>",
+        method:"POST",
+        data:new FormData(this),
+        processData:false,
+        contentType:false,
+        cache:false,
+        dataType: "json",
+        beforeSend: function(){
+            $('.btn_upload').attr('disable','disabled');
+            $('.btn_upload').html('<i class="fa fa-spin fa-spinner"></i>');
+        },
+        complete: function(){
+            $('.btn_upload').removeAttr('disable');
+            $('.btn_upload').html('Upload');
+        },
+        success:function(response){
+            console.log(response.error);
+            if(response.error)
+            {
+                if(response.error.fileimport)
+                {
+                    $('#partexcel').addClass('is-invalid');
+                    $('.errorImport').html(response.error.fileimport);
+                }else{
+                    $('#partexcel').removeClass('is-invalid');
+                    $('.errorImport').html('');
+                }
+            }else{
+
+            }
+        },
+        error: function(xhr, ajaxOptions, thrownError) {
+            alert(xhr.status + "\n" + xhr.responseText + "\n" + thrownError);
+        }
+    })
+});
+
+//controller
+public function uploadData()
+{
+    if($this->request->isAJAX())
+    {
+        $validation = \Config\Services::validation();
+
+        $valid = $this->validate([
+            'fileimport' => [
+                'label' => 'File',
+                'rules' => 'uploaded[partexcel]|ext_in[partexcel,xls,xlsx]',
+                'errors' => [
+                    'uploaded' => 'tidak boleh kosong',
+                    'ext_in'    => 'harus extensi xls / xlsx'
+                ]
+            ]
+        ]);
+
+        if($valid)
+        {
+            $msg = [
+                'error' => [
+                    'fileimport'  => $validation->getError('fileimport')
+                ]
+            ];
+        }else{
+            $file_excel = $this->request->getFile('partexcel');
+            //function cek nama file -----------------
+            $nama_file = $file_excel->getName();
+
+            $ext = $file_excel->getClientExtension();
+            if($ext == 'xls')
+            {
+                $render = new \PhpOffice\PhpSpreadsheet\Reader\Xls();
+            }else{
+                $render = new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
+            }
+            $spreadsheet = $render->load($file_excel);
+
+            $data = $spreadsheet->getActiveSheet()->toArray();
+            
+            // Kita kumpulkan dulu data dari excel ke $data_excel biar mudah dibaca
+            $data_excel = [];
+    
+            foreach($data as $x => $row)
+            {
+                if($x == 0)
+                {
+                    continue;
+                }
+    
+                $part_code = $row[0];
+                $part_name = $row[1];
+                $kode_gudang = $row[2];
+                $part_location = $row[3];
+                $part_qty_reel = $row[4];
+    
+                $db = \Config\Database::connect();
+
+                $sql_cek = $db->table('m_part')->getWhere(['part_code'=>$part_code])->getResult();
+
+                if(count($sql_cek) > 0) {
+                    $respon = 0;
+                    $pesan = "Part ada yang sudah terdaftar";
+                } else {
+    
+                    $simpandata = [
+                        'part_code' => $part_code,
+                        'part_name' => $part_name,
+                        'part_wh_code' => $kode_gudang,
+                        'part_location' => $part_location,
+                        'part_qty_reel' => $part_qty_reel
+                    ];
+    
+                    $sql = $this->m_part->insert($simpandata);
+                    
+                    if($sql)
+                    {
+                        $respon = 1;
+                        $pesan = "Part berhasil ditambahkan";
+                    }else{
+                        $respon = 0;
+                        $pesan = "Part gagal ditambahkan!";
+                    }
+                }
+            }
+            $msg = [
+                'res' => $respon,
+                'pesan' => $pesan
+            ];
+        }
+
+        echo json_encode($msg);
+    }else{
+        exit('Maaf request tidak dapat diproses!');
+    }
+    
+}
