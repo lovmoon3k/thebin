@@ -1,0 +1,409 @@
+import scrapy
+from urllib.parse import urlencode
+import re
+import json
+import html
+import math
+
+
+class SaksFifthAvenueSpider(scrapy.Spider):
+    name = "safa-feeds"
+
+    # custom settings
+    custom_settings = {
+        "LOG_FILE": "safa-feeds-spider.log",
+        "ITEM_PIPELINES": {
+            "sdt.pipelines.SdtWasabiS3Pipeline": 300,
+        },
+    }
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:108.0) Gecko/20100101 Firefox/108.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-GPC": "1",
+    }
+
+    params = {
+        "cgid": "",
+        "start": "68",
+        "sz": "24",
+        "hideLess": "true",
+    }
+
+    base_url = "https://www.saksfifthavenue.com/on/demandware.store/Sites-SaksFifthAvenue-Site/en_US/Search-UpdateGrid?"
+
+    def start_requests(self):
+        cgurl_list = [
+            "https://www.saksfifthavenue.com/c/women-s-apparel",
+            # "2534374306624247",
+            # "2534374306622828",
+            # "1608313652004",
+            # "2534374306418050",
+            # "2534374306418162",
+            # "2534374306418054",
+            # "1654108780232",
+            # "2534374306418205",
+            # "2534374306418206",
+            # "2534374306418217",
+            # "2534374306418192",
+            # "1608313652004",
+            # "2534374306418053",
+        ]
+        for i, cgurl in enumerate(cgurl_list):
+            yield scrapy.Request(
+                url=cgurl, headers=self.headers, callback=self.parse_page_numbers
+            )
+
+    def parse_page_numbers(self, response):
+        total_items = int(response.css("span::attr(data-search-count)").get())
+        total_pages = round(math.ceil(total_items) / 21)
+        for i in range(0, int(total_pages)):
+            page_no = i * 21
+            url = response.url + f"?start={page_no}&sz=24"
+            yield scrapy.Request(
+                url=url,
+                headers=self.headers,
+                callback=self.parse_page_items,
+            )
+
+    def parse_page_items(self, response):
+        item_links = [
+            "https://www.saksfifthavenue.com" + i
+            for i in response.css("h3.pdp-link ::attr(href)").extract()
+        ]
+        # item_links = set(
+        #     [
+        #         "https://www.saksfifthavenue.com" + u.split("?")[0]
+        #         for u in response.css("a.thumb-link.mw-100::attr(href)").extract()
+        #     ]
+        # )
+        # inner_load = response.css("div.show-more ::attr(data-url)").get()
+        # if inner_load:
+        #     yield scrapy.Request(
+        #         url=inner_load, headers=self.headers, callback=self.parse_page_items
+        #     )
+        # next_page_no = response.css('a[aria-label="Next"]::attr(href)').get()
+        # if next_page_no:
+        #     self.params["start"] = next_page_no.split("&")[0].split("=")[-1]
+        #     next_url = self.base_url + urlencode(self.params)
+        #     print(next_url)
+        #     yield scrapy.Request(
+        #         url=next_url, headers=self.headers, callback=self.parse_page_items
+        #     )
+
+        for i, link in enumerate(item_links):
+            yield scrapy.Request(
+                url=link,
+                headers=self.headers,
+                callback=self.parse_product_details,
+            )
+
+    def parse_product_details(self, response):
+        item = {}
+        json_text = (
+            response.css('script[type="application/ld+json"]')
+            .get()
+            .replace('<script type="application/ld+json">', "")
+            .replace("</script>", "")
+        )
+        json_blob = json.loads(json_text)
+        prod_id = response.css("div.container.product-detail::attr(data-pid)").get()
+        colors = response.css("button::attr(data-adobelaunchproductcolor)").extract()
+        sizes = response.css("li::attr(data-attr-value)").extract()
+        item["product_id"] = prod_id
+        item["product_brand"] = response.css("a.product-brand::text").get()
+        item["product_name"] = response.css("h1.product-name::text").get()
+        json_breadcrumbs_text = (
+            response.css('script[type="application/ld+json"]')
+            .extract()[-1]
+            .replace('<script type="application/ld+json">', "")
+            .replace("</script>", "")
+        )
+        bc_json_blob = json.loads(json_breadcrumbs_text)
+        item["categories"] = [
+            {f"category_{idx}": cat["name"]}
+            for idx, cat in enumerate(bc_json_blob["itemListElement"], 1)
+        ]
+        item["slug"] = json_blob["offers"]["url"].split(".com")[-1]
+        desc = json_blob["description"]
+        item["description"] = re.sub("<[^<]+?>", " ", html.unescape(desc))
+        item["product_variants"] = []
+        item["color"] = response.css(
+            "span.text2.color-value.attribute-displayValue::text"
+        ).get()
+        item["sizes"] = []
+        item["gender"] = ""
+        bc_li = [b["name"] for b in bc_json_blob["itemListElement"]]
+
+        if "Women's Clothing" in bc_li:
+            item["gender"] = "Female"
+        elif "Men" in bc_li or "Men's" in bc_li:
+            item["gender"] = "Male"
+        else:
+            item["gender"] = "Female"
+        if (
+            "Kids" in bc_li
+            and any("Boys" in s for s in bc_li)
+            or any("Baby Boy" in s for s in bc_li)
+        ):
+            item["gender"] = "Boy"
+        elif (
+            "Kids" in bc_li
+            and any("Girls" in s for s in bc_li)
+            or any("Baby Girl" in s for s in bc_li)
+        ):
+            item["gender"] = "Girl"
+
+        elif (
+            any("Kids" in s for s in bc_li)
+            and not any("Baby Girl" in s for s in bc_li)
+            and not any("Baby Boy" in s for s in bc_li)
+            and not any("Boys" in s for s in bc_li)
+            and not any("Girls" in s for s in bc_li)
+        ):
+            item["gender"] = "Kids"
+
+        elif any("Accessories" in s for s in bc_li):
+            item["gender"] = ""
+
+        else:
+            item["gender"] = ""
+
+        price_json_text = (
+            response.css('script[type="text/javascript"]')
+            .extract()[2]
+            .replace('<script type="text/javascript">\npageDataObj = ', "")
+            .replace(";\n</script>", "")
+        )
+        price_json_blob = json.loads(price_json_text)
+        item["tag"] = price_json_blob["products"][0]["tags"]["feature_type"]
+        item["price"] = [
+            {
+                "original_price": p["original_price"],
+                "price": p["price"],
+                "currency": json_blob["offers"]["priceCurrency"],
+            }
+            for p in price_json_blob["products"]
+        ]
+        variant_urls = []
+        for color in colors:
+            for i_size in sizes:
+                variant_url = (
+                    response.url
+                    + "?dwvar_"
+                    + prod_id
+                    + "_color="
+                    + color.upper()
+                    + "&dwvar_"
+                    + prod_id
+                    + f"_size={i_size}&pid="
+                    + prod_id
+                )
+                variant_urls.append(variant_url)
+        item["images"] = json_blob["image"]
+        size_selector = response.css(
+            "ul.radio-group-list.size-attribute.swatch-display-three.show-size-dropdown"
+        )
+        if size_selector:
+            for s in size_selector.css("li"):
+                all_size_var = s.css("::text").getall()
+                if not s.css("[disabled]"):
+                    available = all_size_var
+                    clean = list(filter(None, [c.replace("\n", "") for c in available]))
+                    for out_si in clean:
+                        item["sizes"].append({"size": out_si, "status": "AVAILABLE"})
+                else:
+                    out_of_stock = all_size_var
+                    clean = list(
+                        filter(None, [c.replace("\n", "") for c in out_of_stock])
+                    )
+                    for in_si in clean:
+                        item["sizes"].append({"size": in_si, "status": "NOT_AVAILABLE"})
+        clean_sizes_urls = []
+        if response.css("div.form-group.show-size-dropdown-holder"):
+            size_dropdown = response.css(
+                "ul.radio-group-list.size-attribute.swatch-display-three ::text"
+            ).extract()
+            clean_sizes = list(
+                filter(None, [s.replace("\n", "") for s in size_dropdown])
+            )
+            for dd_si in clean_sizes:
+                if item["color"]:
+                    variant_url = (
+                        response.url
+                        + "?dwvar_"
+                        + prod_id
+                        + "_color="
+                        + item["color"].upper()
+                        + "&dwvar_"
+                        + prod_id
+                        + f"_size={dd_si}&pid="
+                        + prod_id
+                    )
+                    clean_sizes_urls.append(variant_url)
+        if variant_urls:
+            yield scrapy.Request(
+                variant_urls[0],
+                headers=self.headers,
+                dont_filter=True,
+                cb_kwargs={
+                    "item": item,
+                    "variant_urls": variant_urls[1:],
+                    "clean_sizes_urls": clean_sizes_urls,
+                },
+                callback=self.parse_product_variants,
+            )
+        elif clean_sizes_urls:
+            yield scrapy.Request(
+                clean_sizes_urls[0],
+                headers=self.headers,
+                dont_filter=True,
+                cb_kwargs={"item": item, "clean_sizes_urls": clean_sizes_urls[1:]},
+                callback=self.parse_clean_sizes,
+            )
+        else:
+            yield item
+
+    def parse_product_variants(self, response, item, variant_urls, clean_sizes_urls):
+        size = "".join(
+            list(
+                filter(
+                    None,
+                    [
+                        s.replace("\n", "")
+                        for s in response.css("li").css("[selected] ::text").extract()
+                    ],
+                )
+            )
+        )
+        disabled = (
+            response.css("li").css("[disabled]").css("[selected] ::text").getall()
+        )
+        final_price = ""
+        final_price = response.css(
+            "span.formatted_sale_price.formatted_price.js-final-sale-price.bfx-price.bfx-list-price::text"
+        ).get()
+        if final_price is None:
+            final_price = response.css(
+                "span.formatted_sale_price.formatted_price.js-final-sale-price.bfx-price.bfx-sale-price::text"
+            ).get()
+        try:
+            old_price = response.css(
+                "span.formatted_price.bfx-price.bfx-list-price ::text"
+            ).get()
+        except:
+            old_price = ""
+
+        if not disabled:
+            item["product_variants"].append(
+                {
+                    "color": response.css(
+                        "span.text2.color-value.attribute-displayValue::text"
+                    ).get(),
+                    "size": size,
+                    "status": "AVAILABLE",
+                    "final_price": final_price,
+                    "old_price": old_price,
+                }
+            )
+        else:
+            item["product_variants"].append(
+                {
+                    "color": response.css(
+                        "span.text2.color-value.attribute-displayValue::text"
+                    ).get(),
+                    "size": size,
+                    "status": "NOT_AVAILABLE",
+                    "final_price": final_price,
+                    "old_price": old_price,
+                }
+            )
+        if len(variant_urls) > 0:
+            yield scrapy.Request(
+                variant_urls.pop(0),
+                headers=self.headers,
+                dont_filter=True,
+                cb_kwargs={
+                    "item": item,
+                    "variant_urls": variant_urls[1:],
+                    "clean_sizes_urls": clean_sizes_urls,
+                },
+                callback=self.parse_product_variants,
+            )
+        elif len(clean_sizes_urls) > 0:
+            yield scrapy.Request(
+                clean_sizes_urls.pop(0),
+                headers=self.headers,
+                dont_filter=True,
+                cb_kwargs={"item": item, "clean_sizes_urls": clean_sizes_urls[1:]},
+                callback=self.parse_clean_sizes,
+            )
+        else:
+            yield item
+
+    def parse_clean_sizes(self, response, item, clean_sizes_urls):
+        size = "".join(
+            list(
+                filter(
+                    None,
+                    [
+                        s.replace("\n", "")
+                        for s in response.css("li").css("[selected] ::text").extract()
+                    ],
+                )
+            )
+        )
+        disabled = (
+            response.css("li").css("[disabled]").css("[selected] ::text").getall()
+        )
+        final_price = ""
+        final_price = response.css(
+            "span.formatted_sale_price.formatted_price.js-final-sale-price.bfx-price.bfx-list-price::text"
+        ).get()
+        if final_price is None:
+            final_price = response.css(
+                "span.formatted_sale_price.formatted_price.js-final-sale-price.bfx-price.bfx-sale-price::text"
+            ).get()
+        try:
+            old_price = response.css(
+                "span.formatted_price.bfx-price.bfx-list-price ::text"
+            ).get()
+        except:
+            old_price = ""
+
+        if not disabled:
+            item["product_variants"].append(
+                {
+                    "color": item["color"],
+                    "size": size,
+                    "status": "AVAILABLE",
+                    "final_price": final_price,
+                    "old_price": old_price,
+                }
+            )
+        else:
+            item["product_variants"].append(
+                {
+                    "color": item["color"],
+                    "size": size,
+                    "status": "NOT_AVAILABLE",
+                    "final_price": final_price,
+                    "old_price": old_price,
+                }
+            )
+        if len(clean_sizes_urls) > 0:
+            yield scrapy.Request(
+                clean_sizes_urls.pop(0),
+                headers=self.headers,
+                dont_filter=True,
+                cb_kwargs={"item": item, "clean_sizes_urls": clean_sizes_urls[1:]},
+                callback=self.parse_clean_sizes,
+            )
+        else:
+            yield item
