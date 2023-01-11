@@ -1,0 +1,157 @@
+esphome:
+  name: "esp32-1"
+  platform: ESP32
+  board: esp32doit-devkit-v1
+
+wifi:
+  ssid: !secret wifi_s
+  password: !secret wifi_p
+#  use_address: esp32_1.local
+#  manual_ip:
+    # Set this to the IP of the ESP
+#    static_ip: 10.0.0.198
+    # Set this to the IP address of the router. Often ends with .1
+#    gateway: 10.0.0.1
+    # The subnet of the network. 255.255.255.0 works for most home networks.
+#    subnet: 255.255.255.0  
+  reboot_timeout: 10s
+  power_save_mode: none
+ 
+web_server:
+  port: 80
+
+substitutions:
+  device_name: home-assistant-glow
+  friendly_name: EnergyConsumptionMeter
+  device_description: "Measure your energy consumption with the pulse LED on your smart meter"
+  pulse_pin: GPIO15
+  status_led: GPIO32
+  # imp/kWh rate ⬇ #
+  pulse_rate: '1000'
+  
+# Enable logging
+logger:
+  level: VERBOSE
+
+# Enable Home Assistant API
+api:
+  password: !secret api_p
+
+ota:
+  password: !secret ota_p
+
+
+output:
+  - platform: gpio
+    pin: GPIO27
+    id: output_red
+    
+  - platform: gpio
+    pin: GPIO25
+    id: output_green
+    
+  - platform: gpio
+    pin: GPIO32
+    id: output_blue
+
+# blue LED=GPIO32, Grön ledning
+# red LED=GPIO27, Blå ledning
+# green LED=GPIO25, Röd leding
+
+light:
+  - platform: binary
+    internal: true
+    id: led_red
+    #name: Red
+    output: output_red
+
+  - platform: binary
+    internal: true
+    id: led_blue
+    #name: Blue
+    output: output_blue
+
+  - platform: binary
+    internal: true
+    id: led_green
+    #name: Green
+    output: output_green
+
+# Status LED for connection
+status_led:
+  pin:
+    # Blue LED
+    number: ${status_led}
+
+#globals:
+#  - id: light_toggler
+#    type: int
+#    initial_value: '0'
+  
+
+#switch:
+#  - platform: template
+#    id: "blue_light"
+#    name: "testEnergyConsumption LED Blue"
+#    lambda: |-
+#      if (id(light_toggler) == 1 ) {
+#        return true;
+#      } else {
+#        return false;
+#      }
+#
+#    turn_on_action:
+#      - light.turn_on: led_blue
+#      - lambda: id(light_toggler) = 1;
+#    turn_off_action:
+#      - light.turn_off: led_blue  
+#      - lambda: id(light_toggler) = 0;
+
+
+# Sensors for ESP version and WIFI information
+text_sensor:
+  - platform: version
+    hide_timestamp: true
+    name: "${friendly_name} - ESPHome Version"
+  - platform: wifi_info
+    ip_address:
+      name: "${friendly_name} - IP Address"
+      icon: mdi:wifi
+    ssid:
+      name: "${friendly_name} - Connected SSID"
+      icon: mdi:wifi-strength-2
+      
+      
+sensor:
+  - platform: pulse_meter
+    id: energy_pulse_meter
+    name: '${friendly_name} - Power consumption'
+    unit_of_measurement: 'W'
+    state_class: measurement
+    device_class: power
+    icon: mdi:flash-outline
+    accuracy_decimals: 0
+    pin: ${pulse_pin}
+    # internal_filter: 100ms
+    on_value:
+      then:
+        - light.turn_on:
+            id: led_red
+        - delay: 100ms
+        - light.turn_off:
+            id: led_red
+    filters:
+      # multiply value = (60 / imp value) * 1000
+      # - multiply: 60
+      - lambda: return x * ((60.0 / ${pulse_rate}) * 1000.0);
+    total:
+      name: '${friendly_name} - Total energy'
+      unit_of_measurement: 'kWh'
+      icon: mdi:circle-slice-3
+      state_class: total_increasing
+      device_class: energy
+      accuracy_decimals: 3
+      filters:
+        # multiply value = 1 / imp value
+        # - multiply: 0.001
+        - lambda: return x * (1.0 / ${pulse_rate});
