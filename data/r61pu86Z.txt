@@ -1,0 +1,253 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <limits.h>
+#include <time.h>
+#include <mpi.h>
+
+#define STEPS 10
+
+#define NASTAVLJAMO 1
+#define DEDA_MRAZ_INTERVENCIJA 2
+#define STAMPA 3
+
+typedef struct igracka {
+    double tezina;
+    double lepota;
+} IGRACKA;
+
+void myMpiAvg(double* inbuf, double* outbuf, int len, MPI_Datatype dataType)
+{
+    (*outbuf) = ((*inbuf)*(*outbuf)) / 2;
+}
+
+int main(int argc, char **argv)
+{
+    MPI_Init(&argc, &argv);
+    
+    int size, rank;
+
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);    srand(time(NULL) * rank);
+
+    // START - CREATE STRUCTS & BROADCAST THE DATA
+
+    int n; // broj patuljaka
+    int m; // broj igracaka na gomili
+    double t; // dozvoljena tezina jednog poklona
+    IGRACKA* igracke;
+
+    MPI_Op MY_MPI_AVG;
+    MPI_Op_create((MPI_User_function *)myMpiAvg, 1, &MY_MPI_AVG);
+
+    // Kreiraj MPI tip
+    MPI_Datatype MPI_IGRACKE;
+    int count = 1, res, receivedRes;
+    int lengths[1] = { 2 };
+    MPI_Aint displacements[1] = { 0 };
+    MPI_Datatype types[1] = { MPI_DOUBLE };
+
+    MPI_Type_create_struct(count, lengths, displacements, types, &MPI_IGRACKE);
+    MPI_Type_commit(&MPI_IGRACKE);
+    if (rank == 0)
+    {
+        scanf("%d", &n);
+        scanf("%d", &m);
+        scanf("%lf", &t);
+        igracke = (IGRACKA*)malloc(m * sizeof(IGRACKA));
+        int i;
+        for (i = 0; i < m; i++)
+        {
+            scanf("%lf %lf", &igracke[i].tezina, &igracke[i].lepota);
+        }
+    }
+    MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&t, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    // Allocate igracke array for all processors except 0
+    if (rank != 0)
+    {
+        igracke = (IGRACKA*)malloc(m * sizeof(IGRACKA));
+    }
+
+    MPI_Bcast(igracke, m, MPI_IGRACKE, 0, MPI_COMM_WORLD);
+
+    // END - CREATE STRUCTS & BROADCAST THE DATA
+    
+    // Svi patuljci imaju pristup gomili, uzimaju poklone sa gomile i onda javljaju kakav poklon su upakovail
+    // POKLON == NIZ IGRACAKA
+    // Komunicira se samo lepota poklona, ne i tezina
+    
+    double globalMinLepota = 0;
+    double globalMaxLepota = 0;
+    double globalAvgLepota = 0;
+
+    int i, j;
+    for (i = 0; i < STEPS; i++)
+    {
+        // Svi patuljci imaju pristup istoj gomili
+        // Paralelizacija se resava na nivou patuljka i njegovog pristupa gomili
+
+        // Za svakog patuljka kreni da pakujes poklon
+        // Patuljak je entitet paralelizacije tako da je start rank, a inkrement rank + size
+
+        int k;
+        int brojIgracaka = 0;
+        double tezinaPoklona = 0;
+        double lepotaPoklona = 0;
+        
+        // Pravimio lokalnu matricu gde cuvamo poklone svih patuljaka procesa
+        IGRACKA* data = (IGRACKA*)malloc(m * n * sizeof(IGRACKA));
+        IGRACKA** pokloni = (IGRACKA**)malloc(m * sizeof(IGRACKA*));
+
+        int p;
+        for (p = 0; p < m; p++)
+        {
+            pokloni[p] = &data[p * n];
+        }
+        
+        // Postavi sve tezine i lepote na 0 kako bismo znali kada je kraj dodatim igrackama
+        // tj. sve dok imamo vrednosti > 0 znamo da nismo presli granicu niza igracaka, tj. poklona.
+        for (p = 0; p < n; p++)
+        {
+            for (k = 0; k < m; k++)
+            {
+                pokloni[p][k].tezina = 0;
+                pokloni[p][k].lepota = 0;
+            }
+        }
+        
+        int brPoklona = 0;
+        int localIndexPatuljka = 0;
+
+        double localMinLepota = (double)RAND_MAX;
+        double localMaxLepota = 0;
+        double localAvgLepota = 0;
+        double localSumLepota = 0;
+
+        for (j = rank; j < n; j += size)
+        {
+            // Dok je tezina poklona manja od dozvoljene
+            // uzimaj igracke i ubacuj ih u poklon
+            while (tezinaPoklona <= t)
+            {
+                // Uzmi poklon sa gomile
+                // treba nam pametniji nacin generisanja indeksa
+                int index = rand() % m;
+                /*
+                while (index > m && igracke[index].tezina != 0)
+                {
+                    index = rank * rand() % m;
+                    igracke[index].tezina = 0;
+                }
+                */
+                // dodaj poklon ako mozes
+                if (t > tezinaPoklona + igracke[index].tezina)
+                {
+                    pokloni[localIndexPatuljka][brojIgracaka].tezina = igracke[index].tezina;
+                    pokloni[localIndexPatuljka][brojIgracaka].lepota = igracke[index].lepota;
+
+                    tezinaPoklona += igracke[index].tezina;
+                    lepotaPoklona += igracke[index].lepota;
+                    localAvgLepota += lepotaPoklona;
+                    localSumLepota += lepotaPoklona;
+                    brojIgracaka++;
+                } else { break; }
+            }
+            localIndexPatuljka++;
+
+            // Gleamo lokalni MIN, MAX
+            if (lepotaPoklona < localMinLepota)
+            {
+                localMinLepota = lepotaPoklona;
+            }
+            if (lepotaPoklona > localMaxLepota)
+            {
+                localMaxLepota = lepotaPoklona;
+            }
+
+            lepotaPoklona = 0;
+            tezinaPoklona = 0;
+            brojIgracaka = 0;
+        }
+        // Gledamo lokalni AVG
+        localAvgLepota /= localIndexPatuljka;
+
+        // Redukcija MIN
+        MPI_Reduce(&localMinLepota, &globalMinLepota, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+        // Redukcija MAX
+        MPI_Reduce(&localMinLepota, &globalMinLepota, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        // Redukcija AVG -> SUMA pa se deli
+        //MPI_Reduce(&localAvgLepota, &globalAvgLepota, 1, MPI_DOUBLE, MY_MPI_AVG, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&localSumLepota, &globalAvgLepota, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+        // Komunikacija i sinhronizacija
+        if (rank == 0)
+        {
+            globalAvgLepota /= size;
+
+            res = NASTAVLJAMO;
+            int z;
+            // Proveri da li nastavljamo procesiranje ili zavrsavamo
+            if (globalMaxLepota - globalMaxLepota > globalAvgLepota)
+            {
+                res = NASTAVLJAMO;
+                for (z = 1; z < n; z++)
+                {
+                    MPI_Send(&res, 1, MPI_INT, z, 10, MPI_COMM_WORLD);
+                }
+            }
+            else if (i == STEPS - 1)
+            {
+                res = DEDA_MRAZ_INTERVENCIJA;
+                for (z = 1; z < n; z++)
+                {
+                    MPI_Send(&res, 1, MPI_INT, z, 10, MPI_COMM_WORLD);
+                }
+
+                printf("Deda Mraz mora da intervenise!\n");
+            }
+            else
+            {
+                res = STAMPA;
+
+                int w = 0, ww = 0; for (w = 0; w < localIndexPatuljka; w++) { while (pokloni[w][ww].lepota != 0) { printf("%lf %lf\n", pokloni[w][ww].tezina, pokloni[w][ww].lepota); ww++; }}
+
+                for (z = 1; z < n; z++)
+                {
+                    MPI_Send(&res, 1, MPI_INT, z, 10, MPI_COMM_WORLD);
+                }
+            }
+        }
+        else if (rank != 0)
+        {
+            receivedRes = 0;
+            MPI_Recv(&receivedRes, 1, MPI_INT, 0, 10, MPI_COMM_WORLD, NULL);
+
+            if (receivedRes == DEDA_MRAZ_INTERVENCIJA)
+            {
+                break;
+            }
+            else if (receivedRes == STAMPA)
+            {
+                int w = 0, ww = 0;
+                for (w = 0; w < localIndexPatuljka; w++)
+                {
+                    while (pokloni[w][ww].lepota != 0)
+                    {
+                        printf("%lf %lf\n", pokloni[w][ww].tezina, pokloni[w][ww].lepota);
+                        ww++;
+                    } 
+                }
+            }
+            else if (receivedRes == NASTAVLJAMO)
+            {
+                // nista
+            }
+        } if (receivedRes == STAMPA || receivedRes == DEDA_MRAZ_INTERVENCIJA || res == STAMPA || res == DEDA_MRAZ_INTERVENCIJA) { break; };
+    }
+
+    MPI_Finalize();
+
+    return 0;
+}
