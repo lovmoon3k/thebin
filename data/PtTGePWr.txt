@@ -1,0 +1,156 @@
+ --- выполняем на srv-sql03
+ --- на srv-sql01 нет нужных записей в sys.servers
+ 
+ DECLARE @Order_Id BIGINT
+SET @Order_Id= 126917773 
+DECLARE @CheckUID VARCHAR(36)
+SET @CheckUID = (SELECT CheckUID FROM [SRV-SQL01].sms_union.dbo.Prepaid WHERE Order_Id=@Order_Id AND Summ_Prepaid<0)
+
+ DECLARE @number_cert TABLE 
+(
+	CashId INT,
+	CashCheckNo INT,
+	number_cert BIGINT,
+	id_type_coupon UNIQUEIDENTIFIER,
+	Sum_coupon INT
+	
+)
+ 
+ DECLARE  @CashID INT
+ SET @CashID = (SELECT DISTINCT  cm.CashID  from Loyalty.dbo.Coupon_move as cm with(nolock) where  cm.CashCheckNo =  @Order_Id)
+ DECLARE @CashCheckNo INT 
+ SET @CashCheckNo = (SELECT TOP 1 cm.CashCheckNo  from Loyalty.dbo.Coupon_move as cm with(nolock) where  cm.CashCheckNo = @Order_Id)
+ DECLARE @Close_Date DATETIME
+ SET @Close_Date = (SELECT TOP 1  Close_Date FROM [SRV-SQL01].sms_union.dbo.Prepaid WHERE Order_Id = @Order_Id AND Summ_Prepaid >0)
+ 
+INSERT INTO @number_cert
+(
+    CashId,
+    CashCheckNo,
+    number_cert,
+    id_type_coupon,
+    Sum_coupon
+)
+SELECT cm.CashID, cm.CashCheckNo,cm.number_cert, cm.id_type_coupon, tcl.Sum_coupon 
+FROM Loyalty.dbo.Coupon_move cm
+INNER JOIN [SRV-SQL03].OnlinePay.[dbo].[Types_coupon_loyalty] tcl ON tcl.id_type_coupon = cm.id_type_coupon
+WHERE CashCheckNo = @Order_Id
+SELECT * FROM @number_cert
+
+
+--- то что нужно вставить. Разбиваем на строки по сертификатам отдельно
+-- 3
+INSERT INTO [SRV-SQL01].SMS_UNION.dbo.Prepaid
+(
+    Prepaid_Id,
+    Summ_Prepaid,
+    Order_Id,
+    Number_Cert,
+    Cashid,
+    Cash_Check_No,
+    Close_Date,
+    CheckUID,
+    Date_Add,
+    Fisc_No,
+    terminal,
+    Shift_No,
+    order_type,
+    pay_type,
+    is_fisc_corrected,
+    fr_fisc_id,
+    fr_check_id,
+    _uid,
+    _date_fix,
+    _date_correction_prepared,
+    _date_correction_completed,
+    _fr_fisc_id,
+    _fr_check_id,
+    _c_num,
+    type_insert,
+    Summ_Prepaid_old,
+    Sum_VatNo,
+    Sum_Vat10,
+    Sum_Vat20,
+    id_kontr,
+    id_contract_type,
+    PayUID,
+    FiscDate
+)
+SELECT 
+    1,       -- Prepaid_Id - int
+    [@number_cert].Sum_coupon,    -- Summ_Prepaid - decimal(15, 2)
+    a.Order_Id, -- Order_Id - bigint
+    [@number_cert].number_cert, -- Number_Cert - bigint
+    25191, -- Cashid - bigint
+    a.Cash_Check_No, -- Cash_Check_No - int
+    a.Close_Date,    -- Close_Date - datetime
+    NULL,    -- CheckUID - varchar(36)
+    a.Date_Add, -- Date_Add - datetime
+    a.Fisc_No, -- Fisc_No - bigint
+    a.terminal, -- terminal - varchar(20)
+    a.Shift_No, -- Shift_No - int
+    a.order_type, -- order_type - tinyint
+    a.pay_type, -- pay_type - tinyint
+    a.is_fisc_corrected,    -- is_fisc_corrected - tinyint
+    a.fr_fisc_id,    -- fr_fisc_id - int
+    a.fr_check_id,    -- fr_check_id - int
+    NULL,    -- _uid - uniqueidentifier
+    NULL,    -- _date_fix - datetime
+    NULL,    -- _date_correction_prepared - datetime
+    NULL,    -- _date_correction_completed - datetime
+    NULL,    -- _fr_fisc_id - bigint
+    NULL,    -- _fr_check_id - int
+    NULL,    -- _c_num - varchar(36)
+    NULL,    -- type_insert - tinyint
+    NULL,    -- Summ_Prepaid_old - decimal(15, 2)
+    0,    -- Sum_VatNo - decimal(15, 2)
+    0,    -- Sum_Vat10 - decimal(15, 2)
+    [@number_cert].Sum_coupon,    -- Sum_Vat20 - decimal(15, 2)
+    a.id_kontr,    -- id_kontr - int
+    a.id_contract_type,    -- id_contract_type - tinyint
+    NEWID(),    -- PayUID - uniqueidentifier ---- уникальный один и тот же не получится 
+    a.FiscDate     -- FiscDate - datetime
+    FROM @number_cert, (
+SELECT * FROM [SRV-SQL01].SMS_UNION.dbo.Prepaid WHERE Order_Id = @Order_Id AND Summ_Prepaid>0 --@Order_Id
+) a
+
+
+
+/*
+DELETE FROM [SRV-SQL01-QA].SMS_UNION.dbo.Prepaid 
+WHERE Order_Id = 126917773 AND Summ_Prepaid>0 AND Prepaid_Id=1 --@Order_Id
+*/
+--  4.	сводных отчетов бухгалтерии формируется таблице Check_GiftCard 
+SELECT TOP (10)* FROM [SRV-SQL01].SMS_REPL.dbo.Check_GiftCard g WITH (NOLOCK) 
+
+
+--  SELECT  * FROM [SRV-SQL01-QA].SMS_UNION.dbo.Prepaid WHERE Order_Id = 126917773 AND Summ_Prepaid>0 --@Order_Id
+
+--   SELECT 'Loyalty.dbo.Coupon_move',* FROM Loyalty.dbo.Coupon_move as cm with(nolock) WHERE  cm.CashCheckNo = 126917773 
+
+--  SELECT 'Loyalty.dbo.Coupon_move',* FROM Loyalty.dbo.Coupon_move as cm with(nolock) WHERE  cm.CashCheckNo = @Order_Id
+
+INSERT INTO [SRV-SQL01].SMS_REPL.dbo.Check_GiftCard
+(
+    CheckUID,
+    number_cert,
+    CashID,
+    CashCheckNo,
+    Closedate,
+    date_add,
+    operation_type,
+    Type_sale,
+    BONUSCARD
+)
+SELECT id_type_coupon, number_cert, 25191 AS CashId, CashCheckNo, GETDATE() AS Closedate, GETDATE() AS date_add , 1 AS operation_type , 1 AS type_sale, NULL AS BONUSCARD FROM @number_cert
+
+-- 5.
+DELETE FROM [SRV-SQL01].SMS_UNION.dbo.Prepaid
+WHERE Prepaid_Id =3 AND Order_Id=@Order_Id
+
+
+
+
+
+
+
