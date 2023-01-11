@@ -1,0 +1,176 @@
+@client.tree.command(name="giveaway", description='Starts a Giveaway')
+@discord.app_commands.checks.has_role("Giveaways Manager")
+async def giveaway(interaction):
+
+    cur.execute("SELECT * FROM skdatabase WHERE sgserverID= %s",
+                (interaction.guild.id,))
+
+    serverConfigs = cur.fetchall()
+
+  #  print(serverConfigs[0])
+    configWinnerRole = serverConfigs[0][3]
+
+    cur.close()
+    winnerRole = interaction.guild.get_role(int(configWinnerRole))
+
+    if serverConfigs == None:
+        await interaction.response.send_message("A first giveaway channel must be configured **/update-manager-channel** ⚠",ephemeral=True)
+        return
+
+    serverConfigs = serverConfigs[0]
+    cancelled = False
+
+    # Ask Questions
+    embed = discord.Embed(title="🎉 GIVEAWAY | SKRIOS 🎉",
+                          description="Time for a new Giveaway. Answer the following questions in 99999 seconds each for the Giveawa, TYPE **CANCEL** if you want to cancel",
+                          color=discord.Colour.red())
+    await interaction.original_response(embed=embed)
+    questions = ["What should be the uration of the giveaway? example: 1s (seconds) , 1m (minutes) , 1h (hour) , 1d (day)",
+                 "How many winners?",
+                 "What is the Prize?"]
+
+    answers = []
+
+    # giveaway channel ID here :) xd
+    giveaway_channel = await client.fetch_channel(str(serverConfigs[2]))
+
+    def check(m):
+        return m.author == interaction.author and m.channel == interaction.channel
+
+    for i, question in enumerate(questions):
+        embed = discord.Embed(title=f"Question {i}",
+                              description=question)
+        await interaction.response.send_message(embed=embed)
+        try:
+            message = await client.wait_for('message', timeout=99999, check=check)
+        except TimeoutError:
+            await interaction.response.send_message("You didn't answer the questions in Time")
+            return
+
+        if str(message.content).lower() == "cancel":
+            cancelled = True
+            break
+
+        answers.append(message.content)
+
+    if cancelled:
+        await interaction.response.send_message("Giveaway canceled ✅")
+        return
+
+    serverConfigs = giveaway_channel  # channel two
+    time = convert(answers[0])
+
+    # Check if Time is valid
+
+    if time == -1:
+        await interaction.response.send_message("The Time format was wrong")
+        return
+    elif time == -2:
+        await interaction.response.send_message("The Time was not conventional number")
+        return
+
+    prize = answers[2]
+
+    embed = discord.Embed(title="🎉 GIVEAWAY | SKRIOS 🎉",
+                          description=f"{prize}",
+                          colour=0xAC00FF)
+
+    # image upload
+
+    await interaction.response.send_message('Do you want upload image?, or say **"N"** to skip')
+
+    image_message = await client.wait_for('message', timeout=9999, check=check)
+
+    if len(image_message.attachments):
+        embed.set_image(url=image_message.attachments[0].url)
+
+    await interaction.response.send_message(f"Your giveaway will be hosted in {serverConfigs.mention} and will last for {answers[0]}")
+
+    embed.add_field(name="Amount of Winners:", value=answers[1])
+    embed.add_field(name="Hosted by:", value=interaction.author.mention)
+    embed.add_field(name="End date:", value=answers[0])
+    embed.set_footer(text=f"Ends at {answers[0]} from now")
+
+    newMsg = await serverConfigs.send(embed=embed)
+    await newMsg.add_reaction("🎉")
+    # Check if Giveaway Cancelled
+
+    cancelled = False
+
+    # time updater
+    timestamp = time
+    updated_time = int(datetime.datetime.timestamp(
+        datetime.datetime.now()) + int(time))
+    updating_time = True
+
+    while updating_time:
+        #print(timestamp)
+        timestamp = timestamp - 1
+        embed.set_field_at(index=2, name="End date:",
+                           value=f"<t:{updated_time}:R>")
+        await newMsg.edit(embed=embed)
+        await sleep(0.9)
+
+        if timestamp == 0:
+            embed.set_field_at(index=2, name="End date:",
+                               value=f"<t:{updated_time}>")
+            await newMsg.edit(embed=embed)
+            updating_time = False
+
+    if not cancelled:
+        myMsg = await serverConfigs.fetch_message(newMsg.id)
+
+        users = await myMsg.reactions[0].users().flatten()
+        users.pop(users.index(client.user))
+        # Check if User list is not empty
+        if len(users) <= 0:
+            emptyEmbed = discord.Embed(title="🎉 GIVEAWAY | SKRIOS 🎉",
+                                       description=f"{prize}")
+            emptyEmbed.add_field(name="Hosted By:", value=interaction.author.mention)
+            emptyEmbed.set_footer(text="No one won the Giveaway")
+            await myMsg.edit(embed=emptyEmbed)
+            return
+
+        # for one winner
+        if len(users) > 0 and len(answers[1]) == 1:
+            winner = choice(users)
+
+            # add winners to embed
+
+            embed.add_field(name="Winners:", value=winner.mention)
+            await myMsg.edit(embed=embed)
+
+            await serverConfigs.send(f"Congratulations! <@&{winnerRole.mention}>, you have won **{prize}** => Please kindly DM {interaction.author.mention} to receive your prize 📬")
+
+            await sleep(10000)  # 10 seconds for remove rol
+
+            await winner.remove_roles(winnerRole)
+
+            return
+
+        # For many winners
+        if len(users) > 0 and len(answers[1]) > 1:
+            winnersUsers = random.sample(users, int(len(users)))
+            winners = []
+
+            for winner in winnersUsers:
+
+                winners.append(str(f"<@{winner.id}>"))
+
+                # add role
+                await winner.add_roles(winnerRole)
+               # print(f"Rol added to {winner}")
+
+           # print("winners: ", winners)
+
+            # add winners to embed
+
+            embed.add_field(name="Winners:", value=f"{', '.join(winners)}")
+            await myMsg.edit(embed=embed)
+
+            await serverConfigs.send(f"Congratulations! {winnerRole.mention}, you have won **{prize}** => Please kindly DM {interaction.author.mention} to receive your prize 📬")
+
+            await sleep(259200)  # 3 days for remove rol
+            for winner in winnersUsers:
+                await winner.remove_roles(winnerRole)
+                #print(f"Rol removed from user => {winner}")
