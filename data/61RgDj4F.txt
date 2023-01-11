@@ -1,0 +1,176 @@
+# -*- coding: utf-8 -*-
+# D_portfolio_optimization_EffFront.py
+"""
+Created on 2023-01-10
+
+@author: fault
+
+idea: Python for Finance, Yves Hilpisch, 2nd ed.
+  --> Efficient Frontier
+
+pdr. Datareader - TypeError: string indices must be integers
+https://stackoverflow.com/questions/74834834/pdr-datareader-typeerror-string-indices-must-be-integers
+--> Yahoo has changed something on the page from which to retrieve symbol data
+=> taking  yfinance
+
+test: OK
+
+Code analysis: 9.55/10 (2023-01-10)
+"""
+
+import numpy as np
+import pandas as pd
+import yfinance
+import scipy.optimize as sco
+
+import matplotlib.pyplot as plt
+# import matplotlib.ticker as mtick
+
+TITLE1 = "Efficient frontier (Python for Finance, Yves Hilpisch)"
+
+symbols = ['AAPL', 'MSFT', 'SPY', 'GLD']
+
+# START_DATE1 = "2022-01-01"
+START_DATE1 = "2020-01-01"
+# END_DATE1 = "2022-12-31"
+END_DATE1 = "2020-12-31"
+
+TRET = 0.2  # target return
+
+LISTTOSTR = ', '.join([str(elem) for elem in symbols])
+SUBTITLE1 = START_DATE1 + ".." + END_DATE1 + ": " + LISTTOSTR
+SUBTITLE2 = "target return = %.2f" % (TRET) +\
+    ", red = Minimum Variance Portfolio, magenta = max Sharpe ratio"
+TITLE = TITLE1 + "\n" + SUBTITLE1
+
+NOA = len(symbols)  # number of assets
+
+df1 = pd.DataFrame()
+
+for sym in symbols:
+    print(sym)
+    sym1 = yfinance.Ticker(sym)  # type: pandas.core.frame.DataFrame
+    df1[sym] = sym1.history(start=START_DATE1)["Close"]
+
+rets = np.log(df1 / df1.shift(1))
+
+
+def port_ret(weights1):
+    "calculate annual portfolio return"
+    return np.sum(rets.mean() * weights1) * 252
+
+def port_vol(weights1):
+    "calculate annual portfolio volatility"
+    return np.sqrt(np.dot(weights1.T, np.dot(rets.cov()*252, weights1)))
+
+
+prets = []
+pvols = []
+
+# Monte Carlo simulation of portfolio weights:
+print("\nMonte Carlo simulation of portfolio weights")
+for p in range (2500):
+    weights = np.random.random(NOA)
+    weights /= np.sum(weights)
+
+    prets.append(port_ret(weights))
+    pvols.append(port_vol(weights))
+
+prets = np.array(prets)
+pvols = np.array(pvols)
+
+############################
+#
+# maximization of the Sharpe ratio
+
+def min_func_sharpe(weights2):
+    """ formally, we minimize the negative value of the Sharpe ratio """
+    return -port_ret(weights2) / port_vol(weights2)
+
+# equality constraints:
+cons = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+
+# bounds for the parameter values (weights) to be within 0 and 1:
+bnds = tuple((0, 1) for x in range(NOA))
+
+# starting parameters = initial weights: start with an equal distribution:
+eweights = np.array(NOA * [1.0 / NOA,])
+
+print("\noptimizing", end="")
+opts = sco.minimize(min_func_sharpe, eweights, method='SLSQP', bounds=bnds,
+                    constraints=cons)
+
+
+############################
+#
+# minimum variance portfolio (MVP)
+optv = sco.minimize(port_vol, eweights, method='SLSQP', bounds=bnds,
+                    constraints=cons)
+
+
+############################
+#
+# Efficient Frontier
+# TRET: target return:
+# cons2 = ({'type': 'eq', 'fun': lambda x: port_ret(x) - TRET},
+#         {'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+cons2 = ({'type': 'eq', 'fun': lambda x: port_ret(x) - TRET})
+
+# target return levels:
+trets = np.linspace(min(prets), max(prets), 50)
+
+tvols = []
+for tret in trets:
+    cons2 = ({'type': 'eq', 'fun': lambda x: port_ret(x) - tret},
+            {'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    res = sco.minimize(port_vol, eweights, method='SLSQP',
+                       bounds=bnds, constraints=cons2)
+    tvols.append(res['fun'])
+    print('.', end="")
+
+tvols = np.array(tvols)
+
+
+# plotting:
+fig = plt.figure(figsize=(16, 9))
+
+plt.scatter(pvols, prets, c=prets / pvols, marker='.', alpha=0.8)
+
+# efficient frontier line:
+plt.plot(tvols, trets, 'b', lw=3.0)
+
+# 2 stars: magenta = max Sharpe ratio, red = MVP
+plt.plot(port_vol(opts['x']), port_ret(opts['x']), 'm*', markersize=15)
+plt.plot(port_vol(optv['x']), port_ret(optv['x']), 'r*', markersize=15)
+
+plt.xlabel('expected volatility', fontsize=14)
+plt.ylabel('expected return', fontsize=14)
+# plt.colorbar(label='Sharpe ratio')
+plt.colorbar().set_label(label='Sharpe ratio', size=14)
+fig.axes[1].tick_params(axis="y", labelsize=14)
+
+plt.xticks(fontsize=14)
+plt.yticks(fontsize=14)
+
+# have a plot title:
+plt.title(TITLE, fontsize=20, y=1.06)
+plt.suptitle(SUBTITLE2,fontsize=14, y=0.91)
+
+# linear model:
+# idea: https://stackoverflow.com/questions/6148207/linear-regression-with-matplotlib-numpy
+# coef = np.polyfit(pvols, prets, 1)
+# poly1d_fn = np.poly1d(coef)  # function which takes in x and returns an estimate for y
+#
+# plt.plot(pvols, poly1d_fn(pvols), linestyle='dashed',
+#          dashes=(1,2), color='black', linewidth=5)
+#
+# plt.xlim(0.1, 0.4)
+# plt.ylim(-0.4, 0.5)
+
+# turn a grid on:
+plt.grid()
+
+plt.show()
+
+
+# end of D_portfolio_optimization_EffFront.py
