@@ -1,0 +1,94 @@
+import discord
+import pytz
+from pytz import all_timezones
+from datetime import datetime, timedelta
+from dateutil.parser import parse
+
+# Create a new discord client
+client = discord.Client(intents=discord.Intents.all())
+
+# Dictionary to store users' timezones
+timezones = {}
+
+@client.event
+async def on_message(message):
+    """
+    This function is called whenever a new message is sent in a channel that the bot has access to
+    """
+
+    # Check if message starts with "/settz" command
+    if message.content.startswith('/settz'):
+        # Get the timezone from the message
+        tz = message.content[7:]
+        # Check if the timezone is a valid one
+        if tz in all_timezones:
+            # Store the user's timezone in the dictionary
+            timezones[message.author.id] = tz
+            # Send confirmation message to user
+            await message.channel.send(f'Timezone set to {tz}')
+        else:
+            # Send error message if timezone is not valid
+            await message.channel.send('Invalid timezone')
+    
+    # Check if message starts with "/gettz" command
+    if message.content.startswith('/gettz'):
+        # Retrieve user's timezone from dictionary
+        tz = timezones.get(message.author.id)
+        if tz is None:
+            # Send message if user's timezone is not set
+            await message.channel.send('Timezone not set')
+        else:
+            # Send message with user's timezone
+            await message.channel.send(f'Timezone is {tz}')
+
+    # Check if message starts with "/time" command
+    if message.content.startswith("/time"):
+        input_time = message.content[6:]
+        # Try to parse the input time using dateutil
+        try:
+            parsed_time = parse(input_time)
+            tz = timezones.get(message.author.id)
+            if tz is None:
+                # Send message if user's timezone is not set
+                await message.channel.send('Timezone not set')
+            else:
+                # Add timezone information to parsed time
+                aware_time = pytz.timezone(tz).localize(parsed_time)
+                parsed_time = parsed_time.replace(tzinfo=pytz.timezone(tz))
+
+                # Get the Unix time
+                unix_time = int(parsed_time.timestamp())
+        
+                dt_object = datetime.fromtimestamp(unix_time)
+
+                # Define the time zones
+                munich_tz = pytz.timezone("Europe/Prague")
+                melbourne_tz = pytz.timezone("Australia/Melbourne")
+                austin_tz = pytz.timezone("US/Central")
+                detroit_tz = pytz.timezone("US/Eastern")
+                los_angeles_tz = pytz.timezone("US/Pacific")
+
+                # Convert the datetime object to the respective time zones
+                munich_time = aware_time.astimezone(munich_tz)
+                melbourne_time = aware_time.astimezone(melbourne_tz)
+                austin_time = aware_time.astimezone(austin_tz)
+                detroit_time = aware_time.astimezone(detroit_tz)
+                los_angeles_time = aware_time.astimezone(los_angeles_tz)
+
+
+                # Define the time format
+                timeFormat = "%a %b %d %I:%M %p"
+                # Send the converted times back to the channel
+                await message.channel.send(f"Austin time: {austin_time.strftime(timeFormat)}")
+                await message.channel.send(f"Los Angeles time: {los_angeles_time.strftime(timeFormat)}")
+                await message.channel.send(f"Munich time: {munich_time.strftime(timeFormat)}")
+                await message.channel.send(f"Melbourne time: {melbourne_time.strftime(timeFormat)}")
+                await message.channel.send(f"Montreal time: {detroit_time.strftime(timeFormat)}")
+
+        # Send error message if input time is not valid      
+        except ValueError:
+            await message.channel.send("Invalid input time. Please use a human-readable format like 'Jan 12 1pm'.\nNote that you have to use 2:30pm vs 230pm")
+            return
+
+
+client.run('BOT_CODE')
