@@ -1,0 +1,68 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+
+namespace Preezie.Framework.Audits.EntityFrameworkCore;
+
+public class AuditEventInterceptor : SaveChangesInterceptor
+{
+    private readonly IAuditContext _context;
+
+    public AuditEventInterceptor(IAuditContext context)
+    {
+        _context = context;
+    }
+    
+    public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+        DbContextEventData eventData,
+        InterceptionResult<int> result,
+        CancellationToken cancellationToken = default)
+    {
+        var changesList = GetChanges(eventData.Context!);
+        _context.AuditEvent.Targets = changesList;
+        
+        return await base.SavingChangesAsync(eventData, result, cancellationToken);
+    }
+
+    public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
+    {
+        var changesList = GetChanges(eventData.Context!);
+        _context.AuditEvent.Targets = changesList;
+        return base.SavingChanges(eventData, result);
+    }
+    
+    private List<AuditEvent.CompareModel> GetChanges(DbContext context)
+    {
+        List<AuditEvent.CompareModel> changesList = new();
+        
+        foreach (var entry in context.ChangeTracker.Entries())
+        {
+            if (entry.State == EntityState.Added)
+            {
+                changesList.Add(new AuditEvent.CompareModel()
+                {
+                    OriginalValue = null,
+                    NewValue = entry.CurrentValues.ToObject(),
+                });
+            }
+            else if (entry.State == EntityState.Deleted)
+            {
+                changesList.Add(new AuditEvent.CompareModel()
+                {
+                    OriginalValue = entry.OriginalValues.ToObject(),
+                    NewValue = null,
+                });
+            }
+            else if (entry.State == EntityState.Modified)
+            {
+                changesList.Add(new AuditEvent.CompareModel()
+                {
+                    OriginalValue = entry.OriginalValues.ToObject(),
+                    NewValue = entry.CurrentValues.ToObject(),
+                });
+            }
+        }
+
+        return changesList;
+    }
+}
+
