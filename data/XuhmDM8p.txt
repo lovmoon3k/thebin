@@ -1,0 +1,40 @@
+import System.Environment ( getArgs )
+import System.Directory
+    ( doesDirectoryExist, doesFileExist, listDirectory )
+import System.FilePath ( (</>), takeExtension )
+import Control.Monad ( filterM, forM_ )
+
+-- [helper] 
+splitFD :: [FilePath] -> IO([FilePath], [FilePath])
+splitFD items = do
+    files <- filterM doesFileExist items
+    dirs <- filterM doesDirectoryExist items
+    return (files, dirs)
+
+-- [helper] list qualified path by `prepending src dir`
+listDirectoryPath :: FilePath -> IO [FilePath]
+listDirectoryPath src = do
+    names <- listDirectory src
+    return $ (src </>) <$> names
+
+-- [main] walkDir with maxDepth
+walkDirSafe :: Int -> (FilePath -> Bool) -> FilePath -> IO [FilePath]
+walkDirSafe 0 _ _ = return []
+walkDirSafe maxDepth p src = do
+    paths <- listDirectoryPath src
+    (files, dirs) <- splitFD paths
+    let thisFiles = filter p files
+    thatFilesList <- walkDirSafe (maxDepth - 1) p `mapM` dirs
+    return $ thisFiles ++ mconcat thatFilesList
+
+-- [main] no maxDepth limit walkDir
+walkDir :: (FilePath -> Bool) -> FilePath -> IO [FilePath]
+walkDir = walkDirSafe (-1)
+
+-- [client example]
+main :: IO ()
+main = do
+    args <- getArgs
+    let src = head args
+    result <- walkDir (\x -> takeExtension x == ".txt") src
+    forM_ result print
