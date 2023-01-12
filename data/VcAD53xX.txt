@@ -1,0 +1,167 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include "bits/stdc++.h"
+using namespace std;
+#define all(a) a.begin(), a.end()
+int n;
+vector<vector<pair<int, int>>> gr;
+vector<int> cycle, pred;
+vector<bool> used, cl;
+bool fnd = false;
+void find_cycle(int v, int p) {
+	if (fnd) { return; }
+	pred[v] = p;
+	used[v] = 1;
+	for (auto&& [u, w] : gr[v]) {
+		if (fnd) { return; }
+		if (used[u] && u != p) {
+			int st = v, end = u;
+			for (int it = st; it != end; it = pred[it]) {
+				cycle.push_back(it);
+				cl[it] = true;
+			}
+			cycle.push_back(end);
+			cl[end] = true;
+			fnd = true;
+			return;
+		}
+		else if (!used[u]) {
+			find_cycle(u, v);
+		}
+	}
+}
+vector<long long> dp;
+pair<long long, int> ver = { -1, -1 };
+void dfs(int v, int p, long long c) {
+	dp[v] = c;
+	if (c > ver.first) {
+		ver.first = c;
+		ver.second = v;
+	}
+	for (auto&& [u, w] : gr[v]) {
+		if (cl[u] || u == p) {
+			continue;
+		}
+		dfs(u, v, c + w);
+		dp[v] = max(dp[v], dp[u]);
+	}
+}
+void dfs2(int v, int p, long long c, int node) {
+	if (c > ver.first) {
+		ver.first = c;
+		ver.second = v;
+	}
+	for (auto&& [u, w] : gr[v]) {
+		if ((cl[u] && u != node) || u == p) {
+			continue;
+		}
+		dfs2(u, v, c + w, node);
+	}
+}
+struct comp {
+	int operator()(const pair<int, int>& p) const {
+		return p.first + p.second * 16063807ll;
+	}
+};
+signed main() {
+#ifdef _DEBUG
+	freopen("input.txt", "r", stdin);
+	freopen("output.txt", "w", stdout);
+#endif
+	ios_base::sync_with_stdio(false);
+	cin.tie(nullptr);
+	cin >> n;
+	int tp; cin >> tp;
+	gr.resize(n);
+	pred.resize(n, -1);
+	dp.resize(n, 0);
+	used.resize(n, false);
+	cl.resize(n, false);
+	unordered_map<pair<int, int>, int, comp> ed;
+	for (int i = 0; i < n; i++) {
+		int u, v; cin >> u >> v;
+		u--, v--;
+		int w; cin >> w;
+		ed[{u, v}] = w;
+		ed[{v, u}] = w;
+		gr[u].push_back({ v, w });
+		gr[v].push_back({ u, w });
+	}
+	long long best = 0;
+	find_cycle(0, -1);
+	for (int& i : cycle) {
+		ver = { -1, -1 };
+		dfs(i, i, 0);
+		if(ver.second == -1) { continue; }
+		dfs2(ver.second, ver.second, 0, i);
+		best = max(best, ver.first);
+	}
+	auto solve = [&] {
+		vector<long long> pref((int)cycle.size() + 1, 0);
+		vector<long long> suf((int)cycle.size() + 1, 0);
+		int rev = ed[{cycle[0], cycle.back()}];
+		for (int i = 1; i < (int)cycle.size(); i++) {
+			pref[i] = pref[i - 1] + ed[{cycle[i - 1], cycle[i]}];
+		}
+		for (int i = (int)cycle.size() - 2; i >= 0; i--) {
+			suf[i] = suf[i + 1] + ed[{cycle[i], cycle[i + 1]}];
+		}
+		multiset<long long> left, right;
+		vector<int> type((int)cycle.size(), 0);
+		int num = -1;
+		for (int i = 1; i < (int)cycle.size(); i++) {
+			if (pref[0] + suf[i] + rev <= pref[i]) {
+				if (num == -1) {
+					num = i;
+				}
+				left.insert(dp[cycle[i]] + pref[0] + suf[i] + rev);
+				type[i] = 0;
+			}
+			else {
+				right.insert(dp[cycle[i]] + pref[i]);
+				type[i] = 1;
+			}
+		}
+		if (num == -1) {
+			if (!left.empty()) {
+				best = max(best, *--left.end() + dp[cycle[0]]);
+			}
+			if (!right.empty()) {
+				best = max(best, *--right.end() + dp[cycle[0]]);
+			}
+			return;
+		}
+		n = (int)cycle.size();
+		long long upd_left = 0, upd_right = -upd_left;
+		if (!left.empty()) {
+			best = max(best, *--left.end() + dp[cycle[0]]);
+		}
+		if (!right.empty()) {
+			best = max(best, *--right.end() + dp[cycle[0]]);
+		}
+		for (int i = 1; i < n; i++) {
+			upd_left += ed[{cycle[i - 1], cycle[i]}], upd_right = -upd_left;
+			if (!type[i]) {
+				left.erase(left.find(dp[cycle[i]] + pref[0] + suf[i] + rev));
+			}
+			else {
+				right.erase(right.find(dp[cycle[i]] + pref[i]));
+			}
+			while (num < n && pref[num % n] + upd_right <= suf[num % n] + pref[0] + rev + upd_left) {
+				if (left.find(dp[cycle[num % n]] + suf[num % n] + pref[0] + rev) != left.end())left.erase(left.find(dp[cycle[num % n]] + suf[num % n] + pref[0] + rev));
+				if (num > i) right.insert(dp[cycle[num % n]] + pref[num % n]);
+				type[num % n] ^= 1;
+				num++;
+			}
+			if (!left.empty()) {
+				best = max(best, *--left.end() + upd_left + dp[cycle[i]]);
+			}
+			if (!right.empty()) {
+				best = max(best, *--right.end() + upd_right + dp[cycle[i]]);
+			}
+		}
+	};
+	solve();
+	rotate(cycle.begin(), cycle.begin() + 1, cycle.end());
+	solve();
+	cout << best;
+}
