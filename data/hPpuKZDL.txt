@@ -1,0 +1,642 @@
+-- Below are values you can change
+local isMain = true;
+local id = "Drawers XXXXX";
+local UpdateIntervalSeconds = 60;
+local ItemsFullPercentAt = 256;
+local FluidFullPercentAt = 256;
+
+local VersionInfo = "SV (Société Vladiléna) 1.1";
+
+local titleTextColor = colors.blue;
+local titleBackColor = colors.white;
+local tankTextColor = colors.black;
+local tankBackColor = colors.lime;
+local chestTextColor = colors.white;
+local chestBackColor = colors.purple;
+local cacheTextColor = colors.white;
+local cacheBackColor = colors.cyan;
+local powerTextColor = colors.black;
+local powerBackColor = colors.orange;
+
+--[[
+	Add or remove values here to exclude items from being displayed.
+	It is case insensitive and it will look for matches.
+	So an item called "Nether Brick" will not be displayed if any of the following is set
+	"Brick","brick","rick","ck"
+	This also means that of you set a filter call "iron" then it will remove all items containing iron.
+	it will not show Iron Ore, Iron Block, Iron Helmet, etc.
+--]]
+local blacklist = {"Flesh","Nugget","Brain","Sapling","Seed","egg","eye"};
+--[[
+	Add or remove values here to only show items matching these names.
+	It is case insensitive and it will look for matches.
+	So an item called "Nether Brick" will be displayed if any of the following is set
+	"Brick","brick","rick","ck"
+	This also means that of you set a filter called "iron" then it will show all items containing iron.
+	it will show show Iron Ore, Iron Block, Iron Helmet, etc.
+	To disable the whitelist set it to local whitelist = "";
+	To enable the whitelist set it to local whitelist = {"Diamond","Gold"};
+--]]
+local whitelist = "";
+
+local NameLen = 18;
+local mainChannel = 2;
+
+-- Above are values you can change
+
+print("Starting "..VersionInfo);
+local peripherals = peripheral.getNames();
+local mon;
+local wmod;
+local x,y;
+local CurColumn = 0;
+local MaxColumn;
+local ColumnWidth;
+local CurLine = 2;
+local ContentData = {};
+
+function padString (sText, iLen)
+	local iTextLen = string.len(sText);
+	-- Too short, pad
+	if (iTextLen < iLen) then
+		local iDiff = iLen - iTextLen;
+		return(sText..string.rep(" ",iDiff));
+	end
+	-- Too long, trim
+	if (iTextLen > iLen) then
+		return(string.sub(sText,1,iLen));
+	end
+	-- Exact length
+	return(sText);
+end
+
+function prepmonitor(objectmon)
+	mon = peripheral.wrap(objectmon);
+	if (mon.isColor() == false) then
+		titleTextColor = colors.black;
+		titleBackColor = colors.white;
+		tankTextColor = colors.black;
+		tankBackColor = colors.white;
+		chestTextColor = colors.black;
+		chestBackColor = colors.white;
+		cacheTextColor = colors.black;
+		cacheBackColor = colors.white;
+		powerTextColor = colors.black;
+		powerBackColor = colors.white;
+	end
+end
+
+function updateTable(strSource,strName,strAmount,timestamp,strLegend)
+	local isWhitelisted = true;
+	if (type(whitelist) == "table") then
+		isWhitelisted = false;
+		for l,filter in pairs(whitelist) do
+			if (string.find(string.lower(strName),string.lower(filter)) ~= nil) then
+				isWhitelisted = true;
+			end
+		end
+	end
+	if (isWhitelisted == false) then
+		return;
+	end
+	if (type(blacklist) == "table") then
+		for l,filter in pairs(blacklist) do
+			if (string.find(string.lower(strName),string.lower(filter)) ~= nil) then
+				return;
+			end
+		end
+	end
+	if (ContentData[strSource] == nil) then
+		ContentData[strSource] = {};
+	end
+	if (ContentData[strSource][timestamp] == nil) then
+		ContentData[strSource][timestamp] = {};
+	end
+	if (ContentData[strSource][timestamp][strName] == nil) then
+		ContentData[strSource][timestamp][strName] = {};
+	end
+	if (ContentData[strSource][timestamp][strName]["count"] == nil) then
+		ContentData[strSource][timestamp][strName]["count"] = strAmount;
+	else
+		ContentData[strSource][timestamp][strName]["count"] = ContentData[strSource][timestamp][strName]["count"] + strAmount;
+	end
+	ContentData[strSource][timestamp][strName]["legend"] = strLegend;
+end
+
+function printmon(strName,strAmount,strMax,strLegend)
+	local textColor;
+	local backColor;
+	local FullPercentAt = ItemsFullPercentAt;
+	if (strLegend == "#") then
+		textColor = chestTextColor;
+		backColor = chestBackColor;
+		strLegend = "";
+	end
+	if (strLegend == "+") then
+		textColor = tankTextColor;
+		backColor = tankBackColor;
+		FullPercentAt = FluidFullPercentAt;
+		strLegend = "";
+	end
+	if (strLegend == "*") then
+		textColor = powerTextColor;
+		backColor = powerBackColor;
+		strLegend = "";
+	end
+	if (strLegend == "$") then
+		textColor = cacheTextColor;
+		backColor = cacheBackColor;
+		strLegend = "";
+	end
+	local line = string.format("%s  %3i%s",padString(strName,NameLen+1),strAmount,padString(strLegend,1));
+	if (strAmount >= 1000000) then
+		line = string.format("%s  %3iM%s",padString(strName,NameLen),math.floor(strAmount/1000000),padString(strLegend,1));
+	elseif (strAmount >= 1000) then
+		line = string.format("%s  %3iK%s",padString(strName,NameLen),math.floor(strAmount/1000),padString(strLegend,1));
+	end
+
+	local ColPadding = 0;
+	if (CurColumn > 0) then
+		ColPadding = 1;
+	end
+	local CurX = math.floor((CurColumn*ColumnWidth))+math.floor(CurColumn*ColPadding)+1;
+ 	if (CurColumn == 0) then
+		--  print("CurX:"..CurX);
+ 	end
+	mon.setCursorPos(CurX,CurLine);
+	--local percent = strAmount / strMax * 100;
+	mon.setBackgroundColor(backColor);
+	local percent = strAmount / FullPercentAt * 100;
+	if (percent > 100) then percent = 100; end
+	local barlength = math.floor(percent / 100 * (string.len(line)-1));
+ 	--if (CurColumn == 0) then
+   	--	barlength = barlength + 1;
+	--end
+
+	if (string.len(line) > barlength) then
+		local msg = string.sub(line,1,barlength);
+		mon.setTextColor(textColor);
+		mon.write(msg);
+		--[[if (percent == 0) then
+			mon.setBackgroundColor();
+		else
+			mon.setBackgroundColor(colors.black);
+		end--]]
+		mon.setBackgroundColor(colors.black);
+		mon.setTextColor(backColor);
+		mon.write(string.sub(line,barlength+1,-2))
+	else
+		local spaces = barlength - string.len(line);
+		mon.write(line);
+		mon.write(string.rep(" ",spaces));
+	end
+
+	mon.setTextColor(colors.white);
+	CurColumn = CurColumn + 1;
+	if (CurColumn > MaxColumn) then
+		CurColumn = 0;
+		CurLine = CurLine + 1;
+	end
+	return true;
+end
+
+-- Find a monitor
+function findMonitor()
+	for i,name in pairs(peripherals) do
+		for j,method in pairs(peripheral.getMethods(name)) do
+			if (method == 'getCursorPos') then
+				prepmonitor(name);
+			end
+		end
+	end
+end
+
+-- Find a wireless modem
+function findWirelessModem()
+	local foundWireless = false;
+	for i,name in pairs(peripherals) do
+		for j,method in pairs(peripheral.getMethods(name)) do
+			if (method == 'isWireless') then
+				wmod = peripheral.wrap(name);
+				if (wmod.isWireless()) then
+					wmod.closeAll();
+					foundWireless = true;
+					break;
+				else
+					wmod = {};
+				end
+			end
+		end
+		if (foundWireless) then
+			break;
+		end
+	end
+end
+
+function collectLocalInfo()
+	local timestamp = os.clock();
+	for i,name in pairs(peripherals) do
+		local p = peripheral.wrap(name);
+		local displayNames = {};
+		if (p.getBlockData ~= nil) then
+			print("Processing Advanced Peripherals");
+			local blockdata = p.getBlockData();
+			if (blockdata.Items ~= nil) then
+				local blockitems;
+				if (blockdata.Items.Items ~= nil) then
+					blockitems = blockdata.Items.Items;
+				else
+					blockitems = blockdata.Items;
+				end
+				if (blockitems) then
+					print("Processing Item Storage via Advanced Peripherals");
+					local items = {};
+					for j in pairs(blockitems) do
+						local iteminfo = blockitems[j];
+						displayname = iteminfo.id;
+						if (blockitems[j].Item ~= nil) then -- Workaround for Mekanism bins
+							displayname = blockitems[j].Item.id;
+						end
+						if (displayname) then
+							if(string.find(displayname,":") ~= nil) then
+								k = string.find(displayname,":")+1;
+								displayname = string.sub(displayname,k);
+							end
+							displayname = string.gsub(displayname,"%s+"," ");
+							local itemcount = iteminfo.Count;
+							if (itemcount == nil and iteminfo.SizeOverride ~= nil) then
+								itemcount = iteminfo.SizeOverride;
+							end
+							if (itemcount == nil) then
+								itemcount = 0;
+							end
+							if (not items[displayname]) then
+								items[displayname] = itemcount;
+							else
+								items[displayname] = items[displayname] + itemcount;
+							end
+						end
+					end
+					local k = 0;
+					for key,val in pairs(items) do
+						k = k + 1;
+						updateTable(id,key,val,timestamp,"#");
+					end
+				end
+			end
+			if (blockdata.GasTanks) then
+				print("Processing Gas Storage via Advanced Peripherals");
+				local items = {};
+				for j in pairs(blockdata.GasTanks) do
+					local iteminfo = blockdata.GasTanks[j];
+					displayname = iteminfo.stored.gasName;
+					if (displayname) then
+						if(string.find(displayname,":") ~= nil) then
+							k = string.find(displayname,":")+1;
+							displayname = string.sub(displayname,k);
+						end
+						displayname = string.gsub(displayname,"%s+"," ");
+						local amount = 0;
+						if (not items[displayname]) then
+							amount = iteminfo.stored.amount;
+							if (amount == nil) then
+								amount = 0;
+							end
+							amount = math.floor(amount/1000);
+							items[displayname] = amount;
+						else
+							amount = iteminfo.stored.amount;
+							if (amount == nil) then
+								amount = 0;
+							end	
+							amount = math.floor(amount/1000);
+							items[displayname] = items[displayname] + amount;
+						end
+					end
+				end
+				local k = 0;
+				for key,val in pairs(items) do
+					k = k + 1;
+					updateTable(id,key,val,timestamp,"+");
+				end
+			end
+			if (blockdata.FluidTanks) then
+				print("Processing Fluid Storage via Advanced Peripherals");
+				local items = {};
+				for j in pairs(blockdata.FluidTanks) do
+					local iteminfo = blockdata.FluidTanks[j];
+					displayname = iteminfo.stored.FluidName;
+					if (displayname) then
+						if(string.find(displayname,":") ~= nil) then
+							k = string.find(displayname,":")+1;
+							displayname = string.sub(displayname,k);
+						end
+						displayname = string.gsub(displayname,"%s+"," ");
+						local amount = 0;
+						if (not items[displayname]) then
+							amount = iteminfo.stored.Amount;
+							if (amount == nil) then
+								amount = 0;
+							end
+							amount = math.floor(amount/1000);
+							items[displayname] = amount;
+						else
+							amount = iteminfo.stored.Amount;
+							if (amount == nil) then
+								amount = 0;
+							end	
+							amount = math.floor(amount/1000);
+							items[displayname] = items[displayname] + amount;
+						end
+					end
+				end
+				local k = 0;
+				for key,val in pairs(items) do
+					k = k + 1;
+					updateTable(id,key,val,timestamp,"+");
+				end
+			end
+		end
+		if (p.getTankInfo ~= nil or p.getFilledPercentage ~= nil or p.tanks) then
+			print("Processing Tank");
+			local iteminfo;
+			if (p.getTankInfo ~= nil) then
+				iteminfo = p.getTankInfo();
+			end
+			if (p.getFilledPercentage ~= nil) then
+				iteminfo = p.getStored();
+			end
+			if (p.tanks ~= nil) then
+				tankinfo = p.tanks(); -- Industrial Foregoing blackhole tank
+				if (tankinfo[1] ~= nil) then
+					iteminfo = tankinfo[1];
+				end
+			end
+			if (iteminfo ~= nil) then
+				local displayname = "Empty";
+				local amount = 0;
+				if (iteminfo[1] ~= nil) then
+					if (iteminfo[1].contents) then
+						displayname = iteminfo[1].contents.rawName;
+						amount = iteminfo[1].contents.amount;
+						amount = math.floor(amount/1000);
+					end
+				end
+				if (iteminfo.name ~= nil) then
+					displayname = iteminfo.name;
+
+				end
+				if (iteminfo.amount ~= nil) then
+					amount = iteminfo.amount;
+					amount = math.floor(amount/1000);
+				end
+				if(string.find(displayname,":") ~= nil) then
+					k = string.find(displayname,":")+1;
+					displayname = string.sub(displayname,k);
+				end
+				displayname = string.gsub(displayname,"%s+"," ");
+
+				if (amount ~= 0) then
+					updateTable(id,displayname,amount,timestamp,"+");
+				end
+			end
+		end
+		if (p.getStoredItems ~= nil) then
+			print("Processing Cache");
+			local iteminfo = p.getStoredItems();
+			if (iteminfo) then
+				local displayname = iteminfo.display_name;
+				updateTable(id,displayname,iteminfo.qty,timestamp,"$");
+			end
+		end
+		if (p.getEnergyStored ~= nil or p.getTotalEnergy ~= nil or p.getEnergy ~= nil) then
+			print("Processing Energy");
+			local energy;
+			if (p.getEnergyStored ~= nil) then
+				energy = p.getEnergyStored();
+			end
+			if (p.getTotalEnergy ~= nil) then
+				energy = p.getTotalEnergy();
+			end
+			if (p.getEnergy ~= nil) then
+				energy = p.getEnergy();
+			end
+			if (energy ~= nil) then
+				updateTable(id,"Energy",energy,timestamp,"*");
+			end
+		end
+		if (p.getInventorySize ~= nil or p.size ~= nil) then
+			print("Processing Chest");
+			local chestSize = 0;
+			if (p.getInventorySize) then
+				chestSize = p.getInventorySize();
+			end
+			if (p.size) then
+				chestSize = p.size();
+			end
+			if (chestSize ~= nil) then
+				local items = {};
+				for j=1,chestSize,1 do
+					local iteminfo = nil;
+					if (p.getStackInSlot) then
+						iteminfo = p.getStackInSlot(j);
+					end
+					if (p.getItemDetail) then
+						iteminfo = p.getItemDetail(j);
+					end
+					if (iteminfo) then
+						displayname = iteminfo.display_name;
+						if (displayname == nil) then
+							displayname = iteminfo.displayName;
+						end
+						if (displayname) then
+							displayname = string.gsub(displayname,"%s+"," ");
+							if (not items[displayname]) then
+								local itemcount = iteminfo.qty;
+								if (itemcount == nil) then
+									itemcount = iteminfo.count;
+								end
+								items[displayname] = itemcount;
+							else
+								local itemcount = iteminfo.qty;
+								if (itemcount == nil) then
+									itemcount = iteminfo.count;
+								end
+								items[displayname] = items[displayname] + itemcount;
+							end
+						end
+					end
+				end
+				local k = 0;
+				for key,val in pairs(items) do
+					k = k + 1;
+					updateTable(id,key,val,timestamp,"#");
+				end
+			end
+		end
+		if (p.getAvailableItems ~= nil) then
+			print("Processing ME System");
+			local itemarray = p.getAvailableItems();
+			if (itemarray ~= nil) then
+				for j=1,table.getn(itemarray),1 do
+					if (itemarray[j].size > 0) then
+						local fingerprint = itemarray[j].fingerprint;
+						if ( (displayNames[fingerprint.id] == nil) or (displayNames[fingerprint.id] == fingerprint.id)) then
+							local ItemDetail = p.getItemDetail(fingerprint);
+							if (ItemDetail ~= nil) then
+								displayNames[fingerprint.id] = ItemDetail.basic().display_name;
+							else
+								displayNames[fingerprint.id] = fingerprint.id;
+							end
+						end
+						updateTable(id,displayNames[fingerprint.id],itemarray[j].size,timestamp,"#");
+					end
+				end
+			end
+		end
+        if (p.listItems ~= nil) then
+			print("Processing ME/RS Bridge");
+			local itemarray = p.listItems();
+			if (itemarray ~= nil) then
+				for j=1,table.getn(itemarray),1 do
+					if (itemarray[j].amount > 0) then
+						local fingerprint = itemarray[j].name;
+						local displayName = itemarray[j].displayName;
+						displayName = string.gsub(displayName,"%s+"," ");
+						updateTable(id,displayName,itemarray[j].amount,timestamp,"#");
+					end
+				end
+			end
+			if (p.listFluids ~= nil) then
+				local fluidarray = p.listFluids();
+				if (fluidarray ~= nil) then
+					for j=1,table.getn(fluidarray),1 do
+						if (fluidarray[j].amount > 0) then
+							local fingerprint = fluidarray[j].name;
+							local displayName = fluidarray[j].displayName;
+							displayName = string.gsub(displayName,"%s+"," ");
+							local amount = fluidarray[j].amount;
+							amount = math.floor(amount/1000);
+							updateTable(id,displayName,amount,timestamp,"+");
+						end
+					end
+				end
+			end
+		end
+		print("Done");
+	end
+end
+
+function updateMonitor()
+	x,y = mon.getSize();
+	ColumnWidth = NameLen + 7;
+	MaxColumn = math.floor(x / (ColumnWidth))-1;
+	mon.setBackgroundColor(colors.black);
+	mon.clear();
+	CurColumn = 0;
+	CurLine = 1;
+	mon.setCursorPos(1,1);
+	mon.setTextColor(colors.white);
+	mon.setTextScale(1);
+	mon.write(VersionInfo);
+	-- Sort by Base names
+	local sortedSources = {};
+	for n in pairs(ContentData) do
+		table.insert(sortedSources, n);
+	end
+	table.sort(sortedSources);
+	local name = "";
+	for i,source in ipairs(sortedSources) do
+		if (name ~= source) then
+			name = source;
+			CurColumn = 0;
+			mon.setTextColor(titleTextColor);
+			mon.setBackgroundColor(titleBackColor);
+			mon.setCursorPos(1,CurLine+1);
+			mon.write(padString("Contents for "..name,x-1));
+			CurLine = CurLine + 2;
+		end
+		sortedTimestamps = {};
+		for timestamp in pairs(ContentData[source]) do
+			table.insert(sortedTimestamps,timestamp);
+		end
+		table.sort(sortedTimestamps);
+		latest = nil;
+		for j=table.maxn(sortedTimestamps),1,-1 do
+			if (latest == nil) then
+				latest = sortedTimestamps[j];
+			else
+				ContentData[source][sortedTimestamps[j]] = nil;
+			end
+		end
+		for itemname in pairs(ContentData[source][latest]) do
+			displayname = itemname;
+			count = ContentData[source][latest][itemname]["count"];
+			legend = ContentData[source][latest][itemname]["legend"];
+			max = 0;
+			printmon(displayname,count,max,legend);
+		end
+	end
+end
+-- This is the main section of the script
+
+findMonitor();
+findWirelessModem();
+
+if (isMain == true) then
+	if (type(wmod.isWireless) == "function") then
+		wmod.open(mainChannel);
+	else
+		print("You don't have a wireless modem, and this is set as the main computer");
+	end
+end
+
+ContentData = {};
+
+local timerUpdate = os.startTimer(UpdateIntervalSeconds);
+local updateCount = 0;
+local wirelessEventCount = 0;
+-- Perform Initial Collection and Update the Monitor
+collectLocalInfo();
+updateMonitor();
+
+-- Main program loop
+while true do	
+	local event, param1, param2, param3, param4, param5 = os.pullEvent();
+	print("Received event:"..event);
+	if (event == "timer") then
+		if (param1 == timerUpdate) then
+			collectLocalInfo();
+			if (wmod) then
+				if (isMain == false) then
+					wmod.transmit(mainChannel,1,ContentData);
+				end
+			end
+			updateMonitor();
+			wirelessEventCount = 0;
+			timerUpdate = os.startTimer(UpdateIntervalSeconds);
+		end
+	end
+	if (event == "modem_message") then
+		if (isMain == true) then
+			wirelessEventCount = wirelessEventCount + 1;
+			for source,data in pairs(param4) do
+				if (ContentData[source] == nil) then
+					ContentData[source] = {};
+				end
+				ContentData[source] = param4[source];
+			end
+			if (wirelessEventCount >= 10) then
+				timerUpdate = os.startTimer(1);
+			end
+		end
+	end
+	if (event == "monitor_touch") or (event == "monitor_resize") then
+		print("Updating the Monitor");
+		updateMonitor();
+	end
+	if (event == "peripheral") or (event == "peripheral_detach") then
+		print("Updating the peripheral list");
+		peripherals = peripheral.getNames();
+	end
+end
