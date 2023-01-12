@@ -1,0 +1,304 @@
+import re
+import numpy as np
+import itertools as it
+
+from dataclasses import dataclass
+from time import perf_counter as pf
+
+@dataclass
+class Vertex:
+    coords: np.ndarray
+    square_count: int
+    next_direc: int
+
+def cross_2d(vec_1, vec_2):
+    # 2d analogue of 3d cross product. If this returns 1, then vec_2 is
+    # a 90 degree counterclockwise rotation of vec_1. If this returns -1, then
+    # vec_2 is a 90 degree clockwise rotation of vec_2. If this returns 0, then
+    # vec_1 and vec_2 are aligned.
+    return vec_1[0] * vec_2[1] - vec_1[1] * vec_2[0]
+
+def get_direc(edge):
+    # Get the direction on a square that an edge is located. 0 is the right side
+    # of a square, 1 is the bottom side, etc.
+    # The edge is directed and clockwise.
+    base = np.array([1, 0])
+    if (edge == base).all():
+        return 0
+    return cross_2d(base, edge) + 2
+
+def get_sq_coord(edge_end, direc):
+    # Get the coordinates of the top left corner of the square that contains
+    # the directed edge in the clockwise direction given the endpoint of the
+    # edge and which side of the square it is. As before, 0 is right, 1 is
+    # bottom, etc.
+    offsets = [np.array([1, 1]),
+               np.array([1, 0]),
+               np.array([0, 0]),
+               np.array([0, 1])]
+    return tuple(edge_end - offsets[direc])
+
+def split_path(string):
+    # Replace all integers with themselves but with commas around them, then
+    # split the string by commas, then discard the empty first and last bits.
+    # This splits the input of the form e.g. 10R5L5 into [10, R, 5, L, 5].
+    return re.sub('(-*\d+)', r',\1,', string).split(',')[1:-1]
+
+def get_sq_coords(cube_net, side_len):
+    sq_coords = []
+    # As there are six squares in a cube net, we only need to check a region of
+    # at most 6x6. As a matter of fact, 4x4 should suffice, but this works and
+    # is a bit easier to explain. Find the coordinates of the top left corners
+    # of all squares.
+    for num in range(36):
+        i = num // 6
+        j = num % 6
+        if i * side_len >= len(cube_net) or j * side_len >= len(cube_net[i * side_len]):
+            continue
+        if cube_net[side_len * i][side_len * j] == ' ':
+            continue
+        sq_coords.append(np.array([i, j]))
+        if len(sq_coords) == 6:
+            break
+    return sq_coords
+
+def get_square(cube_net, side_len, coord):
+    # Given a list of strings, cut out a square and convert it to a set of
+    # obstacles.
+    slice_rows = slice(coord[0] * side_len, (coord[0] + 1) * side_len)
+    slice_columns = slice(coord[1] * side_len, (coord[1] + 1) * side_len)
+    return {(a, b) for a, line in enumerate(cube_net[slice_rows])
+            for b, char in enumerate(line[slice_columns]) if char == '#'}
+
+def get_part_1_connections(sq_coords):
+    # In Part 1, wrap in 2D. E.g. moving off of the net on the right side will
+    # make you reappear on the left. No direction changes occur.
+    # Membership checking of numpy arrays is a pain, so convert to tuple.
+    sq_coords_tuples = [tuple(coord) for coord in sq_coords]
+    connections = {tuple(coord): {} for coord in sq_coords}
+    direc_moves = [np.array([0, 1]),
+                   np.array([1, 0]),
+                   np.array([0, -1]),
+                   np.array([-1, 0])]
+    for i, coord in enumerate(sq_coords):
+        # Right is 0, down is 1, left is 2, up is 3.
+        for j, move in enumerate(direc_moves):
+            new_coord = coord.copy()
+            while True:
+                # Keep walking in the direction specified by j. Use modulo
+                # to wrap around. The first square encountered is the square to
+                # connect to.
+                new_coord += move
+                new_coord %= 6
+                if tuple(new_coord) not in sq_coords_tuples:
+                    continue
+                # When moving off of square i in direction j, go to square
+                # wrap_sq_ind with direction change 0.
+                connections[tuple(coord)][j] = ((tuple(new_coord), 0))
+                break
+    return connections
+
+def get_corner_path(sq_coords):
+    # Make a path along the outside of the cube net, via the corners. This will
+    # allow easily matching up the outside edges.
+
+    # Each square has only its top left corner specified. This will generate
+    # all corners.
+    offsets = [np.array([0, 0]),
+               np.array([0, 1]),
+               np.array([1, 0]),
+               np.array([1, 1])]
+    corners = {tuple(coord + offset) for coord, offset in it.product(sq_coords, offsets)}
+
+    # Start walking along the outside of the cube net. As sq_coords starts with
+    # the leftmost square in the top row, its top edge is definitely on the
+    # outside. If we walk from the top left to top right corner, the inside is
+    # on the right. Hence, we want to first check if the next corner is 'to the
+    # left', then we want to check if the next corner is 'straight ahead', and
+    # finally if it is 'to the right'. This will keep the inside on the right
+    # of the edge we are looking at, which is formed by walking from the
+    # previous to the current corner.
+    prev = sq_coords[0]
+    cur = sq_coords[0] + offsets[1]
+    rot_mat = np.array([[0, 1], [-1, 0]])
+    corner_path = [cur.copy()]
+    while not (cur == sq_coords[0]).all():
+        diff = prev - cur
+        for i in range(3):
+            # The rotation matrix rotates 90 degrees clockwise.
+            diff = np.matmul(rot_mat, diff)
+            if tuple(cur + diff) not in corners:
+                continue
+            prev = cur
+            cur = cur + diff
+            corner_path.append(cur.copy())
+            break
+
+    # Convert it to a list of Vertex instances, which have additional info.
+    corner_count = len(corner_path)
+    vertex_path = [Vertex(corner, 0, -1) for corner in corner_path]
+    for i, vertex in enumerate(vertex_path):
+        prev = vertex_path[i - 1]
+        nxt = vertex_path[(i + 1) % corner_count]
+        prev_edge = prev.coords - vertex.coords
+        next_edge = nxt.coords - vertex.coords
+        # The number of squares inside the net at that vertex.
+        vertex.square_count = 2 - cross_2d(prev_edge, next_edge)
+        # Which side of a square the edge to the next vertex is.
+        vertex.next_direc = get_direc(next_edge)
+    return vertex_path
+
+def get_part_2_connections(sq_coords, connections):
+    # In Part 2, wrap as if the net is folded into a cube.
+    vertex_path = get_corner_path(sq_coords)
+    # Remove vertices two at a time.
+    while vertex_path:
+        for i, vertex in enumerate(vertex_path):
+            # Find a vertex where three squares combine, as we are forming
+            # a cube.
+            if vertex.square_count != 3:
+                continue
+
+            # We will remove the current and next vertex, and link the previous
+            # vertex to the next next vertex. Effectively, we are folding three
+            # squares together at a vertex, which completes that vertex and
+            # merges the previous and next vertices into a single one.
+            prev = vertex_path[i - 1]
+            nxt = vertex_path[(i + 1) % len(vertex_path)]
+            prev_direc = prev.next_direc
+            next_direc = vertex.next_direc
+
+            # Find out which squares the edges to and from the current vertex
+            # belong to.
+            sq_1 = get_sq_coord(vertex.coords, prev_direc)
+            sq_2 = get_sq_coord(nxt.coords, next_direc)
+
+            # Set the correct connections - the edges to and from the vertex
+            # will fold together, and the direction change is 2 + difference.
+            # E.g. going from a right edge (0) to a right edge (0) reverses
+            # direction (direction changes by 2), and going from a right edge
+            # (0) to a top edge (3) changes direction to 1 (direction changes
+            # by 1).
+            connections[sq_1][prev_direc] = (sq_2, (2 + next_direc - prev_direc) % 4)
+            connections[sq_2][next_direc] = (sq_1, (2 + prev_direc - next_direc) % 4)
+
+            # Update the data for the previous vertex.
+            prev.square_count += nxt.square_count
+            prev.next_direc = nxt.next_direc
+
+            # Remove the current vertex, and the next vertex. Note that since we only
+            # store the direction of the next edge (edge from a vertex), and we need
+            # the endpoint of an edge to determine the square it belongs to, we need
+            # to keep the previous vertex.
+            vertex_path.pop(i)
+            vertex_path.pop(i)
+            break
+    return connections
+
+def rotate_pos(pos, direc_change, rot_mat):
+    # direc_change is how many multiples of 90 degrees the direction changes
+    # in the clockwise direction. rot_mat is the matrix to rotate clockwise by
+    # 90 degrees. Due to weirdness of row and column coordinates, offsets are
+    # necessary.
+    i_offset = -1 if direc_change in (2, 3) else 0
+    j_offset = -1 if direc_change in (1, 2) else 0
+    offset = np.array([i_offset, j_offset])
+    matrix = np.linalg.matrix_power(rot_mat, direc_change)
+    return np.matmul(matrix, pos) + offset
+
+def follow_path(path, squares, connections, side_len, sq_coords):
+    # Start at the top left corner of the top left square, facing right.
+    # 0 is right, 1 is down, etc.
+    cur_pos = np.array([0, 0])
+    cur_direc = 0
+    cur_square = tuple(sq_coords[0])
+
+    # The actual movements when moving right, down, etc., and the matrix to
+    # rotate 90 degrees clockwise.
+    direc_moves = [np.array([0, 1]),
+                   np.array([1, 0]),
+                   np.array([0, -1]),
+                   np.array([-1, 0])]
+    rot_mat = np.array([[0, 1], [-1, 0]])
+
+    for instr in path:
+        if instr == 'L':
+            cur_direc -= 1
+            cur_direc %= 4
+        elif instr == 'R':
+            cur_direc += 1
+            cur_direc %= 4
+        else:
+            dist = int(instr)
+            for _ in range(dist):
+                
+                new_pos = cur_pos + direc_moves[cur_direc]
+                new_square = cur_square
+                new_direc = cur_direc
+
+                # Check if we crossed the border of the current square and need
+                # to move to a new square.
+                if (new_pos >= side_len).any() or (new_pos < 0).any():
+                    new_square, direc_change = connections[new_square][cur_direc]
+                    new_direc += direc_change
+                    new_direc %= 4
+                    new_pos = rotate_pos(new_pos, direc_change, rot_mat) % side_len
+
+                # Check if advancing a step would run into an obstacle. If it
+                # would, do not save the change and stop moving.
+                if tuple(new_pos) in squares[new_square]:
+                    break
+
+                # Actually move if no obstacle has been hit.
+                cur_pos = new_pos
+                cur_square = new_square
+                cur_direc = new_direc
+
+    return cur_pos, cur_direc, cur_square
+
+def get_coords(pos, cur_square, side_len):
+    # Get the coordinates in the flattened cube net given the coordinates of
+    # the current square and the position on said square. As the question uses
+    # 1-based indexing, add 1 to both coordinates.
+    return pos + np.array(cur_square) * side_len + np.array([1, 1])
+
+def main():
+    input_dir = "C:/Users/mmlho/Documents/Python Scripts/Advent of Code 2022/Inputs/"
+
+    # We are given a cube net, with some obstacles on it. '.' represents empty
+    # space on the net, '#' represents an obstacle, and whitespace is used to
+    # get everything in the correct position. We are also given a string of
+    # instructions, e.g. 10L5R6, where L and R denote rotating left or right by
+    # 90 degrees, and the numbers mean moving as many steps in the current
+    # direction, or until an obstacle is hit. Start at the top left corner of
+    # the cube net and follow the instructions. Where do we end up?
+    # Part 1: if we hit any edge, we wrap to the 'opposite' edge of the net.
+    # Part 2: if we hit any edge, we wrap as if the net is folded into a cube.
+    with open(input_dir + "aoc_2022_day_22_test.txt") as f:
+        cube_net, path = f.read().rstrip().split('\n\n')
+
+    path = split_path(path)
+
+    # The cube net consists of six faces filled with . and #, and
+    # some whitespace. So 6 * side_len ** 2 == (occurences of . and #).
+    side_len = int(((cube_net.count('.') + cube_net.count('#')) / 6) ** 0.5)
+    cube_net = cube_net.split('\n')
+
+    sq_coords = get_sq_coords(cube_net, side_len)
+    squares = {tuple(coord): get_square(cube_net, side_len, coord)
+               for coord in sq_coords}
+
+    connections = get_part_1_connections(sq_coords)
+    connections_2 = get_part_2_connections(sq_coords, connections)
+
+    pos, direc, cur_square = follow_path(path, squares, connections, side_len, sq_coords)
+    final_coords = get_coords(pos, cur_square, side_len)
+    print(f'Part 1: {1000 * final_coords[0] + 4 * final_coords[1] + direc}')
+    
+    pos_2, direc_2, cur_square_2 = follow_path(path, squares, connections_2, side_len, sq_coords)
+    final_coords_2 = get_coords(pos_2, cur_square_2, side_len)
+    print(f'Part 2: {1000 * final_coords_2[0] + 4 * final_coords_2[1] + direc_2}')
+
+t0 = pf()
+main()
+print(pf() - t0)
