@@ -1,0 +1,228 @@
+#include "attachments/poliz.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+int integer_handler(struct PolizState *state, int iextra);
+int read_handler(struct PolizState *state, int iextra);
+int plus_handler(struct PolizState *state, int iextra);
+
+struct Vector {
+    size_t *size;
+    size_t *capacity;
+    int32_t *ptr;
+} vector = {};
+
+struct PolizState {
+    int *err;
+    struct Vector *vector;
+};
+
+struct PolizState *poliz_new_state(void) {
+    struct Vector *vector = calloc(1, sizeof(*vector)); // ха-ха! указатель создастся на стеке, но так как в тупом С нет деструкторов, объект, на который он указывает, будет жить
+    vector->capacity = calloc(1, sizeof(*(vector->capacity)));
+    *(vector->capacity) = 1;
+    vector->size = calloc(1, sizeof(*(vector->size)));
+    *(vector->size) = 0;
+    vector->ptr = calloc(*(vector->capacity), sizeof(*(vector->ptr)));
+
+    struct PolizState *state = calloc(1, sizeof(struct PolizState));
+    state->vector = vector;
+    state->err = calloc(1, sizeof(*(state->err)));
+    return state;
+}
+
+void poliz_free_state(struct PolizState *state) {
+    free(state->vector->ptr);
+    free(state->vector->capacity);
+    free(state->vector->size);
+    free(state->vector);
+    free(state->err);
+    free(state);
+}
+
+int poliz_last_error(struct PolizState *state) {
+    return *(state->err);
+}
+
+int push_back(struct Vector *vector, int32_t value, int *err) {
+    if (*err != PE_OK) {
+        return *err;
+    }
+    if (vector->size + 1 > vector->capacity) {
+        size_t new_capacity = 2 * (*(vector->capacity) + 1);
+        int32_t *tmp = realloc(vector->ptr, new_capacity * sizeof(*tmp));
+        if (!tmp) {
+            // ERROR
+            *err = PE_OUT_OF_MEMORY;
+            return *err;
+        }
+        vector->ptr = tmp;
+        *(vector->capacity) = new_capacity;
+    }
+    vector->ptr[(*(vector->size))++] = value;
+    return PE_OK;
+}
+
+int pop_back(struct Vector *vector, int32_t *where, int *err) {
+    if (*err != PE_OK) {
+        return *err;
+    }
+    if (vector->size == 0) {
+        // ERROR
+        *err = PE_STACK_UNDERFLOW;
+        return *err;
+    }
+    *where = vector->ptr[(*(vector->size))--];
+    return PE_OK;
+}
+
+int isNumber(const char *str) {
+    if (*str == '-' || *str == '+') {
+        ++str;
+    }
+    for (size_t i = 0; str[i] != '\0'; ++i) {
+        if (!isdigit(str[i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int32_t getNumber(const char *str) {
+    int32_t result = 0;
+    int32_t sign = 1;
+    if (*str == '-') {
+        sign = -1;
+    }
+    if (*str == '-' || *str == '+') {
+        ++str;
+    }
+    for (size_t i = 0; str[i] != '\0'; ++i) {
+        if (!isdigit(str[i])) {
+            return 0;
+        }
+        result *= 10;
+        result += sign * (int32_t)(str[i] - '0');
+    }
+    return result;
+}
+
+struct PolizItem *poliz_compile(const char *str) {
+    size_t length = strlen(str);
+    struct PolizItem *items = calloc(length, sizeof(*items));
+    size_t current_index = 0;
+    static char word[100];
+    while (sscanf(str, "%99s", word) != EOF) {
+        if (strlen(word) == 0) {
+            // ERROR
+        }
+        if (isNumber(str)) {
+            items[current_index].handler = integer_handler;
+            items[current_index].iextra = getNumber(str);
+            ++current_index;
+        }
+        if (strcmp(word, "+") == 0) {
+            items[current_index].handler = plus_handler;
+            items[current_index].iextra = 0;
+            ++current_index;
+        }
+        if (strcmp(word, "-") == 0) {
+
+        }
+        if (strcmp(word, "*") == 0) {
+
+        }
+        if (strcmp(word, "/%") == 0) {
+
+        }
+        if (strcmp(word, "#") == 0) {
+
+        }
+        if (strcmp(word, "r") == 0) {
+            items[current_index].handler = read_handler;
+            items[current_index].iextra = 0;
+            ++current_index;
+        }
+        if (strcmp(word, "w") == 0) {
+
+        }
+        if (strcmp(word, "n") == 0) {
+
+        }
+        if (strcmp(word, ";") == 0) {
+
+        }
+        char first_char = word[0];
+        if (first_char == 'd' || first_char == 'c') {
+            if (isNumber(((const char *)word) + 1)) {
+
+            }
+        }
+        break;
+        // ERROR
+    }
+    return items;
+}
+
+int integer_handler(struct PolizState *state, int iextra) {
+    if (*(state->err)) {
+        return *(state->err);
+    }
+
+    int err = PE_OK;
+    
+    if (push_back(state->vector, iextra, &err)) {
+        return err;
+    }
+
+    return err;
+ }
+
+ int read_handler(struct PolizState *state, int iextra) {
+    if (*(state->err)) {
+        return *(state->err);
+    }
+
+    int err = PE_OK;
+
+    int32_t value = 0;
+    
+    if (scanf("%d", &value) != 1) {
+        err = PE_READ_FAILED;
+        return err;
+    }
+
+    iextra = value;
+
+    return integer_handler(state, iextra);
+ }
+
+int plus_handler(struct PolizState *state, int) {
+    if (*(state->err)) {
+        return *(state->err);
+    }
+
+    int32_t a = 0, b = 0;
+    int err = PE_OK;
+    if (pop_back(state->vector, &a, &err)) {
+        *(state->err) = err;
+        return err;
+    }
+    if (pop_back(state->vector, &b, &err)) {
+        *(state->err) = err;
+        return err;
+    }
+    int res = 0;
+    if (__builtin_add_overflow(a, b, &res)) {
+        // ERROR
+        err = PE_INT_OVERFLOW;
+        return err;
+    }
+    if (push_back(state->vector, res, &err)) {
+        return err;
+    }
+
+    return PE_OK;
+}
