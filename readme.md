@@ -1,11 +1,7 @@
-[**ANc1Gx9g**](/data/ANc1Gx9g.txt) (12/01/23 - 13:09)- 15685 bytes
+[**DYNhTxpB**](/data/DYNhTxpB.txt) (12/01/23 - 13:23)- 803 bytes
 
-[**mskQrTjs**](/data/mskQrTjs.txt) (12/01/23 - 13:09)- 3164 bytes
+[**GCSdu2dN**](/data/GCSdu2dN.txt) (12/01/23 - 13:23)- 239 bytes
 
-[**mskQrTjs**](/data/mskQrTjs.txt) (12/01/23 - 13:09)- 3164 bytes
-
-[**ANc1Gx9g**](/data/ANc1Gx9g.txt) (12/01/23 - 13:09)- 15685 bytes
-
-**Total Datas**: 3977
+**Total Datas**: 3979
 
 **Total Size**: 24.53 MB / 24.5 MB
