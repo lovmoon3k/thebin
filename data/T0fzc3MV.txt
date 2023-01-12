@@ -1,0 +1,199 @@
+#include "esphome.h"
+#include "Wire.h"
+#include "Adafruit_AMG88xx.h"
+#include <vector>
+#include <bits/stdc++.h>
+#include <cmath>
+#include <queue>
+using namespace std;
+
+class RoomOccupation : public PollingComponent {
+  public:
+    float get_setup_priority() const override { return esphome::setup_priority::DATA; }
+    RoomOccupation() : PollingComponent(10000) {}
+    
+     /*******************************************************************************
+        Const variables
+    *******************************************************************************/
+    // For background extraction
+    const float bgOffset = 0.75;
+    Adafruit_AMG88xx amg;
+
+
+    /*******************************************************************************
+        Global variables
+    *******************************************************************************/
+    vector< vector<float> > Vpixels2D;
+    
+    void setup() override {
+      amg.begin();
+      
+    }
+    
+    void update() override 
+    {
+        
+        /*******************************************************************************
+            Read sensor
+        *******************************************************************************/
+        float pixels[64];
+        amg.readPixels(pixels); 
+
+        // Add frame
+        Vpixels2D.push_back(
+            {
+                pixels[0], pixels[1], pixels[2], pixels[3], pixels[4], pixels[5], pixels[6], pixels[7],
+                pixels[8], pixels[9], pixels[10], pixels[11], pixels[12], pixels[13], pixels[14], pixels[15], 
+                pixels[16], pixels[17], pixels[18], pixels[19], pixels[20], pixels[21], pixels[22], pixels[23], 
+                pixels[24], pixels[25], pixels[26], pixels[27], pixels[28], pixels[29], pixels[30], pixels[31], 
+                pixels[32], pixels[33], pixels[34], pixels[35], pixels[36], pixels[37], pixels[38], pixels[39],
+                pixels[40], pixels[41], pixels[42], pixels[43], pixels[44], pixels[45], pixels[46], pixels[47],
+                pixels[48], pixels[49], pixels[50], pixels[51], pixels[52], pixels[53], pixels[54], pixels[55],
+                pixels[56], pixels[57], pixels[58], pixels[59], pixels[60], pixels[61], pixels[62], pixels[63], 
+            }
+        );
+
+        // Only keep past 20 values
+        if (Vpixels2D.size() > 5)
+        {
+            Vpixels2D.erase(Vpixels2D.begin());
+        }
+        Vpixels2D.shrink_to_fit();
+        
+
+        /*******************************************************************************
+            Get Background Image
+            https://learnopencv.com/simple-background-estimation-in-videos-using-opencv-c-python/
+        *******************************************************************************/
+        float bg[64];
+        // Run for every pixel
+        for (int i = 0; i < Vpixels2D[0].size(); i++)
+        {
+            vector<float> pixelx;
+            // Run for every frame excpet for the most recent one; Put all values of pixel x to one vector
+            for (int j = 0; j < Vpixels2D.size()-1; j++)
+            {
+                pixelx.push_back(Vpixels2D[j][i]);
+            }
+            
+            // Sort vector in ascending order
+            sort(pixelx.begin(), pixelx.end());
+            
+            // Pick the median value and set that pixel to bg value
+            bg[i] = pixelx[(pixelx.size()/2)] + bgOffset;
+            
+        }
+
+        /*******************************************************************************
+            Seperate object from current frame
+        *******************************************************************************/
+        float object[64]  = {0};
+        // Run for every pixel in frame
+        for (int i = 0; i < 64; i++)
+        {
+            // If pixel is hotter than the background, set it as an object
+            if (pixels[i] > bg[i])
+            {
+                object[i] = pixels[i];
+            }
+            
+        }
+
+        /*******************************************************************************
+            Simple blob detection
+            https://learnopencv.com/blob-detection-using-opencv-python-c/
+        *******************************************************************************/
+         vector<blob> blobs = simpleBlobDetector(object);
+
+    }
+
+    vector<blob> simpleBlobDetector(float image[])
+    {
+        float minThreshold = 255;
+        float maxThreshold = 0;
+        vector<blob> blobs;
+        // Set min and max thresholds
+        for (int i = 0; i < 64; i++)
+        {
+            if (image[i] < minThreshold && image[i] != 0)
+            {
+                minThreshold = image[i];
+            }
+            if (image[i] > maxThreshold)
+            {
+                maxThreshold = image[i];
+            }
+        }
+        
+        //// Thresholding
+        // Run for every threshold step
+        for (float threshold = minThreshold; threshold < maxThreshold; threshold = threshold + thresholdStep)
+        {
+            int thresholdedImage[64] = {0};
+            // Threshold image
+            for (int i = 0; i < 64; i++)
+            {
+                if (image[i] > threshold)
+                {
+                    thresholdedImage[i] = -1;
+                }
+                
+            }
+
+            
+
+            // Find and merge connect pixels by using BFS
+            int id = 0;
+            for (int p = 0; p < 64; p++)
+            {
+                // if pixel is unassigned
+                if (queue<int> q; thresholdedImage[p] == -1)
+                {
+                    id++;
+                    thresholdedImage[p] = id;
+                    q.push(p-9);
+                    // q.push(p-8);
+                    // q.push(p-7);
+                    // q.push(p-1);
+                    // q.push(p+1);
+                    // q.push(p+7);
+                    // q.push(p+8);
+                    // q.push(p+9);
+                    
+                    while (!q.empty())
+                    {
+                        // Skip and delete if its out of bonds
+                        if (q.front() < 0 || q.front() > 64)
+                        {
+                            q.pop();
+                            continue;
+                        }
+                        
+                        if (thresholdedImage[q.front()] == -1 )
+                        {
+                            thresholdedImage[q.front()] = id;
+                            q.push(q.front()-9);
+                            // q.push(q.front()-8);
+                            // q.push(q.front()-7);
+                            // q.push(q.front()-1);
+                            // q.push(q.front()+1);
+                            // q.push(q.front()+7);
+                            // q.push(q.front()+8);
+                            // q.push(q.front()+9);
+                            // q.pop();   
+                        } else
+                        {
+                            q.pop();
+                        }
+                    }
+                }
+                
+                
+                
+            }
+        }
+
+        return blobs;
+        
+    }
+};
