@@ -1,0 +1,300 @@
+#include <algorithm>
+#include <iostream>
+#include <numeric>
+#include <cassert>
+#include <vector>
+#include <stack>
+#include <queue>
+#include <set>
+
+typedef long long llong;
+const int MAXN = 1000000 + 10;
+const int INF  = 1e9 + 1;
+
+struct Interval
+{
+    int l, r, value;
+    int toReach;
+
+    Interval(){}
+    Interval(int _l, int _r, int _value, int _toReach)
+    {
+        l = _l;
+        r = _r;
+        value = _value;
+        toReach = _toReach;
+    }
+
+    inline bool friend operator < (const Interval &a, const Interval &b)
+    {
+        return a.r - a.l < b.r - b.l || (a.r - a.l == b.r - b.l && a.l < b.l);
+    }
+
+    inline bool friend operator == (const Interval &a, const Interval &b)
+    {
+        return a.l == b.l && a.r == b.r && a.value == b.value;
+    }
+};
+
+int sz[MAXN];
+int par[MAXN];
+int dep[MAXN];
+int height[MAXN];
+
+int find(int node)
+{
+    if (par[node] == node) return node;
+    return par[node] = find(par[node]);
+}
+
+inline void merge(int x, int y)
+{
+    x = find(x);
+    y = find(y);
+    if (dep[x] > dep[y]) std::swap(x, y);
+    if (dep[x] == dep[y]) dep[y]++;
+
+    par[x] = y;
+    sz[y] += sz[x];
+    height[y] = std::max(height[x], height[y]);
+}
+
+inline int getHeight(int x)
+{
+    return height[find(x)];
+}
+
+int n;
+llong k;
+int a[MAXN];
+int prev[MAXN];
+int next[MAXN];
+std::stack <int> st;
+std::vector <Interval> bySize[MAXN];
+std::vector <Interval> sorted;
+void solve()
+{
+    bool good = true;
+    for (int i = 1 ; i <= n - 1 && good ; ++i)
+    {
+        good &= (a[i] == a[i + 1]);
+    }
+
+    if (good)
+    {
+        std::cout << 0 << '\n';
+        return;
+    }
+
+    std::iota(par + 1, par + 1 + n, 1);
+    std::fill(dep + 1, dep + 1 + n, 1);
+    std::fill(sz + 1, sz + 1 + n, 1);
+    for (int i = 1 ; i <= n ; ++i)
+    {
+        height[i] = a[i];
+    }
+
+    a[0] = INF;
+    llong ans = 0;
+    while (!st.empty()) st.pop(); st.push(0);
+    for (int i = 1 ; i <= n ; ++i)
+    {
+        if (i != 1) ans += abs(a[i] - a[i - 1]);
+        while (!st.empty() && a[st.top()] <= a[i])
+        {
+            st.pop();
+        }
+
+        prev[i] = st.top();
+        st.push(i);
+    }
+
+    while (!st.empty()) st.pop(); st.push(0);
+    for (int i = n ; i >= 1 ; --i)
+    {
+        while (!st.empty() && a[st.top()] < a[i])
+        {
+            st.pop();
+        }
+
+        next[i] = st.top();
+        st.push(i);
+    }
+
+    int cntIntervals = 0;
+    for (int i = 1 ; i <= n ; ++i)
+    {
+        if (prev[i] != 0 && next[i] != 0 && a[next[i]] > a[i])
+        {
+            bySize[next[i] - prev[i] - 1].push_back({prev[i] + 1, next[i] - 1, a[i], std::min(a[prev[i]], a[next[i]])});
+            cntIntervals++;
+        }
+    }
+
+    sorted.reserve(cntIntervals);
+    for (int i = 1 ; i <= n ; ++i)
+    {
+        for (const Interval &curr : bySize[i])
+        {
+            sorted.push_back(curr);
+        }
+    }
+
+    int last = 1;
+    for (int i = 2 ; i <= n ; ++i)
+    {
+        if (a[last] != a[i])
+        {
+            last = i;
+        } else
+        {
+            merge(last, i);
+        }
+    }
+
+    int ptr = 0;
+    int lastLen = 1;
+    int firstLen = 1;
+    int lastHeight = a[n];
+    int firstHeight = a[1];
+    bool readyToBreak = false;
+    while (sz[find(1)] != n)
+    {
+        lastLen = sz[find(n)];
+        firstLen = sz[find(1)];
+        bool isLastGood = (getHeight(n - lastLen) > lastHeight);
+        bool isFirstGood = (getHeight(firstLen + 1) > firstHeight);
+
+        if (isFirstGood && (!isLastGood || firstLen < lastLen))
+        {
+            if (getHeight(firstLen + 1) - firstHeight >= 2 && (readyToBreak || ptr == sorted.size() || sorted[ptr].r - sorted[ptr].l + 1 > 2*firstLen))
+            {
+                int toAdd = std::min(k / firstLen, (llong)getHeight(firstLen + 1) - firstHeight - 1);
+                ans -= toAdd;
+                k -= 1LL * firstLen * toAdd;
+                height[find(1)] += toAdd;
+                firstHeight += toAdd;
+                if ((llong)getHeight(firstLen + 1) - firstHeight != 1) break;
+                continue;
+            }
+
+            int afterFirst = sz[find(firstLen + 1)];
+            int secondLen = INF;
+            if (isLastGood) secondLen = lastLen;
+            if (firstLen + afterFirst + 1 <= n && getHeight(firstLen + afterFirst + 1) > getHeight(firstLen + 1)) secondLen = std::min(secondLen, firstLen + afterFirst);
+            if (getHeight(firstLen + 1) - firstHeight == 1 && (readyToBreak || ptr == sorted.size() || firstLen + secondLen < sorted[ptr].r - sorted[ptr].l + 1))
+            {
+                int toAdd = std::min(k / firstLen, (llong)getHeight(firstLen + 1) - firstHeight);
+                ans -= toAdd;
+                k -= 1LL * firstLen * toAdd;
+                if (toAdd != (llong)getHeight(firstLen + 1) - firstHeight) break;
+                merge(1, firstLen + 1);
+                firstHeight++;
+                continue;
+            }
+        }
+
+        if (isLastGood)
+        {
+            if (getHeight(n - lastLen) - lastHeight >= 2 && (readyToBreak || ptr == sorted.size() || sorted[ptr].r - sorted[ptr].l + 1 > 2*lastLen))
+            {
+                int toAdd = std::min(k / lastLen, (llong)getHeight(n - lastLen) - lastHeight - 1);
+                ans -= toAdd;
+                k -= 1LL * lastLen * toAdd;
+                height[find(n)] += toAdd;
+                lastHeight += toAdd;
+                if ((llong)getHeight(n - lastLen) - lastHeight != 1) break;
+                continue;
+            }
+
+            int beforeLast = sz[find(n - lastLen)];
+            int secondLen = INF;
+            if (isFirstGood) secondLen = firstLen;
+            if (n - lastLen - beforeLast >= 1 && getHeight(n - lastLen - beforeLast) > getHeight(n - lastLen)) secondLen = std::min(secondLen, beforeLast + lastLen);
+            if (getHeight(n - lastLen) - lastHeight == 1 && (readyToBreak || ptr == sorted.size() || lastLen + secondLen < sorted[ptr].r - sorted[ptr].l + 1))
+            {
+                int toAdd = std::min(k / lastLen, (llong)getHeight(n - lastLen) - lastHeight);
+                ans -= toAdd;
+                k -= 1LL * lastLen * toAdd;
+                if (toAdd != (llong)getHeight(n - lastLen) - lastHeight) break;
+                merge(n - lastLen, n);
+                lastHeight++;
+                continue;
+            }
+        }
+
+        if (ptr == cntIntervals) 
+        {
+            break;
+        }
+        
+        Interval curr = sorted[ptr++];
+        int toAdd = std::min((llong)curr.toReach - curr.value, k / (curr.r - curr.l + 1));
+        k -= 1LL * (curr.r - curr.l + 1) * toAdd;
+        ans -= 2 * toAdd;
+        height[find(curr.l)] += toAdd;
+
+        if (getHeight(curr.l - 1) == curr.value + toAdd)
+        {
+            merge(curr.l - 1, curr.l);
+        }
+
+        if (getHeight(curr.r + 1) == curr.value + toAdd)
+        {
+            merge(curr.r, curr.r + 1);
+        }
+
+        if (toAdd != curr.toReach - curr.value)
+        {
+            if (readyToBreak) break;
+            readyToBreak = true;
+            ptr--;
+        }
+    }
+
+    std::cout << ans << '\n';
+}
+
+void reset()
+{
+    while (!st.empty()) st.pop();
+    for (int i = 1 ; i <= n ; ++i)
+    {
+        bySize[i].clear();
+        next[i] = prev[i] = 0;
+    }
+
+    sorted.clear();
+}
+
+void read()
+{
+    std::cin >> n >> k;
+    for (int i = 1 ; i <= n ; ++i)
+    {
+        std::cin >> a[i];
+    }
+}
+
+void fastIO()
+{
+    std::ios_base :: sync_with_stdio(0);
+    std::cout.tie(nullptr);
+    std::cin.tie(nullptr);
+}
+
+int tests;
+int main()
+{
+    fastIO();
+    std::cin >> tests;
+
+    while (tests--)
+    {
+        reset();
+        read();
+        solve();
+    }
+
+    return 0;
+}
