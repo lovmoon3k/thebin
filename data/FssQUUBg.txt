@@ -1,0 +1,115 @@
+# -*- coding: utf-8 -*-
+# B_efficient_frontier.py
+"""
+Created on 2023-01-10/11
+
+@author: fault
+
+idea: Python for Finance, Yves Hilpisch, 2nd ed.
+  --> Portfolio Optimization
+
+pdr. Datareader - TypeError: string indices must be integers
+https://stackoverflow.com/questions/74834834/pdr-datareader-typeerror-string-indices-must-be-integers
+--> Yahoo has changed something on the page from which to retrieve symbol data
+=> taking  yfinance
+
+test: OK
+
+Code analysis: 9.80/10 (2023-01-11)
+"""
+
+import numpy as np
+import pandas as pd
+import yfinance as yf
+
+import matplotlib.pyplot as plt
+# import matplotlib.ticker as mtick
+
+TITLE1 = "Efficient frontier (Python for Finance, Yves Hilpisch)"
+SUBTITLE2 = "Adj Close prices (no total return)"
+
+symbols = ['AAPL', 'MSFT', 'SPY', 'GLD']
+
+# START_DATE1 = "2022-01-01"
+START_DATE1 = "2019-01-01"
+# END_DATE1 = "2022-12-31"
+END_DATE1 = "2019-12-31"
+
+NOA = len(symbols)  # number of assets
+
+df1 = pd.DataFrame()
+
+for sym in symbols:
+    print(sym)
+    df1[sym] = yf.download(sym, start=START_DATE1, end=END_DATE1)["Adj Close"]
+
+rets = np.log(df1 / df1.shift(1))
+
+START_DATE1 = str(df1.index[0].date())
+END_DATE1 = str(df1.index[-1].date())
+LISTTOSTR = ', '.join([str(elem) for elem in symbols])
+SUBTITLE = START_DATE1 + ".." + END_DATE1 + ": " + LISTTOSTR
+TITLE = TITLE1 + "\n" + SUBTITLE
+
+
+def port_ret(weights1):
+    "calculate annual portfolio return"
+    return np.sum(rets.mean() * weights1) * 252
+
+def port_vol(weights1):
+    "calculate annual portfolio volatility"
+    return np.sqrt(np.dot(weights1.T, np.dot(rets.cov()*252, weights1)))
+
+
+prets = []
+pvols = []
+
+# Monte Carlo simulation of portfolio weights:
+for p in range (2500):
+    weights = np.random.random(NOA)
+    weights /= np.sum(weights)
+
+    prets.append(port_ret(weights))
+    pvols.append(port_vol(weights))
+
+prets = np.array(prets)
+pvols = np.array(pvols)
+
+
+# plotting:
+fig = plt.figure(figsize=(16, 9))
+
+plt.scatter(pvols, prets, c=prets / pvols, marker='o')
+
+plt.xlabel('expected volatility', fontsize=14)
+plt.ylabel('expected return', fontsize=14)
+# plt.colorbar(label='Sharpe ratio')
+plt.colorbar().set_label(label='Sharpe ratio', size=14)
+fig.axes[1].tick_params(axis="y", labelsize=14)
+
+plt.xticks(fontsize=14)
+plt.yticks(fontsize=14)
+
+# have a plot title:
+plt.title(TITLE, fontsize=20, y=1.09)
+plt.suptitle(SUBTITLE2,fontsize=14, y=0.94)
+
+
+# linear model:
+# idea: https://stackoverflow.com/questions/6148207/linear-regression-with-matplotlib-numpy
+coef = np.polyfit(pvols, prets, 1)
+poly1d_fn = np.poly1d(coef)  # function which takes in x and returns an estimate for y
+
+plt.plot(pvols, poly1d_fn(pvols), linestyle='dashed',
+         dashes=(1,2), color='black', linewidth=5)
+
+plt.xlim(0.0, 0.4)
+plt.ylim(-0.5, 1.25)
+
+# turn a grid on:
+plt.grid()
+
+plt.show()
+
+
+# end of B_efficient_frontier.py
