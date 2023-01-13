@@ -1,0 +1,191 @@
+.model small
+.stack 200h
+
+.data
+    msg1 db "Introduceti trei numere pozitive, separate prin tasta ENTER:$", 0
+    msg1alt db "Introduceti alte trei numere pozitive, separate prin tasta ENTER:$", 0
+    msg2 db "Aria triunghiului este:$", 0
+    msg3 db "Aceste trei numere nu pot fi laturile unui triunghi.$", 0
+    msg4 db "Suma a oricaror doua laturi trebuie sa fie mai mare decat a treia latura.$", 0
+    msgPointer dw 0
+
+    latura1 dw 0
+    latura2 dw 0
+    latura3 dw 0
+    semiPerimetru dw 0
+    nrcifre dw 0
+
+    babylonGuess dw 2
+    babylonResult dw 2
+
+    arieTriunghi dw 0
+    ariePreHeron dw 0
+.code
+    ;proceduri
+
+    p_printMsg PROC
+        mov ah, 09h
+        int 21h
+        ret
+    p_printMsg ENDP
+
+    p_printNewLine PROC
+        mov ah, 02h
+        mov dx, 10
+        int 21h
+
+        mov dx, 13
+        int 21h
+        ret
+    p_printNewLine ENDP
+
+    ;main
+
+    main:
+        mov ax, @data
+        mov ds, ax
+
+        ;macro-uri
+
+        m_printMessage MACRO mesaj
+            mov msgPointer, offset mesaj
+            mov dx, msgPointer
+            call p_printMsg
+            call p_printNewLine
+        ENDM
+
+        m_citireNumar MACRO numar
+            local construireNumar
+            local endMacro ;declaram doua etichete locale deoarece, daca sunt declarate global, macro-ul va functiona o singura data (etichetele vor fi deja definite in memorie)
+
+            construireNumar:
+                mov bx, 0
+                mov cx, 10
+                mov ah, 01h
+                int 21h
+
+                cmp al, 13
+                je endMacro
+
+                sub al, 48
+                mov bl, al
+                mov ax, numar
+                mul cx
+                add ax, bx
+
+                mov numar, ax
+            jmp construireNumar
+
+            endMacro: ;folosit pentru a iesi din macro
+        ENDM
+
+        m_checkTriunghi MACRO a, b, c
+            mov ax, a
+            mov bx, b
+            add ax, bx ;calculam suma a doua laturi
+            mov bx, c
+            cmp ax, c ;comparam suma cu a treia latura
+            jng nuEsteTriunghi ;daca suma nu este strict mai mare, programul sare la eticheta "nuEsteTriunghi"
+        ENDM
+
+        m_heronCalc MACRO s, l
+            mov bx, s
+            sub bx, l ;in BX avem (semiPerimetru - latura)
+            mul bx ;inmultim registrul AX cu BX
+        ENDM
+
+        ;program
+
+        m_printMessage msg1 ;"Introduceti trei numere pozitive, separate prin tasta ENTER:"
+
+        citireLaturi: ;citim valorile celor trei laturi utilizand macro-ul m_citireNumar
+            m_citireNumar latura1
+            m_citireNumar latura2
+            m_citireNumar latura3
+
+        verificareTriunghi: ;verificam daca cele trei valori introduse pot fi laturile unui triunghi utilizand macro-ul m_checkTriunghi
+            m_checkTriunghi latura1, latura2, latura3
+            m_checkTriunghi latura1, latura3, latura2
+            m_checkTriunghi latura3, latura2, latura1 
+        jmp calculareSemiP ;cele trei laturi pot forma un triunghi - continuam
+
+        nuEsteTriunghi:
+            m_printMessage msg3 ;"Aceste trei numere nu pot fi laturile unui triunghi."
+            m_printMessage msg4 ;"Suma a oricaror doua laturi trebuie sa fie mai mare decat a treia latura."
+            m_printMessage msg1alt ;"Introduceti alte trei numere pozitive, separate prin tasta ENTER:"
+            mov latura1, 0
+            mov latura2, 0
+            mov latura3, 0
+            jmp citireLaturi
+
+        calculareSemiP:
+            mov ax, latura1
+            mov bx, latura2
+            add ax, bx
+            mov bx, latura3
+            add ax, bx ;in AX se afla perimetrul triunghiului
+            mov semiPerimetru, ax
+            shr semiPerimetru, 1 ;shiftare la dreapta cu 1 bit = impartire la 2 - perimetrul devine semiperimetru
+        
+        heron:
+            mov ax, semiPerimetru ;AX=s
+            m_heronCalc semiPerimetru, latura1 ;AX=s(s-a)
+            m_heronCalc semiPerimetru, latura2 ;AX=s(s-a)(s-b)
+            m_heronCalc semiPerimetru, latura3 ;AX=s(s-a)(s-b)(s-c)
+            mov ariePreHeron, ax ;in ariePreHeron avem s(s-a)(s-b)(s-c) - ramane de calculat sqrt(ariePreHeron) = arieTriunghi
+
+
+        mov bx, babylonGuess ;prima valoare estimata pentru radacina patrata va fi 2
+        mov cx, 10 ;cx va fi folosit pentru a itera metoda babyloniana - in cazul acesta, 10 iteratii sunt suficiente pentru orice n<65536
+
+        babylonRoot: ;metoda babyloniana pentru radacina patrata
+            mov ax, ariePreHeron
+            mov dx, 0
+            div bx
+
+            add ax, bx 
+            shr ax, 1
+            mov bx, ax ;pregatim noua valoare estimata pentru urmatoarea iteratie
+
+            mov babylonResult, ax ;la finalul iteratiilor, in babylonResult vom avea estimarea radacinii patrate a numarului din ariePreHeron - babylonResult este aria triunghiului
+
+            dec cx
+            jnz babylonRoot ;cat timp cx != 0, continuam sa iteram metoda babyloniana
+
+        mov ax, babylonResult
+        mov arieTriunghi, ax
+
+        ;aria a fost calculata si va fi afisata pe ecran
+
+        m_printMessage msg2 ;"Aria triunghiului este:"
+        mov cx, 10
+
+        descompunereNumar:
+            mov ax, arieTriunghi
+            mov dx, 0
+            div cx
+            push dx
+
+            inc [nrcifre]
+            cmp ax, 0
+            je afisareNumar
+
+            mov arieTriunghi, ax
+        jmp descompunereNumar
+
+        afisareNumar:
+            mov dx, 0
+            pop dx
+            add dl, 48
+            mov ah, 02h
+            int 21h
+
+            dec [nrcifre]
+            cmp nrcifre, 0
+            je final
+        jmp afisareNumar
+
+        final:
+            mov ah, 4ch
+            int 21h
+    end main
