@@ -1,0 +1,131 @@
+import numpy as np
+from scipy.stats import multivariate_normal
+
+class GMM:
+    def __init__(self, k, max_iter=15):
+        self.k = k
+        self.max_iter = int(max_iter)
+
+    def initialize(self, X):
+        self.shape = X.shape
+        self.n, self.m = self.shape
+
+        self.phi = np.full(shape=self.k, fill_value=1/self.k)
+        self.weights = np.full( shape=self.shape, fill_value=1/self.k)
+        
+        random_row = np.random.randint(low=0, high=self.n, size=self.k)
+        self.mu = [  X[row_index,:] for row_index in random_row ]
+        self.sigma = [ np.cov(X.T) for _ in range(self.k) ]
+
+    def e_step(self, X):
+        # E-Step: update weights and phi holding mu and sigma constant
+        self.weights = self.predict_proba(X)
+        self.phi = self.weights.mean(axis=0)
+    
+    def m_step(self, X):
+        # M-Step: update mu and sigma holding phi and weights constant
+        for i in range(self.k):
+            weight = self.weights[:, [i]]
+            total_weight = weight.sum()
+            self.mu[i] = (X * weight).sum(axis=0) / total_weight
+            self.sigma[i] = np.cov(X.T, 
+                aweights=(weight/total_weight).flatten(), 
+                bias=True)
+
+    def fit(self, X):
+        self.initialize(X)
+        
+        for iteration in range(self.max_iter):
+            self.e_step(X)
+            self.m_step(X)
+            
+    def predict_proba(self, X):
+        likelihood = np.zeros( (self.n, self.k) )
+        for i in range(self.k):
+            distribution = multivariate_normal(
+                mean=self.mu[i], 
+                cov=self.sigma[i],allow_singular=True)
+            likelihood[:,i] = distribution.pdf(X)
+        
+        numerator = likelihood * self.phi
+        denominator = numerator.sum(axis=1)[:, np.newaxis]
+        weights = numerator / denominator
+        return weights
+    
+    def predict(self, X):
+        weights = self.predict_proba(X)
+        return np.argmax(weights, axis=1)
+
+
+# load data from "data2D.txt.dat" 
+data = np.loadtxt("data2D.txt.dat")
+m = data.shape[1]
+
+def task1():
+    # Find best Mixture Gaussian model loglikelihood and plot it
+    from matplotlib import pyplot as plt
+    loglikelihood = np.zeros(9)
+    for k in range(2,11):
+        gmm = GMM(k=k, max_iter=15)
+        gmm.fit(data)
+        likelihood = np.zeros(data.shape[0])
+        for i in range(k):
+            distribution = multivariate_normal(
+                mean=gmm.mu[i], 
+                cov=gmm.sigma[i],allow_singular=True)
+            likelihood += gmm.phi[i] * distribution.pdf(data)
+        loglikelihood[k-2] = np.sum(np.log(likelihood))
+
+    #print appropriate value for k
+    k = 0
+    for i in range(1, loglikelihood.shape[0]-1):
+        if loglikelihood[i] - loglikelihood[i-1] < loglikelihood[i+1] - loglikelihood[i]:
+            k = i + 2
+            break
+    print("Appropriate value for K : ", k)
+    #print(likelihood)
+   
+    #plot log-likelihood vs different number of clusters,also plot a dotted line for the best k
+    plt.plot(range(2,11), loglikelihood)
+    plt.title("log-likelihood for different number of clusters")
+    plt.xlabel("Number of clusters")
+    plt.ylabel("Loglikelihood")
+    plt.axvline(x=k, color='r', linestyle='--')
+    plt.show()
+    
+    
+
+
+def task2():
+    if m == 2:
+        gmm = GMM(k=3, max_iter=15)
+        gmm.fit(data)
+        likelihood = np.zeros(data.shape[0])
+        for i in range(3):
+            distribution = multivariate_normal(
+                mean=gmm.mu[i], 
+                cov=gmm.sigma[i],allow_singular=True)
+            likelihood += gmm.phi[i] * distribution.pdf(data)
+        from matplotlib import pyplot as plt
+        import matplotlib.cm as cm
+        plt.ion()
+        fig = plt.figure()
+        for i in range(15):
+            plt.clf()
+            gmm.e_step(data)
+            gmm.m_step(data)
+            plt.title("Iteration : " + str(i))
+            plt.scatter(data[:,0], data[:,1])
+            for j in range(3):
+                x, y = np.mgrid[gmm.mu[j][0]-5:gmm.mu[j][0]+5:.01, gmm.mu[j][1]-5:gmm.mu[j][1]+5:.01]
+                pos = np.empty(x.shape + (2,))
+                pos[:, :, 0] = x; pos[:, :, 1] = y
+                rv = multivariate_normal(gmm.mu[j], gmm.sigma[j])
+                plt.contour(x, y, rv.pdf(pos), colors='k', linestyles='solid', linewidths=1, alpha=0.5)
+            plt.pause(0.5)
+            fig.canvas.draw()
+        plt.ioff()
+        plt.show()
+
+
+task2()
