@@ -1,0 +1,58 @@
+class RequestIdentificationMixin:
+    """Mixin class for detect user request"""
+
+    @classmethod
+    def protected_request(cls, async_function):
+
+        @wraps
+        async def wrapper(*args, **kwargs):
+            self, request = args
+            self.user = None
+            self.session = config.async_session()
+            headers = request.headers
+
+            try:
+
+                if config.DEBUG:
+                    is_valid, errors, self.user = await User.get_object_from_field(
+                        select_value=1,
+                        session=self.session,
+                    )
+                    if is_valid:
+                        return await async_function(*args, **kwargs)
+
+                    return JSONResponse(
+                        content=errors,
+                        status_code=HTTP_404_NOT_FOUND,
+                    )
+
+                if ("platon-user-token" and "platon-user-id") in headers:
+                    if (token := headers["platon-user-token"]) and (
+                        user_id := headers["platon-user-id"]
+                    ):
+                        valid_request = await User.objects.user_authorization_check(
+                            token=token,
+                            user_id=user_id,
+                        )
+                        if valid_request:
+                            (
+                                is_valid,
+                                errors,
+                                self.user,
+                            ) = await User.get_object_from_field(
+                                select_value=user_id,
+                                session=self.session,
+                            )
+                        if is_valid:
+                            return await async_function(*args, **kwargs)
+
+                        return JSONResponse(
+                            content=errors,
+                            status_code=HTTP_404_NOT_FOUND,
+                        )
+
+                return JSONResponse(HTTP_401_UNAUTHORIZED)
+            except KeyError as error:
+                return JSONResponse(HTTP_401_UNAUTHORIZED)
+
+        return wrapper
