@@ -1,0 +1,67 @@
+<?php
+
+// Create a custom admin menu for blacklist
+add_action('admin_menu', 'blacklist_menu');
+
+function blacklist_menu() {
+    add_menu_page('Blacklist', 'Blacklist', 'manage_options', 'blacklist', 'blacklist_menu_page', 'dashicons-shield', 6);
+}
+
+// Create a page to show all blacklisted IPs
+function blacklist_menu_page() {
+    echo '<h1>Blacklisted IPs</h1>';
+    echo '<p>Here are all the IPs that have been blacklisted:</p>';
+    // Get all blacklisted IPs from database
+    global $wpdb;
+    $blacklist_ips = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}blacklist_ips");
+    // Display all blacklisted IPs
+    if ($blacklist_ips) {
+        echo '<ul>';
+        foreach ($blacklist_ips as $ip) {
+            echo '<li>' . $ip->ip_address . '</li>';
+        }
+        echo '</ul>';
+    } else {
+        echo '<p>No IPs have been blacklisted yet.</p>';
+    }
+}
+
+// Check if user's IP is blacklisted
+add_action('init', 'check_ip_blacklist');
+
+function check_ip_blacklist() {
+    // Get user's IP
+    $user_ip = $_SERVER['REMOTE_ADDR'];
+    // Sanitize user's IP
+    $user_ip = sanitize_text_field($user_ip);
+    // Check if user's IP is blacklisted
+    global $wpdb;
+    $blacklist_ip = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}blacklist_ips WHERE ip_address = '$user_ip'");
+    // If user's IP is blacklisted, ban the user
+    if ($blacklist_ip) {
+        wp_die('You have been banned from this website.');
+    }
+}
+
+// Check if user's IP is blacklisted on AbuseIPDB
+add_action('init', 'check_ip_abuseipdb');
+
+function check_ip_abuseipdb() {
+    // Get user's IP
+    $user_ip = $_SERVER['REMOTE_ADDR'];
+    // Sanitize user's IP
+    $user_ip = sanitize_text_field($user_ip);
+    // Get AbuseIPDB API key
+    $api_key = get_option('abuseipdb_api_key');
+    // Check if user's IP is blacklisted on AbuseIPDB
+    $url = 'https://api.abuseipdb.com/api/v2/check?ipAddress=' . $user_ip . '&maxAgeInDays=90&verbose';
+    $args = array(
+        'headers' => array(
+            'Key' => $api_key,
+            'Accept' => 'application/json'
+        )
+    );
+    $response = wp_remote_get($url, $args);
+    $data = json_decode($response['body'], true);
+    // If user's IP is blacklisted, add it to the blacklist
+    if ($data
