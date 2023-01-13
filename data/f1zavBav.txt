@@ -1,0 +1,55 @@
+// Code from ChatGPT
+// Here is an example of a simple image steganography algorithm using MPI (Message Passing Interface) to parallelize the process:
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <mpi.h>
+
+#define MAX_SECRET_LENGTH 100
+
+void steganography(unsigned char* image, unsigned char* secret, int image_size, int secret_size) {
+    int i;
+    for (i = 0; i < secret_size; i++) {
+        image[i] = (image[i] & 0xFE) | (secret[i] & 0x01);
+    }
+}
+
+int main(int argc, char** argv) {
+    int rank, size;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    // Read image and secret from file
+    unsigned char image[image_size];
+    unsigned char secret[secret_size];
+    if (rank == 0) {
+        read_image_from_file(image, image_size, "image.dat");
+        read_secret_from_file(secret, secret_size, "secret.dat");
+    }
+
+    // Scatter image and secret to all processes
+    int chunk_size = image_size / size;
+    unsigned char local_image[chunk_size];
+    unsigned char local_secret[MAX_SECRET_LENGTH];
+    MPI_Scatter(image, chunk_size, MPI_UNSIGNED_CHAR, local_image, chunk_size, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+    MPI_Scatter(secret, MAX_SECRET_LENGTH, MPI_UNSIGNED_CHAR, local_secret, MAX_SECRET_LENGTH, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+
+    // Perform steganography on local image and secret
+    steganography(local_image, local_secret, chunk_size, secret_size);
+
+    // Gather results from all processes back to rank 0
+    MPI_Gather(local_image, chunk_size, MPI_UNSIGNED_CHAR, image, chunk_size, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        // Save steganographed image to file
+        write_image_to_file(image, image_size, "stego_image.dat");
+    }
+
+    MPI_Finalize();
+    return 0;
+}
+/*
+This example uses MPI to parallelize the steganography process by dividing the image into chunks and assigning each chunk to a separate process. The root process (rank 0) reads the image and secret from files, and then uses MPI_Scatter() to distribute the image and secret to all processes. Each process then performs the steganography on its local image and secret, and the results are gathered back to the root process using MPI_Gather(). Finally, the root process saves the steganographed image to a file.
+
+It's important to notice that this is a simple example. */
