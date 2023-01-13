@@ -1,0 +1,153 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using Pathfinding;
+using UnityEditor;
+
+public class EnemyAI : MonoBehaviour
+{
+    [Header("Pathfinding")]
+    public Transform target;
+    public float activateDistance;
+    public float pathUpdateSeconds;
+
+    [Header("Physics")]
+    public float speed;
+    public float nextWaypointDistance = 3;
+    public float jumpNodeHeightRequirement;
+    public float jumpModifier;
+    public float jumpCheckOffset = 0.01f;
+    public LayerMask groundedLayerMask;
+
+    [Header("Custom Behaivior")]
+    public bool followEnabled = true;
+    public bool jumpEnabled;
+    public bool directionLookEnabled;
+    public bool shootEnabled;
+
+    private Path path;
+    private int currentWaypoint;
+    private bool isGrounded;
+    Seeker seeker;
+    Rigidbody2D rb;
+    private Collider2D col;
+    private float shootTimeOut = 2f;
+    [SerializeField]private GameObject player;
+    public LayerMask inLineOfSightLayerMask;
+
+    private void Start()
+    {
+        col = GetComponent<Collider2D>();
+        seeker= GetComponent<Seeker>();
+        rb= GetComponent<Rigidbody2D>();
+
+        InvokeRepeating(nameof(UpdatePath), 0f, pathUpdateSeconds);
+    }
+
+    private void Update()
+    {
+        if(TargetInDistance() && followEnabled)
+        {
+            PathFollow();
+        }
+
+        //Debug.Log(isInLineOfSight());
+        if(TargetInDistance() && shootEnabled && isInLineOfSight())
+        {
+            if(shootTimeOut > 0f)
+            {
+                shootTimeOut -= Time.deltaTime;
+            }
+            else
+            {
+                Shoot();
+                shootTimeOut = 1f;
+            }
+        }
+    }
+
+    private void UpdatePath()
+    {
+        if(followEnabled && TargetInDistance() && seeker.IsDone())
+        {
+            seeker.StartPath(rb.position, target.position, OnPathComplete);
+        }
+    }
+    private void PathFollow()
+    {
+        if(path == null)
+        {
+            return;
+        }
+
+        if(currentWaypoint >= path.vectorPath.Count)
+        {
+            return;
+        }
+        
+        isGrounded = Physics2D.BoxCast(col.bounds.center, col.bounds.size, 0, Vector2.down, 0.1f, groundedLayerMask);
+        ;
+
+        Vector2 direction = ((Vector2)path.vectorPath[currentWaypoint] - rb.position).normalized;
+        Vector2 force = direction * speed;
+        if(jumpEnabled&& isGrounded) 
+        { 
+            if(direction.y > jumpNodeHeightRequirement)
+            {
+                rb.AddForce(Vector2.up * jumpModifier);
+            }
+        }
+
+        rb.AddForce(force);
+
+        float distance = Vector2.Distance(rb.position, path.vectorPath[currentWaypoint]);
+        if(distance < nextWaypointDistance)
+        {
+            currentWaypoint++;
+        }
+    }
+
+
+    private bool TargetInDistance()
+    {
+        return Vector2.Distance(transform.position, target.transform.position) < activateDistance;
+    }
+
+    private void OnPathComplete(Path p)
+    {
+        if (!p.error)
+        {
+            path = p;
+            currentWaypoint = 0;
+        }
+    }
+
+    private void Shoot()
+    {
+        Debug.Log("AI Shoot");
+    }
+
+    private bool isInLineOfSight()
+    {
+        RaycastHit2D hit = Physics2D.Raycast(this.transform.position, target.transform.position, Mathf.Infinity);
+        if(hit)
+        {
+            Debug.Log(hit.transform.gameObject);
+        }
+        if (hit && hit.transform.gameObject == target.gameObject)
+        {
+            Debug.Log("HIT PLAYER");
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    private void OnDrawGizmos()
+    {
+        Debug.DrawLine(this.transform.position, player.transform.position, Color.magenta);
+    }
+
+}
