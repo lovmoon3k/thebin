@@ -1,0 +1,66 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:mcneil_collective/config/config.dart';
+
+import 'package:http/http.dart' as http;
+import 'package:mcneil_collective/core/models/checklistcategory.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class CategoryService extends ChangeNotifier {
+  final _cacheKey = 'c-checklist-categories';
+
+  List<ChecklistCategoryModel>? _categories;
+  List<ChecklistCategoryModel>? get categories => _categories;
+
+  Future<List<ChecklistCategoryModel>> getAll() async {
+    var token = Config.sharedPreferences!.getString('token');
+
+    // _categories = await _getCachedCategories();
+    notifyListeners();
+
+    try {
+      var url = '${dotenv.env['BASE_URL']}/checklistcategory';
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json', 'X-Api-Token': token!},
+      );
+
+      final body = json.decode(response.body);
+
+      _categories = List<ChecklistCategoryModel>.from(
+        body.map((category) => ChecklistCategoryModel.fromMap(category)),
+      );
+      notifyListeners();
+
+      _cachedCategories(_categories!);
+
+      return _categories!;
+    } catch (e) {
+      debugPrint("Error getting check list categories $e");
+      return [];
+    }
+  }
+
+  Future<List<ChecklistCategoryModel>> _getCachedCategories() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final jsonData = prefs.getString(_cacheKey);
+
+    if (jsonData == null) return [];
+
+    final parsedData = jsonDecode(jsonData);
+
+    return List<ChecklistCategoryModel>.from(
+      parsedData.map((category) => ChecklistCategoryModel.fromJson(category)),
+    );
+  }
+
+  Future<bool> _cachedCategories(
+      List<ChecklistCategoryModel> categories) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    return prefs.setString(_cacheKey, jsonEncode(categories));
+  }
+}
