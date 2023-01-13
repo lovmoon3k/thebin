@@ -1,0 +1,64 @@
+public interface ISoundCollection : ISingletonDependency
+    {
+        System.Media.SoundPlayer GetPlayer(string filePath);
+    }
+    public class SoundCollection : ISoundCollection
+    {
+        private readonly Dictionary<string, System.Media.SoundPlayer> _sounds = new Dictionary<string, System.Media.SoundPlayer>();
+        public System.Media.SoundPlayer GetPlayer(string filePath)
+        {
+            if (!_sounds.ContainsKey(filePath))
+            {
+                var soundStream = new MemoryStream();
+                try
+                {
+                    using (var fileStream = File.OpenRead(filePath))
+                    {
+                        fileStream.CopyTo(soundStream);
+                    }
+                    var player = new System.Media.SoundPlayer(soundStream);
+                    player.Stream.Seek(0, SeekOrigin.Begin);
+                    _sounds.Add(filePath, player);
+                }
+                catch (IOException ex)
+                {
+                    var errMessage = $"{Argos.Ui.Wpf.Common.Localize.Properties.Resources.Err_SoundFileNotFound} Path: {filePath}";
+                    var soundKey = _sounds.Any() ? _sounds.First().Key : "None";
+                    var debugMessage = $"Sounds: {_sounds.Count}. Sound[0]: {soundKey}";
+                    throw new DetailedException(string.Join("\n", errMessage, debugMessage), ex);
+                }
+                catch (Exception ex)
+                {
+                    var errMessage = $"{Argos.Ui.Wpf.Common.Localize.Properties.Resources.Err_SoundPlayer} Path: {filePath}";
+                    var soundKey = _sounds.Any() ? _sounds.First().Key : "None";
+                    var debugMessage = $"Sounds: {_sounds.Count}. Sound[0]: {soundKey}";
+                    throw new DetailedException(string.Join("\n", errMessage, debugMessage), ex);
+                }
+            }
+            return _sounds[filePath];
+        }
+    }
+    public class SoundPlayer : ISoundPlayer
+    {
+        private readonly ISoundCollection _sounds;
+        private System.Media.SoundPlayer player;
+        public SoundPlayer(ISoundCollection soundCollection)
+        {
+            _sounds = soundCollection;
+        }
+        public void Play(string filePath)
+        {
+            player = _sounds.GetPlayer(filePath);
+            player.Play();
+        }
+
+        public void Stop(string filePath)
+        {
+            if (player == null)
+            {
+                throw new DetailedException($"{Argos.Ui.Wpf.Common.Localize.Properties.Resources.Err_SoundPlayerNotFound} Path: {filePath}");
+            }
+            player.Stop();
+        }
+
+    }
