@@ -1,0 +1,146 @@
+#include "test_runner.h"
+#include <algorithm>
+#include <iostream>
+#include <iterator>
+#include <memory>
+#include <set>
+#include <utility>
+#include <vector>
+#include <unordered_map>
+
+using namespace std;
+
+template <typename T>
+class PriorityCollection {
+public:
+    using Id = int;
+    using Priority = int;
+
+    // Добавить объект с нулевым приоритетом
+    // с помощью перемещения и вернуть его идентификатор
+    Id Add(T object) {
+        Id_To_Obj[Time_Add_Obj] = move(object);
+        Ordered_Priority_And_Id.insert({0, Time_Add_Obj });
+        ++Time_Add_Obj;
+    }
+
+    // Добавить все элементы диапазона [range_begin, range_end) с помощью перемещения,
+    // Записав выданные им идентификаторы в диапазон [ids_begin, ...)
+    template <typename ObjInputIt, typename IdOutputIt>
+    void Add(ObjInputIt range_begin, ObjInputIt range_end, IdOutputIt ids_begin) {
+        for (; range_begin != range_end;++range_begin) {
+
+            Id_To_Obj[Time_Add_Obj] = move(*range_begin);
+            Ordered_Priority_And_Id.insert({ 0,Time_Add_Obj });
+
+            *ids_begin = Time_Add_Obj;
+            ++ids_begin;
+            ++Time_Add_Obj;
+        }
+    }
+
+    // Определить, принадлежит ли идентификатор какому-либо
+    // хранящемуся в контейнере объекту
+    bool IsValid(Id id) const {
+        if (Id_To_Obj.find(id) == Id_To_Obj.end()) {
+            return false;
+        }
+        return true;
+    }
+
+    // Получить объект по идентификатору
+    const T& Get(Id id) const {
+        return Id_To_Obj[id];
+    }
+
+    // Увеличить приоритет объекта на 1
+    void Promote(Id id) {
+
+        auto Priority_With_Id = find_if(
+            Ordered_Priority_And_Id.begin(),
+            Ordered_Priority_And_Id.end(),
+            [id](pair<Priority, Id> pr) {
+                return (pr.second == id);
+            });
+
+        auto node = Ordered_Priority_And_Id.extract(Priority_With_Id);
+        auto& tmp = node.value();
+        ++tmp.first;
+        Ordered_Priority_And_Id.insert(move(node));
+    }
+
+    // Получить объект с максимальным приоритетом и его приоритет
+    pair<const T&, Priority> GetMax() const {
+        const pair<Priority, Id> Data_Max_Obj = *Ordered_Priority_And_Id.rbegin();
+        return {Id_To_Obj[Data_Max_Obj.second], Data_Max_Obj.first };
+    }
+
+    // Аналогично GetMax, но удаляет элемент из контейнера
+    pair<T, Priority> PopMax() {
+
+        const pair<Priority, Id> Data_Max_Obj = *Ordered_Priority_And_Id.rbegin();
+
+        const Priority Max_Priority = Data_Max_Obj.first;
+        const Id Max_Id = Data_Max_Obj.second;
+        
+        auto ans = make_pair{ move(Id_To_Obj[Max_Id]) , Max_Priority }
+
+        Ordered_Priority_And_Id.erase({ Max_Priority,Max_Id });
+        Id_To_Obj.erase(Max_Id);
+        
+        
+        return ans;
+
+    }
+
+private:
+
+    Id Time_Add_Obj = 0;
+    set < pair<Priority, Id> > Ordered_Priority_And_Id;
+    unordered_map<Id, T> Id_To_Obj;
+
+};
+
+
+class StringNonCopyable : public string {
+public:
+    using string::string;  // Позволяет использовать конструкторы строки
+    StringNonCopyable(const StringNonCopyable&) = delete;
+    StringNonCopyable(StringNonCopyable&&) = default;
+    StringNonCopyable& operator=(const StringNonCopyable&) = delete;
+    StringNonCopyable& operator=(StringNonCopyable&&) = default;
+};
+
+void TestNoCopy() {
+    PriorityCollection<StringNonCopyable> strings;
+    const auto white_id = strings.Add("white");
+    const auto yellow_id = strings.Add("yellow");
+    const auto red_id = strings.Add("red");
+
+    strings.Promote(yellow_id);
+    for (int i = 0; i < 2; ++i) {
+        strings.Promote(red_id);
+    }
+    strings.Promote(yellow_id);
+    {
+        const auto item = strings.PopMax();
+        ASSERT_EQUAL(item.first, "red");
+        ASSERT_EQUAL(item.second, 2);
+    }
+    {
+        const auto item = strings.PopMax();
+        ASSERT_EQUAL(item.first, "yellow");
+        ASSERT_EQUAL(item.second, 2);
+    }
+    {
+        const auto item = strings.PopMax();
+        ASSERT_EQUAL(item.first, "white");
+        ASSERT_EQUAL(item.second, 0);
+    }
+}
+
+int main() {
+    TestRunner tr;
+    RUN_TEST(tr, TestNoCopy);
+    return 0;
+}
