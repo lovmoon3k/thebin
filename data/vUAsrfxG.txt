@@ -1,0 +1,68 @@
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
+#include <SPI.h>
+#include <WiFiClient.h>
+#include <PubSubClient.h>
+#include <MAX6675.h>
+
+// WiFi settings
+const char* ssid = "";
+const char* password = "";
+
+// MQTT settings
+const char* mqttServer = "192.168.1.15";
+const int mqttPort = 1883;
+const char* mqttUser = "";
+const char* mqttPassword = "";
+
+// MAX6675 settings
+int thermoDO = D6;
+int thermoCS = D7;
+int thermoCLK = D8;
+MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
+
+// MQTT client
+WiFiClient wifiClient;
+PubSubClient client(wifiClient);
+
+// Variables to keep track of temperature readings
+unsigned long previousMillis = 0;       // will store last time temperature was read
+const long interval = 10000;           // interval at which to read temperature (milliseconds)
+
+unsigned int avgSamples = 4;           // take a running average over n values
+double avgTemperature;
+
+void setup() {
+  // Start WiFi and connect to network
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+
+  // Start MQTT client
+  client.setServer(mqttServer, mqttPort);
+  client.connect("Arduino MAX6675");
+
+  avgTemperature = thermocouple.readCelsius();
+}
+
+void loop() {
+  // Read temperature from MAX6675 and update total temperature
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= interval) {
+    // save the last time temperature was read
+    previousMillis = currentMillis;
+
+    // read temperature
+    double temperature = thermocouple.readCelsius();
+    avgTemperature = ((avgSamples-1)*avgTemperature + temperature)/avgSamples;
+
+    // calculate and publish average temperature
+    client.publish("temperature", String(avgTemperature).c_str());
+  }
+
+  // Keep MQTT connection alive
+  client.loop();
+}
