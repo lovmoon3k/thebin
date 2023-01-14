@@ -1,0 +1,175 @@
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"math"
+	"os"
+	"strconv"
+	"strings"
+)
+
+type item struct {
+	element  int
+	priority int
+}
+
+type heap []*item
+
+func heapify_up(H heap, j int) {
+	for true {
+		i := (j - 1) / 2
+		if i == j || H[j].priority > H[i].priority {
+			break
+		}
+		H[j], H[i] = H[i], H[j]
+		j = i
+	}
+}
+
+func heapify_down(H heap, i int) {
+	for true {
+		if 2*i+1 >= len(H) {
+			break
+		}
+
+		j := 2*i + 1
+
+		if j+1 < len(H) && H[j+1].priority < H[j].priority {
+			j = j + 1
+		}
+
+		if H[j].priority >= H[i].priority {
+			break
+		}
+
+		H[i], H[j] = H[j], H[i]
+
+		i = j
+	}
+}
+
+func (H *heap) Insert(element, priority int) {
+	(*H) = append(*H, &item{element, priority})
+
+	heapify_up(*H, len(*H)-1)
+}
+
+func (H *heap) DeleteMin() int {
+	minimum := (*H)[0].element
+
+	(*H)[0] = (*H)[len(*H)-1]
+	(*H) = (*H)[:len(*H)-1]
+	heapify_down(*H, 0)
+
+	return minimum
+}
+
+func (H *heap) ChangeKey(element, priority int) {
+	for i := 0; i < len(*H); i++ {
+		if (*H)[i].element == element {
+			prec := (*H)[i].priority
+
+			(*H)[i].priority = priority
+
+			if priority < prec {
+				heapify_up(*H, i)
+			}
+
+			if priority > prec {
+				heapify_down(*H, i)
+			}
+		}
+	}
+}
+
+type graph map[int][]int
+
+func convert(number string) int {
+	value, err := strconv.Atoi(number)
+
+	if err != nil {
+		panic(err)
+	}
+
+	return value
+}
+
+func populate(G graph, N int, slices []int) {
+	for n := 1; n <= N; n++ {
+		for i := 1; i <= 6; i++ {
+			if n+i <= N {
+				if slices[n+i-1] == 0 {
+					G[n] = append(G[n], n+i)
+				} else {
+					G[n] = append(G[n], slices[n+i-1])
+				}
+			}
+		}
+	}
+}
+
+func dijkstra(G graph, N, s int) ([]int, []int) {
+	var D, pred []int = make([]int, N), make([]int, N)
+
+	D[s-1] = 0
+
+	for n := 1; n <= N; n++ {
+		if n != s {
+			D[n-1] = math.MaxInt16
+		}
+	}
+
+	var H heap = make(heap, 0)
+
+	for n := 1; n <= N; n++ {
+		H.Insert(n, D[n-1])
+	}
+
+	for len(H) > 0 {
+		u := H.DeleteMin()
+
+		for _, v := range G[u] {
+			if D[u-1]+1 < D[v-1] {
+				pred[v-1] = u - 1
+				D[v-1] = D[u-1] + 1
+				H.ChangeKey(v, D[v-1])
+			}
+		}
+	}
+
+	return D, pred
+}
+
+func main() {
+	var G graph = make(map[int][]int)
+
+	reader := bufio.NewReader(os.Stdin)
+	setup, _, _ := reader.ReadLine()
+	split := strings.Split(string(setup), " ")
+
+	R, C := convert(split[0]), convert(split[1])
+
+	N := R * C
+
+	slices := make([]int, N)
+
+	for true {
+		line, _, err := reader.ReadLine()
+
+		if err == io.EOF {
+			break
+		}
+
+		split := strings.Split(string(line), " ")
+		X, Y := convert(split[0]), convert(split[1])
+		slices[X-1] = Y
+	}
+
+	populate(G, N, slices)
+
+	D, _ := dijkstra(G, N, 1)
+
+	fmt.Println(D[N-1])
+}
