@@ -1,0 +1,78 @@
+-- import
+local json = require("json")
+local colorPrint = require("ColorPrint")
+
+-- wrap
+local barrel = peripheral.find("minecraft:barrel")
+local rsBrg = peripheral.find("rsBridge")
+local redstoneIntegrator = peripheral.find("redstoneIntegrator")
+local user = peripheral.find("cyclic:user")
+local dropper = peripheral.find("cyclic:dropper")
+
+if not(barrel or rsBrg or user) then
+    error("Some peripherals not found.")
+end
+-- function
+local function craftItem(recipe, inputInv)
+    --normalize inputInv.list()
+    local inputItems = {}
+    for _, item in pairs(inputInv.list()) do
+        inputItems[item.name] = item.count
+    end
+
+    -- is there enought materials?
+    for name, count in pairs(recipe.materials) do
+        -- there is no such item, or not enough
+        if not(inputItems[name] and inputItems[name] < count) then
+            colorPrint("not enought material, "..name, colors.red)
+            return false
+        end
+    end
+
+    -- [craft]
+    -- input water to crucible
+    colorPrint("inserting water to crucible..", colors.lime)
+    redstoneIntegrator.setOutput("left", true)
+    os.sleep(3)
+    redstoneIntegrator.setOutput("left", false)
+
+    -- craft item based on recipes.steps
+    -- phase is line in crucible recipe JEI, item is the table, [(name = count) * n].
+    for phase, item in ipairs(recipe.steps) do
+        for name, count in pairs(item) do
+            -- mix crucible
+            if name == "mix" then
+                colorPrint("Mixing crucbile", colors.yellow)
+                redstoneIntegrator("top", true)
+                os.sleep(count + 0.2)
+                redstoneIntegrator("top", false)
+            else
+                for slot, listedItem in pairs(inputInv.list()) do
+                    if listedItem.name == name then
+                        colorPrint("dropping "..name, colors.blue)
+                        dropper.pullItems(peripheral.getName(inputInv), slot)
+                        os.sleep(0.4)
+                    end
+                end
+            end
+        end
+    end
+end
+
+local recipesJson = ""
+for line in io.lines("recipes.json") do
+    recipesJson = recipesJson..line
+end
+print(json.decode(recipesJson).materials)
+
+-- craft
+while true do
+    for i, recipe in ipairs(json.decode(recipesJson)) do
+        if rsBrg.isItemCrafting(recipe.result) then
+            colorPrint("Crafting "..recipe.result.." ..", colors.lightBlue)
+            craftItem(recipe, barrel)
+            os.sleep(5)
+        end
+    end
+    sleep(10)
+end
