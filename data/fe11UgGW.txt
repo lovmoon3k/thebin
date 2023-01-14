@@ -1,0 +1,259 @@
+local rs = game:GetService("ReplicatedStorage")
+local mobs = rs:WaitForChild("Mobs")
+
+local mobSpawners = workspace:WaitForChild("MobSpawns")
+
+local rand = Random.new()
+
+local ps = game:GetService("PhysicsService")
+
+local mobsCG = "Mobs"
+local charsCG = "Characters"
+
+ps:RegisterCollisionGroup(mobsCG)
+ps:RegisterCollisionGroup(charsCG)
+
+ps:CollisionGroupSetCollidable(mobsCG, charsCG, false)
+
+local respawnTime = 3
+local maxDistanceCanMoveFromSpawn = 15
+
+
+function calculateRandomPosition(originPosition:Vector3)
+	
+	local randomOffset = rand:NextNumber(5, maxDistanceCanMoveFromSpawn)
+	local randomX = rand:NextNumber(0, randomOffset)
+	local randomZ = math.sqrt(randomOffset^2 - randomX^2)
+
+	local newPosition = originPosition + Vector3.new(randomX, 0, randomZ)
+	
+	return newPosition
+end
+
+
+function handleSpawner(spawner:Part)
+	
+	local typeOfMob = spawner.Name
+	
+	if mobs:FindFirstChild(typeOfMob) then
+	
+		local spawnerCF = spawner.CFrame
+		
+		local newMob = mobs[typeOfMob]:Clone()
+		
+		for _, descendant in pairs(newMob:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				descendant.CollisionGroup = mobsCG
+			end
+		end
+
+		local mobConfig = newMob:WaitForChild("Configuration")
+		
+		local mobAnims = newMob:WaitForChild("Animations")
+		local animTracks = nil
+		
+		local mobHumanoid = newMob:WaitForChild("Humanoid")
+		local mobRoot = newMob:WaitForChild("HumanoidRootPart")
+		
+		local mobHealthBar = rs:WaitForChild("HealthBar"):WaitForChild("HealthBarGui"):Clone()
+		mobHealthBar.StudsOffset = Vector3.new(0, newMob:GetExtentsSize().Y * 0.6, 0)
+		mobHealthBar.Enabled = false
+		mobHealthBar.Parent = newMob.HumanoidRootPart
+		
+		mobHumanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+		mobHumanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+		
+		mobHumanoid.MaxHealth = 1000000
+		mobHumanoid.Health = 1000000
+		
+		mobHumanoid.WalkSpeed = mobConfig:WaitForChild("WalkSpeed").Value
+		
+		mobHumanoid.HealthChanged:Connect(function(newHealth)
+			
+			local damageDealt = mobHumanoid.MaxHealth - newHealth
+			
+			mobConfig:WaitForChild("CurrentHealth").Value -= damageDealt
+			
+			mobHumanoid.Health = mobHumanoid.MaxHealth
+		end)
+		
+		
+		while true do
+			
+			mobConfig:WaitForChild("CurrentHealth").Value = mobConfig:WaitForChild("MaxHealth").Value
+			
+			newMob.Parent = workspace
+			mobRoot.CFrame = spawnerCF
+			
+			if not animTracks then
+				animTracks = {}
+				
+				for _, anim in pairs(mobAnims:GetChildren()) do
+					
+					local newTrack = mobHumanoid:WaitForChild("Animator"):LoadAnimation(anim)
+					animTracks[anim.Name] = newTrack
+				end
+			end
+			
+			local lastAttacked = 0
+			
+			local goalRandomPosition = nil
+			
+			while true do
+				
+				if (mobConfig:WaitForChild("CurrentHealth").Value ~= mobConfig:WaitForChild("MaxHealth").Value) then
+					
+					mobHealthBar.MobName.Text = newMob.Name
+					mobHealthBar.BarBackground.Health.Text = mobConfig.CurrentHealth.Value .. "/" .. mobConfig.MaxHealth.Value
+					mobHealthBar.BarBackground.Bar.Size = UDim2.new(mobConfig.CurrentHealth.Value / mobConfig.MaxHealth.Value, 0, 1, 0)
+					
+					mobHealthBar.Enabled = true
+					
+				else
+					mobHealthBar.Enabled = false
+				end
+				
+				if (not animTracks.Idle.IsPlaying) then
+					animTracks.Idle:Play()
+				end
+				
+				local v = mobRoot.AssemblyLinearVelocity * Vector3.new(1, 0, 1)
+				
+				if (v.Magnitude > 0.1) and (not animTracks.Walk.IsPlaying) then
+					animTracks.Walk:AdjustSpeed(mobHumanoid.WalkSpeed / 8)
+					animTracks.Walk:Play()
+					
+				elseif (v.Magnitude <= 0.1) and (animTracks.Walk.IsPlaying) then
+					animTracks.Walk:Stop()
+				end
+				
+				local players = game:GetService("Players"):GetPlayers()
+				local closestCharacterInRange = nil
+				
+				for _, player in pairs(players) do
+					
+					local character = player.Character
+					if (character) and (character:FindFirstChild("Humanoid")) and (character.Humanoid.Health > 0) then
+						
+						for _, descendant in pairs(character:GetDescendants()) do
+							if descendant:IsA("BasePart") then
+								descendant.CollisionGroup = charsCG
+							end
+						end
+						
+						local mobPos = mobRoot.Position
+						local charPos = character.HumanoidRootPart.Position
+						
+						local raycastParams = RaycastParams.new()
+						raycastParams.FilterDescendantsInstances = {newMob, character}
+						local lineOfSight = not workspace:Raycast(mobPos, charPos, raycastParams)
+						
+						local distanceFrom = (mobPos - charPos).Magnitude
+						local maxDistanceAllowed = mobConfig:WaitForChild("DetectionRange").Value
+						
+						if (lineOfSight) and (distanceFrom <= maxDistanceAllowed) then
+							
+							if (not closestCharacterInRange) then
+								closestCharacterInRange = {character, distanceFrom}
+							elseif (distanceFrom < closestCharacterInRange[2]) then
+								closestCharacterInRange = {character, distanceFrom}
+							end
+						end
+					end
+				end
+				
+				
+				if (closestCharacterInRange) then
+					mobHumanoid:MoveTo(closestCharacterInRange[1].HumanoidRootPart.Position)
+					
+					local attackCooldown = mobConfig:WaitForChild("AttackCooldown").Value
+					
+					local canAttack = (tick() - lastAttacked) >= attackCooldown
+					if (canAttack) then
+						
+						local attackRange = mobConfig:WaitForChild("AttackRange").Value
+						local inAttackRange = (closestCharacterInRange[2]) <= attackRange
+						
+						if (inAttackRange) then
+							mobRoot:WaitForChild("AttackSound"):Play()
+							
+							local raycastParams = RaycastParams.new()
+							raycastParams.FilterDescendantsInstances = {newMob}
+							
+							local raycast = workspace:Raycast(mobRoot.Position, mobRoot.CFrame.LookVector * mobConfig.AttackRange.Value, raycastParams)
+							
+							local targetHumanoid = raycast and (raycast.Instance.Parent:FindFirstChild("Humanoid") or raycast.Instance.Parent.Parent:FindFirstChild("Humanoid"))
+							if (targetHumanoid) and (game.Players:GetPlayerFromCharacter(targetHumanoid.Parent))  then
+
+								task.spawn(function()
+									task.wait(0.4)
+									targetHumanoid:TakeDamage(mobConfig:WaitForChild("Damage").Value)
+								end)
+							end
+							
+							animTracks.Attack:Play()
+							
+							mobRoot.AssemblyLinearVelocity = mobRoot.CFrame.LookVector * Vector3.new(60, 0, 60) + mobRoot.CFrame.UpVector * 6
+							
+							lastAttacked = tick()
+						end
+					end
+					
+				else
+					
+					local originPosition = spawnerCF.Position
+					
+					if (goalRandomPosition) and (typeof(goalRandomPosition) == "Vector3") then
+						mobHumanoid:MoveTo(goalRandomPosition)
+						
+						if ((goalRandomPosition - mobRoot.Position).Magnitude <= 5) or (mobRoot.AssemblyLinearVelocity.Magnitude < 0.1) then
+							goalRandomPosition = nil
+						end
+						
+					elseif (goalRandomPosition) then
+						
+						if ((tick() - goalRandomPosition[1]) >= goalRandomPosition[2]) then
+							goalRandomPosition = nil
+						end
+						
+					else
+						
+						local moveToNewSpot = rand:NextNumber()
+						
+						if (moveToNewSpot > 0.5) then
+							goalRandomPosition = calculateRandomPosition(originPosition)
+							
+						else
+							goalRandomPosition = {tick(), rand:NextNumber(1, 5)}
+						end
+					end
+				end
+				
+				
+				if (mobConfig.CurrentHealth.Value <= 0) then
+					break
+				end
+				
+				--game:GetService("RunService").Heartbeat:Wait()
+				task.wait(0.2)
+			end
+			
+			newMob.Parent = game:GetService("ServerStorage")
+			
+			task.wait(respawnTime)
+		end
+		
+		
+	else
+		warn("Mob of type\n" .. typeOfMob .. "\n was not found. Make sure you spelled the name properly for the spawner part.")
+	end
+end
+
+
+for _, spawner in pairs(mobSpawners:GetChildren()) do
+	task.spawn(handleSpawner, spawner)
+end
+
+mobSpawners.ChildAdded:Connect(function(child)
+	task.spawn(handleSpawner, child)
+end)
