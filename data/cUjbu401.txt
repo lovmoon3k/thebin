@@ -1,0 +1,123 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+
+import '../../shared/graphql_schema/schema.graphql.dart';
+import '../graphql_operations/fragments/fragments.graphql.dart';
+import '../view_models/order.viewmodel.dart';
+import 'components/arrival_time_row.dart';
+import 'components/button/button_component.dart';
+import 'components/payment_row.dart';
+import 'components/restaurant_title_address_block.dart';
+
+class OrderPage extends StatefulWidget {
+  const OrderPage(this.order, {Key? key}) : super(key: key);
+
+  final Fragment$Order order;
+
+  @override
+  State<OrderPage> createState() => _OrderPageState();
+}
+
+class _OrderPageState extends State<OrderPage> {
+  Fragment$Order? order;
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    order??= widget.order;
+    String actionName = '';
+    Enum$OrderStatus nextStatus = Enum$OrderStatus.DELIVERED;
+
+    if ([Enum$OrderStatus.REGISTERED, Enum$OrderStatus.READY]
+        .contains(order!.status)) {
+      actionName = 'Забрал заказ';
+      nextStatus = Enum$OrderStatus.ON_THE_WAY;
+    } else if (order!.status == Enum$OrderStatus.ON_THE_WAY) {
+      if (!order!.prepayed || !order!.payed) {
+        actionName = 'Получил оплату';
+      } else {
+        actionName = 'Отдал заказ';
+      }
+      nextStatus = Enum$OrderStatus.DELIVERED;
+    }
+
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: <Widget>[
+              ArrivalTimeRow(order: order!),
+              const SizedBox(height: 16.0),
+              Row(
+                children: [
+                  Text(
+                    '#${order!.id}',
+                    style: const TextStyle(color: Color(0xFF616161)),
+                  ),
+                  Expanded(child: Container()),
+                  Text(
+                    DateFormat('dd.mm.yyyy H:m').format(order!.createdAt),
+                    style: const TextStyle(
+                      color: Color(0xFF616161),
+                      fontSize: 12.0,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12.0),
+              const Divider(
+                color: Color(0xFFCECECE),
+                thickness: 1.0,
+              ),
+              const SizedBox(height: 16.0),
+              RestaurantTitleAndAddressBlock(order: order!),
+              const SizedBox(height: 16.0),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Клиент:',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  Text(
+                    order!.number,
+                    style: const TextStyle(
+                      color: Color(0xFF1B3EBC),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  )
+                ],
+              ),
+              const SizedBox(height: 16.0),
+              if (order!.comment != null)
+                Text(
+                  order!.comment!,
+                  style: const TextStyle(
+                    color: Color(0xFF616161),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              const Expanded(child: SizedBox.shrink()),
+              PaymentRow(order: order!),
+              const SizedBox(height: 16.0),
+              if (actionName.isNotEmpty)
+                Button$orderStatusChange(
+                  actionName,
+                  onPressed: () {
+                      context.read<OrderListModel>().changeOrderStatus(
+                        order: widget.order,
+                        newStatus: nextStatus,
+                      ).then((value) => setState(()=>order=value));
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
