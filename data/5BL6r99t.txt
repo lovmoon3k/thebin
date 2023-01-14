@@ -1,0 +1,281 @@
+#include <QTRSensors.h>
+const int m11Pin = 7;
+const int m12Pin = 6;
+const int m21Pin = 5;
+const int m22Pin = 4;
+const int m1Enable = 11;
+const int m2Enable = 10;
+
+int m1Speed = 0;
+int m2Speed = 0;
+
+
+// increase kp’s value and see what happens
+float kp = 20;
+float ki = 0;
+float kd = 35;
+
+
+
+int p = 0;
+int i = 0;
+int d = 0;
+
+int error = 0;
+int lastError = 0;
+
+const int maxSpeed = 255;
+const int minSpeed = -255;
+
+const int baseSpeed = 230;
+
+QTRSensors qtr;
+
+const int sensorCount = 6;
+int sensorValues[sensorCount];
+int sensors[sensorCount] = {0, 0, 0, 0, 0, 0};
+void setup() {
+  Serial.begin(9600);
+
+  // pinMode setup
+  pinMode(m11Pin, OUTPUT);
+  pinMode(m12Pin, OUTPUT);
+  pinMode(m21Pin, OUTPUT);
+  pinMode(m22Pin, OUTPUT);
+  pinMode(m1Enable, OUTPUT);
+  pinMode(m2Enable, OUTPUT);
+  
+  qtr.setTypeAnalog();
+  qtr.setSensorPins((const uint8_t[]){A0, A1, A2, A3, A4, A5}, sensorCount);
+
+  delay(500);
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH); // turn on Arduino's LED to indicate we are in calibration mode
+  
+  
+  AutomatedCalibration();
+  digitalWrite(LED_BUILTIN, LOW);
+
+   
+}
+
+void loop() {
+  qtr.read(sensorValues);
+
+  // print the sensor values as numbers from 0 to 1023, where 0 means maximum
+  // reflectance and 1023 means minimum reflectance
+  for (uint8_t i = 0; i < sensorCount; i++)
+  {
+    Serial.print(sensorValues[i]);
+    Serial.print('\t');
+  }
+  Serial.println();
+
+
+  // inefficient code, written in loop. You must create separate functions
+  int error = map(qtr.readLineBlack(sensorValues), 0, 5000, -100, 100);
+
+  p = error;
+  i = i + error;
+  d = error - lastError;
+  lastError = error;
+
+  int motorSpeed = kp * p + ki * i + kd * d; // = error in this case
+  
+  m1Speed = baseSpeed;
+  m2Speed = baseSpeed;
+
+  // a bit counter intuitive because of the signs
+  // basically in the first if, you substract the error from m1Speed (you add the negative)
+  // in the 2nd if you add the error to m2Speed (you substract the negative)
+  // it's just the way the values of the sensors and/or motors lined up
+  if (error < 0) {
+    m1Speed -= motorSpeed;
+    m2Speed += 0.8 * motorSpeed;
+  }
+  else if (error > 0) {
+    m2Speed += motorSpeed;
+    m1Speed -= 0.8 * motorSpeed;
+  }
+  // make sure it doesn't go past limits. You can use -255 instead of 0 if calibrated programmed properly.
+  // making sure we don't go out of bounds
+  // maybe the lower bound should be negative, instead of 0? This of what happens when making a steep turn
+  m1Speed = constrain(m1Speed, -200, maxSpeed);
+  m2Speed = constrain(m2Speed, -200, maxSpeed);
+
+
+  setMotorSpeed(m1Speed, m2Speed);
+
+  
+//  DEBUGGING
+//  Serial.print("Error: ");
+//  Serial.println(error);
+//  Serial.print("M1 speed: ");
+//  Serial.println(m1Speed);
+
+//  Serial.print("M2 speed: ");
+//  Serial.println(m2Speed);
+
+//  delay(250);
+}
+
+
+// calculate PID value based on error, kp, kd, ki, p, i and d.
+void pidControl(float kp, float ki, float kd) {
+// TODO
+}
+
+
+// each arguments takes values between -255 and 255. The negative values represent the motor speed in reverse.
+void setMotorSpeed(int motor1Speed, int motor2Speed) {
+  // remove comment if any of the motors are going in reverse 
+  //  motor1Speed = -motor1Speed;
+  //  motor2Speed = -motor2Speed;
+  if (motor1Speed == 0) {
+    digitalWrite(m11Pin, LOW);
+    digitalWrite(m12Pin, LOW);
+    analogWrite(m1Enable, motor1Speed);
+  }
+  else {
+    if (motor1Speed > 0) {
+      digitalWrite(m11Pin, HIGH);
+      digitalWrite(m12Pin, LOW);
+      analogWrite(m1Enable, motor1Speed);
+    }
+    if (motor1Speed < 0) {
+      digitalWrite(m11Pin, LOW);
+      digitalWrite(m12Pin, HIGH);
+      analogWrite(m1Enable, -motor1Speed);
+    }
+  }
+  
+  if (motor2Speed == 0) {
+    digitalWrite(m21Pin, LOW);
+    digitalWrite(m22Pin, LOW);
+    analogWrite(m2Enable, motor2Speed);
+  }
+  else {
+    if (motor2Speed > 0) {
+      digitalWrite(m21Pin, HIGH);
+      digitalWrite(m22Pin, LOW);
+      analogWrite(m2Enable, motor2Speed);
+    }
+    if (motor2Speed < 0) {
+      digitalWrite(m21Pin, LOW);
+      digitalWrite(m22Pin, HIGH);
+      analogWrite(m2Enable, -motor2Speed);
+    }
+  }
+}
+
+bool outside(){
+  // Serial.println("f");
+  for(int i = 0; i < sensorCount; i++)
+  {
+    if(sensorValues[i] > 500)
+    {
+      // Serial.print(i);
+      // Serial.print('\t');
+      // Serial.println(sensorValues[i]);
+    // Serial.print(" ");
+      
+      return false;
+    } 
+  }
+  // Serial.println();
+
+  return true;
+}
+
+bool left = false;
+bool ok = true;
+
+void AutomatedCalibration(){
+  unsigned long calibrationTimer = millis();
+  CalibrationMotor();
+  
+  // calibrate the sensor. For maximum grade the line follower should do the movement itself, without human interaction.
+  for (uint16_t i = 0; i < 160; i++)
+  {
+    qtr.read(sensorValues);
+
+    if(left == true)
+    Serial.println("left");
+    else
+    Serial.println("right");
+
+    if(left == true)
+      {
+        if(sensorValues[6] > 500)
+        {
+          ok = true;
+        }
+      }
+      else
+      {
+        if(sensorValues[0] > 500)
+        {
+          ok = true;
+        }
+      }
+
+    if(outside() && ok && millis() - calibrationTimer > 300)
+    {
+      Serial.println("OUTSIDE");
+      
+      left = !left;
+      CalibrationMotor();
+      calibrationTimer = millis();
+      ok = false;
+    }
+
+
+    qtr.calibrate();
+    // do motor movement here, with millis() as to not ruin calibration)
+  }
+
+  RobotCenter();
+  setMotorSpeed(0, 0);
+}
+
+void CalibrationMotor(){
+    if(left == false)
+    {
+      setMotorSpeed(150, -150);
+    }
+    else
+    {
+      setMotorSpeed(-150, 150);
+    }
+}
+
+void RobotCenter(){
+
+  if(middleSensors()){
+    return;
+  }
+  
+  if(sensorValues[0] > 500)
+  {
+    left = false;
+  }
+  else
+  if(sensorValues[5] > 500)
+  {
+    left = true;
+  }
+
+  while(middleSensors())
+  {
+    CalibrationMotor();
+  }
+
+  
+}
+
+bool middleSensors(){
+  if(sensorValues[2] > 500 && sensorValues[3] > 500)
+    return true;
+
+  return false;
+}
