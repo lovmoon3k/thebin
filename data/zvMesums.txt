@@ -1,0 +1,214 @@
+import matplotlib.pyplot as plt
+import numpy as np
+
+def F(x):
+    global calcObjectiveCount
+    calcObjectiveCount += 1
+    x1, x2 = x[0], x[1]
+    F = ((x1 + x2)**2 - x1 + 0.7)**2 + (x1**2 - 7*x1*x2 + x2**2 - 12.9)**2
+    return F
+
+
+def gradX1(x):
+    x1, x2 = x[0], x[1]
+    grad = 8 * x1 ** 3 - 30 * x1**2 * x2 - 6 * x1**2 + 114 * x1 * x2**2
+    - 8 * x1 * x2 - 46.8 * x1 + 183.4 * x2 - 10 * x2**3 - 2 * x2**2 - 1.4
+    return grad
+
+
+def gradX2(x):
+    x1, x2 = x[0], x[1]
+    grad = -10 * x1**3 + 114 * x1**2 * x2 - 4 * x1**2 + 183.4 * x1
+    - 30 * x1 * x2**2 - 4 * x1 * x2 + 8 * x2**3 - 48.8 * x2
+    return grad
+
+
+def line_coef(x, grad):
+    x1, x2 = x[0], x[1]
+    x1grad, x2grad = grad[0], grad[1]
+    return [x2grad / x1grad, (x2 * x1grad - x1 * x2grad) / x1grad]
+
+
+def golden_section_search(A0, axis):
+    '''
+    Coordinate Descent
+    '''
+    x1, x2 = A0[0], A0[1]
+    interval_length = 5
+    if axis == "x1":
+        p1, p4 = x1 - interval_length / 2, x1 + interval_length / 2
+    else:
+        p1, p4 = x2 - interval_length / 2, x2 + interval_length / 2
+
+    L = p4 - p1
+
+    p2 = p1 + 0.382 * L
+    p3 = p1 + 0.612 * L
+
+    while p4 - p1 >= 0.001:
+        if axis == "x1":
+            f1 = F([p2, A0[1]])
+            f2 = F([p3, A0[1]])
+        else:
+            f1 = F([A0[0], p2])
+            f2 = F([A0[0], p3])
+
+        if f1 > f2:
+            p1 = p2
+            p2 = p3
+            p3 = p1 + 0.618 * (p4 - p1)
+        else:
+            p4 = p3
+            p3 = p2
+            p2 = p1 + 0.382 * (p4 - p1)
+
+    return p1
+
+
+def dichotomy(A0, lineCoef):
+    '''
+    Gradient Descent
+    '''
+    k, b = lineCoef[0], lineCoef[1]
+    x1 = A0[0]
+    interval_length = 5
+    
+    p1 = x1 - 2 * (interval_length / 5)
+    p2 = x1 - interval_length / 5
+    p3 = x1
+    p4 = x1 + interval_length / 5
+    p5 = x1 + 2 * (interval_length / 5)
+    
+    while p5 - p1 >= 0.001:
+        f1 = F([p2, k * p2 + b])
+        f2 = F([p3, k * p3 + b])
+        f3 = F([p4, k * p4 + b])
+        
+        if f1 <= f2 and f2 <= f3:
+            p5 = p3
+            p3 = p2
+            p4 = (p5 + p3) / 2
+            p2 = (p3 + p1) / 2
+        elif f1 >= f2 and f2 >= f3: 
+            p1 = p3
+            p3 = p4
+            p2 = (p3 + p1) / 2
+            p4 = (p5 + p3) / 2
+        else:
+            p1 = p2
+            p2 = (p3 + p1) / 2
+            p5 = p4
+            p4 = (p5 + p3) / 2
+    
+    return [p1, k * p1 + b]
+
+
+def grad_descent(A0, iters, e):
+    A = A0.copy()
+    all_values = [A0.copy()]
+    
+    while iters > 0:
+        grad = [gradX1(A), gradX2(A)]
+        coef = line_coef(A, grad)
+        A = dichotomy(A, coef)
+        
+        all_values.append(A.copy())
+        iters -= 1
+        
+        if abs(F(all_values[-1]) - F(all_values[-2])) < e:
+            break
+    return all_values
+
+
+def coord_descent(A0, iters, e):
+    A = A0.copy()
+    all_values = [A0.copy()]
+    axis = "x1"
+    global coords
+    coords.append(axis)
+
+    while iters > 0:
+        coords.append(axis)
+        
+        if axis == "x1":
+            A[0] = golden_section_search(A, axis)
+            axis = "x2"
+        else:
+            A[1] = golden_section_search(A, axis)
+            axis = "x1"
+
+        all_values.append(A.copy())
+        iters -= 1
+
+        if abs(F(all_values[-1]) - F(all_values[-2])) < e:
+            break
+    return all_values
+
+
+def plot_3d():
+    x_iter = np.linspace(-5, 5, 100)
+    y_iter = np.linspace(-5, 5, 100)
+
+    x, y = np.meshgrid(x_iter, y_iter)
+    z = F([x, y])
+
+    figure = plt.figure(figsize=(50, 45))
+    
+    # ax = figure.add_subplot(1, 3, 1, projection='3d')
+    # ax.contour3D(x, y, z, 50)
+    # ax.set_xlabel('x')
+    # ax.set_ylabel('y')
+    # ax.set_zlabel('z')
+
+    # plt.show()
+
+    # ax = figure.add_subplot(1, 3, 1, projection='3d')
+    # ax.contour3D(x, y, z, 50)
+    # ax.set_xlabel('x')
+    # ax.set_ylabel('y')
+    # ax.set_zlabel('z')
+    # ax.view_init(90, 0)
+    
+    # plt.show()
+
+    ax = figure.add_subplot(1, 3, 1, projection='3d')
+    ax.contour3D(x, y, z, 90)
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('z')
+    ax.view_init(0, 0)
+
+    plt.show()
+
+# plot_3d()
+
+coords = []
+calcObjectiveCount = 0
+
+points = [[15, 15], [-18, -1]]
+iters = 100
+e = 0.000001
+
+print("Grad:")
+for A0 in points:
+    calcObjectiveCount = 0
+    result_points = grad_descent(A0, iters, e)
+    for iter in range(len(result_points)):
+        print("Iteration:", iter, "; A =", result_points[iter], 
+              "; F =", F(result_points[iter]))
+    print("Minimum: A =", result_points[-1], "F =", F(result_points[-1]))
+    print("Objective function calculations count:", calcObjectiveCount)
+    print("\n\n")
+    
+
+print("Coord:")
+for A0 in points:
+    coords = []
+    calcObjectiveCount = 0
+    result_points = coord_descent(A0, iters, e)
+    for iter in range(len(result_points)):
+        print("Iteration:", iter, "; A =", result_points[iter], "; F =", F(result_points[iter]),
+              "; axis =", coords[iter])
+    print("Minimum: A =", result_points[-1], "F = ", F(result_points[-1]))
+    print("Objective function calculations count:", calcObjectiveCount)
+    print("\n\n")
