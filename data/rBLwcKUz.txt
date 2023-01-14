@@ -1,0 +1,109 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.UI;
+#nullable enable
+
+#pragma warning disable CS8618
+public class PowerManager : MonoBehaviour
+{
+    public bool powerEnabled;
+    public bool debug;
+    [SerializeField] float regeneration = 10;
+    [SerializeField] float maxEnergy = 100;
+    public float energy = 100;
+    public List<Transform> interactibles = new List<Transform>();
+    public List<Transform> doorHandles = new List<Transform>();
+
+    //transforms
+    [Header("Player parts")]
+    [Space(20)]
+    public Transform leftHand;
+    public Transform rightHand;
+    public Transform head;
+
+    //script references
+    [Header("Scripts")]
+    [Space(20)]
+    [SerializeField] Movement movementScript;
+    [SerializeField] Telekinesis telekinesis;
+    [SerializeField] Push push;
+    [SerializeField] Glide glide;
+    [SerializeField] FireThrow fireThrow;
+
+    [Header("Energy")]
+    [Space(20)]
+    [SerializeField] Image energyImage;
+    [SerializeField] Text energyText;
+
+    //controller changews
+    #region controller changes
+    public void LeftGripButton(InputAction.CallbackContext context)
+    {
+        telekinesis.Change(context);
+        push.ActivateController(context);
+        glide.Change(context);
+        //fireThrow.Change(context);
+    }
+
+    public void RightGripButton(InputAction.CallbackContext context)
+    {
+        //CaptureController(context.control.device);
+        push.ActivateController(context);
+    }
+
+    #endregion
+
+
+    private void Start()
+    {
+        foreach (Rigidbody obj in FindObjectsOfType<Rigidbody>())
+        {
+            if(obj.transform.parent == null)
+            {
+                interactibles.Add(obj.transform);
+                continue;
+            }
+
+            if (obj.transform.parent.name == "Camera Offset") continue;
+            interactibles.Add(obj.transform);
+        }
+
+        GameObject[] handles = GameObject.FindGameObjectsWithTag("Handle");
+        foreach(GameObject handle in handles)
+        {
+            doorHandles.Add(handle.transform);
+        }
+
+        foreach(Transform objects in interactibles)
+        {
+            //add rigidbody to objects that dont have them (in case i forget to add to an object)
+            Rigidbody? comp = null;
+            if(!objects.TryGetComponent(out comp) && objects.tag != "Handle")
+                objects.gameObject.AddComponent<Rigidbody>();
+        }
+    }
+
+    void ShowEnergyLevel()
+    {
+        float energyPercentage = energy / maxEnergy;
+        energyImage.rectTransform.sizeDelta = new Vector2(energy, 100);
+        energyText.text = "Energy: " + (int)(energyPercentage * 100) + "%";
+
+    }
+
+    void GenerateEnergy()
+    {
+        if (powerEnabled || energy >= maxEnergy) return;
+
+        energy += regeneration * Time.deltaTime;
+        energy = Mathf.Clamp(energy, 0, maxEnergy);
+    }
+
+    private void Update()
+    {
+        ShowEnergyLevel();
+        GenerateEnergy();
+    }
+}

@@ -1,0 +1,147 @@
+using System;
+using System.Collections;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+#nullable enable
+#pragma warning disable CS8618
+public class Gun : MonoBehaviour
+{
+    bool holdingGun;
+    int ammo = 10;
+
+    Transform? gun;
+    Transform gunShotPoint;
+    [SerializeField] Transform gunHandPoint;
+    
+    GameObject flash;
+    [SerializeField] GameObject bulletHole;
+
+    [SerializeField] AudioClip gunSound;
+    [SerializeField] AudioSource soundSource;
+
+    [SerializeField] LayerMask layerToCheck;
+
+    Vector3 handVelocity;
+    Vector3 prevHandPos;
+    
+    #region buttons
+    public void RightGripButton(InputAction.CallbackContext context)
+    {
+        if (context.phase == InputActionPhase.Started)
+            GrabGun();
+        else if (context.phase == InputActionPhase.Canceled)
+            DropGun();
+    }
+
+    public void RightTriggerButton(InputAction.CallbackContext context)
+    {
+        if (!holdingGun) return;
+
+        if(context.phase == InputActionPhase.Started)
+        {
+            ammo--;
+            Shoot();
+        }
+    }
+    #endregion
+
+    Transform? FindGun()
+    {
+        Transform? foundGun = null;
+
+        GameObject[] guns = GameObject.FindGameObjectsWithTag("Gun");
+        float highestAngle = 0.45f;
+
+        foreach(GameObject gun in guns)
+        {
+            Vector3 dir = gun.transform.position - transform.position;
+            float angle = Vector3.Dot(-transform.right, dir.normalized);
+
+            if (angle < highestAngle) continue;
+
+            RaycastHit foundObject;
+            if(Physics.Raycast(transform.position, dir.normalized, out foundObject, 10, layerToCheck))
+            {
+                if (foundObject.transform == gun.transform)
+                    foundGun = foundObject.transform;
+            }
+        }
+
+        return foundGun;
+    }
+
+    void GrabGun()
+    {
+        Transform? gun = FindGun();
+        if (gun == null) return;
+
+        Tween moveGun = ScriptableObject.CreateInstance<Tween>();
+        moveGun.Initiate(gun, gunHandPoint, gunHandPoint.position, 0.25f);
+        //Tween.Create(gun, gunHandPoint, gunHandPoint.position, 0.25f);
+        StartCoroutine(moveGun.Play(true));
+        
+        holdingGun = true;
+        gunShotPoint = gun.Find("GunPoint");
+        flash = gunShotPoint.Find("GunFlash").gameObject;
+        this.gun = gun;
+    }
+
+    void DropGun()
+    {
+        Transform foundGun = transform.Find("gunpos").Find("glock");
+        if(foundGun == null) return;
+        
+        Rigidbody gunBody = foundGun.GetComponent<Rigidbody>();
+        gunBody.freezeRotation = false;
+        gunBody.constraints = RigidbodyConstraints.None;
+        gunBody.useGravity = true;
+        gunBody.velocity = handVelocity/Time.deltaTime;
+
+        foundGun.parent = null;
+        gun = null;
+    }
+
+    void Shoot()
+    {
+        RaycastHit hitObject;
+        soundSource.Play();
+        StartCoroutine(Flash());
+
+        if(Physics.Raycast(gunShotPoint.position, gunShotPoint.forward, out hitObject, Mathf.Infinity))
+        {
+            GameObject newbullethole = Instantiate(bulletHole);
+            Transform bulletData = newbullethole.transform;
+            bulletData.position = hitObject.point;
+            bulletData.LookAt(bulletData.position + hitObject.normal);
+            bulletData.parent = hitObject.transform;
+
+            Color targetColor = hitObject.transform.GetComponent<MeshRenderer>().materials[0].color;
+            newbullethole.GetComponent<MeshRenderer>().materials[1].color = targetColor;
+
+            StartCoroutine(RemoveBullethole(bulletData));
+        }
+    }
+
+    IEnumerator Flash()
+    {
+        flash.SetActive(true);
+        flash.transform.Find("Glow").GetComponent<ParticleSystem>().Play();
+        flash.transform.Find("Sparks").GetComponent<ParticleSystem>().Play();
+
+        yield return new WaitForSeconds(.1f);
+        flash.SetActive(false);
+    }
+
+    IEnumerator RemoveBullethole(Transform bulletHole)
+    {
+        yield return new WaitForSeconds(3);
+        Destroy(bulletHole.gameObject);
+    }
+
+    private void Update()
+    {
+        handVelocity = (transform.position - prevHandPos);
+        prevHandPos = transform.position;
+    }
+}

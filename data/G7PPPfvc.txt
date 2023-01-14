@@ -1,0 +1,242 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+#nullable enable
+#pragma warning disable CS8602
+#pragma warning disable CS8618
+public class Telekinesis : MonoBehaviour
+{
+    Transform? liftObject;
+    Rigidbody? objectBody;
+
+    [SerializeField] PowerManager powerManager;
+    [SerializeField] bool debug;
+    [SerializeField] Transform head;
+    [SerializeField] GameObject effect;
+    [SerializeField] LayerMask raycastLayer;
+
+    GameObject? usedEffect;
+    bool activated;
+    bool buttonPressFrame;
+
+    [Space(20)]
+    public float liftDistance;
+    public float energyUsage;
+    float dropDistance = 10;
+
+    [Tooltip("How much the speed is multiplied for the lift distance to change")]
+    public float distanceDifferenceSpeed;
+    
+
+    public void Change(InputAction.CallbackContext context)
+    {
+        if (context.phase == InputActionPhase.Started)
+        {
+            if (powerManager.powerEnabled) return;
+            buttonPressFrame = true;
+
+            //if (liftObject == null) return;
+            //activated = true;
+            //powerManager.powerEnabled = true;
+
+        }else if(context.phase == InputActionPhase.Canceled)
+        {
+            if (activated)
+            {
+                CancelPower();
+            }
+        }
+
+    }
+
+    void CancelPower()
+    {
+        Destroy(usedEffect);
+        powerManager.powerEnabled = false;
+        activated = false;
+        liftObject = null;
+        objectBody = null;
+    }
+
+    //player has an object activated with telekinesis
+    void UseTelekinesis()
+    {
+        if (!activated) return;
+        if (powerManager.energy < energyUsage)
+        {
+            CancelPower();
+            return;
+        }
+
+        //get direction to target position
+        Vector3 direction = (transform.position + transform.right * liftDistance) - liftObject.position;
+        Vector3 directionSpeed;
+
+        //set direction speed to the direction with length 5 if its more than 5
+        //otherwise set the speed to the direction with its own magnitude
+        if (direction.magnitude > 5)
+            directionSpeed = direction.normalized * 5;
+        else
+            directionSpeed = direction.normalized * direction.magnitude;
+
+        //finally give the rigidbody the Vector direction to make it move with internal physics
+        objectBody.velocity = directionSpeed;
+        powerManager.energy -= energyUsage * Time.deltaTime;
+    }
+
+    //if players hand is in front or behind their head, change the distance away from the player
+    void ChangeLiftDistance()
+    {
+        Vector3 handRelativeToHead = transform.InverseTransformPoint(head.position);
+        Vector3 targetPosition = transform.position + transform.right * liftDistance;
+
+        if (debug)
+            print("hand distance in front of head: " + handRelativeToHead.x);
+
+        //stop player from increasing/decreasing the lift distance if its too far away from the object (to stop bugs)
+        print("distance to target: " + (targetPosition - liftObject.position).magnitude);
+        if ((targetPosition - liftObject.position).magnitude > dropDistance) return;
+
+        if (handRelativeToHead.x < 0.3)
+            liftDistance -= Time.deltaTime * distanceDifferenceSpeed * (handRelativeToHead.x+0.3f);
+        else if (handRelativeToHead.z < 0)
+            liftDistance += Time.deltaTime * distanceDifferenceSpeed * (handRelativeToHead.x+0.3f);
+    }
+
+    Transform? FindNearestObjectToLift(List<Transform> checkList)
+    {
+        Transform? obj = null;
+        float minAngle = 0.45f;
+
+        foreach(Transform liftable in checkList)
+        {
+            Vector3 dir = liftable.position - transform.position;
+            float angle = Vector3.Dot(dir.normalized, transform.right);
+            if (angle < minAngle) continue;
+
+            RaycastHit foundObj;
+            if (Physics.Raycast(transform.position, dir, out foundObj, 10, raycastLayer))
+            {
+                if (foundObj.transform != liftable) continue;
+
+                obj = foundObj.transform;
+                minAngle = angle;
+            }
+        }
+
+        return obj;
+    }
+
+    void SearchForObject()
+    {
+        if (activated) return;
+        if (!ValidateSearch()) return;
+
+        Transform? foundObject = FindNearestObjectToLift(powerManager.interactibles);
+        if (foundObject == null)
+            foundObject = FindNearestObjectToLift(powerManager.doorHandles);
+
+        //reset everything is no object is found
+        if(foundObject == null)
+        {
+            if(usedEffect != null)
+                Destroy(usedEffect);
+            
+            liftObject = null;
+            objectBody = null;
+            liftDistance = 0;
+
+            if(debug)
+                print("object not found");
+            return;
+        }
+
+        //do nothing is object found is the same as previously lifted
+        if (liftObject == foundObject) return;
+
+        Haptic.QuickRumble("Left", .2f, .2f);
+
+        if (!buttonPressFrame) return; //player actually pressed the button
+
+        activated = true;
+        liftObject = foundObject;
+        
+        if(usedEffect != null)
+            Destroy(usedEffect);
+        
+        AddEffect(liftObject);
+
+        print(foundObject.tag);
+        if (foundObject.tag == "Handle")
+        {
+            //trigger the door function and stop the code from continuing
+                foundObject.GetComponent<OpenCloseDoor>().TriggerMotion();
+
+            activated = false;
+            return;
+        }
+
+        Data.usedTelekinesis = true;
+        //set lift distance to the magnitude to the object from the hand
+        liftDistance = (foundObject.position - transform.position).magnitude;
+
+        //cache the rigidbody of the object so we dont have to get the component every update
+        objectBody = foundObject.GetComponent<Rigidbody>();
+    }
+
+    void AddEffect(Transform liftObject)
+    {
+        GameObject newEffect = Instantiate(effect);
+        usedEffect = newEffect;
+        usedEffect.name = "selected object";
+
+        float x = liftObject.lossyScale.x;
+        float y = liftObject.lossyScale.y;
+        float z = liftObject.lossyScale.z;
+        float size = (x+y+z)/3;
+
+        newEffect.transform.localScale = new Vector3(size, size, size);
+        newEffect.transform.parent = liftObject;
+        newEffect.transform.localPosition = new Vector3();
+    }
+
+    void RemoveEffect()
+    {
+        if (usedEffect == null) return;
+
+        if(liftObject == null)
+            Destroy(usedEffect);
+        
+    }
+
+    bool ValidateSearch()
+    {
+        if (Vector3.Dot(transform.right, Camera.main.transform.forward) > 0.25f)
+        {
+            return true;
+        }
+
+        return false;
+    }
+    
+    void Update()
+    {
+        if(!powerManager.powerEnabled)
+            SearchForObject();
+
+        if (!liftObject || !activated)
+        {
+            buttonPressFrame = false;
+            return;
+        }
+
+        UseTelekinesis();
+        ChangeLiftDistance();
+        RemoveEffect();
+
+        buttonPressFrame = false;
+    }
+}
