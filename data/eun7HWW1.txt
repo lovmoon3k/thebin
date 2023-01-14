@@ -1,0 +1,281 @@
+/*\
+|*| menu.h
+|*| 
+|*| (c) 2022 Trent M. Wyatt.
+|*| companion file for Reverse Geocache Box project
+|*| 
+\*/
+
+#if !defined(MENU_H_INC)
+#define MENU_H_INC
+
+enum entry_t : uint8_t
+{
+    FUNC = 0, 
+    MENU = 1, 
+     INT = 2
+};
+
+struct lcd_menu_t;
+
+struct variant_t
+{
+    union {
+        void      (*func)();
+        lcd_menu_t *menu;
+        int         ival;
+    }       value{0};
+    entry_t type{INT};
+
+    variant_t() : value{0}, type{INT} { }
+
+    variant_t(void(*func)()) : type{FUNC} {
+        value.func = func;
+    }
+
+    variant_t(lcd_menu_t *menu) : type{MENU} {
+        value.menu = menu;
+    }
+
+    variant_t(int val) : type{INT} {
+        value.ival = val;
+    }
+
+    variant_t const & operator = (void (*func)()) 
+    {
+        (*this).value.func = func;
+        type = FUNC;
+        return *this;
+    }
+
+    variant_t const & operator = (lcd_menu_t *menu) 
+    {
+        (*this).value.menu = menu;
+        type = MENU;
+        return *this;
+    }
+
+    variant_t const & operator = (int ival) 
+    {
+        (*this).value.ival = ival;
+        type = INT;
+        return *this;
+    }
+
+}; // variant_t
+
+struct menu_t
+{
+    char      txt[17]{0};
+    variant_t value{0};
+    int       minv{0};
+    int       maxv{0};
+
+    menu_t() : txt(""), value(0), minv(0), maxv(0) { }
+    menu_t(   void(*func)()) : txt(""), value(func), minv(0), maxv(0) { }
+    menu_t(lcd_menu_t *menu) : txt(""), value(menu), minv(0), maxv(0) { }
+    menu_t(           int n) : txt(""), value(   n), minv(0), maxv(0) { }
+
+    menu_t(char const *t,            int n, int in = 0, int ax = 0) : value(   n), minv(in), maxv(ax) { strncpy(txt, t, sizeof(txt)); }
+    menu_t(char const *t,   void (*func)(), int in = 0, int ax = 0) : value(func), minv(in), maxv(ax) { strncpy(txt, t, sizeof(txt)); }
+    menu_t(char const *t, lcd_menu_t *menu, int in = 0, int ax = 0) : value(menu), minv(in), maxv(ax) { strncpy(txt, t, sizeof(txt)); }
+};
+
+// the interface to update the display with the current menu
+using disp_fptr_t = void (*)(char const *,char const *);
+
+// the interface to get menu input from the user
+// the user can input one of 6 choices: left, right, up, down, select, and cancel:
+enum choice_t { Invalid, Left, Right, Up, Down, Select, Cancel };
+
+using input_fptr_t = choice_t (*)(char const *prompt);
+
+struct lcd_menu_t 
+{
+    menu_t      menu[2];
+    uint8_t     cur     : 1,    // the current menu choice
+                use_num : 1;    // use numbers in menus when true
+    disp_fptr_t fptr{nullptr};  // the display update function
+
+
+    lcd_menu_t() : cur(0), use_num(false) 
+    {
+        for (menu_t &entry : menu) {
+            entry.txt[0] = '\0';
+            entry.value = 0;
+            entry.minv = 0;
+            entry.maxv = 0;
+        }
+
+    } // lcd_menu_t
+
+    lcd_menu_t(menu_t m1, menu_t m2) : cur(0), use_num(false) {
+        menu[0] = m1;
+        menu[1] = m2;
+    }
+    
+    
+    lcd_menu_t(char *msg1, void(*func1)(), char *msg2, void(*func2)())
+    {
+        strncpy(menu[0].txt, msg1, sizeof(menu[0].txt));
+        menu[0].value = func1;
+        strncpy(menu[1].txt, msg2, sizeof(menu[1].txt));
+        menu[1].value = func2;
+
+    } // lcd_menu_t
+
+    lcd_menu_t(char *msg1, lcd_menu_t *menu1, char *msg2, lcd_menu_t *menu2)
+    {
+        strncpy(menu[0].txt, msg1, sizeof(menu[0].txt));
+        menu[0].value = menu1;
+        strncpy(menu[1].txt, msg2, sizeof(menu[1].txt));
+        menu[1].value = menu2;
+
+    } // lcd_menu_t
+
+    lcd_menu_t(char const *msg1, void(*func1)(), char const *msg2, void(*func2)())
+    {
+        strncpy(menu[0].txt, msg1, sizeof(menu[0].txt));
+        menu[0].value = func1;
+        strncpy(menu[1].txt, msg2, sizeof(menu[1].txt));
+        menu[1].value = func2;
+
+    } // lcd_menu_t
+
+    lcd_menu_t(char const *msg1, lcd_menu_t *menu1, char const *msg2, lcd_menu_t *menu2)
+    {
+        strncpy(menu[0].txt, msg1, sizeof(menu[0].txt));
+        menu[0].value = menu1;
+        strncpy(menu[1].txt, msg2, sizeof(menu[1].txt));
+        menu[1].value = menu2;
+
+    } // lcd_menu_t
+
+    int next() 
+    {
+        return cur = !cur;
+
+    } // next
+
+    lcd_menu_t &exec() {
+        switch (menu[cur].value.type) {
+            case FUNC:
+                if (menu[cur].value.value.func != nullptr) {
+                    menu[cur].value.value.func();
+                }
+                break;
+
+            case MENU:
+                if (menu[cur].value.value.menu != nullptr) {
+                    *this = *(menu[cur].value.value.menu);
+                }
+                break;
+
+            case INT:
+                break;
+        }
+
+        return *this;
+
+    } // exec
+
+    lcd_menu_t &run(input_fptr_t inp, disp_fptr_t update) {
+        lcd_menu_t parents[8]{};
+        int parent = 0;
+        parents[parent] = *this;
+
+        int orig = menu[cur].value.value.ival;
+        bool editing = false;
+
+        do {
+            char line1[32] = "", line2[32] = "", buff[16];
+            strcpy(line1, use_num ? "1 " : "");
+            strcpy(line2, use_num ? "2 " : "");
+            strcat(line1, menu[0].txt);
+            strcat(line2, menu[1].txt);
+            if (menu[0].value.type == INT) {
+                sprintf(buff, "%d", menu[0].value.value.ival);
+                strcat(line1, buff);
+            }
+            if (menu[1].value.type == INT) {
+                sprintf(buff, "%d", menu[1].value.value.ival);
+                strcat(line2, buff);
+            }
+            strncat(0 == cur ? line1 : line2, "*", sizeof(line1));
+            update(line1, line2);
+
+            if (editing) {
+                choice_t choice = inp("U,D,S,C:");
+                switch (choice) {
+                    case Up:
+                        if (menu[cur].value.value.ival < menu[cur].maxv)
+                            menu[cur].value.value.ival++;
+                        break;
+
+                    case Down:
+                        if (menu[cur].value.value.ival > menu[cur].minv)
+                            menu[cur].value.value.ival--;
+                        break;
+
+                    case Select:
+                        editing = false;
+                        break;
+
+                    case Cancel:
+                        menu[cur].value.value.ival = orig;
+                        editing = false;
+                        break;
+
+                    case    Left:
+                    case   Right:
+                    case Invalid:
+                        break;
+                }
+
+            } // !editing
+            else {
+                choice_t choice = inp("Choose:");
+                switch (choice) {
+                    case Down:
+                    case   Up:
+                        next();
+                        break;
+
+                    case Select:
+                        switch (menu[cur].value.type) {
+                            case INT:   // it has a value - edit it
+                                orig = menu[cur].value.value.ival;
+                                editing = true;
+                                break;
+                            case MENU:  // it has a menu - switch to it
+                                parents[parent++] = *this;
+                                exec();
+                                break;
+                            case FUNC:  // it has a function - call it
+                                exec();
+                                break;
+                        }
+                        break;
+
+                    case Cancel:
+                        if (parent > 0) {
+                            *(parents[parent-1].menu[parents[parent-1].cur].value.value.menu) = *this;
+                            *this = parents[--parent];
+                        }
+                        break;
+
+                    case    Left:
+                    case   Right:
+                    case Invalid:
+                        break;
+                }
+
+            } // editing
+
+        } while (true);
+
+    } // run
+
+};
+
+#endif // MENU_H_INC
