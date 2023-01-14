@@ -1,0 +1,79 @@
+import 'dart:async';
+import 'dart:collection';
+
+import 'package:flutter/foundation.dart';
+
+import '../../authentication/view_models/authentication.viewmodel.dart';
+import '../../locator.dart';
+import '../../shared/graphql_schema/schema.graphql.dart';
+import '../graphql_operations/fragments/fragments.graphql.dart';
+import '../graphql_operations/mutations/mutations.graphql.dart';
+import '../repository/order_repo.dart';
+
+class OrderListModel extends ChangeNotifier {
+  OrderListModel();
+
+  List<Fragment$Order> _orders = [];
+
+  bool _isLoading = false;
+
+  List<Fragment$Order> get orders => UnmodifiableListView(_orders);
+
+  set isLoading(bool val) {
+    _isLoading = val;
+    notifyListeners();
+  }
+
+  bool get isLoading => _isLoading;
+
+  Future<void> loadOrders() async {
+    isLoading = true;
+    _orders = await locator<OrderRepository>().loadOrders();
+    isLoading = false;
+  }
+
+  Future<void> fetchOrders() async {
+    if (_orders.isEmpty) isLoading = true;
+    _orders = await locator<OrderRepository>().fetchOrders();
+    if (_isLoading) isLoading = false;
+  }
+
+  Future<void> changeOrderStatus(
+      {required Fragment$Order order,
+      required Enum$OrderStatus newStatus}) async {
+    final queryResult = await locator<AuthModel>()
+        .graphQLConfig
+        .service
+        .mutate$ChangeOrderStatus(
+          Options$Mutation$ChangeOrderStatus(
+            variables: Variables$Mutation$ChangeOrderStatus(
+              id: order.id.toDouble(),
+              status: newStatus.name,
+            ),
+          ),
+        );
+    if (queryResult.parsedData != null) {
+      final newOrder = queryResult.parsedData!.changeOrderStatus;
+      putOrReplaceOrder(newOrder);
+      notifyListeners();
+    }
+  }
+
+  Future<void> putOrReplaceOrder(Fragment$Order fragment$order) async {
+    for (int i = 0; i < _orders.length; i++) {
+      if (_orders[i].id == fragment$order.id) {
+        _orders[i] == fragment$order;
+        notifyListeners();
+        return;
+      }
+    }
+    _orders.add(fragment$order);
+    notifyListeners();
+    return;
+  }
+
+// Future<StreamSubscription> subscribeOnOrders() {
+//   _orderRepository
+//   .
+// }
+}
