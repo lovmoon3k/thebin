@@ -1,0 +1,67 @@
+### ПЕРВЫЙ ВАРИАНТ
+#Stopped the Microsoft Exchange Search service
+#Stopped the Microsoft Exchange Search Host Controller service
+[PS] C:\Windows\system32>stop-service MSExchangeFastSearch
+[PS] C:\Windows\system32>stop-service HostControllerService
+
+#Dismounted the database
+Get-MailboxDatabase
+Get-MailboxDatabase –Identity GeneralDB2020 -Status | Format-Table Name, BackupInProgress, OnlineMaintenanceInProgress
+#all databases get
+Get-MailboxDatabase –Server <server name> -Status | Format-Table Name, BackupInProgress, OnlineMaintenanceInProgress
+#dismount db
+DisMount-Database –Confirm:$False –Identity GeneralDB2020
+
+
+#Deleted the [guid.single] folder in the folder holding the database file. Guid is the Globally Unique Identifier for the #database. You can find this by running Get-MailboxDatabase database-name | Select Guid. For example, the folder you need #would be something like d:\Databases\DB2\79c03cca-9b53-4959-982a-8773591c5f70.single
+Get-MailboxDatabase GeneralDB2020 | Select Guid
+
+#Alternatively, you can use ESEUTIL /mh command to determine the state of the database, i.e., the database is in Clean #Shutdown State (consistent) or Dirty Shutdown State (inconsistent).
+eseutil /mh <full path to the edb file>
+eseutil /mh 'E:\EXDB\GSP12ExSystemDB\GSP12ExSystemDB.edb'
+
+#Restart the Microsoft Exchange Search Host Controller service
+#Restart the Microsoft Exchange Search service
+start-service MSExchangeFastSearch
+start-service HostControllerService
+#Remount the database
+Mount-Database –Confirm:$False –Identity GeneralDB2020
+
+
+### ВТОРОЙ ВАРИАНТ ,ЕЗ РЕМОУНТА ,АЗЫ
+# При индексации базы данных почтовых ящиков GSP12ExSystemDB обнаружено непредвиденное исключение. 
+https://practical365.com/fix-failed-database-content-index-exchange-2013/
+
+[PS] C:\Windows\system32>Get-MailboxDatabaseCopyStatus * | ft -auto
+Выполняется создание нового сеанса для неявного удаленного взаимодействия команды "Get-MailboxDatabaseCopyStatus"...
+
+Name                           Status     CopyQueueLength ReplayQueueLength LastInspectedLogTime ContentIndexState
+----                           ------     --------------- ----------------- -------------------- -----------------
+GeneralDB2020\GSP12EX          Mounted    0               0                                      FailedAndSuspended
+GSP12ExSystemDB\GSP12EX        Mounted    0               0                                      FailedAndSuspended
+GSP12UsersDB\GSP12EX           Mounted    0               0                                      FailedAndSuspended
+RecoveryServer1\GSP12EX        Dismounted 0               0                                      Disabled
+RecoveryServer1Archive\GSP12EX Dismounted 0               0                                      Disabled
+GSP12_DeletedUsersDB\GSP12EX   Mounted    0               0                                      FailedAndSuspended
+
+#FailedAndSuspended Быть не долдно - - HEalthy дол;но
+
+[PS] C:\Windows\system32>stop-service MSExchangeFastSearch
+[PS] C:\Windows\system32>stop-service HostControllerService
+ПРЕДУПРЕЖДЕНИЕ: Ожидание остановки службы "Microsoft Exchange Search Host Controller (HostControllerService)"...
+[PS] C:\Windows\system32>Get-MailboxDatabase | select EdbFilePath
+
+EdbFilePath
+-----------
+E:\EXDB\GSP12ExDb\GeneralDB2020.edb
+E:\EXDB\GSP12ExSystemDB\GSP12ExSystemDB.edb
+E:\EXDB\GSP12ExUsersDB\GSP12ExDBUsers.edb
+E:\EXDB\RestoredServer1\Mailbox Database 0806324089.edb
+E:\EXDB\RestoredServer1\Mailbox archive.edb
+E:\EXDB\GSP12_DeletedUsersDB\GSP12_DeletedUsersDB.edb
+
+# идти в папку и удалять папку с индексами - она как GUID называется в папке с Базой
+
+[PS] C:\Windows\system32>start-service MSExchangeFastSearch
+[PS] C:\Windows\system32>start-service HostControllerService
+[PS] C:\Windows\system32>
