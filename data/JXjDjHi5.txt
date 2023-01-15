@@ -1,0 +1,1042 @@
+//
+// https://youtu.be/LbG89wk2fHM
+//
+
+#include <Shifty.h>
+Shifty shift; 
+#include <MyRealTimeClock.h>
+MyRealTimeClock myRTC(12, 11, 10);
+#include <EEPROM.h>
+
+#include <OneWire.h> 
+#include <DallasTemperature.h>
+#define ONE_WIRE_BUS 8
+OneWire oneWire(ONE_WIRE_BUS); 
+DallasTemperature sensors(&oneWire);
+
+int Minut;
+int Ora;
+int VitezaTranzitie = 80;
+int Anim;
+bool InSetup;
+bool Pressed = false;
+int Rest;
+int SetupScreen = 1;
+bool TempScreen = false;
+int Temp;
+int CurrentMilis;
+int PreviousMilis;
+int PreviousMilis2;
+bool PrintedTemp;
+int Interval = 10000;
+int Sec = 10;
+int TimeType = 0;
+int VitezaInSecunde = 8;
+int IntensitateLumina = 3;
+
+void setup() 
+  {
+    delay(50);
+    analogWrite (9, IntensitateLumina);
+    Sec = EEPROM.read(1);
+    TimeType = EEPROM.read(2);
+    VitezaInSecunde = EEPROM.read(3);
+    VitezaTranzitie = VitezaInSecunde * 10;
+    sensors.begin(); 
+    shift.setBitCount(32);
+    Serial.begin(9600);
+    
+    shift.setPins(6, 5, 7); 
+    for (int i = 0; i < 32; i++)
+    {
+      shift.writeBit(i, LOW);
+    }
+    delay(1000);
+    myRTC.updateTime();
+    Minut = myRTC.minutes;
+    Ora = myRTC.hours;
+    DisplayNumber(3, 1 , VitezaTranzitie, Minut%10);
+    Minut /= 10;
+    DisplayNumber(2, 1 , VitezaTranzitie, Minut);
+    if(Ora > 12 && TimeType == 1)
+    {
+      Ora -= 12;
+    }
+    DisplayNumber(1, 1 , VitezaTranzitie, Ora%10);
+    Ora /= 10;
+    DisplayNumber(0, 1 , VitezaTranzitie, Ora); 
+    //myRTC.setDS1302Time(00, 14, 18, 0, 28, 12, 2022);
+  }
+
+void loop() 
+  {
+    
+    IntensitateLumina = analogRead(A5);
+    if(IntensitateLumina > 255)
+    {
+      IntensitateLumina = 255;
+    }
+    if(IntensitateLumina > 2)
+    {
+      analogWrite (9, IntensitateLumina);
+    }
+    Serial.println(IntensitateLumina);    
+    delay(100);
+    /*
+    IntensitateLumina = analogRead(A5);
+    if (IntensitateLumina < 6) IntensitateLumina = 6;
+    if (IntensitateLumina > 255) IntensitateLumina = 255;    
+    Serial.println(IntensitateLumina);
+    analogWrite(9,IntensitateLumina);
+    */
+    VitezaTranzitie = VitezaInSecunde * 10;
+    Interval = Sec * 1000;
+    if(!InSetup)
+    {
+      if(digitalRead(3) == 1 && !Pressed)
+      {
+        SetupScreen = 0;
+        InSetup = true;
+        Pressed = true;
+      }
+      if(digitalRead(3) == 0)
+      {
+        Pressed = false;
+      }
+      if(!TempScreen)
+      {
+        myRTC.updateTime();
+        Minut = myRTC.minutes;
+        Ora = myRTC.hours;
+        //Serial.print(Ora);    
+        //Serial.print(":");
+        //Serial.println(myRTC.seconds);
+        if(myRTC.seconds <= 1)
+        {
+          DisplayNumber(3, 1 , VitezaTranzitie, Minut%10);
+          Minut /= 10;
+          DisplayNumber(2, 1 , VitezaTranzitie, Minut);
+          if(Ora > 12 && TimeType == 1)
+          {
+            Ora -= 12;
+          }
+          DisplayNumber(1, 1 , VitezaTranzitie, Ora%10);
+          Ora /= 10;
+          DisplayNumber(0, 1 , VitezaTranzitie, Ora); 
+        }
+      }
+      if(TempScreen)
+      {
+        if(!PrintedTemp)
+        {
+          StergePunct(1);
+          sensors.requestTemperatures();
+          Temp = round(sensors.getTempCByIndex(0));
+          Serial.println(Temp);
+          DisplayNumber(1, 1 , VitezaTranzitie, Temp%10);
+          Temp /= 10;
+          DisplayNumber(0, 1 , VitezaTranzitie, Temp); 
+          grade(2,1,VitezaTranzitie);
+          celsius(3,1,VitezaTranzitie);
+          PrintedTemp = true;
+        }
+      }
+      CurrentMilis = millis();
+      if((CurrentMilis - PreviousMilis) > Interval)
+      {
+        PreviousMilis = CurrentMilis;
+        TempScreen = !TempScreen;
+        PrintedTemp = false;
+        if(!TempScreen)
+        {
+          myRTC.updateTime();
+          Minut = myRTC.minutes;
+          Ora = myRTC.hours;
+          DisplayNumber(3, 1 , VitezaTranzitie, Minut%10);
+          Minut /= 10;
+          DisplayNumber(2, 1 , VitezaTranzitie, Minut);
+          DisplayNumber(1, 1 , VitezaTranzitie, Ora%10);
+          Ora /= 10;
+          DisplayNumber(0, 1 , VitezaTranzitie, Ora); 
+        }
+      }
+
+    }
+    if(InSetup)
+    {
+      if(SetupScreen == 0)
+      {
+        Ora = myRTC.hours;
+        Minut = myRTC.minutes;
+        delay(50);
+        SetupScreen = 1;
+        if(Ora > 12 && TimeType == 1)
+        {
+          Ora -= 12;
+        }
+        DisplayNumber(1, 1 , 1, Ora%10);
+        Rest = Ora % 10;
+        Ora /= 10;
+        DisplayNumber(0, 1 , 1, Ora); 
+        Ora = Ora * 10 + Rest;
+        StergeCadranul(2);
+        StergeCadranul(3);
+      }
+      if(SetupScreen == 1)
+      {
+        myRTC.updateTime();
+        if(digitalRead(2) == 1 && !Pressed)
+        {
+          Ora += 1;
+          if(Ora > 23)
+          {
+            Ora = 0;
+          }
+          if(TimeType == 1 && Ora > 12)
+          {
+            Ora -=12;
+          }
+          if(Ora == 0 && TimeType == 1)
+          {
+            Ora = 12;
+          }
+          Pressed = true;
+          DisplayNumber(1, 1 , 1, Ora%10);
+          Rest = Ora % 10;
+          Ora /= 10;
+          DisplayNumber(0, 1 , 1, Ora); 
+          Ora = Ora * 10 + Rest;
+          if(TimeType == 1 && Ora-12 != 0)
+          {
+            Ora += 12;
+          }
+        }
+        if(digitalRead(2) == 0 && digitalRead(3) == 0)
+        {
+          Pressed = false;
+        }
+        //Serial.println(Ora);
+        Serial.println(SetupScreen);
+        if(digitalRead(3) == 1 && SetupScreen == 1 && !Pressed)
+        {
+          SetupScreen = 2;
+          Pressed = true;
+          DisplayNumber(3, 1 ,1, Minut%10);
+          Rest = Minut % 10;
+          Minut /= 10;
+          DisplayNumber(2, 1 , 1, Minut); 
+          StergeCadranul(0);
+          StergeCadranul(1);
+          //Ora = Ora * 10 + Rest;
+          Minut = Minut * 10 + Rest;
+        }
+      }
+      if(SetupScreen == 2)
+      {
+        myRTC.updateTime();
+        if(digitalRead(2) == 1 && !Pressed)
+        {
+          Pressed = true;
+          Minut += 1;
+          if(Minut > 59)
+          {
+            Minut = 0;
+          }
+          DisplayNumber(3, 1 ,1, Minut%10);
+          Rest = Minut % 10;
+          Minut /= 10;
+          DisplayNumber(2, 1 , 1, Minut); 
+          Minut = Minut * 10 + Rest;
+        }
+        if(digitalRead(2) == 0 && digitalRead(3) == 0)
+        {
+          Pressed = false;
+        }
+        //Serial.println(Minut);
+        Serial.println(SetupScreen);
+        if(digitalRead(3) == 1 && SetupScreen == 2 && !Pressed)
+        {
+          SetupScreen = 3;
+          Pressed = true;
+          DisplayNumber(3, 1 ,1, 5);
+          DisplayNumber(1, 1 ,1, Sec%10);
+          Rest = Sec % 10;
+          Sec /= 10;
+          if(Sec != 0)
+          {
+            DisplayNumber(0, 1 , 1, Sec); 
+          }
+          if(Sec == 0)
+          {
+            StergeCadranul(0);
+          }
+          Sec = Sec * 10 + Rest;
+        }
+      }
+      if(SetupScreen == 3)
+      {
+        myRTC.updateTime();
+        if(digitalRead(2) == 1 && !Pressed)
+        {
+          Pressed = true;
+          Sec += 1;
+          if(Sec > 20)
+          {
+            Sec = 5;
+          }
+          DisplayNumber(3, 1 ,1, 5);
+          DisplayNumber(1, 1 ,1, Sec%10);
+          Rest = Sec % 10;
+          Sec /= 10;
+          if(Sec != 0)
+          {
+            DisplayNumber(0, 1 , 1, Sec); 
+          }
+          if(Sec == 0)
+          {
+            StergeCadranul(0);
+          }
+          Sec = Sec * 10 + Rest;
+        }
+        if(digitalRead(2) == 0 && digitalRead(3) == 0)
+        {
+          Pressed = false;
+        }
+        if(digitalRead(3) == 1 && SetupScreen == 3 && !Pressed)
+        {
+          SetupScreen = 4;
+          //Sec = Sec * 10 + Rest;
+          Pressed = true;
+          LetterH(3, 1);
+          if(TimeType == 0)
+          {
+            DisplayNumber(1, 1 ,1, 4);
+            DisplayNumber(0, 1 ,1, 2);
+          }
+          if(TimeType == 1)
+          {
+            DisplayNumber(1, 1 ,1, 2);
+            DisplayNumber(0, 1 ,1, 1);
+          }
+        }
+        StergeCadranul(2);
+      }
+      if(SetupScreen == 4)
+      {
+        myRTC.updateTime();
+        if(digitalRead(2) == 1 && !Pressed)
+        {
+          Pressed = true;
+          TimeType += 1;
+          if(TimeType > 1)
+          {
+            TimeType = 0;
+          }
+          LetterH(3, 1);
+          if(TimeType == 0)
+          {
+            DisplayNumber(1, 1 ,1, 4);
+            DisplayNumber(0, 1 ,1, 2);
+          }
+          if(TimeType == 1)
+          {
+            DisplayNumber(1, 1 ,1, 2);
+            DisplayNumber(0, 1 ,1, 1);
+          }
+        }
+        if(digitalRead(2) == 0 && digitalRead(3) == 0)
+        {
+          Pressed = false;
+        }
+        if(digitalRead(3) == 1 && SetupScreen == 4 && !Pressed)
+        {
+          SetupScreen = 5;
+          Pressed = true;
+          //Sec = Sec * 10 + Rest;
+          LetterD(3, 1);
+          DisplayNumber(1, 1 ,1, VitezaInSecunde%10);
+          Rest = VitezaInSecunde % 10;
+          VitezaInSecunde /= 10;
+          if(VitezaInSecunde != 0)
+          {
+            DisplayNumber(0, 1 , 1, VitezaInSecunde ); 
+          }
+          if(VitezaInSecunde == 0)
+          {
+            StergeCadranul(0);
+          }
+          VitezaInSecunde = VitezaInSecunde * 10 + Rest;
+        }
+        StergeCadranul(2);
+      }
+      if(SetupScreen == 5)
+      {
+        myRTC.updateTime();
+        if(digitalRead(2) == 1 && !Pressed)
+        {
+          Pressed = true;
+          VitezaInSecunde += 1;
+          if(VitezaInSecunde > 20)
+          {
+            VitezaInSecunde = 0;
+          }
+          LetterD(3, 1);
+          DisplayNumber(1, 1 ,1, VitezaInSecunde%10);
+          Rest = VitezaInSecunde % 10;
+          VitezaInSecunde /= 10;
+          if(VitezaInSecunde != 0)
+          {
+            DisplayNumber(0, 1 , 1, VitezaInSecunde ); 
+          }
+          if(VitezaInSecunde == 0)
+          {
+            StergeCadranul(0);
+          }
+          VitezaInSecunde = VitezaInSecunde * 10 + Rest;
+        }
+        if(digitalRead(2) == 0 && digitalRead(3) == 0)
+        {
+          Pressed = false;
+        }
+        if(digitalRead(3) == 1 && SetupScreen == 5 && !Pressed)
+        {
+          SetupScreen = 6;
+          Pressed = true;
+          //Sec = Sec * 10 + Rest;
+        }
+        StergeCadranul(2);
+      }
+      if(SetupScreen == 6)
+      {
+        myRTC.updateTime();
+        myRTC.setDS1302Time(0, Minut, Ora, 0, myRTC.dayofmonth, myRTC.month, myRTC.year);
+        InSetup = false;
+        Pressed = true;
+        DisplayNumber(3, 1 , VitezaTranzitie, Minut%10);
+        Minut /= 10;
+        DisplayNumber(2, 1 , VitezaTranzitie, Minut);
+        if(Ora > 12 && TimeType == 1)
+        {
+          Ora -= 12;
+        }
+        DisplayNumber(1, 1 , VitezaTranzitie, Ora%10);
+        Ora /= 10;
+        DisplayNumber(0, 1 , VitezaTranzitie, Ora);
+        EEPROM.update(1, Sec); 
+        EEPROM.update(2, TimeType); 
+        EEPROM.update(3, VitezaInSecunde); 
+      }
+    }
+}
+
+void DisplayNumber(int Frame, int Anim, int Pause, int Nr)
+{
+  if(Nr == 0)
+  {
+    zero(Frame, Anim, Pause);
+  }
+  if(Nr == 1)
+  {
+    unu(Frame, Anim, Pause);
+  }
+  if(Nr == 2)
+  {
+    doi(Frame, Anim, Pause);
+  }
+  if(Nr == 3)
+  {
+    trei(Frame, Anim, Pause);
+  }
+  if(Nr == 4)
+  {
+    patru(Frame, Anim, Pause);
+  }
+  if(Nr == 5)
+  {
+    cinci(Frame, Anim, Pause);
+  }
+  if(Nr == 6)
+  {
+    sase(Frame, Anim, Pause);
+  }
+  if(Nr == 7)
+  {
+    sapte(Frame, Anim, Pause);
+  }
+  if(Nr == 8)
+  {
+    opt(Frame, Anim, Pause);
+  }
+  if(Nr == 9)
+  {
+    noua(Frame, Anim, Pause);
+  }
+}
+
+void unu(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE == 1)
+         {
+           shift.writeBit(CADRAN * 8, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, LOW);   
+           delay(PAUZA);        
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, LOW);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 6, LOW);   
+           delay(PAUZA);           
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);     
+         }
+    }
+
+void doi(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE == 1)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);        
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 4, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, LOW);
+           delay(PAUZA);     
+         }
+    }
+
+void trei(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE = 1)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);        
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);     
+         }
+    }
+
+void patru(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE = 1)
+         {
+           shift.writeBit(CADRAN * 8, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);        
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, LOW);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 4, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);     
+         }
+    }
+
+void cinci(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE = 1)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);        
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);     
+         }
+    }
+
+void sase(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE = 1)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);        
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 4, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);     
+         }
+    }
+
+void sapte(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE = 1)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, LOW);   
+           delay(PAUZA);        
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, LOW);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);     
+         }
+    }
+
+void opt(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE = 1)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);        
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 4, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);     
+         }
+    }
+
+void noua(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE = 1)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);        
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);     
+         }
+    }
+
+void zero(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE = 1)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, LOW);   
+           delay(PAUZA);        
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 4, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);     
+         }
+    }
+
+void grade(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE = 1)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+      
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, LOW);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 4, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, HIGH);
+           delay(PAUZA);     
+         }
+    }
+
+void celsius(int CADRAN, int ANIMATIE, int PAUZA)
+    {
+      if (ANIMATIE = 1)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 4, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, LOW);   
+           delay(PAUZA);  
+      
+         }
+      if (ANIMATIE == 2)
+         {
+           shift.writeBit(CADRAN * 8, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 6, LOW);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 3, HIGH);
+           delay(PAUZA);  
+           shift.writeBit(CADRAN * 8 + 4, HIGH);   
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 5, HIGH);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 1, LOW);
+           delay(PAUZA);
+           shift.writeBit(CADRAN * 8 + 2, LOW);
+           delay(PAUZA);     
+         }
+    }
+
+void StergeEcranulRapid()
+    {
+       for (int i=0; i < 32; i++) 
+          {
+            shift.writeBit(i,LOW);
+          }
+    }
+
+void StergeEcranulIntarziat(int PAUZA, int SENS)
+    {
+      if (SENS == 2)
+         {
+             for (int i = 32; i >= 0; i--) 
+                 {
+                     shift.writeBit(i,LOW);
+                     delay(PAUZA);
+                 }
+
+         }
+      if (SENS == 1)
+         {
+             for (int i = 0; i <= 32; i++) 
+                 {
+                     shift.writeBit(i,LOW);
+                     delay(PAUZA);
+                 }
+
+         }
+    }
+
+void StergeEcranulDinMijloc(int PAUZA, int SENS)
+    {
+      if (SENS == 1)
+         {
+             for (int i = 0; i <= 15; i++) 
+                 {
+                     shift.writeBit(15+i,LOW);
+                     shift.writeBit(15-i,LOW);
+                     delay(PAUZA);
+                 }
+
+          }
+       if (SENS == 2)
+         {
+             for (int i = 0; i <= 16; i++) 
+                 {
+                     shift.writeBit(i,LOW);
+                     shift.writeBit(32-i,LOW);
+                     delay(PAUZA);
+                 }
+
+          }
+    }
+
+
+void StergeCadranul(int CADRAN)
+    {
+       for (int i=0; i <= 7; i++) 
+          {
+           shift.writeBit(CADRAN * 8 + i, LOW);
+          }
+    }
+
+void Punct(int CADRAN)
+    {
+
+           shift.writeBit(CADRAN * 8 + 7, HIGH);
+ 
+    }
+void StergePunct(int CADRAN)
+    {
+
+           shift.writeBit(CADRAN * 8 + 7, LOW);
+ 
+    }
+void LetterH(int CADRAN, int PAUZA)
+{
+  shift.writeBit(CADRAN * 8, LOW);
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 1, HIGH);
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 2, HIGH);
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 3, LOW);
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 4, HIGH);   
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 5, HIGH);
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 6, HIGH);   
+  delay(PAUZA);     
+}
+void LetterD(int CADRAN, int PAUZA)
+{
+  shift.writeBit(CADRAN * 8, LOW);
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 1, HIGH);
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 2, HIGH);
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 3, HIGH);
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 4, HIGH);   
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 5, LOW);
+  delay(PAUZA);
+  shift.writeBit(CADRAN * 8 + 6, HIGH);   
+  delay(PAUZA);     
+}
