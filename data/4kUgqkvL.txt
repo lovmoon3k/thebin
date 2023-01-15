@@ -1,0 +1,164 @@
+clc;
+clear all;
+close all;
+clearvars;
+
+rng('default') 
+
+CostFunction=@(x) myfun(x);        % Funkcja kosztu
+
+nVar=2;            % Liczba zmiennych decyzyjnych (wymiarowość problemu)
+
+VarSize=[1 nVar];   % Size of Decision Variables Matrix
+
+VarMin=-10;         % Ograniczenie dolne dla zmiennych
+VarMax= 10;         % Ograniczenie górne dla zmiennych
+
+
+MaxIt=20;      % Maksymalna liczba iteracji
+
+nPop=20;        % Rozmiar poulacji
+
+w=1;            % Inertia Weight
+wdamp=0.99;     % Inertia Weight Damping Ratio
+
+c1=2.0;         % Personal Learning Coefficient
+c2=2.0;         % Global Learning Coefficient
+
+% If you would like to use Constriction Coefficients for PSO,
+% uncomment the following block and comment the above set of parameters.
+
+% % Constriction Coefficients
+% phi1=2.05;
+% phi2=2.05;
+% phi=phi1+phi2;
+% chi=2/(phi-2+sqrt(phi^2-4*phi));
+% w=chi;          % Inertia Weight
+% wdamp=1;        % Inertia Weight Damping Ratio
+% c1=chi*phi1;    % Personal Learning Coefficient
+% c2=chi*phi2;    % Global Learning Coefficient
+
+VelMax=0.1*(VarMax-VarMin);
+VelMin=-VelMax;
+
+empty_particle.Position=[];
+empty_particle.Cost=[];
+empty_particle.Velocity=[];
+empty_particle.Best.Position=[];
+empty_particle.Best.Cost=[];
+
+particle=repmat(empty_particle,nPop,1);
+
+GlobalBest.Cost=inf;
+
+for i=1:nPop
+    
+    % Initialize Position
+    particle(i).Position=unifrnd(VarMin,VarMax,VarSize);
+    
+    % Initialize Velocity
+    particle(i).Velocity=zeros(VarSize);
+    
+    % Ewaluacja (obliczenie wartosci funkcji kryterialnej)
+    particle(i).Cost=CostFunction(particle(i).Position);
+    
+    % Update Personal Best
+    
+    particle(i).Best.Position=particle(i).Position;
+    particle(i).Best.Cost=particle(i).Cost;
+    
+    % Update Global Best
+    if particle(i).Best.Cost<GlobalBest.Cost
+        
+        GlobalBest=particle(i).Best;
+        
+    end
+    
+end
+
+BestCost=zeros(MaxIt,1);
+
+figure(1)
+%f=@(x,y) x.^2 + y.^2;
+
+f = @(x,y) sin(x).*exp((1-cos(y)).^2)+cos(y).*exp((1-sin(x)).^2)+(x-y).^2;
+%fsurf(f ,[VarMin VarMax VarMin VarMax])
+fcontour(f,[VarMin VarMax VarMin VarMax])
+
+hold on
+grid on
+
+
+for it=1:MaxIt
+    
+    for i=1:nPop
+        
+        % Update Velocity
+        particle(i).Velocity = w*particle(i).Velocity ...
+            +c1*rand(VarSize).*(particle(i).Best.Position-particle(i).Position) ...
+            +c2*rand(VarSize).*(GlobalBest.Position-particle(i).Position);
+        
+        % Apply Velocity Limits
+        particle(i).Velocity = max(particle(i).Velocity,VelMin);
+        particle(i).Velocity = min(particle(i).Velocity,VelMax);
+        
+        % Update Position
+        particle(i).Position = particle(i).Position + particle(i).Velocity;
+        
+        % Velocity Mirror Effect
+        IsOutside=(particle(i).Position<VarMin | particle(i).Position>VarMax);
+        particle(i).Velocity(IsOutside)=-particle(i).Velocity(IsOutside);
+        
+        % Apply Position Limits
+        particle(i).Position = max(particle(i).Position,VarMin);
+        particle(i).Position = min(particle(i).Position,VarMax);
+        
+        % Evaluation
+        particle(i).Cost = CostFunction(particle(i).Position);
+        
+        % Update Personal Best
+        if particle(i).Cost<particle(i).Best.Cost
+            
+            particle(i).Best.Position=particle(i).Position;
+            particle(i).Best.Cost=particle(i).Cost;
+            
+            % Update Global Best
+            if particle(i).Best.Cost<GlobalBest.Cost
+                
+                GlobalBest=particle(i).Best;
+                indexbest=i;
+                
+            end
+            
+        end
+        
+        plot3(particle(i).Position(1),particle(i).Position(2),particle(i).Cost,'-o','Color','b','MarkerSize',8,'MarkerFaceColor','b')
+        
+        
+    end
+    
+    BestCost(it)=GlobalBest.Cost;
+    
+    disp(['Iteration ' num2str(it) ': Best Cost = ' num2str(BestCost(it))]);
+    
+    w=w*wdamp;
+    
+end
+
+BestSol = GlobalBest;
+
+
+plot3(BestSol.Position(1),BestSol.Position(2),BestSol.Cost,'-o','Color','r','MarkerSize',12,'MarkerFaceColor','r')
+
+
+figure (2);
+semilogy(BestCost,'LineWidth',2);
+xlabel('Iteration');
+ylabel('Best Cost');
+grid on;
+
+function z=myfun(x)
+
+    z=sum(x.^2);
+       %z= sin(x(1))*exp((1-cos(x(2)))^2)+cos(x(2))*exp((1-sin(x(1)))^2)+(x(1)-x(2))^2;
+end
