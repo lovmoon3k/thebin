@@ -1,0 +1,131 @@
+CREATE DATABASE db2_20231_project;
+
+CREATE TABLE restaurant_offers (
+    r_id NUMBER(6) NOT NULL CONSTRAINT r_id_pk PRIMARY KEY,
+    r_details varchar(255),
+    r_cost NUMBER(6),
+    r_name varchar(255),
+    r_address varchar(255)
+);
+
+CREATE TABLE customers (
+    c_id NUMBER(6) NOT NULL CONSTRAINT c_id_pk PRIMARY KEY,
+    c_mob_num NUMBER(10),
+    c_limit NUMBER(6)
+);
+
+CREATE TABLE orders (
+    o_id NUMBER(6) NOT NULL CONSTRAINT o_id_pk PRIMARY KEY,
+    o_date DATE,
+    o_price NUMBER(6),
+    o_status VARCHAR(10) CONSTRAINT chk_status CHECK (o_status IN ('new', 'delivered')),
+    o_c_id NUMBER(6),
+    o_r_id NUMBER(6),
+    FOREIGN KEY (o_c_id)REFERENCES customers(c_id),
+    FOREIGN KEY (o_r_id)REFERENCES restaurant_offers(r_id)
+);
+ 
+CREATE TABLE order_log (
+    log_id NUMBER(6) NOT NULL CONSTRAINT log_id_pk PRIMARY KEY,
+    op_user varchar(255),
+    op_type varchar(255),
+	op_date DATE,
+    status_old varchar(255),
+    status_new varchar(255),
+    price_old NUMBER(6),
+    price_new Number(6)
+);
+
+
+    insert into restaurant_offers(r_id, r_details, r_cost, r_name, r_address) values (1,'Two burgers and pepsi',10000 ,'McDonalds','Berverly Hills');
+    insert into restaurant_offers(r_id, r_details, r_cost, r_name, r_address) values (2,'chicken pieces and botato',20000 ,'Fried chicken','FireMan Burger');
+
+    insert into customers(c_id, c_mob_num, c_limit) values (10, 0095363575, 6);
+    insert into customers(c_id, c_mob_num, c_limit) values (14, 0937237348, 6);
+
+
+--3
+CREATE OR REPLACE PROCEDURE print_offers IS
+CURSOR offers_cur IS
+SELECT * FROM restaurant_offers;
+BEGIN
+FOR off_rec IN offers_cur
+LOOP
+DBMS_OUTPUT.PUT_LINE(off_rec.r_id ||' '|| off_rec.r_details);
+END LOOP;
+END;
+
+
+--4
+CREATE OR REPLACE FUNCTION check_limit(c_no customers.c_id%TYPE, r_no restaurant_offers.r_id%TYPE) RETURN BOOLEAN
+ IS CURSOR orders_cur IS SELECT * FROM orders WHERE o_c_id = c_no IS
+the_limit customers.c_limit%TYPE;
+order_count customers.c_limit%TYPE;
+BEGIN
+SELECT c_limit INTO the_limit FROM customers;
+FOR ord_rec IN orders_cur
+LOOP
+if ord_rec.o_status = 'new'
+THEN order_count = order_count + 1;
+END IF;
+END LOOP;
+IF order_count < the_limit
+THEN RETURN TRUE
+ELSE RETURN FALSE;
+END IF;
+EXCEPTION WHEN NO_DATA_FOUND then
+   raise_application_error( -20001, 'There is no customer with this ID' );
+END;
+
+
+--5
+create or replace procedure make_order(c_no customers.c_id%TYPE, r_no restaurant_offers.r_id%TYPE) 
+IS 
+res_cost restaurant_offers.r_cost% TYPE;
+begin
+select r_cost into res_cost from restaurant_offers where r_id = r_no;
+if check_limit(c_no, r_no) = FALSE THEN
+   raise_application_error( -20002, 'Customer cannot make another order' );
+else 
+insert into orders(o_id, o_date, o_price, o_status, o_c_id, o_r_id)values(160,'05-05-2023',res_cost+5000,'new', c_no, r_no);
+end if;
+end;
+
+--6
+create or replace procedure close_order(order_no orders.o_id%TYPE) IS
+BEGIN
+UPDATE orders
+SET o_status = 'delivered'
+WHERE o_id = order_no;
+END;
+
+--7
+create or replace trigger audit_orders after insert or delete or update on orders
+for each row
+begin
+if inserting then
+insert into order_log (log_id, op_user, op_type, op_date, old_val, new_val)
+values(:new.log_id, user, 'insert', sysdate, :new.old_val, :new.new_val);
+elsif updating then
+insert into order_log (log_id, op_user, op_type, op_date, old_val, new_val) 
+values(:old.log_id,:old.op_user, :old.op_type, sysdate, :old.old_val, :new.new_val);
+else  
+insert into order_log (log_id, op_user, op_type, op_date, old_val, new_val) 
+values(:old.log_id,:old.op_user, :old.op_type, sysdate, :old.old_val, :old.new_val);
+end if;
+end;
+
+
+/* 8: PL-SQL Block*/
+--1
+print_offers();
+--2
+make_order(2121, 1);
+--3
+make_order(10, 1);
+--4
+close_order(100)
+--5
+select * from order_log;
+
+
