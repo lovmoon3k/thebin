@@ -1,0 +1,225 @@
+local function copyVec(vec)
+    return vector.new(vec.x, vec.y, vec.z)
+end
+local function updateX(pos, update)
+    return vector.new(update(pos.x), pos.y, pos.z)
+end
+local function updateZ(pos, update)
+    return vector.new(pos.x, pos.y, update(pos.z))
+end
+local function updateY(pos, update)
+    return vector.new(pos.x, update(pos.y), pos.z)
+end
+local function incr(x)
+    return x + 1
+end
+local function decr(x)
+    return x - 1
+end
+local function eqVec(f, s)
+    return f.x == s.x and f.y == s.y and f.z == s.z 
+end
+
+local N = 0
+local S = 1
+local W = 2
+local E = 3
+
+local function oppositeFace(f)
+    if f == N then return S end
+    if f == S then return N end
+    if f == W then return E end
+    if f == E then return W end
+end
+
+local function faceTo(c, t)
+    if (c == N and t == E) or (c == E and t == S) or (c == S and t == W) or (c == W and t == N) then
+        turtle.turnRight()
+    elseif (c == N and t == W) or (c == W and t == S) or (c == S and t == E) or (c == E and t == N) then
+        turtle.turnLeft()
+    elseif (c == N and t == S) or (c == S and t == N) or (c == W and t == E) or (c == E and t == W) then
+        turtle.turnRight()
+        turtle.turnRight()
+    end
+end
+
+local function newMove(m, l, f)
+    return {move = m, loc = l, face = f}
+end
+
+local RTurn = 0
+local LTurn = 1
+local FwdMv = 2
+local DwnMv = 3
+
+local function tern(x, y, z)
+    if x then return y else return z end
+end
+   
+local function next(pos, face)
+    local x = pos.x
+    local y = pos.y
+    local z = pos.z
+    local r2l = y % 2 == 0
+    local evenRow = z % 2 == 0
+    local d2t = tern(r2l, evenRow, not evenRow)
+    local rowEnd = tern(d2t, x == 15, x == 0)
+    local lastRow = tern(r2l, z == 15, z == 0)
+    local chunkEnd = rowEnd and lastRow
+    if chunkEnd then
+        local loc = updateY(pos, decr)
+        return newMove(DwnMv, loc, oppositeFace(face))
+    elseif rowEnd then
+        local turn = tern(d2t ~= r2l, RTurn, LTurn)
+        local update = tern(r2l, incr, decr)
+        local loc = updateZ(pos, update)
+        return newMove(turn, loc, oppositeFace(face))
+    else
+        local update = tern(d2t, incr, decr)
+        local loc = updateX(pos, update)
+        return newMove(FwdMv, loc, face)
+    end
+end
+
+local function newStep(d, f, l)
+    return {dir = d, face = f, loc = l}
+end
+
+local StepUp = 0
+local StepDwn = 1
+local StepFwd = 2
+local Arrived = 3
+
+local function pathTo(curr, face, trgt)
+    
+    local function flat()
+        if curr.x ~= trgt.x then
+            if curr.x < trgt.x then
+                return newStep(StepFwd, N, updateX(curr, incr))
+            else
+                return newStep(StepFwd, S, updateX(curr, decr))
+            end
+        elseif curr.z ~= trgt.z then
+            if curr.z < trgt.z then
+                return newStep(StepFwd, W, updateZ(curr, incr))
+            else
+                return newStep(StepFwd, E, updateZ(curr, decr))
+            end
+        else return Arrived end
+    end
+    
+    if curr.y < trgt.y then
+        return newStep(StepUp, face, updateY(curr, incr))
+    elseif curr.y > trgt.y then
+        local res = flat()
+        if res == Arrived then
+            return newStep(StepDwn, face, updateY(curr, decr))
+        else return res end
+    else return flat() end
+end
+
+local function tryRefuel(furthest)
+    local x = math.abs(furthest.x)
+    local y = math.abs(furthest.y)
+    local z = math.abs(furthest.z)
+    local path = x + y + z
+    local cost = path * 2
+    local enough = false
+    local level = turtle.getFuelLevel()
+    if cost > level then
+        local consume = turtle.getItemCount(1) - 1
+        if consume > 0 then
+            turtle.select(1)
+            turtle.refuel(consume)
+            enough = cost < turtle.getFuelLevel()
+        end
+    else enough = true end
+    return enough
+end
+
+local function destination()
+    local absolute = vector.new(gps.locate())
+    if absolute.y < -57 then
+        error("position is not vaild")
+    else
+        local y = -(absolute.y + 57)
+        return vector.new(16, y, 16)
+    end
+end
+
+local finish = destination()
+local start = vector.new(0, 0, 0)
+local location = vector.new(0, 0, 0)
+local face = N
+
+local function moveTo(target)
+    local loop = true
+    while loop do
+        local step = pathTo(location, face, target)
+        if step == Arrived then
+            loop = false
+        else
+            location = step.loc
+            faceTo(face, step.face)
+            face = step.face
+            local direction = step.dir
+            if direction == StepUp then
+                turtle.up()
+            elseif direction == StepDwn then
+                turtle.down()
+            elseif direction == StepFwd then
+                turtle.forward()
+            end
+        end
+    end
+end
+
+local function unload()
+    moveTo(start)
+    faceTo(face, S)
+    face = S
+    for i=2,16 do
+        turtle.select(i)
+        turtle.drop()
+    end
+end
+
+if not tryRefuel(finish) then
+    error("not enough fuel")
+end
+while not eqVec(location, finish) do
+    local nextMove = next(location, face)
+    location = nextMove.loc
+    face = nextMove.face
+    local move = nextMove.move
+    if move == RTurn then
+        turtle.turnRight()
+        turtle.dig()
+        turtle.forward()
+        turtle.turnRight()
+    elseif move == LTurn then
+        turtle.turnLeft()
+        turtle.dig()
+        turtle.forward()
+        turtle.turnLeft()
+    elseif move == FwdMv then
+        turtle.dig()
+        turtle.forward()
+    elseif move == DwnMv then
+        turtle.digDown()
+        turtle.down()
+        turtle.turnLeft()
+        turtle.turnLeft()
+    end
+    tryRefuel(location)
+    if turtle.getItemCount(16) > 0 then
+        local contPos = copyVec(location)
+        local contFace = face
+        unload()
+        turtle.select(1)
+        moveTo(contPos)
+        faceTo(face, contFace)
+        face = contFace
+    end
+end
+unload()
