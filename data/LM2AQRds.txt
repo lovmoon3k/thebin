@@ -1,0 +1,338 @@
+import pygame
+import math
+import random
+
+class Building:
+    def __init__(self, x, y, width, height):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.hp = 10
+        self.color = (0, 0, 0)
+
+    def draw(self, screen):
+        pygame.draw.rect(screen, self.color, (self.x, self.y, self.width, self.height))
+
+    def take_damage(self):
+        self.hp -= 1
+        if self.hp <= 0:
+            pass
+        else:
+            self.color = (25*(10-self.hp), 25*(10-self.hp), 25*(10-self.hp))
+
+class Cannon:
+    def __init__(self, x, y, width, height):
+        self.image = pygame.image.load("cannon.png")
+        self.rect = self.image.get_rect(center=(x,y))
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.shots_taken = 0
+        self.angle = 0
+
+    def draw(self, screen):
+        # Rotate the image of the cannon
+        rotated_image = pygame.transform.rotate(self.image, -(math.degrees(self.angle)))
+        rotated_rect = rotated_image.get_rect(center=self.rect.center)
+        # Draw the rotated cannon on the screen
+        screen.blit(rotated_image, rotated_rect)
+
+    def update_angle(self, mouse_x, mouse_y):
+        self.angle = math.atan2(mouse_y - self.y, mouse_x - self.x)
+
+    def shoot(self):
+        self.shots_taken += 1
+
+class Enemy:
+    def __init__(self, x, y, width, height, speed):
+        self.image = pygame.image.load("plane.png")
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.speed = speed
+        self.bullets = []
+        self.hit_box = self.rect.inflate(100, 30)
+
+    def move(self):
+        self.rect.x -= self.speed
+        self.x -= self.speed
+
+    def draw(self, screen):
+        screen.blit(self.image, self.rect)
+        self.create_bullet()
+        for bullet in self.bullets:
+            bullet.update_position()
+            bullet.draw(screen)
+            
+    def create_bullet(self):
+        if random.randint(0, 500) == 0:
+            self.bullets.append(Bullet(self.rect.x, self.rect.y + self.height / 2, 5, (0, 128, 0)))
+            
+class Bullet:
+    def __init__(self, x, y, radius, color):
+        self.x = x
+        self.y = y
+        self.radius = radius
+        self.color = color
+        self.velocity = [0, 5]
+
+    def update_position(self):
+        self.y += self.velocity[1]
+        self.velocity[1] += g
+
+    def draw(self, screen):
+        pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), self.radius)
+
+class Ball:
+    def __init__(self, x, y, radius):
+        self.x = x
+        self.y = y
+        self.radius = radius
+        self.velocity = [0, 0]
+
+    def draw(self, screen):
+        pygame.draw.circle(screen, (0, 0, 255), (int(self.x), int(self.y)), self.radius)
+
+    def update_position(self):
+        self.x += self.velocity[0]
+        self.y += self.velocity[1]
+
+# Initialize pygame
+pygame.init()
+running = True
+
+# load the background image
+background_image = pygame.image.load("background.jpg")
+
+# Set screen size
+size = (1440, 800)
+screen = pygame.display.set_mode(size)
+
+# gravity constant
+g = 0.1
+
+# set score variable
+score = 1
+
+# initialize balls
+balls = []
+
+# Initialize font
+font = pygame.font.Font(None, 30)
+info = pygame.display.Info()
+width = info.current_w
+height = info.current_h
+
+# Create enemy object
+enemies = []
+enemies.append(Enemy(width,random.randint(0, height),30,10,random.randint(2,5)))
+
+# Create the buildings
+building_width = width // 5
+buildings = [Building(i * building_width+(i*2), height - 50, building_width - 100, 50) for i in range(5)]
+
+# Create a cannon object
+cannons = []
+for building in buildings:
+    cannon = Cannon(building.x + building.width // 2, building.y + building.height // 2, 10, 10)
+    cannons.append(cannon)
+
+# Collision detection function
+def detect_collision(ball, enemy):
+    if (ball.x - enemy.x)**2 + (ball.y - enemy.y)**2 < (ball.radius + enemy.width)**2:
+        try:
+            enemies.remove(enemy)
+        except ValueError:
+            pass
+        return True
+    return False
+
+# Enemy bullet hitting building function
+def detect_hit(bullet, building):
+    if bullet.x >= building.x and bullet.x <= building.x + building.width and bullet.y >= building.y and bullet.y <= building.y + building.height:
+        building.take_damage()
+
+# Game Loop
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+        # Update angle of cannon on mouse movement
+        if event.type == pygame.MOUSEMOTION:
+            for cannon in cannons:
+                cannon.update_angle(event.pos[0], event.pos[1])
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN:
+                # Restart game
+                score = 0
+                cannon.shots_taken = 0
+                enemies = [Enemy(width,random.randint(0, height),30,10,random.randint(1,3))]
+                balls = []
+                buildings = [Building(i * building_width+1, height - 50, building_width - 100, 50) for i in range(5)]
+                buildings_alive = True
+                restart = True
+                break
+
+        # Shoot on mouse click
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            n = 0
+            for cannon in cannons:
+                if cannon.shots_taken < 200:
+                    buildings_alive = True
+                    if buildings[n].hp > 0:
+                        cannon.shoot()
+                        # Create a new ball with the current position and angle of the cannon
+                        ball = Ball(cannon.x + cannon.width/2, cannon.y + cannon.height/2, 5)
+                        ball.velocity = [math.cos(cannon.angle) * 14, math.sin(cannon.angle) * 14]
+                        # Add the new ball to the list of balls
+                        balls.append(ball)
+                    n += 1
+                    #for building in buildings:
+
+                else:
+                    if not balls:
+                        restart = False
+                       # Create popup with score
+                        popup = pygame.Surface((200, 100))
+                        popup.fill((255, 255, 255))
+                        press_enter_text = font.render("Press Enter", True, (0,0,0))
+                        popup.blit(press_enter_text, (10,0))
+                        score_text = font.render("Final Score: {}".format(score), True, (0, 0, 0))
+                        popup.blit(score_text, (10, 20))
+                        # update score and shots taken again
+            
+                        screen.blit(popup, (width/2 - 100, height/2 - 50))
+                        pygame.display.flip()
+                        # Wait for restart button to be clicked
+                        while not restart:
+                            for event in pygame.event.get():
+                                if event.type == pygame.QUIT:
+                                    running = False
+                                    break
+                                if event.type == pygame.KEYDOWN:
+                                    if event.key == pygame.K_RETURN:
+                                         # Restart game
+                                        score = 0
+                                        cannon.shots_taken = 0
+                                        enemies = [Enemy(width,random.randint(0, height),30,10,random.randint(1,3))]
+                                        balls = []
+                                        # Create enemy object
+                                        enemies = []
+                                        enemies.append(Enemy(width,random.randint(0, height),30,10,random.randint(1,3)))
+
+                                        # Create the buildings
+                                        buildings = [Building(i * building_width+1, height - 50, building_width - 100, 50) for i in range(5)]
+                                        restart = True
+                                        buildings_alive = True
+                                        break
+                                pygame.time.wait(100)
+                            if not running:
+                                break
+
+                        if event.type == pygame.KEYDOWN:
+                            if event.key == pygame.K_RETURN:
+                                # Restart game
+                                score = 0
+                                for cannon in cannons:
+                                    cannon.shots_taken = 0
+                                enemies = [Enemy(width,random.randint(0, height),30,10,random.randint(2,6))]
+                                balls = []
+                                restart = True
+                                break
+
+    # Update the position and velocity of all the balls in the list
+    for ball in balls:
+        ball.update_position()
+        ball.velocity[1] += g
+
+    # Clear screen
+    screen.fill((255, 255, 255))
+
+    # in the main game loop
+    screen.blit(background_image, (0, 0))
+
+    # Draw all the balls in the list
+    for ball in balls:
+        ball.draw(screen)
+    # Draw enemies
+    for enemy in enemies:
+        enemy.move()
+        enemy.draw(screen)
+
+    # Draw the buildings
+    for building in buildings:
+        building.draw(screen)
+
+        # Draw cannon
+    for cannon in cannons:
+        cannon.draw(screen)
+
+    # Check if enemy bullet hits building
+    #detect_hit(
+
+    # Check collision between balls and enemies
+    for enemy in enemies:
+        # Check if enemy has reached the left side of the screen
+        if enemy.rect.x < 0:
+            enemies.remove(enemy)
+            if score > 1:
+                score -= score * 0.002
+
+        for bullet in enemy.bullets:
+            for building in buildings:
+                if detect_hit(bullet, building):
+                    building.take_damage()
+
+        for ball in balls:
+            if ball.y > height:
+                try:
+                    balls.remove(ball)
+                except ValueError:
+                    pass
+                if score > 1:
+                    score -= score * 0.001
+            if detect_collision(ball, enemy):
+                try:
+                    enemies.remove(enemy)
+                except ValueError:
+                    pass
+                try:
+                    balls.remove(ball)
+                except ValueError:
+                    pass
+                score += 10
+
+                x = 0
+                if len(enemies) < 6:
+                    x = random.randint(1,4)
+                else:
+                    x = random.randint(0, 3)
+                while x:
+                    if len(enemies) < 10:
+                        enemies.append(Enemy(width,random.randint(100, height-100),30,10,random.randint(2,6)))
+                        x -= 1
+                    else:
+                        break
+    if len(enemies) == 0:
+        enemies.append(Enemy(width,random.randint(100, height-100),30,10,1))
+
+    # Print the score in the upper-left corner
+    score_text = font.render("Score: {}".format(score), True, (0, 0, 0))
+    screen.blit(score_text, (10, 10))
+    # Print the number of shots taken in the upper-right corner
+    shots_text = font.render("Shots taken: {}".format(cannons[0].shots_taken), True, (0, 0, 0))
+    screen.blit(shots_text, (width - shots_text.get_width() - 10, 10))
+
+    pygame.display.flip()
+
+    pygame.time.wait(11)
+
+# Quit pygame
+pygame.quit()
