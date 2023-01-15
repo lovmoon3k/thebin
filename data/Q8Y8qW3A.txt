@@ -1,0 +1,56 @@
+// Regex pattern to detect if path is relative by
+// matching for valid '.' or '..' path components
+static const regex_t dot_regex;
+static const char *dot_pattern = "(^\\.{1,2}/|/\\.{1,2}/|/\\.{1,2}$)";
+
+// Initializer function automatically invoked when shared library is loaded
+__attribute__((constructor)) static void library_initialize(void)
+{
+	int err;
+	if ((err = regcomp((regex_t *)&dot_regex, dot_pattern,
+			   REG_EXTENDED | REG_NOSUB))) {
+		fprintf(stderr, "error err=%d compiling regex=%s\n", err,
+			dot_pattern);
+		abort();
+	}
+}
+
+static int make_abspath(const char *src, char *buff, size_t size)
+{
+	// Check if we even have relative path to resolve by
+	// looking for '.' before the last directory component
+	const char *rpos = strrchr(src, '/');
+	if (!rpos || rpos == src || regexec(&dot_regex, src, 0, NULL, 0)) {
+		GITCEPTOR_TRACE("not a relative path=%s\n", src);
+		strncpy(buff, src, size);
+		return 0;
+	}
+
+	char *last = NULL;
+	char path[PATH_MAX];
+	buff[0] = '\0';
+	strncpy(path, src, sizeof(path));
+
+	for (char *word = strtok_r(path, "/", &last); word;
+	     word = strtok_r(NULL, "/", &last)) {
+		// Skip referring to current directory or repeat slash
+		if (!*word || !strcmp(word, ".")) {
+			continue;
+		}
+
+		// Traverse up to parent directory by popping the current leaf
+		if (!strcmp(word, "..")) {
+			char *right_slash = strrchr(buff, '/');
+			if (right_slash) {
+				right_slash[0] = '\0';
+			}
+			continue;
+		}
+
+		// Append valid directory component to absolute path
+		strncat(buff, "/", size);
+		strncat(buff, word, size);
+	}
+
+	return '\0' == *buff ? -1 : 0;
+}
