@@ -1,0 +1,42 @@
+Import-Module Influx
+
+$pgName = 'THW_VLAN108','THW_VLAN109'
+
+$vms = Get-VDPortgroup -Name $pgName | Get-VM | Sort-Object -Property Name
+$sStat = @{
+  Entity = $vms.Where{$_.PowerState -eq 'PoweredOn'}
+  Stat = 'cpu.usageMhz.average', 'mem.granted.average'
+  Realtime = $true
+  Start = (Get-Date).AddMinutes(-2)
+  Instance = ''
+}
+$tabVM = @{}
+Get-Stat @SStat | Group-Object -Property {$_.Entity.Name} |
+ForEach-Object -Process {
+  $tabVM.Add($_.Name,$_.Group)
+}
+$result = $vms | ForEach-Object -Process {
+  $obj = New-Object -TypeName PSObject -Property ([ordered]@{
+      VM = $_.Name
+      'Provisioned Space' = [math]::Round($_.ProvisionedSpaceGB, 2)
+      'Used Space' = [math]::Round($_.UsedSpaceGB, 2)
+      CPUMHz = 0
+      MemGB = 0
+  })
+  if($tabVm.ContainsKey($_.Name)){
+      $obj.CPUMHz = [math]::Round(($tabVM[$_.Name].Where{ $_.MetricId -eq 'cpu.usageMhz.average' }.Value | Measure-Object -Average).Average, 0)
+      $obj.MemGB = [math]::Round(($tabVM[$_.Name].Where{ $_.MetricId -eq 'mem.granted.average' }.Value | Measure-Object -Average).Average / 1MB, 2)
+  }
+  $obj
+} | Measure-Object -Property 'Provisioned Space','Used Space',CPUMHz,MemGB -Sum
+
+$metrics = @{
+    Portgroup = $pgName
+    'Provisioned Space' = $result.Where{ $_.Property -eq 'Provisioned Space' }.Sum
+    'Used Space' = $result.Where{ $_.Property -eq 'Used Space' }.Sum
+    CPUMHz = $result.Where{ $_.Property -eq 'CPUMHz' }.Sum
+    MemGB = $result.Where{ $_.Property -eq 'MemGB' }.Sum
+}
+
+Write-Influx -Measure VMCombinedStats -Tags @{host="vcenter"} -Metrics $Metrics -Database "VMwareDB2" -Server http://10.1.2.6:8086 -Credential $credentialsinflux
+    Start-Sleep -Seconds 10
