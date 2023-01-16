@@ -1,0 +1,127 @@
+from selenium import webdriver
+from itertools import chain
+
+# Requirements:
+# Python 3.10
+# selenium 4.7.2
+# ChromeDriver 104 (via PATH)
+# newer versions probably work, but I haven't tested them
+
+# PARAMETERS
+
+# runs 2 JS queries for every entry
+SHOW = 20
+
+# URL of when2meet schedule
+URL = 'https://www.when2meet.com/?18317638-HrzcO'
+
+# ...
+
+concat = lambda x: list(chain.from_iterable(x))
+
+print('starting webdriver...')
+options = webdriver.ChromeOptions()
+options.headless = True
+
+driver = webdriver.Chrome(options=options)
+driver.get(URL)
+
+# globals descriptions:
+# zip AvailableAtSlot TimeOfSlot :: [([people ids], time code)]
+# zip PeopleNames PeopleIDs :: [(name, id)]
+
+print('querying data...')
+
+
+# 900 delta = 15 minutes
+# [([ids], time_code)]
+time_slots = list(zip(driver.execute_script('return AvailableAtSlot'),
+                      driver.execute_script('return TimeOfSlot')))
+time_slots.sort(key=lambda t: t[1])
+
+# requires them to be available for a full hour
+hour_availability = []
+for i in range(len(time_slots)):
+    ppl0, t0 = time_slots[i]
+    ppl = set(ppl0)
+    for j in range(1, 4):
+        if i + j >= len(time_slots):
+            ppl = set()
+            break
+        ppl1, _t1 = time_slots[i + j]
+        ppl = ppl.intersection(set(ppl1))
+
+    hour_availability.append((ppl, t0))
+
+time_slots = hour_availability
+
+# { id: name }
+people = {id: name for (id, name) in zip(
+    driver.execute_script('return PeopleIDs'),
+    driver.execute_script('return PeopleNames'))}
+num_people = len(people)
+print(f'{num_people} people')
+print(people)
+
+# { time_code: day }
+day_cache = {}
+def get_day(time_code: int) -> str:
+    if time_code in day_cache:
+        return day_cache[time_code]
+    f = f'''return (function(time) {'{'}
+            var e = document.getElementById("ParticipantTimeZone");
+            var timezone = e[e.selectedIndex].value;
+            var date = new Date({time_code} * 1000);
+            var dayOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][moment.tz(date,timezone).format('e')];
+            return dayOfWeek;
+        {'}'})()
+        '''
+    day = driver.execute_script(f, time_code)
+    day_cache[time_code] = day
+    return day
+
+def get_pretty_time_string(time_code: int) -> str:
+
+    f = f'''return (function(time) {'{'}
+        var e = document.getElementById("ParticipantTimeZone");
+        var timezone = e[e.selectedIndex].value;
+    
+        var date = new Date({time_code} * 1000);
+        var dayOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][moment.tz(date,timezone).format('e')];
+        var hours = moment.tz(date,timezone).format('H');
+        var suffix = hours>=12 ? "pm" : "am";
+        if (hours>12) hours -= 12;
+        if (hours==0) hours = 12;
+        var minutes = moment.tz(date,timezone).format('mm');
+        return dayOfWeek + " at " + hours + ":" + minutes + " " + suffix;
+    {'}'})()
+    '''
+    return driver.execute_script(f, time_code)
+
+print('finding best times...')
+
+# [ ((tc0, tc1), combined_availability, combined_attendees) ]
+combos = concat([ [
+    ((t0, t1),
+     set(a0).union(a1),
+     len(a0) + len(a1)) for (a1, t1) in time_slots if t1 > t0 and get_day(t0) != get_day(t1)] for (a0, t0) in time_slots ])
+
+class LazyRepr:
+    def __init__(self, obj, to_repr):
+        self.data = obj
+        self.to_repr_f = to_repr
+    def __repr__(self):
+        return self.to_repr_f(self.data)
+
+# [ (score, (time_string_1, time_string_2), (num_attendees, attendees)) ]
+events = [ (len(av) + att/num_people/2,
+            (LazyRepr(t0, get_pretty_time_string),
+             LazyRepr(t1, get_pretty_time_string)),
+            (len(av), [people[p] for p in av])) for ((t0, t1), av, att) in combos ]
+
+events.sort(key=lambda event: event[0], reverse=True)
+
+print(f'Top {SHOW} events:')
+print('score, times, (total people, people)')
+for i in range(min(len(events), SHOW)):
+    print(str(events[i]))
