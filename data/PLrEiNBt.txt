@@ -1,0 +1,266 @@
+#===============================================================================
+# Bank of Mom - By Vendily [v20]
+#===============================================================================
+# This script adds in the Bank of Mom Feature from GSC or HGSS, where
+#  the player's mother will save money and occasionally buy items.
+# The mom attempts to buy an item after the end of every battle, if she can
+#  afford one of the MOM_FIXED_ITEMS or MOM_RANDOM_ITEMS.
+# If she buys an item, she will call the player after the battle ends.
+#===============================================================================
+# Several additional, required edits in `def pbMessageDisplay` to add 
+#  the `mgoldwindow` variable, to show how much money the Bank of Mom holds.
+#  1. Under `goldwindow = nil`, put `mgoldwindow = nil`
+#  2. In the long `while text` regex, add `mg|` before `g|`
+#  3. Under:
+#      when "g"      # Display gold window
+#        goldwindow&.dispose
+#        goldwindow = pbDisplayGoldWindow(msgwindow)
+#     Put:
+#       when "mg"    # Display mom gold window
+#         mgoldwindow&.dispose
+#         mgoldwindow = pbDisplayMomGoldWindow(msgwindow, goldwindow)
+#  4. Under `goldwindow&.dispose`, put `mgoldwindow&.dispose`
+# These edits may have to be made to a plugin if one overrides this method.
+#===============================================================================
+# Some neat details.
+#  - The mom can save 1/4, 1/2 or all the money the player wins in battle.
+#     This is set by the player. This does not affect earnings from Pay Day.
+#  - pbMomManageBank allows the player to withdraw, deposit, or change the
+#     amount saved, or cancel saving altogether.
+#  - The mom still spends money even if the player is not saving anymore.
+#  - The mom defaults to not saving any money.
+#===============================================================================
+module Settings
+  MAX_MOM_MONEY      = 999_999
+  # The fixed items that appear from the mom.
+  # Triggered when the player exceeds a certain bank balance.
+  # Earned in the order defined.
+  # Trigger, Cost, Item ID, Quantity (Defaults to 1)
+  # The Cost is NOT multiplied by the quantity.
+  # Technically if the Item ID is a number,
+  #  you can make an exception in the code for it (like decorations)
+  MOM_FIXED_ITEMS    = [
+                        [   900,  600, :SUPERPOTION],
+                        [  4000,  270, :REPEL],
+                        [  7000,  600, :SUPERPOTION],
+                        [ 10000, 1800, :SILKSCARF],
+                        [ 15000, 3000, :MOONSTONE],
+                        [ 19000,  600, :SUPERPOTION],
+                        [ 30000, 4800, :CHOICESCARF],
+                        [ 40000,  900, :HYPERPOTION],
+                        [ 50000, 8000, :MUSCLEBAND],
+                        [100000,10000, :FOCUSSASH]
+                       ]
+  # On a balance with a multiple of this number,
+  #  a random MOM_RANDOM_ITEMS item will be bought
+  #  provided a MOM_FIXED_ITEMS item is not available.
+  # Cost, Item ID, Quantity (Defaults to 1)
+  # The Cost is NOT multiplied by the quantity.
+  MOM_RANDOM_TRIGGER = 2300
+  MOM_RANDOM_ITEMS   = [
+                        [600, :SUPERPOTION],
+                        [ 90, :ANTIDOTE],
+                        [180, :POKEBALL],
+                        [450, :ESCAPEROPE],
+                        [500, :GREATBALL]
+                       ]
+end
+
+class PokemonGlobalMetadata
+  attr_writer :mom_saving
+  attr_writer :mom_item_index
+  def mom_saving; return (@mom_saving || 0); end
+  def mom_item_index; return (@mom_item_index || 0); end
+  def mom_money; return (@mom_money || 0); end
+  def mom_money=(value)
+    validate value => Integer
+    @mom_money = value.clamp(0, Settings::MAX_MOM_MONEY)
+  end
+end
+  
+class Battle
+  def pbGainMoney
+    return if !@internalBattle || !@moneyGain
+    # Money rewarded from opposing trainers
+    if trainerBattle?
+      tMoney = 0
+      @opponent.each_with_index do |t, i|
+        tMoney += pbMaxLevelInTeam(1, i) * t.base_money
+      end
+      tMoney *= 2 if @field.effects[PBEffects::AmuletCoin]
+      tMoney *= 2 if @field.effects[PBEffects::HappyHour]
+      oldMoney = pbPlayer.money
+      mMoney = 0
+      oldmMoney = $PokemonGlobal.mom_money
+      if $PokemonGlobal.mom_saving>0
+        amount = [4,2,1][$PokemonGlobal.mom_saving-1]
+        mMoney = (tMoney/amount)
+        tMoney = tMoney-mMoney
+      end
+      pbPlayer.money += tMoney
+      $PokemonGlobal.mom_money += mMoney
+      moneyGained = pbPlayer.money - oldMoney
+      moneyGained +=  $PokemonGlobal.mom_money - oldmMoney
+      if moneyGained > 0
+        $stats.battle_money_gained += moneyGained
+        pbDisplayPaused(_INTL("You got ${1} for winning!", moneyGained.to_s_formatted))
+        if $PokemonGlobal.mom_saving>0
+          text = [_INTL("Sent some to Mom!"),
+                  _INTL("Sent half to Mom!"),
+                  _INTL("Sent all to Mom!")][$PokemonGlobal.mom_saving-1]
+          pbDisplayPaused(text)
+        end
+      end
+    end
+    # Pick up money scattered by Pay Day
+    if @field.effects[PBEffects::PayDay] > 0
+      @field.effects[PBEffects::PayDay] *= 2 if @field.effects[PBEffects::AmuletCoin]
+      @field.effects[PBEffects::PayDay] *= 2 if @field.effects[PBEffects::HappyHour]
+      oldMoney = pbPlayer.money
+      pbPlayer.money += @field.effects[PBEffects::PayDay]
+      moneyGained = pbPlayer.money - oldMoney
+      if moneyGained > 0
+        $stats.battle_money_gained += moneyGained
+        pbDisplayPaused(_INTL("You picked up ${1}!", moneyGained.to_s_formatted))
+      end
+    end
+  end
+end
+
+# type 0 == regular item. More for convience's sake 
+def pbMomBoughtMoneyCall(type=0)
+  pbMessage(_INTL("......\\wt[5] ......"))
+  pbMessage(_INTL("Hi, {1}! How are you?\\1",$player.name))
+  case type
+  when 0
+    pbMessage(_INTL("I found a useful item shopping, so\\1"))
+  end
+  pbMessage(_INTL("I bought it with your money. Sorry!\\1"))
+  case type
+  when 0
+    pbMessage(_INTL("It's in your PC. You'll like it!"))
+  end
+  pbMessage(_INTL("Click!\\wt[10]\\n......\\wt[5] ......"))
+end
+
+def pbMomManageBank
+  commands = [_INTL("Withdraw"), _INTL("Deposit"), _INTL("Change"), _INTL("Cancel")]
+  cmd = 0
+  loop do
+    cmd = pbMessage(_INTL("\\G\\MGWhat do you want to do?"),commands,-1,nil,cmd)
+    case cmd
+    when 0 # Withdraw
+      params = ChooseNumberParams.new
+      params.setRange(0, $PokemonGlobal.mom_money)
+      params.setDefaultValue(0)
+      newval = pbMessageChooseNumber(
+        _INTL("\\G\\MGHow much do you want to take?"), params
+      )
+      if newval==0
+        next
+      elsif (newval+$player.money)>Settings::MAX_MONEY
+        pbMessage(_INTL("\\G\\MGYou can't take that much.\\1"))
+      else
+        pbSEPlay("Mart buy item")
+        $player.money+=newval
+        $PokemonGlobal.mom_money-=newval
+        pbMessage(_INTL("\\G\\MG{1}, don't give up!\\1"),$player.name)
+      end
+    when 1 # Deposit
+      params = ChooseNumberParams.new
+      params.setRange(0, $player.money)
+      params.setDefaultValue(0)
+      newval = pbMessageChooseNumber(
+        _INTL("\\G\\MGHow much do you want to save?"), params
+      )
+      if newval==0
+        next
+      elsif (newval+$PokemonGlobal.mom_money)>Settings::MAX_MOM_MONEY
+        pbMessage(_INTL("\\G\\MGYou can't save that much.\\1"))
+      else
+        pbSEPlay("Mart buy item")
+        $player.money-=newval
+        $PokemonGlobal.mom_money+=newval
+        pbMessage(_INTL("\\G\\MGYour money's safe here!\\1"))
+      end
+    when 2 # Start/Stop Saving
+      save_commands = [_INTL("Stop Saving"),_INTL("Save Some"),_INTL("Save Half"),_INTL("Save All")]
+      save_texts = [_INTL("\\G\\MGI'm not saving any money.\\nDo you want to save some money?"),
+                   _INTL("\\G\\MGI'm saving some of your money.\\nDo you want to save some money?"),
+                   _INTL("\\G\\MGI'm saving half of your money.\\nDo you want to save some money?"),
+                   _INTL("\\G\\MGI'm saving all of your money.\\nDo you want to save some money?")]
+      save_cmd = $PokemonGlobal.mom_saving
+      save_cmd = pbMessage(save_texts[save_cmd],save_commands,save_cmd+1,nil,save_cmd)
+      $PokemonGlobal.mom_saving = save_cmd
+      if $PokemonGlobal.mom_saving>0
+        pbMessage(_INTL("\\G\\MGOK, I'll save your money. Trust me!\\1"))
+      else
+        pbMessage(_INTL("\\G\\MGJust do what you can.\\1"))
+      end
+    else # Cancel
+      break
+    end
+  end
+end
+
+def pbGetMomGoldString
+  return _INTL("${1}", $PokemonGlobal.mom_money.to_s_formatted)
+end
+
+def pbDisplayMomGoldWindow(msgwindow, goldwindow)
+  moneyString = pbGetMomGoldString
+  mgoldwindow = Window_AdvancedTextPokemon.new(_INTL("Bank:\n<ar>{1}</ar>", moneyString))
+  mgoldwindow.setSkin("Graphics/Windowskins/goldskin")
+  mgoldwindow.resizeToFit(mgoldwindow.text, Graphics.width)
+  mgoldwindow.width = 160 if mgoldwindow.width <= 160
+  if msgwindow.y == 0
+    mgoldwindow.y = (goldwindow) ? goldwindow.y - mgoldwindow.height : Graphics.height - mgoldwindow.height
+  else
+    mgoldwindow.y = (goldwindow) ? mgoldwindow.height : 0
+  end
+  mgoldwindow.viewport = msgwindow.viewport
+  mgoldwindow.z = msgwindow.z
+  return mgoldwindow
+end
+
+EventHandlers.add(:on_end_battle, :mom_buy_item,
+  proc { |decision, canLose|
+    next if decision == 2 || decision == 5 # No item if you lost.
+    # next if bad phone service goes here.
+    if !$PokemonGlobal.pcItemStorage
+      $PokemonGlobal.pcItemStorage = PCItemStorage.new
+    end
+    bought_something = -1
+    if $PokemonGlobal.mom_item_index<Settings::MOM_FIXED_ITEMS.length
+      current_item = Settings::MOM_FIXED_ITEMS[$PokemonGlobal.mom_item_index]
+      if $PokemonGlobal.mom_money >= current_item[0] # has trigger money
+        if $PokemonGlobal.mom_money >= current_item[1]
+          # Exceptions would go here.
+          qty = current_item[3] || 1
+          if $PokemonGlobal.pcItemStorage.can_add?(current_item[2],qty)
+            bought_something = 0
+            $PokemonGlobal.pcItemStorage.add(current_item[2],qty)
+            $PokemonGlobal.mom_money-=current_item[1]
+            $PokemonGlobal.mom_item_index+=1
+          end
+        end
+      end
+    end
+    # Try to buy a random item then
+    if bought_something<0
+      if ($PokemonGlobal.mom_money%Settings::MOM_RANDOM_TRIGGER) == 0
+        rand_item = Settings::MOM_RANDOM_ITEMS[rand(Settings::MOM_RANDOM_ITEMS.length)]
+        if $PokemonGlobal.mom_money >= current_item[0]
+          # Exceptions would go here.
+          qty = current_item[2] || 1
+          if $PokemonGlobal.pcItemStorage.can_add?(current_item[1],qty)
+            bought_something = 0
+            $PokemonGlobal.pcItemStorage.add(current_item[1],qty)
+            $PokemonGlobal.mom_money-=current_item[0]
+          end
+        end
+      end
+    end
+    pbMomBoughtMoneyCall(bought_something) if bought_something>=0
+  }
+)
