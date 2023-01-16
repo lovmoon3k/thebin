@@ -1,0 +1,302 @@
+import PlaygroundSupport
+import Foundation
+import SwiftUI
+import PDFKit
+import SceneKit
+import UniformTypeIdentifiers
+import SafariServices
+
+
+//https://blog.techchee.com/pdf-composer-app-swiftui/
+
+
+class PdfCreator : NSObject {
+    private var pageRect : CGRect
+    private var renderer : UIGraphicsPDFRenderer?
+    
+   
+    init(pageRect : CGRect = 
+         CGRect(x: 0, y: 0, width: (8.5 * 72.0), height: (11 * 72.0))) {
+        
+        let format = UIGraphicsPDFRendererFormat()
+        let metaData = [kCGPDFContextTitle: "Articren Journal",
+                       kCGPDFContextAuthor: "Articren"]
+        
+        format.documentInfo = metaData as [String: Any]
+        self.pageRect = pageRect
+        self.renderer = UIGraphicsPDFRenderer(bounds: self.pageRect,
+                                              format: format)
+        super.init()
+    }
+}
+extension PdfCreator {
+    private func addTitle ( title  : String ){
+        let textRect = CGRect(x: 20, y: 20, 
+                              width: pageRect.width - 40 ,height: 40)
+        title.draw(in: textRect, 
+                   withAttributes: [NSAttributedString.Key.font: UIFont.boldSystemFont(ofSize: 30)])
+    }
+    
+    private func addBody (body : String) {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .justified
+        
+        let attributes = [
+            NSAttributedString.Key.font: UIFont.systemFont(ofSize: 20),
+            NSAttributedString.Key.paragraphStyle: paragraphStyle,
+            NSAttributedString.Key.foregroundColor : UIColor.gray
+        ]
+        
+        let bodyRect = CGRect(x: 20, y: 70,
+                              width: pageRect.width - 40 ,height: pageRect.height - 80)
+        body.draw(in: bodyRect, withAttributes: attributes)
+    }
+}
+extension PdfCreator {
+    
+    func pdfData( title : String, body: String ) -> Data? {
+        if let renderer = self.renderer {
+            
+            let data = renderer.pdfData  { ctx in
+                ctx.beginPage()
+                addTitle(title: title)
+                addBody(body: body)
+                
+            }
+            return data
+        }
+        return nil
+    }
+}
+struct Content{
+ //   @EnvironmentObject private var mantisgimbal : MantisGimbal
+    var title : String = "Mantis Lab Data:"
+    var body : String = ""
+    
+}
+
+class ArticrenJournalModel : ObservableObject {
+    @Published private var content = Content()
+   // @ObservedObject var mantisgimbal = MantisGimbal()
+  
+    var title : String {
+        get { content.title }
+        set (newTitle){
+            content.title = newTitle
+        }
+    }
+   
+    var body : String {
+        get { content.body }
+        set (newBody){
+            content.body = newBody
+        }
+    }
+    
+    
+}
+extension ArticrenJournalModel {
+    func pdfData() -> Data? {
+        return PdfCreator().pdfData(title : self.title, 
+                                    body: self.body)
+    }
+    
+    func clear(){
+        self.title = "Mantis Lab Data:"
+        self.body = ""
+    }
+}
+struct ArticrenJournal: View {
+   // @ObservedObject var mantisgimbal = MantisGimbal()
+   
+    @State var PDFUrl: URL?
+    @State var showShareSheet: Bool = false
+    @EnvironmentObject private var articrenjournalModel : ArticrenJournalModel
+    @EnvironmentObject private var mantisgimbal : MantisGimbal
+    //@StateObject private var articrenjournalModel = ArticrenJournalModel()
+    var body: some View {
+        
+        ScrollView([.horizontal, .vertical], showsIndicators: true) {
+         /*   VStack(alignment: .center) {
+                //Mark: Self is current View
+                //You can give whatever view to convert
+                Button{
+                    exportPDF{
+                        self
+                        //.environmentObject(sharedData)
+                        
+                    } completion: { status, url in
+                        if let url = url,status{
+                            // print(url)
+                            self.PDFUrl = url
+                            self.showShareSheet.toggle()
+                        }
+                        else{
+                            print("Failed to produce PDF.")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up.fill")
+                        .font(.title2)
+                        .foregroundColor(Color.black.opacity(0.7))
+                }
+                
+            }*/
+            VStack(alignment: .center) {
+                Text("Articren Journal: Mantis Lab")
+                    .font(.largeTitle.weight(.semibold))
+                    .shadow(radius: 3)
+                
+                VStack(alignment: .center) {
+                    form()
+                    buttons()
+                   
+                }
+            }//.frame(
+              //  maxWidth: 800,
+               // maxHeight: .infinity, alignment: .top)
+              .environmentObject(articrenjournalModel)
+            .environmentObject(mantisgimbal)
+              .padding(.bottom, 30)
+            
+        }.background(LinearGradient(gradient: Gradient(colors: [.green, .brown,]), startPoint: .topTrailing, endPoint: .bottomLeading))
+        //.background(LinearGradient(gradient: Gradient(colors: [.brown, .black]), startPoint: .topTrailing, endPoint: .bottomLeading))
+        
+      
+    }
+}
+
+
+
+extension ArticrenJournal {  
+    
+    private func form() -> some View {
+        Form {
+           TextField("Mantis Lab Data:", text: $articrenjournalModel.title )
+           Text("Mantis Duration Vector: \(mantisgimbal.durXY)").font(.callout).bold()
+           // Text("Mantis Lab Data:")
+          //  Text("Solartal Log:").font(.headline)
+            
+            TextEditor(text: $articrenjournalModel.body)
+                .frame(width: 600)
+                .frame(height: 460)
+        }
+        .padding(8)
+        .frame(width: 770)
+        .frame(height: 650)
+        .padding(4)
+        .frame(
+            maxWidth: 800,
+            maxHeight: .infinity, alignment: .top)
+    }
+}
+extension ArticrenJournal{ 
+    private func buttons() -> some View {
+        
+        HStack(spacing : 50) {
+            NavigationLink(destination : PdfPreviewView() ){
+                Text("Share")
+                    .font(.caption.weight(.semibold))
+                    .padding()
+                    .frame(width: 80)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(16)
+            }
+            
+            Button(action: { articrenjournalModel.clear() }, label: {
+                Text("Clear")
+                    .font(.caption.weight(.semibold))
+                    .padding()
+                    .frame(width: 80)
+                    .background(Color.red)
+                    .foregroundColor(.white)
+                    .cornerRadius(16)
+            })
+        } .frame(
+            maxWidth: .infinity,
+            maxHeight: .infinity, alignment: .top)
+    }
+}
+struct PdfViewUI : UIViewRepresentable {
+    
+    private var data: Data?
+    
+    private let autoScales : Bool
+    
+    init(data : Data?, autoScales : Bool = true ) {
+        self.data = data
+        self.autoScales = autoScales
+    }
+    
+    func makeUIView(context: Context) -> PDFView {
+        let pdfView = PDFView()
+        
+        pdfView.autoScales =  self.autoScales
+        
+        if let data = self.data {        
+            pdfView.document = PDFDocument(data: data) 
+        }
+        
+        return pdfView
+    }
+    
+    func updateUIView(_ uiView: PDFView, context: Context) {
+        // Empty
+    }
+}
+
+struct ShareView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    let applicationActivities: [UIActivity]? = nil 
+    
+    func makeUIViewController(context: UIViewControllerRepresentableContext<ShareView>) -> 
+    UIActivityViewController {
+        return UIActivityViewController(activityItems: activityItems,
+                                        applicationActivities: applicationActivities)
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController,
+                                context: UIViewControllerRepresentableContext<ShareView>) {
+        // empty
+    }
+}
+struct PdfPreviewView  : View {
+    @EnvironmentObject private var articrenjournalModel : ArticrenJournalModel
+    @EnvironmentObject private var mantisgimbal : MantisGimbal
+    @State private var showShareSheet : Bool = false
+    
+    var body: some View {
+        
+        VStack {
+            PdfViewUI(data: articrenjournalModel.pdfData())
+            
+            shareButton()
+            Spacer()
+        }
+        .navigationTitle(Text("Mantis Lab Data"))
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showShareSheet, content: {
+            if let data = articrenjournalModel.pdfData() {
+                ShareView(activityItems: [data])
+            }
+        })
+    }
+}
+extension PdfPreviewView {
+    
+ 
+    private func shareButton() -> some View {
+     
+        Button(action: {
+            self.showShareSheet.toggle()
+        }, label: {
+            Text("Share")
+                .padding(10)
+                .frame(width: 100)
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(20)     
+        })       
+    }
+}
