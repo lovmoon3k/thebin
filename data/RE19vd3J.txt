@@ -1,0 +1,193 @@
+local component = require("component")
+local event = require("event")
+local sides = require("sides")
+local math = require("math")
+
+local gpu = component.gpu
+
+local width = 12
+local height = 3
+
+local lowThreshold = 30
+local highThreshold = 70
+local generatorControllerSide = sides.south
+
+function numberFormat(number)
+  local i, j, minus, int, fraction = tostring(number):find('([-]?)(%d+)([.]?%d*)')
+
+  -- reverse the int-string and append a comma to all blocks of 3 digits
+  int = int:reverse():gsub("(%d%d%d)", "%1 ")
+
+  -- reverse the int-string back remove an optional comma and put the
+  -- optional minus and fractional part back
+  return minus .. int:reverse():gsub("^,", "") .. fraction
+end
+
+function addSpacesLeft(str, length)
+  while #str < length do
+    str = " " .. str
+  end  
+
+  return str
+end
+
+function setMaxAvailableResolution()
+  local width, height = gpu.maxResolution()
+
+  gpu.setResolution(width, height)
+end
+
+function cleanScreen()
+  local width, height = gpu.getResolution()
+
+  gpu.fill(1, 1, width, height, ' ')
+end
+
+function getInventoryControlList()
+  local ic = component.list("inventory_control", false)
+  local inventoryControllList = {}
+
+  for address in ic do
+    table.insert(inventoryControllList, component.proxy(address))
+  end
+
+  return inventoryControllList
+end
+
+function getChargeForAllIC(icList) 
+  local charge = 0
+  local maxCharge = 0
+
+  if (icList == nil) then
+    return charge, maxCharge
+  end
+
+  for _, ic in pairs(icList) do
+    local c, max = getChargeForAllStorages(ic)
+
+    charge = charge + c
+    maxCharge = maxCharge + max
+  end
+
+  return charge, maxCharge
+end
+
+function getChargeForAllStorages(ic)
+  local charge = 0
+  local maxCharge = 0
+
+  local c, max = getCharge(ic.getAllStacks(sides.bottom))
+  charge = charge + c
+  maxCharge = maxCharge + max
+  
+  local c, max = getCharge(ic.getAllStacks(sides.top))
+  charge = charge + c
+  maxCharge = maxCharge + max
+
+  local c, max = getCharge(ic.getAllStacks(sides.back))
+  charge = charge + c
+  maxCharge = maxCharge + max
+
+  local c, max = getCharge(ic.getAllStacks(sides.front))
+  charge = charge + c
+  maxCharge = maxCharge + max
+
+  local c, max = getCharge(ic.getAllStacks(sides.right))
+  charge = charge + c
+  maxCharge = maxCharge + max
+
+  local c, max = getCharge(ic.getAllStacks(sides.left))
+  charge = charge + c
+  maxCharge = maxCharge + max
+
+  return charge, maxCharge
+end
+
+function getCharge(batteryBuffer)
+  if batteryBuffer == nil then
+    return 0, 0
+  end
+
+  local batteries = batteryBuffer.getAll()
+  local charge = 0
+  local maxCharge = 0
+
+  for _, battery in pairs(batteries) do
+    if battery ~= nil then
+      if battery.charge ~= nil then
+        charge = charge + battery.charge
+      end
+      if battery.maxCharge ~= nil then
+        maxCharge = maxCharge + battery.maxCharge
+      end
+    end
+  end
+
+  return charge, maxCharge
+end
+
+function showCharge(charge, maxCharge, percent, isWorking)
+  local status = ""
+  gpu.fill(1, 1, width, height, ' ')
+
+  if (isWorking) then
+    status = "Working"
+  else
+    status = "Idle"
+  end
+  
+  gpu.set(1, 1, addSpacesLeft(tostring(numberFormat(math.floor(charge))), width))
+  gpu.set(1, 2, addSpacesLeft(tostring(numberFormat(math.floor(maxCharge))), width))
+  gpu.set(2, 3, math.ceil(percent) .. "% - " ..status)
+end
+
+function updateGenerator(percent)
+  if (not component.isAvailable("redstone"))  then
+    return false
+  end
+
+  local rs = component.redstone
+
+  if (rs == nil) then
+    return false
+  end
+
+  if (percent < lowThreshold) then
+    component.redstone.setOutput(generatorControllerSide, 15)
+    return true
+  end
+
+  if (percent > highThreshold) then
+    component.redstone.setOutput(generatorControllerSide, 0)
+    return false
+  end
+
+  return component.redstone.getOutput(generatorControllerSide) > 0
+end
+
+function update()
+  local ic = getInventoryControlList()
+  local charge, maxCharge = getChargeForAllIC(ic)
+  local percent = (charge / maxCharge) * 100
+
+  local isWorking = updateGenerator(percent)
+  showCharge(charge, maxCharge, percent, false)
+end
+
+local isWorking = true
+
+function handleKeyEvent()
+  isWorking = false
+end
+
+gpu.setResolution(width, height)
+event.listen("key_down", handleKeyEvent)
+
+while isWorking do
+  update()
+  
+  os.sleep(1)
+end
+
+setMaxAvailableResolution()
+cleanScreen()
