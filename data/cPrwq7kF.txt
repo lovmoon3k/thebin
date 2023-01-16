@@ -1,0 +1,89 @@
+#!/usr/local/bin/python
+# coding: utf-8
+import json
+from datetime import datetime
+import re
+import os
+
+f = open('messages.json')
+data = json.load(f)
+f.close()
+
+print(data.get('userId'))
+
+for c in data.get('conversations', [])[:2]: # DEBUG: proceed with 2 dialogs only
+    folder_name = 'export_skype_%s' % c.get('displayName', '')
+    if not os.path.exists(folder_name):
+        os.makedirs(folder_name)
+
+    f = open(folder_name + '/_chat.txt', 'w+')
+
+    first_line = True
+
+
+    for m in c.get('MessageList', []):
+        # format messages as
+        # [dd.mm.yyyy, HH:MM:SS] nick: message
+        # [dd.mm.yyyy, HH:MM:SS] nick: <прикреплено: ХХХХ-ХХХХ-ХХХХ.jpg>
+
+
+        # time
+        res_arrival_time_str = None
+        try:
+            orig_arrival_time_str = m.get('originalarrivaltime') 
+            orig_arrival_time = datetime.strptime(orig_arrival_time_str[:19], '%Y-%m-%dT%H:%M:%S') # "2023-01-12T19:49:29.56Z"
+            res_arrival_time_str = datetime.strftime(orig_arrival_time, '%d.%m.%Y, %H:%M:%S')
+        except:
+            pass
+        # print(res_arrival_time_str)
+        # sender
+        res_sender = None
+        orig_sender = m.get('from')
+        if orig_sender == '8:live:user_id':
+            res_sender = 'phone_number'
+        else:
+            res_sender = orig_sender
+        # print(res_sender)
+        # message text
+        # ignored message types: ThreadActivity/TopicUpdate, ThreadActivity/HistoryDisclosedUpdate, ThreadActivity/JoiningEnabledUpdate, ThreadActivity/PictureUpdate,
+        #                        EndToEndEncryption/EncryptedText, RichText/Media_Album, RichText/Media_GenericFile, RichText/Media_AudioMsg, Event/Call, Poll,
+        #                        Text (this one contains useless data like `Call Log for Call 4f729474-ea5f-4364-a9b7-97dffef84b02`)
+        res_text = None
+        if m.get('messagetype', '') == 'RichText/UriObject':
+            regex = r"objects/(.*?)\"" 
+            content = m.get('content', '')
+            m = re.search(regex, content)
+            if m: 
+                if os.path.isfile('media/'+ m.group(1) + '.1.jpg'): # only JPEG and PNG files are supported
+                    filename = m.group(1) + '.1.jpg' 
+                else:
+                    filename = m.group(1) + '.1.png'
+                # move file
+                print('media/'+filename, os.path.isfile('media/'+filename))
+                if os.path.isfile('media/'+filename):
+                    res_text = u'<прикреплено: %s>' % filename
+                    os.rename('media/'+filename, folder_name+'/'+filename)
+        elif m.get('messagetype', '') == 'RichText':
+            res_text = m.get('content')
+            res_text = res_text.replace('<i raw_pre="_" raw_post="_">', '_')
+            res_text = res_text.replace('</i>', '_')
+            res_text = res_text.replace('<b raw_pre="*" raw_post="*">', '*')
+            res_text = res_text.replace('</b>', '*')
+            res_text = res_text.replace('\n', '\\n')
+            res_text = res_text.replace('\r', '\\r')
+        # print(res_text)
+
+        if res_arrival_time_str and res_sender and res_text:
+            res_line = '[%s] %s: %s' % (res_arrival_time_str, res_sender, res_text)
+            if first_line:
+                first_line_str = u'[%s] %s создал(-а) группу "%s"' % (res_arrival_time_str, res_sender, c.get('displayName', ''))
+                f.write(first_line_str.encode('utf-8')+'\r\n')
+                first_line = False
+
+            f.write(res_line.encode('utf-8')+'\r\n')
+            # print(res_line)
+        else:
+            # print(res_arrival_time_str, res_sender, res_text)
+            pass
+
+    f.close()
