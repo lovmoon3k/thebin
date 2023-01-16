@@ -1,0 +1,94 @@
+def train_fn(config=None):
+    # Initialize a new wandb run
+    with wandb.init(config=config):
+        model = make_model(
+            cnn_size=wandb.config.cnn_size,
+            dropout=wandb.config.dropout,
+            denses=wandb.config.denses,
+            dense_activation = wandb.config.dense_activation,
+        )
+
+        # Compile
+        optimizer = getattr(
+            tf.keras.optimizers, 
+            wandb.config.optimizer
+        )
+        lr = wandb.config.learning_rate
+        model.compile(
+            optimizer=optimizer(learning_rate=lr),
+            loss=tfa.losses.pinball_loss,
+            metrics=wape,
+        )
+
+        callbacks = [
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor="val_loss",
+                factor=0.1,
+                patience=5,
+                verbose=1,
+                mode="auto",
+                min_delta=1e-9,
+            ),
+            tf.keras.callbacks.EarlyStopping(
+                monitor="val_loss",
+                min_delta=1e-2,
+                patience=10,
+                verbose=1,
+                restore_best_weights=True,
+            ),
+            WandbCallback(),
+        ]
+
+        model.fit(
+            train,
+            epochs=wandb.config.epochs,
+            validation_data=validation,
+            callbacks=callbacks,
+            verbose=0,
+        )
+        
+        ################################
+        # Mostramos la predicción test #
+        ################################
+        y_hat = cktp.predict(test).clip(0)
+
+        y_pred_df = pd.DataFrame(y_test, index=pd.to_datetime(time_idx_test, utc=True), columns=["PMWH"])
+        # y_pred_df = obs_test.loc[pd.to_datetime(time_idx_test, utc=True)]
+        y_pred_df["lead_time"] = lead_time_test
+        y_pred_df["PRED"] = y_hat.ravel()
+
+        tmp = y_pred_df.loc[(y_pred_df.lead_time >= 1) & (y_pred_df.lead_time < 2)]
+        # tmp = y_pred_df.loc[(y_pred_df.lead_time >= 0) & (y_pred_df.lead_time < 1)]
+
+        # Juntar con las predicciones del modelo RFR operativo
+        production_rfr = pd.read_csv(working_dir / idparque / "hindcast" / f"{idparque}_forecast.csv", index_col="DATE", parse_dates=["DATE"])
+        tmp = pd.merge(tmp, production_rfr["RFR"], left_index=True, right_index=True).astype(np.float32)
+        
+        # Calcular el WAPE
+        w = wape(tmp["PMWH"], tmp["PRED"]).numpy()
+        wandb.log({f"test-wape": w})
+        
+        best_wape = 35
+        if w < best_wape:
+            fig = tmp.loc[:, ["PRED", "PMWH"]].plot()
+            fig.update_layout(
+                xaxis_title="Date",
+                yaxis_title="PMWH",
+                title={
+                    'text': f"{idparque} forecast: WAPE {w:.2f}",
+                    'y':0.9,
+                    'x':0.5,
+                    'xanchor': 'center',
+                    'yanchor': 'top'
+                }
+            )
+            # fig.show()
+            wandb.log({"forecast-plot": fig})
+
+        if w < 35:
+            # Guardar el modelo
+            print(f"Saving model with WAPE: {w:.2f}")
+            model.save(f"/tmp/{idparque}-model-best-{w:.2f}.h5")
+            artifact = wandb.Artifact(f'{idparque}-best-model', type='model', description=f"Modelo para {idparque} con val_wape={w:.2f}")
+            artifact.add_file(f"/tmp/{idparque}-model-best-{w:.2f}.h5", f"{idparque}-model-best-{w:.2f}.h5")
+            wandb.log_artifact(artifact)
