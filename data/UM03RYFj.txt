@@ -1,0 +1,36 @@
+async def parce_comments_to_photo(post, client: Client, chat_name: str, message_id: int) -> None:
+    """Парсинг комментариев."""
+    count_messages = await client.get_discussion_replies_count(chat_name, message_id)
+    logger.info(f'Обнаружено {count_messages} сообщений. Составляю список...')
+
+    discussion_data = {}
+    discussion_replies = client.get_discussion_replies(chat_name, message_id)
+    async for mess in discussion_replies:
+        if None in [mess.id, mess.from_user]:
+            continue
+
+        from_id = mess.from_user.id
+        if from_id not in discussion_data:
+            username = mess.from_user.username
+            generate_user_link = 'Скрыто' if not username else f'@{username}'
+            discussion_data.update({
+                from_id: {
+                    'user_link': generate_user_link, 'mess_id': mess.id,
+                    'count': 0, 'user': from_id,
+                },
+            })
+
+        try:
+            assert discussion_data.get(from_id)
+            assert mess.photo
+            assert mess.photo.thumbs
+            assert discussion_data[from_id]['count'] < 4
+            discussion_data[from_id]['count'] += len(mess.photo.thumbs)
+        except AssertionError:
+            pass
+
+        if discussion_data[from_id]['count'] < 1:
+            del discussion_data[from_id]
+
+        await asyncio.sleep(5 / 1000)
+    await save_data(post, 'photo', 'parse_to_photo', discussion_data)
