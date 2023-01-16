@@ -1,0 +1,398 @@
+
+local Input = {
+    Clk1 = 1,
+    Clk2 = 2,
+    Sync = 3,
+    D0 = 4,
+    D1 = 5,
+    D2 = 6,
+    D3 = 7,
+    Test = 8,
+    Poc  = 9
+}
+
+local Output = {
+    CM_Rom = 1,
+    CM_Ram0 = 2,
+    CM_Ram1 = 3,
+    CM_Ram2 = 4,
+    CM_Ram3 = 5
+}
+
+local sim = {}
+
+function sim.create(editor)
+    local proxy = editor:proxy()
+    
+    -- get nodes associated to I/Os
+    sim.in_nodes = {
+        editor:findNodeInput("CLK1"),
+        editor:findNodeInput("CLK2"),
+        editor:findNodeInput("SYNC"),
+        editor:findNodeInput("D0"),
+        editor:findNodeInput("D1"),
+        editor:findNodeInput("D2"),
+        editor:findNodeInput("D3"),
+        editor:findNodeInput("TEST"),
+        editor:findNodeInput("POC"),
+    }
+    
+    sim.out_nodes = {
+        editor:findNodeOutput("ROM"),
+        editor:findNodeOutput("RAM0"),
+        editor:findNodeOutput("RAM1"),
+        editor:findNodeOutput("RAM2"),
+        editor:findNodeOutput("RAM3")
+    }
+    
+    -- get nodes associated to registers
+    local ctx = editor:context()
+    sim.reg_nodes = {}
+    for r=1, 16 do
+        sim.reg_nodes[r] = {}
+        for n=1, 4 do
+            local name = string.format("TR%x%x", r-1, n-1):upper()
+            sim.reg_nodes[r][n] = editor:findNode(ctx, name, ComponentType.Nmos, 0)
+        end
+    end
+    
+    sim.acc_nodes = {}
+    for n=1, 4 do
+        sim.acc_nodes[n] = editor:findNode(ctx, string.format("T_ACC%d", n-1), ComponentType.Nmos, 0)
+    end
+    
+    sim.carry_node = editor:findNode(ctx, "T_CARRY", ComponentType.Nmos, 0)
+    
+    
+    sim.timer = 0
+    sim.timer_max = 2
+    sim.popup = true
+    sim.paused = true
+    sim.win2_x = 0
+    sim.win2_y = 0
+    
+    sim.updates = {}
+    sim.inputs = {}
+    sim.outputs = {}
+    
+    -- program: fill all registers to FF with FIM
+    sim.program = {
+        0x20, 0xFF, 0x22, 0xFF, 0x24, 0xFF,
+        0x26, 0xFF, 0x28, 0xFF, 0x2A, 0xFF,
+        0x2C, 0xFF, 0x2E, 0xFF}
+    
+--     sim.program = { 0x20, 0x07, 0x81, 0x81, 0x81 }
+    
+    -- generate rom data from object code
+    sim.rom_data = {}
+    for i=1, #sim.program do
+        table.insert(sim.rom_data, bit32_band(bit32_bsr(sim.program[i], 4), 0xF))
+        table.insert(sim.rom_data, bit32_band(sim.program[i], 0xF))
+    end
+    
+    sim.runInitSequence(proxy)
+end
+
+function sim.runInitSequence(proxy)
+    
+    -- initialize inputs to LOW
+    for i=1, #sim.in_nodes do
+        proxy:write(sim.in_nodes[i], false)
+    end
+    proxy:stabilize()
+    
+    for i=1, Input.Poc do
+        sim.updates[i] = false
+        sim.inputs[i] = false
+    end
+    
+    for i=1, Output.CM_Ram3 do
+        sim.outputs[i] = false
+    end
+    
+    sim.cmrom = false
+    sim.cmrom_prev = false
+    
+    sim.read_rom   = false
+    sim.read_addr  = false
+    sim.read_cycle = 0
+    sim.rom_cursor = 0
+    sim.read_addr_cycle = 0
+    sim.cycle = 0
+    
+    for k=1, 1100 do
+        sim.inputs[Input.Clk1] = (sim.cycle+3) % 4 == 0
+        sim.inputs[Input.Clk2] = (sim.cycle+1) % 4 == 0
+        sim.inputs[Input.Sync] = sim.sync(32)
+        sim.inputs[Input.Test] = true
+        sim.inputs[Input.Poc ] = (sim.cycle < 1099)
+        
+        sim.cycle = sim.cycle+1
+        
+        for i=1, #sim.in_nodes do
+            proxy:write(sim.in_nodes[i], sim.inputs[i])
+        end
+        proxy:simulate()
+    end
+end
+
+function sim.simulateOneClockPhase(proxy)
+    
+    sim.cmrom = proxy:read(sim.out_nodes[Output.CM_Rom])
+    sim.inputs[Input.D0] = proxy:read(sim.in_nodes[Input.D0])
+    sim.inputs[Input.D1] = proxy:read(sim.in_nodes[Input.D1])
+    sim.inputs[Input.D2] = proxy:read(sim.in_nodes[Input.D2])
+    sim.inputs[Input.D3] = proxy:read(sim.in_nodes[Input.D3])
+    
+    sim.updateSignals()
+    sim.signalsToUpdate()
+    
+    for i=1, #sim.in_nodes do
+        if(sim.updates[i]) then
+            proxy:write(sim.in_nodes[i], sim.inputs[i])
+        else
+            proxy:clear(sim.in_nodes[i])
+        end
+    end
+    
+    proxy:simulate()
+end
+
+function sim.simulateOneInstructionCycle(proxy)
+    for i=1, 32 do
+        sim.simulateOneClockPhase(proxy)
+    end
+end
+
+function sim.updateSignals()
+    local pp_sync = sim.sync(30)
+    local p_sync  = sim.sync(31)
+    
+    sim.inputs[Input.Clk1] = (sim.cycle+3) % 4 == 0
+    sim.inputs[Input.Clk2] = (sim.cycle+1) % 4 == 0
+    sim.inputs[Input.Sync] = sim.sync(32)
+    sim.inputs[Input.Test] = false
+    sim.inputs[Input.Poc ] = false
+    
+    if(sim.cmrom_prev and not sim.cmrom) then
+        sim.inputs[Input.D0] = true
+        sim.inputs[Input.D1] = true
+        sim.inputs[Input.D2] = true
+        sim.inputs[Input.D3] = true
+        sim.read_rom = true
+        sim.read_cycle = 0
+    end
+    
+    if(sim.read_rom) then
+        local rom_index = 1 + sim.rom_cursor*2 + ((sim.read_cycle >= 4) and 1 or 0)
+        local data = 0
+        if(rom_index <= #sim.rom_data) then
+            data = sim.rom_data[rom_index]
+        end
+        
+        sim.inputs[Input.D0] = bit32_band(bit32_bsr(data, 0), 1) ~= 0
+        sim.inputs[Input.D1] = bit32_band(bit32_bsr(data, 1), 1) ~= 0
+        sim.inputs[Input.D2] = bit32_band(bit32_bsr(data, 2), 1) ~= 0
+        sim.inputs[Input.D3] = bit32_band(bit32_bsr(data, 3), 1) ~= 0
+        
+        if(sim.read_cycle == 10) then
+            sim.read_rom = false
+        else
+            sim.read_cycle = sim.read_cycle + 1
+        end
+    end
+    
+    if(pp_sync and  not p_sync) then
+        sim.read_addr = true
+        sim.read_addr_cycle = 0
+        sim.rom_cursor = 0
+    end
+    
+    if(sim.read_addr) then
+        if(sim.read_addr_cycle % 4 == 0) then
+            local w = 0
+            w = bit32_bor(w, bit32_bsl(sim.inputs[Input.D0], 0))
+            w = bit32_bor(w, bit32_bsl(sim.inputs[Input.D1], 1))
+            w = bit32_bor(w, bit32_bsl(sim.inputs[Input.D2], 2))
+            w = bit32_bor(w, bit32_bsl(sim.inputs[Input.D3], 3))
+            
+            sim.rom_cursor = bit32_bor(bit32_bsl(sim.rom_cursor, 4), w)
+            
+            if(sim.read_addr_cycle >= 8) then
+                sim.read_addr = false
+                sim.rom_cursor =
+                    bit32_bor(
+                      bit32_bor(
+                        bit32_bsr(bit32_band(sim.rom_cursor, 0xF00), 8),
+                        bit32_band(sim.rom_cursor, 0x0F0)),
+                        bit32_bsr(bit32_band(sim.rom_cursor, 0x00F), 8));
+                
+            end
+        end
+        
+        sim.read_addr_cycle = sim.read_addr_cycle + 1
+    end
+    
+    sim.cycle = sim.cycle + 1
+    
+    sim.cmrom_prev = sim.cmrom
+    
+end
+
+function sim.signalsToUpdate()
+    sim.updates[Input.Clk1] = true
+    sim.updates[Input.Clk2] = true
+    sim.updates[Input.Sync] = true
+    
+    if(sim.read_rom) then
+        sim.updates[Input.D0] = true
+        sim.updates[Input.D1] = true
+        sim.updates[Input.D2] = true
+        sim.updates[Input.D3] = true
+    else
+        sim.updates[Input.D0] = false
+        sim.updates[Input.D1] = false
+        sim.updates[Input.D2] = false
+        sim.updates[Input.D3] = false
+    end
+    
+    sim.updates[Input.Test] = true
+    sim.updates[Input.Poc ] = true
+end
+
+function sim.update(editor, dt)
+    local proxy = editor:proxy()
+    
+    sim.ui_sim(editor, proxy)
+    sim.ui_registers(proxy)
+    
+    if(sim.paused or sim.wait(dt)) then
+        return
+    end
+    
+    local proxy = editor:proxy()
+    sim.simulateOneClockPhase(proxy)
+end
+
+function sim.wait(dt)
+    sim.timer = sim.timer - dt
+    if(sim.timer > 0) then
+        return true
+    end
+    sim.timer = sim.timer_max
+    return false
+end
+
+function sim.sync(n)
+    if(sim.cycle > 4) then
+        return math.floor((sim.cycle + n)/4) % 8 == 0
+    else
+        return false
+    end
+end
+
+-- interface
+function sim.ui_sim(editor, proxy)
+    
+    ImGui.SetNextWindowPos(16, 16)
+    
+    local open, should_draw = ImGui.Begin("Simulation", true,
+        ImGuiWindowFlags.NoResize +
+        ImGuiWindowFlags.AlwaysAutoResize +
+        ImGuiWindowFlags.NoTitleBar +
+        ImGuiWindowFlags.NoSavedSettings)
+    
+    if(should_draw)
+    then
+        if(sim.paused) then
+            if(ImGui.Button("Play")) then
+                sim.paused = false
+            end
+        else
+            if(ImGui.Button("Pause")) then
+                sim.paused = true
+            end
+        end
+        
+        if(ImGui.Button("Reset")) then
+            proxy:coldReset()
+            sim.runInitSequence(proxy)
+            sim.paused = true
+        end
+        
+        if(ImGui.Button("Clock")) then
+            sim.simulateOneClockPhase(proxy)
+            sim.paused = true
+        end
+        
+        if(ImGui.Button("Cycle")) then
+            sim.simulateOneInstructionCycle(proxy)
+            sim.paused = true
+        end
+        
+        if(ImGui.Button("Stop")) then
+            editor:stopSimulation()
+        end
+    end
+    
+    local size_x, size_y = ImGui.GetWindowSize()
+    local pos_x, pos_y = ImGui.GetWindowPos()
+    sim.win2_x = pos_x + size_x + 8
+    
+    ImGui.End()
+end
+
+function sim.compute_register(proxy, nodes)
+    local temp = 0
+    for n=1, 4 do
+        local bit = proxy:read(nodes[n]) and 1 or 0
+        temp = temp + bit32_bsl(bit, n-1)
+    end
+    return temp
+end
+
+function sim.ui_registers(proxy)
+    
+    ImGui.SetNextWindowPos(sim.win2_x, 16)
+    
+    local open, should_draw = ImGui.Begin("Watch", true,
+        ImGuiWindowFlags.NoResize +
+        ImGuiWindowFlags.AlwaysAutoResize +
+        ImGuiWindowFlags.NoSavedSettings)
+    
+    if(should_draw)
+    then
+        
+        local reg = {}
+        for r=1, 16 do
+            reg[r] = sim.compute_register(proxy, sim.reg_nodes[r])
+        end
+        
+        for i=1, 4 do
+            local i2 = 2*(i-1)
+            ImGui.Text(string.format("R%xR%x", i2, i2+1))
+            ImGui.SameLine()
+            ImGui.Text(string.format("%x%x", reg[i2+1], reg[i2+2]):upper())
+            
+            ImGui.SameLine()
+            ImGui.Text(string.format("R%xR%x", i2+8, i2+9):upper())
+            ImGui.SameLine()
+            ImGui.Text(string.format("%x%x", reg[i2+9], reg[i2+10]):upper())
+        end
+        
+        local acc = sim.compute_register(proxy, sim.acc_nodes)
+        ImGui.Text("Accumulator:")
+        ImGui.SameLine()
+        ImGui.Text(string.format("%d", acc))
+        
+        local carry = proxy:read(sim.carry_node) and 1 or 0
+        ImGui.Text("Carry:")
+        ImGui.SameLine()
+        ImGui.Text(string.format("%d", carry))
+        
+    end
+    
+    ImGui.End()
+end
+
+return sim
