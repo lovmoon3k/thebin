@@ -1,0 +1,270 @@
+public class DepositConfirmationActivity extends BaseActivity implements DepositConfirmationView,
+        DepositConfirmationRouter, OtpCheckListener {
+    ActivityDepositConfirmationBinding binding;
+    DepositParam param;
+    SellVmoneyParam sellVmoneyParam;
+    @Inject
+    DepositConfirmationPresenter presenter;
+    boolean firstTime;
+    ActivityResultLauncher<Object> ovoLauncher = registerForActivityResult(new OvoLoadingContract(), new ActivityResultCallback<Boolean>() {
+        @Override
+        public void onActivityResult(Boolean canceled) {
+            if(canceled){
+                loading(false);
+                startActivity(
+                        new Intent(DepositConfirmationActivity.this, DashboardActivity.class)
+                                .putExtra("goto", "statement")
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                );
+            }
+        }
+    });
+
+    @Override
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        binding = DataBindingUtil.setContentView(this, R.layout.activity_deposit_confirmation);
+
+        getAppComponent().inject(this);
+        presenter.setView(this);presenter.setRouter(this);presenter.onStart();
+
+        setSupportActionBar(binding.tb.toolbar);
+        getSupportActionBar().setTitle("Deposit Confirmation");
+        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+
+        if(getIntent().hasExtra("param"))param = (DepositParam)getIntent().getSerializableExtra("param");
+        else {
+            finish();
+        }
+
+        if (getIntent().hasExtra("sellParam")) {
+            sellVmoneyParam = (SellVmoneyParam) getIntent().getSerializableExtra("sellParam");
+        }
+        else {
+            finish();
+        }
+
+        if(param == null){
+            return;
+        }
+
+
+        binding.lblAmount.setSelected(true);
+        double percent,fee;
+        //check if crypto
+        if (presenter.db.isCrypto(param.getPaymentType())){
+            try {
+                binding.lblTaxFee.setText(Helper.priceFormater(
+                        presenter.getTaxFee(String.valueOf(param.getEqualAmount()))));
+            } catch (Exception e) {
+                e.printStackTrace();
+                binding.lblTaxFee.setText(Helper.priceFormater(
+                        presenter.getTaxFee(String.valueOf(param.getEqualAmount()))));
+            }
+        }
+
+        CoinEntity coinEntity = presenter.db.getCoin((int)param.getPaymentType());
+        if(coinEntity != null){
+            if(coinEntity.getCode() == null) binding.lblEqualTo.setText(String.format("%s IDR",Helper.CoinFormater(String.valueOf(param.getAmount()))));
+            else if(coinEntity.isCrypto()) binding.lblEqualTo.setText(String.format("%s %s",Helper.CoinFormater(String.valueOf(param.getAmount())), coinEntity.getCode()));
+            else if(coinEntity.getCode().equalsIgnoreCase("usd")) binding.lblEqualTo.setText(String.format("%s %s",Helper.DollarFormatter(String.valueOf(param.getAmount())), coinEntity.getCode()));
+            binding.lblPaymentType.setText(String.format("%s", coinEntity.getvMoney()));
+        } else if(param.getBank() != null){
+            binding.lblPaymentType.setText(param.getBank().getName());
+        }else {
+            if(param.getPhoneNumber() != null && !param.getPhoneNumber().isEmpty()){
+                binding.lblPaymentType.setText(String.format("%s - %s", param.getPaymentLabel(), param.getPhoneNumber()));
+            } else binding.lblPaymentType.setText(param.getPaymentLabel());
+
+        }
+        presenter.getTaxFee(String.valueOf(param.getEqualAmount()));
+
+
+        switch (param.getType()){
+            case DepositParam.BANK:
+                binding.fee.setVisibility(View.GONE);
+                binding.taxFee.setVisibility(View.GONE);
+                binding.lblAmount.setText(Helper.priceFormater(String.valueOf(param.getAmount())));
+                break;
+            case DepositParam.GOPAY:
+                binding.txtFee.setText("GoPay Fee");
+                binding.taxFee.setVisibility(View.GONE);
+                binding.lblAmount.setText(Helper.priceFormater(String.valueOf(param.getAmount())));
+                binding.lblPaymentType.setText("GoPay");
+                break;
+            case DepositParam.SHOPEE:
+                binding.txtFee.setText("ShopeePay Fee");
+                binding.taxFee.setVisibility(View.GONE);
+                binding.lblAmount.setText(Helper.priceFormater(String.valueOf(param.getAmount())));
+                break;
+            case DepositParam.OVO:
+                percent = 1.5f;
+                fee = (param.getAmount() * percent) / 100;
+                binding.txtFee.setText("OVO Fee");
+                binding.taxFee.setVisibility(View.GONE);
+                binding.lblFee.setText(Helper.priceFormater(String.valueOf(fee)));
+                binding.lblAmount.setText(Helper.priceFormater(String.valueOf(param.getAmount())));
+                break;
+            case DepositParam.GATEWAY:
+                if(param.getPaymentType() == 119 || param.getPaymentType() == Constant.LinkAja().getId()){
+                    percent = 1.8f;
+                    fee = (param.getAmount() * percent) / 100;
+                    binding.lblFee.setText(Helper.priceFormater(String.valueOf(fee)));
+                    binding.lblAmount.setText(Helper.priceFormater(String.valueOf(param.getAmount())));
+                    break;
+                }
+
+                fee = 7500f;
+                binding.lblFee.setText(Helper.priceFormater(String.valueOf(fee)));
+                binding.lblAmount.setText(Helper.priceFormater(String.valueOf(param.getAmount())));
+                binding.lblPaymentType.setText(String.format("%s", param.getPaymentLabel()));
+                break;
+            case DepositParam.VMONEY:
+                double trivFee = generateFee(sellVmoneyParam.getAmount(), sellVmoneyParam.getPercent(), sellVmoneyParam.getFeeMinimum());
+                percent = 0.8f;
+                binding.lblAmount.setText(Helper.priceFormater(String.valueOf(param.getEqualAmount())));
+                binding.lblFee.setText(Helper.priceFormater(String.valueOf(trivFee)));
+                break;
+        }
+        if(param.getPayment_code() != null) presenter.getEwalletFee(param);
+        binding.lblAmountCurrency.setText(String.format("%s IDR",binding.lblAmount.getText()));
+
+        binding.btnSend.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                if(firstTime && binding.confirmationContainer.getChildCount() > 0){
+                    for (int i = 0; i < binding.confirmationContainer.getChildCount(); i++) {
+                        CheckBox cb = (CheckBox) binding.confirmationContainer.getChildAt(i);
+                        if(!cb.isChecked()){
+                            showMsg("Anda harus mencentang semua kolom dibawah untuk melanjutkan.");
+                            return;
+                        }
+                    }
+                }
+                presenter.checkKyc(new CheckKYCListener() {
+                    @Override
+                    public void check(ProfileResponse profile) {
+                        if(param.getType().equalsIgnoreCase(DepositParam.VMONEY) && profile != null && profile.getStandardKyc() != null && profile.getStandardKyc().equalsIgnoreCase("not verified")){
+                            if(ContextCompat.checkSelfPermission(DepositConfirmationActivity.this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED){
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                    requestPermissions(new String[]{Manifest.permission.CAMERA,Manifest.permission.RECEIVE_SMS}, 100);
+                                } else {
+                                    ActivityCompat.requestPermissions(DepositConfirmationActivity.this,new String[]{Manifest.permission.CAMERA,Manifest.permission.RECEIVE_SMS}, 100);
+                                }
+                                return;
+                            }
+                            CaptureIdentityActivity.start(DepositConfirmationActivity.this);
+                            return;
+                        }
+                        OtpActivity.checkOtp(DepositConfirmationActivity.this,DepositConfirmationActivity.this,param.getPaymentType(),presenter.check2FaInteractor,null,presenter.db);
+                    }
+                });
+            }
+        });
+        binding.btnCancel.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                finish();
+            }
+        });
+        if(param.getPaymentType() == 119) binding.txtFee.setText("DANA Fee");
+        else if(param.getPaymentType() == Constant.LinkAja().getId())binding.txtFee.setText("LinkAja Fee");
+
+        if(param.getBank() != null){
+            presenter.bankPayment(String.valueOf(param.getBank().getId()));
+        }
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if(item.getItemId() == android.R.id.home) onBackPressed();
+        return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    public void gotoCheckout(DepositResponse dresponse, DepositParam param, DetailStatementResponse response) {
+        CheckoutActivity.start(response.getPaymentType(),response,this,false, true,param.getPaymentLabel(),dresponse.getObject().getQrstr(),response.getPaymentUrl());
+        setResult(RESULT_OK);
+        finish();
+    }
+
+    @Override
+    public void gotoDetail(DetailStatementResponse response) {
+        startActivity(TrxDetailActivity.generateIntent(this,response.getType(), true)
+                .putExtra("data",response)
+                .putExtra("profile", presenter.session.getProfile()));
+        setResult(RESULT_OK);
+        finish();
+    }
+
+    double generateFee(double amount,double percent,double minimum){
+        double result = amount * percent;
+        if(!presenter.db.isCrypto(sellVmoneyParam.getVmoneyToSell().getId())){
+            if(result > sellVmoneyParam.getFeeMaximum()) result = sellVmoneyParam.getFeeMaximum();
+            if(result < sellVmoneyParam.getFeeMinimum()) result = sellVmoneyParam.getFeeMinimum();
+        }
+        if(result < minimum && sellVmoneyParam.getReceivingId() != 5) result = minimum;
+
+        return result;
+    }
+
+    @Override
+    public void detailStatementFail() {
+        showMsg("Deposit Success");
+        setResult(RESULT_OK);
+        finish();
+    }
+
+    @Override
+    public void hasOtp(boolean has) {
+        if(!has){
+            OvoLoadingActivity.start(ovoLauncher,param.getPaymentType());
+            presenter.deposit(param);
+        }
+    }
+
+    @Override
+    public void onCheckOTPError(String message) {
+        showMsg("Check OTP Error : "+message);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if(requestCode == OtpActivity.REQ_CODE && resultCode == -1){
+            param.setOtp(data.getStringExtra("code"));
+            hasOtp(false);
+        } if(requestCode == 76 && resultCode == -1){
+            //showMsg("Data anda berhasil dikirim\nAkun Anda telah dapat digunakan untuk bertransaksi.");
+        }
+    }
+
+    @Override
+    public void setFeeFromApi(String fee) {
+        //binding.lblFee.setText(fee);
+    }
+
+    @Override
+    public void setBankPaymentConfig(BankConfigResponse response) {
+        binding.confirmationContainer.removeAllViews();
+        firstTime = Helper.requireNonNull(response.getFirstTime(), false);
+        for(String conf : response.getConfirmationMessages()){
+            CheckBox checkBox = new CheckBox(this);
+            checkBox.setText(conf);
+            checkBox.setTextColor(Color.parseColor("#9ca7be"));
+            checkBox.setButtonTintList(ColorStateList.valueOf(getResources().getColor(R.color.colorAccent)));
+            checkBox.setTypeface(ResourcesCompat.getFont(this, R.font.montserrat_bolditalic));
+            checkBox.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            checkBox.setGravity(Gravity.TOP);
+            ViewGroup.MarginLayoutParams mlp = new ViewGroup.MarginLayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            mlp.topMargin = (int)Helper.dpToPx(12f,getResources());
+            binding.confirmationContainer.addView(checkBox, mlp);
+        }
+    }
+
+    @Override
+    public void setTaxFee(String priceFormater) {
+        binding.lblTaxFee.setText(priceFormater);
+    }
