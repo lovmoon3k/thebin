@@ -1,0 +1,182 @@
+#include < amxmodx >
+#include < cstrike >
+#include < engine >
+#include < fakemeta >
+#include < hamsandwich >
+ 
+/* Copyright 2018 © eXtreamcs Team */
+ 
+/* Ca sa va mai inveselesc :)) https://www.youtube.com/watch?v=PnAjpNqCby8 */
+ 
+new const vip_model_t[]  =  "vip_model_t"
+new const vip_model_ct[]  =  "vip_model_ct"
+ 
+new WEAPON_MAXAMMO[33]= {-2, 52, 0, 90, 1, 32, 1, 100, 90, 1, 120, 100, 100, 90, 90, 90, 100, 120, 30, 120, 200, 32, 90, 120, 90, 2, 35, 90, 90, 0, 100, -1, -1}
+ 
+new cvar_jump
+new jumpnum[33]
+new bool: dojump[33]
+ 
+#define PLUGIN     "Custom Vip"
+#define VERSION    "1.0"
+#define AUTHOR     "Sorinel"
+ 
+#define VIP_HEALTH  50
+#define VIP_ARMOR   100
+#define VIP_BONUS_DMG 1.0
+ 
+#define     ARMOR               read_flags( "a" )
+#define     HEALTH              read_flags( "h" )
+#define     VIP_SCOREBOARD      read_flags( "s" )
+#define     VIP_MODEL           read_flags( "m" )
+#define     MULTI_JUMP          read_flags( "j" )
+#define     DAMAGE_AMPLIFIED    read_flags( "d" )
+#define     UNLIMITED_CHARGER   read_flags( "c" )
+ 
+enum {
+    SCOREATTRIB_ARG_PLAYERID = 1,
+    SCOREATTRIB_ARG_FLAGS
+}
+ 
+enum ( <<= 1 ) {
+    SCOREATTRIB_FLAG_NONE = 0,
+    SCOREATTRIB_FLAG_DEAD = 1,
+    SCOREATTRIB_FLAG_BOMB,
+    SCOREATTRIB_FLAG_VIP
+}
+ 
+public plugin_init() {
+   
+       register_plugin( PLUGIN, VERSION, AUTHOR)
+ 
+       RegisterHam( Ham_Spawn, "player", "PlayerSpawn", 1 )
+       RegisterHam(Ham_TakeDamage, "player", "player_damage")
+ 
+       register_message( get_user_msgid( "ScoreAttrib" ), "MessageScoreAttrib")
+       register_event("CurWeapon", "CheckWeapon", "be", "1=1")
+       cvar_jump = register_cvar("vip_jump", "1")
+}
+ 
+public plugin_precache() {
+ 
+    new ModelOrSoundPath[128]
+ 
+    formatex(  ModelOrSoundPath,  sizeof  (  ModelOrSoundPath  )  -1, "models/player/%s/%s.mdl",  vip_model_t,  vip_model_t)
+    engfunc( EngFunc_PrecacheModel, ModelOrSoundPath)
+ 
+        formatex(  ModelOrSoundPath,  sizeof  (  ModelOrSoundPath  )  -1, "models/player/%s/%s.mdl",  vip_model_ct,  vip_model_ct)
+    engfunc( EngFunc_PrecacheModel, ModelOrSoundPath)
+}
+ 
+public MessageScoreAttrib(iMsgId, iDest, iReceiver) {
+ 
+       new iPlayer = get_msg_arg_int(SCOREATTRIB_ARG_PLAYERID)
+    
+       if(get_user_flags(iPlayer) & VIP_SCOREBOARD)
+          set_msg_arg_int(SCOREATTRIB_ARG_FLAGS, ARG_BYTE, SCOREATTRIB_FLAG_VIP)
+}
+ 
+public CheckWeapon(id) {
+    
+    new weaponID = read_data(2)
+    
+    if( is_user_alive(id) && get_user_flags(id) & UNLIMITED_CHARGER )
+    {      
+        cs_set_user_bpammo(id, weaponID, WEAPON_MAXAMMO[weaponID])
+    }
+}
+ 
+public PlayerSpawn(id) {
+    
+    if(!(is_user_alive(id)))
+        return
+    
+    if(get_user_flags(id) & ARMOR) 
+    {
+        fm_set_user_armor(id, get_user_armor(id) + VIP_ARMOR)
+    }
+    
+    if(get_user_flags(id) & HEALTH ) {
+        
+        fm_set_user_health(id, get_user_health(id) + VIP_HEALTH)
+    }
+    
+    if(get_user_flags(id) & VIP_MODEL) {
+        
+        
+        switch(cs_get_user_team(id)) 
+        {   
+            case  CS_TEAM_T:  cs_set_user_model(  id,  vip_model_t)
+            case  CS_TEAM_CT: cs_set_user_model(  id,  vip_model_ct)        
+            }
+    }
+}
+ 
+public player_damage(victim, ent, attacker, Float:damage, bits) {
+    
+    if(get_user_flags(attacker) & DAMAGE_AMPLIFIED) {
+        
+        if(!is_user_connected(victim))
+            return HAM_IGNORED
+        if(!is_user_connected(attacker))
+            return HAM_IGNORED
+        if(victim == attacker)
+            return HAM_IGNORED
+        
+        SetHamParamFloat(4, damage * VIP_BONUS_DMG)
+    }
+    return HAM_OVERRIDE
+}
+ 
+public client_PreThink(id)
+{
+    if(is_user_alive(id)) {
+        
+        new BUTON = get_user_button(id)
+        new OLDBUTON = get_user_oldbutton(id)
+        new JUMP_VIP = get_pcvar_num(cvar_jump) 
+        
+        if((BUTON & IN_JUMP) && !(get_entity_flags(id) & FL_ONGROUND) && !(OLDBUTON & IN_JUMP))
+        {
+            if(((get_user_flags(id) & MULTI_JUMP) && (jumpnum[id] < JUMP_VIP)))
+            {
+                dojump[id] = true
+                jumpnum[id]++
+            }
+        }
+        
+        if((BUTON & IN_JUMP) && (get_entity_flags(id) & FL_ONGROUND))
+        {
+            jumpnum[id] = 0
+        }
+    }
+}
+ 
+public client_PostThink(id) 
+{
+    if(is_user_alive(id)) {
+        
+        if(dojump[id] == true)
+        {
+            new Float: velocity[3]  
+            entity_get_vector(id, EV_VEC_velocity, velocity)
+            velocity[2] = random_float(265.0, 285.0)
+            entity_set_vector(id, EV_VEC_velocity, velocity)
+            dojump[id] = false
+        }
+    }
+}
+ 
+/* Fakemeta Util */
+ 
+stock fm_set_user_health(index, health) {
+    health > 0 ? set_pev(index, pev_health, float(health)) : dllfunc(DLLFunc_ClientKill, index)
+ 
+    return 1
+}
+ 
+stock fm_set_user_armor( index, armor ) {
+    set_pev(index, pev_armorvalue, float(armor));
+ 
+    return 1;
+}
