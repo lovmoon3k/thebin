@@ -1,0 +1,322 @@
+@name CounterRotation SpinnerCode V2.56
+@inputs Mouse1 Mouse2 DualInput R
+@inputs [Weapon,Chassis,Support1,Support2,Support3]:entity
+@outputs [WeaponTorque,ChassisTorque]:angle [Inertia,SpinAxis]:vector
+@outputs WeaponRPM ChassisRPM Sound PitchRelative InertiaUsed InertiaMul InertiaTorqueMul SpinPower ChassisSpinPower
+@outputs StallCounter StallRate StallPercentage Stall Alive Smoke
+@outputs [CurrentInertia,NaturalInertia,ArtificialInertia]:vector
+@persist HalfSpeedMul DeathCheck SpinPowerMul 
+@persist TimerDelay InertiaUsed Power AirDrag StatusMessages
+@persist StallRateVar PhysicalProperty:string MaxInertia SpinPowerMulMul TorqueMul [PropTable,InertiaTable]:table
+@persist Pitch Yaw Roll PYR_Correct Support1_Exists Support2_Exists Support3_Exists [PYR_Weapon, PYR_Chassis]:angle
+@persist StallCountDownRate StallCountThreshold StallRPMCheck SupportsConstrained 
+@outputs TableSize ManualInertia Duped EffectiveRadius WeaponRPMVec:angle WeaponRPMAng
+
+runOnTick(1)
+if(first()|duped()|dupefinished()|changed(Weapon)|changed(Weapon:mass())|changed(Support1)|changed(Support2)|changed(Support3)){
+
+#DISCLAIMER FROM BUSINESS CAT:
+#Counter Rotation Code works so that the spinner can spin the chassis when nearly stalled
+#Counter-torque value is determined by the inertia of your spinner - more inertia means more counter-torque.
+
+#Stall edition makes the spinner possibly break itself IF:
+#the spin key is held too long when the blade/chassis cannot spin freely.
+#Your weapon motor would be very unhappy with you if you did that.
+
+#YOU WILL HAVE TO WIRE A BUTTON TO REVIVE YOUR SPINNER ONCE IT HAS STALLED.
+
+#While you can wire it to R on your pod controller, 
+#having the ability to 'fix' the stall mid-fight is unfair and unrealistic. 
+#Put the button on the robot to prevent this unfair advantage.
+
+#=======================================================
+#USER SETTINGS - ONLY CHANGE THE VALUES IN THIS SECTION
+#=======================================================
+
+#IT IS RECOMMENDED THAT YOU RESPAWN THE BOT AFTER SWITCHING TO THIS CODE FROM THE OLD VERSION
+
+InertiaUsed         = 0         #Custom set inertia, set to 1 to enable it, 0 to disable
+ManualInertia       = 500       #INERTIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+Pitch               = 0         #Use these to select which axis your weapon spins on
+Yaw                 = 1         #Set the one you want to '1' and the others to '0'
+Roll                = 0         #If your weapon doesn't spin, try selecting a different axis
+
+Power               = -500000   #Add/Remove a negative if blade is spinning the wrong way
+AirDrag             = 0.01      #Change this to change how quickly the spinner slows down
+StatusMessages      = 1         #Set this to 0 to turn off stall % readouts in chat. 1 is on.
+StallRateVar        = 16        #DO NOT CHANGE unless switching weight classes
+
+PhysicalProperty    = "metalgrate"
+                     #^^^^^^^^^^^^^
+#Change the physical property of your spinner inside
+#the quotation marks based on the ruleset in #readme.
+
+#==========================================
+# !!!DO NOT TOUCH ANYTHING BELOW!!!
+#==========================================
+
+#=====================
+#Air Drag - Initial Setup
+Weapon:setCustomAirDrag(1,0,AirDrag)
+
+#=====================
+#Pitch/Yaw/Roll - Initial Setup
+if(first()){
+if((Pitch+Yaw+Roll)!=1){print("WARNING: For the spinner to work, only one of the Pitch/Yaw/Roll settings should be set to '1'.",
+    "The others must be set to '0'.  ","\n\nThe current settings are:","\nPitch","=",Pitch, "\nYaw","=",Yaw, "\nRoll","=",Roll)
+    ,PYR_Correct=0}
+else{PYR_Correct=1}
+}
+SpinAxis=vec(Roll,Pitch,Yaw) #Gets weapon rotation axis as local vector
+SpinAxis=(Weapon:toWorldAxis(SpinAxis))                 #Converts to global axis
+SpinAxis=(Chassis:toLocalAxis(SpinAxis)):normalized()   #Converts to local chassis axis
+SpinAxis=round(SpinAxis,2)  #Rounds to 2dp to prevent 'leakage' into other axes when not required
+
+PYR_Weapon=ang(Pitch,Yaw,Roll)
+PYR_Chassis=ang(SpinAxis:y(),SpinAxis:z(),SpinAxis:x())
+
+#=====================
+#Effective Weapon Radius - Initial Setup
+BoxSize=Weapon:boxSize()
+BoxCentre=Weapon:boxCenter()
+MassCentre=Weapon:massCenterL()
+
+X_Diff=abs(BoxCentre:x()-MassCentre:x())
+Y_Diff=abs(BoxCentre:y()-MassCentre:y())
+Z_Diff=abs(BoxCentre:z()-MassCentre:z())
+
+if(Pitch==1){
+    if(BoxSize:x()>=BoxSize:z()){
+        EffectiveRadius=sqrt((BoxSize:x()/2+X_Diff)^2+(BoxSize:z()/4)^2)    #Estimates the effective radius of the weapon
+        EffectiveRadius=EffectiveRadius*0.01905}    # Converts effective radius from source units to metres
+    else{
+        EffectiveRadius=sqrt((BoxSize:z()/2+Z_Diff)^2+(BoxSize:x()/4)^2)    #Estimates the effective radius of the weapon
+        EffectiveRadius=EffectiveRadius*0.01905}   # Converts effective radius from source units to metres
+}
+if(Yaw==1){
+    if(BoxSize:x()>=BoxSize:y()){
+        EffectiveRadius=sqrt((BoxSize:x()/2+X_Diff)^2+(BoxSize:y()/4)^2)    #Estimates the effective radius of the weapon
+        EffectiveRadius=EffectiveRadius*0.01905}    # Converts effective radius from source units to metres
+    else{
+        EffectiveRadius=sqrt((BoxSize:y()/2+Y_Diff)^2+(BoxSize:x()/4)^2)    #Estimates the effective radius of the weapon
+        EffectiveRadius=EffectiveRadius*0.01905}   # Converts effective radius from source units to metres
+}
+if(Roll==1){
+    if(BoxSize:z()>=BoxSize:y()){
+        EffectiveRadius=sqrt((BoxSize:z()/2+Z_Diff)^2+(BoxSize:y()/4)^2)    #Estimates the effective radius of the weapon
+        EffectiveRadius=EffectiveRadius*0.01905}    # Converts effective radius from source units to metres
+    else{
+        EffectiveRadius=sqrt((BoxSize:y()/2+Y_Diff)^2+(BoxSize:z()/4)^2)    #Estimates the effective radius of the weapon
+        EffectiveRadius=EffectiveRadius*0.01905}   # Converts effective radius from source units to metres
+}
+#=====================
+#Inertia - Initial Setup
+if(InertiaUsed==1){InertiaMul=1,InertiaTorqueMul=1,SpinPowerMulMul=2}
+else{InertiaMul=1.75,InertiaTorqueMul=2,SpinPowerMulMul=1}
+
+CurrentInertia=Weapon:inertia() #Gets current weapon inertia
+
+if(changed(Weapon)){NewWeapon=1}else{NewWeapon=0}           #Checks if weapon has changed since last
+if(changed(Weapon:mass())){MassChange=1}else{MassChange=0}  #run - prevents bugginess doing it this way
+
+if(duped()){Duped=1}
+  
+if(first()){    #E2 is reset - prop hasn't changed so just need to update variables
+    NaturalInertia=CurrentInertia/InertiaMul    #Finds inertia prop would have had initially
+    ArtificialInertia=CurrentInertia            
+    
+    PropTable:pushNumber(Weapon:id())           #Records all props previously wired to this E2, to 
+    InertiaTable:pushVector(CurrentInertia)     #help prevent abuse       
+    TableSize=1}
+
+elseif(dupefinished()){   #Prop is new - can set inertia directly 
+    Duped=0
+    PropMatch=0
+    
+    for(I=1,TableSize,1)    #Checks table to see if prop inertia has been changed by this E2 before
+        {if(PropTable[I,number]==Weapon:id()&InertiaTable[I,vector]==CurrentInertia){PropMatch=1}}
+
+    if(PropMatch==0){   #Weapon is new, Inertia to be modified
+        NaturalInertia=CurrentInertia
+        ArtificialInertia=CurrentInertia*InertiaMul
+        
+        if(InertiaUsed==0){Weapon:propInertia(ArtificialInertia)}
+        else{Weapon:propInertia(vec(ManualInertia))}
+        
+        PropTable:pushNumber(Weapon:id())
+        InertiaTable:pushVector(ArtificialInertia)
+        TableSize++}
+    else{               #Weapon has been wired previously - update variables only
+        NaturalInertia=CurrentInertia/InertiaMul
+        ArtificialInertia=CurrentInertia            
+    
+        PropTable:pushNumber(Weapon:id())
+        InertiaTable:pushVector(CurrentInertia)
+        TableSize++}
+}
+
+elseif(NewWeapon==1&Duped==0){   #Prop is likely new - but need to check against prop list to prevent abuse
+    PropMatch=0
+
+    for(I=1,TableSize,1)    #Checks table to see if prop inertia has been changed by this E2 before
+        {if(PropTable[I,number]==Weapon:id()&InertiaTable[I,vector]==CurrentInertia){PropMatch=1}}
+
+    if(PropMatch==0){   #Weapon is new, Inertia to be modified
+        NaturalInertia=CurrentInertia
+        ArtificialInertia=CurrentInertia*InertiaMul
+        
+        if(InertiaUsed==0){Weapon:propInertia(ArtificialInertia)}
+        else{Weapon:propInertia(vec(ManualInertia))}
+        
+        PropTable:pushNumber(Weapon:id())
+        InertiaTable:pushVector(ArtificialInertia)
+        TableSize++}
+    else{               #Weapon has been wired previously - update variables only
+        NaturalInertia=CurrentInertia/InertiaMul
+        ArtificialInertia=CurrentInertia            
+    
+        PropTable:pushNumber(Weapon:id())
+        InertiaTable:pushVector(CurrentInertia)
+        TableSize++}
+    }
+        
+elseif(MassChange==1&Duped==0&Weapon:mass()<2000){  #Prop is the same but has changed mass - update variables only
+                                           #<2000 condition is to prevent a bug when weapon held by physgun
+    NaturalInertia=CurrentInertia/InertiaMul
+    ArtificialInertia=CurrentInertia            
+    
+    PropTable:pushNumber(Weapon:id())
+    InertiaTable:pushVector(CurrentInertia)
+    TableSize++}
+
+if(first()&ArtificialInertia==vec(ManualInertia)&InertiaUsed==0)
+    {print("WARNING: Bot must be respawned after turning off custom inertia")}
+
+CurrentInertia=Weapon:inertia() #Gets current weapon inertia
+MaxInertia=max(CurrentInertia:x(),CurrentInertia:y(),CurrentInertia:z())
+
+#=====================
+#Supports - Initial Setup
+if(Support1:isValid()){Support1_Exists=1}else{Support1_Exists=0}    #
+if(Support2:isValid()){Support2_Exists=1}else{Support2_Exists=0}    #Checks whether each support exists at startup
+if(Support2:isValid()){Support3_Exists=1}else{Support3_Exists=0}    #
+
+if(first()&(Support1_Exists+Support2_Exists+Support3_Exists)==0){
+    print("WARNING: At least 1 support must be connected for spinner to work")
+    SupportsConstrained=0}
+else{SupportsConstrained=1}
+
+#=====================
+#Stall - Initial Setup
+StallRate               = (1)/sqrt(MaxInertia)*StallRateVar
+StallCountDownRate      = 0.5
+StallCountThreshold     = 100
+StallRPMCheck           = 105
+
+TorqueMul               = 1200*Power/abs(Power)   #Changes sign if necessary
+
+#=====================
+} #End of initial setups
+#=====================
+
+#Inputs Section
+WeaponInput         = (Mouse1-Mouse2+DualInput)
+ChassisSpinPower    = ((MaxInertia*TorqueMul))*(1-PitchRelative)
+
+#=====================
+#Support Break/Air Drag Code
+if(WeaponInput!=0){
+    if(
+    (Support1_Exists==1&Support1:isConstrained()==0) |
+    (Support2_Exists==1&Support2:isConstrained()==0) |
+    (Support3_Exists==1&Support3:isConstrained()==0) )
+        {
+        Weapon:constraintBreak("axis")
+        Weapon:constraintBreak("ballsocket")
+        Weapon:constraintBreak("weld")
+        Weapon:constraintBreak("rope")
+        Weapon:constraintBreak("AdvBallsocket")
+        SupportsConstrained=0
+        }
+    }           
+if(SupportsConstrained      == 0 |
+   Weapon:isConstrained()   == 0 |
+   Chassis:isConstrained()  == 0){WeaponSpinMul=0}
+else{WeaponSpinMul=1} #Death settings based on one/two support deaths, or chassis/weapon death
+
+#=====================
+#RPM Code
+if(Pitch==1){
+    WeaponRPM  = abs((Weapon:angVel():pitch()/6))
+    ChassisRPM = abs((Chassis:angVel()*PYR_Chassis/6):pitch())
+    }
+elseif(Yaw==1){
+    WeaponRPM  = abs((Weapon:angVel():yaw()/6))
+    ChassisRPM = abs((Chassis:angVel()*PYR_Chassis/6):roll())   
+    }
+else{
+    WeaponRPM  = abs((Weapon:angVel():roll()/6))
+    ChassisRPM = abs((Chassis:angVel()*PYR_Chassis/6):yaw())
+    }  
+
+if(WeaponRPM>20){Sound=1}
+else{Sound=0}
+PitchRelative=(WeaponRPM/1050)
+if(PitchRelative>1){PitchRelative=1}
+RPMCheck                = 15 #Do not change
+
+#=====================
+#Physical Properties
+if(WeaponRPM>550){Weapon:propPhysicalMaterial(PhysicalProperty)}
+# Sets weapon physprop when up to speed.
+else{Weapon:propPhysicalMaterial("metalgrate")}
+# If not up to speed, use standard metal so it doesn't 
+# have an advantage at self righting from a full stop.
+if(WeaponRPM>1050){SpinPowerMul=5*SpinPowerMulMul} #Sets torque higher when up to speed.
+else{SpinPowerMul=1}
+SpinPower = Power*InertiaTorqueMul*SpinPowerMul
+
+#=====================
+#Weapon Stall Death Code
+if(Stall==1){
+    if(DeathCheck!=1){timer("DeathTime",100),timer("SmokeTime",2500),Smoke=1}
+    if(clk("DeathTime")){print("You are dead."),DeathCheck=1} #tells you that you died
+    if(clk("SmokeTime")){Smoke=0}
+}
+else{
+    if(WeaponInput!=0 & WeaponRPM<(StallRPMCheck) & ChassisRPM<(StallRPMCheck))
+        {StallCounter=StallCounter+StallRate}                       #Counts up
+    else{StallCounter=StallCounter-(StallRate*StallCountDownRate)}  #Counts down
+
+    if(StallCounter>0){
+        timer("Clock",200)
+        if(StallCounter>StallCountThreshold){Stall=1,Alive=0} #if threshold is hit, you die
+    }
+    #if you are reading this then I appreciate you
+    else{StallCounter=0}  #no negative count allowed
+
+    if(clk("Clock") & StatusMessages==1){
+        StallPercentage = round((StallCounter/StallCountThreshold)*100)
+        print("This is how close to dead you are:  ",StallPercentage,"%")} #displays % in chat
+}
+if(changed(R)){
+    if(R==1){StallCounter=0,Stall=0,Alive=1,Smoke=0,DeathCheck=0,print("You are alive!")} #Resets the stall code
+}
+#the Smoke output lets you wire a numpad output to it, and then you can place a particle controller
+#with the same key as the numpad output - and when your spinner stalls, it will let out a puff of smoke
+#cool innit?
+
+#=====================
+#Weapon Spin Code
+WeaponTorque=(WeaponInput*SpinPower*WeaponSpinMul*Alive*PYR_Correct)*PYR_Weapon
+
+Weapon:applyAngForce(WeaponTorque)  #Powers the weapon
+
+#=====================
+#Chassis Spin Code (Counter-torque)
+if(WeaponInput!=0&WeaponRPM<RPMCheck){
+    ChassisTorque=(-WeaponInput*ChassisSpinPower*WeaponSpinMul*Alive*PYR_Correct)*PYR_Chassis
+    Chassis:applyAngForce(ChassisTorque)    #Powers the chassis
+}
+
