@@ -1,0 +1,73 @@
+
+@app.route("/get_cam")
+@login_required
+def get_cam():
+    cams = {"group": [], "camera": [], "camera_count": 0}
+    group = []
+    if current_user.auth_id == 1:
+        camindlist = []
+        camind = CameraModel.query \
+            .join(TrCameraAccountModel, CameraModel.id == TrCameraAccountModel.camera_id, isouter=True) \
+            .filter(CameraModel.is_active == 1, TrCameraAccountModel.id.is_(None)).order_by(
+            CameraModel.camera_name).all()
+        for c in camind:
+            camdie = CameraDieModel.get_last(c.id)
+            if not camdie or camdie.status == 1:
+                camindlist.append(c.json())
+                cams['camera_count'] += 1
+
+        tca = TrCameraAccountModel.query.join(CameraModel, CameraModel.id == TrCameraAccountModel.camera_id).all()
+        cam_acc = [x.account_id for x in tca]
+        acc = AccountModel.query \
+            .join(CustomerModel, AccountModel.customer_id == CustomerModel.id) \
+            .filter(AccountModel.id.in_(cam_acc)).order_by(CustomerModel.full_name).all()
+        for a in acc:
+            listcam = []
+            cam = CameraModel.query \
+                .join(TrCameraAccountModel, CameraModel.id == TrCameraAccountModel.camera_id) \
+                .filter(CameraModel.is_active == 1, TrCameraAccountModel.account_id == a.id).order_by(
+                CameraModel.camera_name).all()
+            for c in cam:
+                camdie = CameraDieModel.get_last(c.id)
+                if not camdie or camdie.status == 1:
+                    listcam.append(c.json())
+                    cams['camera_count'] += 1
+
+            if listcam:
+                group.append({
+                    "group_name": a.customer.full_name,
+                    "camera": listcam
+                })
+
+        cams.update({"camera": camindlist, "group": group})
+    elif current_user.auth_id == 3:
+        camlist = []
+        gr = CameraGroupModel.query.filter(CameraGroupModel.account_id == current_user.id) \
+            .order_by(CameraGroupModel.group_name).all()
+        for c in CameraModel.query.join(TrCameraAccountModel, TrCameraAccountModel.camera_id == CameraModel.id) \
+                .filter(CameraModel.is_active == 1, TrCameraAccountModel.account_id == current_user.id,
+                        CameraModel.group_id.is_(None)) \
+                .order_by(CameraModel.camera_name).all():
+            cd = CameraDieModel.get_last(c.id)
+            if cd is None or cd.status == 1:
+                camlist.append(c.json())
+                cams['camera_count'] += 1
+        for g in gr:
+            camgr = []
+
+            for c in CameraModel.query.join(TrCameraAccountModel, TrCameraAccountModel.camera_id == CameraModel.id) \
+                    .filter(CameraModel.is_active == 1, TrCameraAccountModel.account_id == current_user.id,
+                            CameraModel.id == g.id) \
+                    .order_by(CameraModel.camera_name).all():
+                cd = CameraDieModel.get_last(c.id)
+                if cd is None or cd.status == 1:
+                    camgr.append(c.json())
+                    cams['camera_count'] += 1
+            if camgr:
+                group.append({
+                    "group_name": g.group_name,
+                    "camera": camgr
+                })
+
+        cams.update({"camera": camlist, "group": group})
+    return cams
