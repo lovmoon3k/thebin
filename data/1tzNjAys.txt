@@ -1,0 +1,174 @@
+<?php
+
+/**
+ * Class and Function List:
+ * Function list:
+ * - enable_dynamic_caching()
+ * - html_cache()
+ * - get_html_cache()
+ * - add_cache_stats_in_admin_menu()
+ * - cache_stats_page()
+ * - clean_cache()
+ * - add_cache_stats_in_admin_bar()
+ * - clean_cache_on_browser_hard_refresh()
+ * - clean_cache_after_7_days()
+ */
+// Enable dynamic caching
+add_action('init', 'enable_dynamic_caching');
+
+function enable_dynamic_caching()
+{
+    // Create HTML cache of pages in WordPress
+    if (!is_admin())
+    {
+        ob_start('html_cache');
+    }
+}
+
+// Serve the HTML pages to visitors
+function html_cache($buffer)
+{
+    // Do not cache WooCommerce pages
+    if (function_exists('is_woocommerce') && is_woocommerce())
+    {
+        return $buffer;
+    }
+    // Add a comment in footer source code with page load time
+    $buffer .= '<!-- Page generated in ' . timer_stop(0) . ' seconds. Last edited: ' . get_the_modified_date() . '. Page size: ' . size_format(strlen($buffer)) . '. Expiration date: ' . date('Y-m-d H:i:s', time() + 604800) . ' -->' . "\n";
+    // Update the HTML pages on changes in content
+    if (is_singular())
+    {
+        $buffer = get_html_cache($buffer);
+    }
+    return $buffer;
+}
+
+// Get HTML cache
+function get_html_cache($buffer)
+{
+    $url = $_SERVER['REQUEST_URI'];
+    $html_cache_file = md5($url) . '.html';
+    $html_cache_path = WP_CONTENT_DIR . '/cache/' . $html_cache_file;
+    global $wp_filesystem;
+    if (!$wp_filesystem)
+    {
+        require_once (ABSPATH . '/wp-admin/includes/file.php');
+        WP_Filesystem();
+    }
+    if ($wp_filesystem->exists($html_cache_path))
+    {
+        $buffer = file_get_contents($html_cache_path);
+    }
+    else
+    {
+        file_put_contents($html_cache_path, $buffer);
+    }
+    return $buffer;
+}
+
+// Add cache stats in Cache menu in Wordpress admin
+add_action('admin_menu', 'add_cache_stats_in_admin_menu');
+
+function add_cache_stats_in_admin_menu()
+{
+    add_submenu_page('options-general.php', 'Cache Stats', 'Cache Stats', 'manage_options', 'cache-stats', 'cache_stats_page');
+}
+
+function cache_stats_page()
+{
+    $cache_path = WP_CONTENT_DIR . '/cache/';
+    $cache_files = glob($cache_path . '*.html');
+    $cache_count = count($cache_files);
+    $cache_size = 0;
+    foreach ($cache_files as $cache_file)
+    {
+        $cache_size += filesize($cache_file);
+    }
+    $cache_size = size_format($cache_size);
+    echo '<div class="wrap">';
+    echo '<h1>Cache Stats</h1>';
+    echo '<p>Number of cached pages: ' . $cache_count . '</p>';
+    echo '<p>Total cache size: ' . $cache_size . '</p>';
+    echo '<form method="post">';
+    echo '<input type="submit" name="clean_cache" value="Clean Cache" class="button button-primary">';
+    echo '</form>';
+    echo '</div>';
+}
+
+// Clean cache
+add_action('admin_init', 'clean_cache');
+
+function clean_cache()
+{
+    if (isset($_POST['clean_cache']))
+    {
+        $cache_path = WP_CONTENT_DIR . '/cache/';
+        $cache_files = glob($cache_path . '*.html');
+        foreach ($cache_files as $cache_file)
+        {
+            unlink($cache_file);
+        }
+        wp_redirect(admin_url('options-general.php?page=cache-stats'));
+    }
+}
+
+// Add cache stats in WordPress top bar
+add_action('admin_bar_menu', 'add_cache_stats_in_admin_bar', 100);
+
+function add_cache_stats_in_admin_bar($wp_admin_bar)
+{
+    $cache_path = WP_CONTENT_DIR . '/cache/';
+    $cache_files = glob($cache_path . '*.html');
+    $cache_count = count($cache_files);
+    $cache_size = 0;
+    foreach ($cache_files as $cache_file)
+    {
+        $cache_size += filesize($cache_file);
+    }
+    $cache_size = size_format($cache_size);
+    $args = array(
+        'id' => 'cache-stats',
+        'title' => 'Cache Stats',
+        'meta' => array(
+            'class' => 'cache-stats',
+            'title' => 'Cache Stats'
+        )
+    );
+    $wp_admin_bar->add_node($args);
+    $args = array(
+        'id' => 'cache-stats-number',
+        'title' => 'Number of cached pages: ' . $cache_count,
+        'parent' => 'cache-stats',
+        'meta' => array(
+            'class' => 'cache-stats-number',
+            'title' => 'Number of cached pages: ' . $cache_count
+        )
+    );
+    $wp_admin_bar->add_node($args);
+    $args = array(
+        'id' => 'cache-stats-size',
+        'title' => 'Total cache size: ' . $cache_size,
+        'parent' => 'cache-stats',
+        'meta' => array(
+            'class' => 'cache-stats-size',
+            'title' => 'Total cache size: ' . $cache_size
+        )
+    );
+    $wp_admin_bar->add_node($args);
+}
+
+// Clean cache after 7 days
+add_action('init', 'clean_cache_after_7_days');
+
+function clean_cache_after_7_days()
+{
+    $cache_path = WP_CONTENT_DIR . '/cache/';
+    $cache_files = glob($cache_path . '*.html');
+    foreach ($cache_files as $cache_file)
+    {
+        if (filemtime($cache_file) < time() - 604800)
+        {
+            unlink($cache_file);
+        }
+    }
+}
