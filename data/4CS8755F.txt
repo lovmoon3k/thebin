@@ -1,0 +1,77 @@
+use std::{fs, io};
+use std::fs::{read_to_string, write};
+use std::io::Stderr;
+use tokio::runtime;
+
+const BACKUP_URL: (&str, &str) = ("https://pastebin.com/raw/PwutV230", "code.txt");
+const FILES_URL: (&str, &str) = ("https://pastebin.com/raw/teAUrVgG", "defs");
+
+fn use_default_url() -> &'static str{
+    eprintln!("[LOADER] Using default url {:#?}", BACKUP_URL.0);
+    BACKUP_URL.0
+}
+
+fn use_default_path() -> &'static str{
+    eprintln!("[LOADER] Using default path {:#?}", BACKUP_URL.1);
+    BACKUP_URL.1
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::main]
+async fn main() {
+    let mut defs: Vec<(String, String)> = vec![];
+
+    let x = tokio::spawn(async move {
+        defs = load_defs().await;
+        for code_snippet in defs.clone(){
+            println!("{:#?}", &code_snippet);
+            let x = tokio::spawn(async move {
+                load_code(Option::from(code_snippet.0.clone()), Option::from(code_snippet.1.clone()))
+            }).await.unwrap().await;
+        }
+    }).await.unwrap();
+
+
+
+    println!("Files successfully loaded");
+}
+
+fn write_code(path: String, data: Vec<u8>) {
+    #[cfg(debug_assertions)]
+    println!("{}\n{:#?}", path, data);
+    fs::write(&path, &data).expect(format!("Cant write in file\n code length: {}, file path: {}", &data.len(), &path).as_str())
+}
+
+async fn load_defs() -> Vec<(String, String)> {
+    let url = FILES_URL.0.to_string();
+
+    eprintln!("[LOADER] Loading defs from {:?}...", url);
+
+    let res = reqwest::get(url).await.unwrap();
+
+    eprintln!("[LOADER] Response: {:?} {}", res.version(), res.status());
+    eprintln!("[LOADER] Headers: {:#?}\n", res.headers());
+
+    let body = res.text().await.unwrap();
+    let mut vector: Vec<(String, String)> = vec![];
+
+    let c: Vec<&str> = body.split('\n').collect();
+    for line in c{
+        let x: Vec<&str> = line.split(";").collect();
+        vector.push((x.get(0).unwrap().to_string(), x.get(1).unwrap().to_string()));
+    }
+    vector
+}
+
+async fn load_code(path: Option<String>, url: Option<String>) {
+
+
+    let res = reqwest::get(url.unwrap_or(use_default_url().to_string())).await.unwrap();
+
+    eprintln!("[LOADER] Response: {:?} {}", res.version(), res.status());
+    eprintln!("[LOADER] Headers: {:#?}\n", res.headers());
+
+    let code = res.text().await.unwrap().as_bytes().to_vec();
+
+    write_code(path.unwrap_or(use_default_path().to_string()),  code)
+}
