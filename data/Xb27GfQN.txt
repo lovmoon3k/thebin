@@ -1,0 +1,184 @@
+import numpy as np
+
+
+class Node:
+    def __init__(self, n_matrix=None, threshold=None, feature_number=None, is_leaf=False, verdict=False):
+        self.n_matrix = n_matrix  # если понадобится для анализа дерева
+        self.threshold = threshold
+        self.feature_number = feature_number
+        self.is_leaf = is_leaf
+        self.verdict = verdict
+        self.left_node = None
+        self.right_node = None
+
+
+class SDTree:
+    def __init__(self):
+        self.__root = None
+        self.__w_matrix = np.zeros([3, 3])
+        self.__w_matrix[0][1] = 1
+        self.__w_matrix[1][0] = 1
+        self.__w_matrix[1][2] = 1
+        self.__w_matrix[2][1] = 1
+
+    def fit(self, x, y, alpha=0.5, min_node_size=50):
+        w, h = y.shape
+        neighbourhood_graph = np.ones([w, h])
+        self.__root = self.__get_root(neighbourhood_graph, x, y, alpha, min_node_size)
+
+    def predict(self, x):
+        w, h = x[0].shape
+        y_pred = np.zeros([w, h])
+        for i in range(w):
+            for j in range(h):
+                current_node = self.__root
+                while not current_node.is_leaf:
+                    if x[current_node.feature_number][i][j] <= current_node.threshold:
+                        current_node = current_node.left_node
+                    else:
+                        current_node = current_node.right_node
+                y_pred[i][j] = current_node.verdict
+        return y_pred
+
+    def __get_root(self, neighbourhood_graph, x, y, alpha, min_node_size):
+        if (neighbourhood_graph.sum() < min_node_size or
+                self.__is_homogeneous(neighbourhood_graph, y)):
+            total_sum = neighbourhood_graph.sum()
+            verdict = ((neighbourhood_graph * y).sum() / total_sum) >= 0.5
+            return Node(neighbourhood_graph, is_leaf=True, verdict=verdict)
+        best_feature_number = None
+        best_threshold = None
+        best_sig = None
+        best_graph_1 = None
+        best_graph_2 = None
+        for i in range(len(x)):
+            feature_matrix = x[i]
+            feature_values = np.unique(feature_matrix.flatten())
+            for feature_value in feature_values[:-1]:
+                graph_1, graph_2 = self.__split(feature_value, neighbourhood_graph, feature_matrix)
+                inf_gain = self.__calculate_information_gain(graph_1, graph_2, y)
+                nsar = self.__calculate_nsar(neighbourhood_graph, graph_1, graph_2, y)
+                spatial_inf_gain = (1 - alpha) * inf_gain + alpha * nsar
+                if (best_sig is None) or (spatial_inf_gain > best_sig):
+                    best_sig = spatial_inf_gain
+                    best_feature_number = i
+                    best_threshold = feature_value
+                    best_graph_1 = graph_1
+                    best_graph_2 = graph_2
+        current_node = Node(neighbourhood_graph, best_threshold, best_feature_number)
+        print("Node created! Feature: ", best_feature_number, ", threshold: ", best_threshold)
+        current_node.left_node = self.__get_root(best_graph_1, x, y, alpha, min_node_size)
+        current_node.right_node = self.__get_root(best_graph_2, x, y, alpha, min_node_size)
+        return current_node
+
+    def __calculate_nsar(self, neighbourhood_graph, graph_1, graph_2, y):
+        n = neighbourhood_graph.sum()
+        w, h = neighbourhood_graph.shape
+        nsar_sum = 0
+        sum_gamma_before = 0
+        for i in range(w):
+            for j in range(h):
+                gamma_before = self.__calculate_local_gamma([i, j], neighbourhood_graph, y)
+                gamma_after = \
+                    self.__calculate_local_gamma([i, j], graph_1, y) + \
+                    self.__calculate_local_gamma([i, j], graph_2, y)
+                if gamma_before == 0:
+                    nsar_sum += 1
+                else:
+                    nsar_sum += gamma_after / gamma_before
+                sum_gamma_before += gamma_before
+        return nsar_sum / n
+
+    def __calculate_local_gamma(self, position, graph, y_graph):
+        w_matrix = self.__w_matrix
+        x_coord, y_coord = position
+        if graph[x_coord][y_coord] == 0:
+            return 0
+        current_class = y_graph[x_coord][y_coord]
+        w_size = len(w_matrix)
+        delta = (w_size - 1) // 2
+        gamma_index = 0
+        for i in range(x_coord - delta, x_coord + delta + 1):
+            for j in range(y_coord - delta, y_coord + delta + 1):
+                if i < 0 or j < 0:
+                    continue
+                if i >= graph.shape[0] and j >= graph.shape[1]:
+                    return gamma_index
+                elif i >= graph.shape[0] or j >= graph.shape[1]:
+                    continue
+                if graph[i][j] == 0:
+                    gamma_index += 0
+                else:
+                    gamma_index += \
+                        (current_class == y_graph[i][j]) * \
+                        w_matrix[i - x_coord + delta][j - y_coord + delta]
+        return gamma_index
+
+    @staticmethod
+    def __calculate_information_gain(split_1, split_2, y):
+        n_1 = split_1.sum()
+        p_true = 0 if n_1 == 0 else (split_1 * y).sum() / n_1
+        entropy_1 = 0 if (p_true == 0 or p_true == 1) \
+            else -p_true * np.log2(p_true) - (1 - p_true) * np.log2(1 - p_true)
+        n_2 = split_2.sum()
+        p_true = 0 if n_2 == 0 else (split_2 * y).sum() / n_2
+        entropy_2 = 0 if (p_true == 0 or p_true == 1) \
+            else -p_true * np.log2(p_true) - (1 - p_true) * np.log2(1 - p_true)
+        entropy_after_split = 0 if (n_1 == 0 and n_2 == 0) \
+            else (n_1 * entropy_1 + n_2 * entropy_2) / (n_1 + n_2)
+        entire_graph = split_1 + split_2
+        n = entire_graph.sum()
+        p_true = 0 if n == 0 else (entire_graph * y).sum() / n
+        entropy_before_split = 0 if (p_true == 0 or p_true == 1) \
+            else -p_true * np.log2(p_true) - (1 - p_true) * np.log2(1 - p_true)
+        return entropy_before_split - entropy_after_split
+
+    @staticmethod
+    def __split(threshold, graph, feature_matrix):
+        w, h = graph.shape
+        below_threshold = np.zeros([w, h])
+        above_threshold = np.zeros([w, h])
+        for i in range(w):
+            below_threshold[i] += (feature_matrix[i] <= threshold) * graph[i]
+            above_threshold[i] += (feature_matrix[i] > threshold) * graph[i]
+        return [below_threshold, above_threshold]
+
+    @staticmethod
+    def __is_homogeneous(graph, y):
+        graph_sum = graph.sum()
+        union_sum = (graph * y).sum()
+        if (union_sum == 0) or (graph_sum == union_sum):
+            return True
+        return False
+
+
+def example_first():
+    tree = SDTree()
+    y = np.zeros([8, 8])
+    for i in range(4):
+        for j in range(8):
+            y[i][j] = 1
+    f_1 = np.ones([8, 8]) * 10
+    f_2 = np.ones([8, 8]) * 10
+    f_1[0:4, 0:8] *= 3
+    f_1[1, 1] = 10
+    f_1[1, 5] = 10
+    f_1[3, 1] = 10
+    f_1[1, 5] = 10
+    f_1[5, 1] = 30
+    f_1[5, 5] = 30
+    f_1[5, 7] = 30
+    f_1[7, 2] = 30
+    f_1[7, 5] = 30
+    f_2[4:8, 0:8] = 20
+    f_2[0:4, 2:6] = 30
+    x = np.array([f_1, f_2])
+    tree.fit(x, y, alpha=0.8, min_node_size=4)
+    y_pred = tree.predict(x)
+    print(y_pred)
+
+def example_second():
+    
+
+if __name__ == '__main__':
+    example_first()
