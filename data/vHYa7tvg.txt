@@ -1,0 +1,275 @@
+#include < amxmodx >
+#include < fun >
+#include < cstrike >
+#include < engine >
+#include < fakemeta >
+#include < hamsandwich >
+
+#define VIP_FLAG ADMIN_LEVEL_H // flag vip
+#define VIP_HP 20 // hp la spawn
+#define VIP_ARMOR 120 // ap la spawn
+#define VIP_MONEY 4200 // bani la spawn
+
+#define VIP_BONUS_KILL 10 // hp per kill
+#define VIP_BONUS_AP 10 // ap per kill
+#define VIP_BONUS_MONEY 3000 // bani per kill
+#define SPEED 400 // viteza pe cutit
+
+#define DAMAGE_RECIEVED
+
+new round[33] = 0;
+new cvar_vip_jump;
+new jumpnum[33];
+new bool: dojump[33];
+new bool:HasC4[33];
+new g_MsgSync
+
+enum {
+	SCOREATTRIB_ARG_PLAYERID = 1,
+	SCOREATTRIB_ARG_FLAGS
+};
+
+enum ( <<= 1 ) {
+	SCOREATTRIB_FLAG_NONE = 0,
+	SCOREATTRIB_FLAG_DEAD = 1,
+	SCOREATTRIB_FLAG_BOMB,
+	SCOREATTRIB_FLAG_VIP
+};
+
+#if defined DAMAGE_RECIEVED
+new g_MsgSync2
+#endif
+
+public plugin_init() {
+	
+	register_plugin("VIP", "1.1", "A k c 3 n 7" );
+	RegisterHam(Ham_Spawn, "player", "PlayerSpawn", 1) 	
+	register_event("DeathMsg", "death_msg", "a", "1>0");
+	register_event("Damage", "on_damage", "b", "2!0", "3=0", "4!0")
+	register_message( get_user_msgid( "ScoreAttrib" ), "MessageScoreAttrib" );
+	register_event("CurWeapon", "EventCurWeapon", "be", "1=1") 
+	
+	cvar_vip_jump = register_cvar("vip_jump", "1" );
+
+	g_MsgSync = CreateHudSyncObj()
+	#if defined DAMAGE_RECIEVED
+	g_MsgSync2 = CreateHudSyncObj()
+	#endif		
+}
+
+public on_damage(id)
+{
+	new attacker = get_user_attacker(id)
+	
+	
+	#if defined DAMAGE_RECIEVED
+	
+	if ( is_user_connected(id) && is_user_connected(attacker) )
+		if (get_user_flags(attacker) & VIP_FLAG)
+	{
+		new damage = read_data(2)
+		
+		
+		set_hudmessage(255, 0, 0, 0.45, 0.50, 2, 0.1, 4.0, 0.1, 0.1, -1)
+		ShowSyncHudMsg(id, g_MsgSync2, "%i^n", damage)
+		#else
+		if ( is_user_connected(attacker) && if (get_user_flags(attacker) & VIP_FLAG) )
+		{
+			new damage = read_data(2)
+			#endif
+			set_hudmessage(0, 100, 200, -1.0, 0.55, 2, 0.1, 4.0, 0.02, 0.02, -1)
+			ShowSyncHudMsg(attacker, g_MsgSync, "%i^n", damage)
+		}
+	}
+	
+	public death_msg() {
+		
+		new killer = read_data(1);
+		new victim = read_data(2);
+		
+		if(killer == victim || !is_user_connected(victim) || !is_user_alive(killer))
+			return PLUGIN_HANDLED;
+		
+		set_user_health(killer, get_user_health(killer) + VIP_BONUS_KILL );
+		set_user_armor(killer, get_user_armor(killer) + VIP_BONUS_AP );
+		cs_set_user_money(killer, cs_get_user_money(killer) + VIP_BONUS_MONEY);
+		return PLUGIN_CONTINUE;
+	}
+	
+	public client_putinserver(id) 
+	{	
+		//set_task(2.0, "in", id);
+		if(get_user_flags(id) & VIP_FLAG)
+		{
+			jumpnum[id] = 0;
+			dojump[id] = false;
+			round[id] = 0;
+		}	
+	}
+	
+	public PlayerSpawn( iPlayer ) {
+		
+		if(is_user_alive( iPlayer ) && get_user_flags( iPlayer ) & VIP_FLAG) {
+			
+			round[ iPlayer ]++	
+			if(round[ iPlayer ]>=3)
+				vip_menu( iPlayer )
+			
+			set_user_health(iPlayer, get_user_health( iPlayer ) + VIP_HP );
+			set_user_armor(iPlayer, get_user_armor(iPlayer) + VIP_ARMOR );
+			cs_set_user_money(iPlayer, cs_get_user_money(iPlayer) + VIP_MONEY );
+		}
+	}
+	
+	public EventCurWeapon( iPlayer ) {
+		
+		if ( get_user_flags( iPlayer ) & VIP_FLAG ) {
+			
+			new iWeapon = read_data(2);
+			
+			if( iWeapon == CSW_KNIFE ) 
+			{
+				set_user_maxspeed(iPlayer, float(SPEED));
+			}
+		}
+	}
+	
+	public client_PreThink( id )
+	{
+		if(!is_user_alive(id)) 
+			return PLUGIN_CONTINUE;
+		
+		new BUTON = get_user_button(id)
+		new OLDBUTON = get_user_oldbutton(id)
+		new JUMP_VIP = get_pcvar_num(cvar_vip_jump) 
+		
+		if((BUTON & IN_JUMP) && !(get_entity_flags(id) & FL_ONGROUND) && !(OLDBUTON & IN_JUMP))
+		{
+			if(((get_user_flags(id) & VIP_FLAG) && (jumpnum[id] < JUMP_VIP)))
+			{
+				dojump[id] = true
+				jumpnum[id]++
+			}
+		}
+		
+		if((BUTON & IN_JUMP) && (get_entity_flags(id) & FL_ONGROUND))
+		{
+			jumpnum[id] = 0
+		}
+		
+		return PLUGIN_CONTINUE;
+	}
+	
+	public client_PostThink(id) 
+	{
+		if(!is_user_alive(id)) 
+			return PLUGIN_CONTINUE;
+		
+		if(dojump[id] == true)
+		{
+			new Float: velocity[3]	
+			entity_get_vector(id, EV_VEC_velocity, velocity)
+			velocity[2] = random_float(265.0, 285.0)
+			entity_set_vector(id, EV_VEC_velocity, velocity)
+			dojump[id] = false
+		}
+		return PLUGIN_CONTINUE;
+	}
+	
+	public MessageScoreAttrib(iMsgId, iDest, iReceiver)
+	{
+		new iPlayer = get_msg_arg_int(SCOREATTRIB_ARG_PLAYERID);
+		
+		if(get_user_flags(iPlayer) & VIP_FLAG )
+			set_msg_arg_int(SCOREATTRIB_ARG_FLAGS, ARG_BYTE, SCOREATTRIB_FLAG_VIP);
+	}
+	
+	public vip_menu( id ) {
+		new menu = menu_create( "VIP MENU", "menu_handler" );
+		
+		menu_additem( menu, "\yM4A1 \w+ \yDeagle \w+ \rSet grenade", "", 0, VIP_FLAG );
+		menu_additem( menu, "\yAK47 \w+ \yDeagle \w+ \rSet grenade", "", 1, VIP_FLAG );
+		menu_additem( menu, "\yAWP \w+ \yDeagle \w+ \rSet grenade", "", 2, VIP_FLAG );    
+		menu_setprop( menu, MPROP_EXIT, MEXIT_ALL);
+		
+		menu_display( id, menu, 0 );
+	}
+	
+	public menu_handler( iPlayer, menu, item )
+	{
+		
+		switch( item )
+		{
+			case 0:
+			{
+				if (user_has_weapon(iPlayer, CSW_C4) && get_user_team(iPlayer) == 1)
+					HasC4[iPlayer] = true;
+				else
+					HasC4[iPlayer] = false;
+				
+				strip_user_weapons (iPlayer)
+				if (HasC4[iPlayer])
+				{
+					give_item(iPlayer, "weapon_c4");
+					cs_set_user_plant(iPlayer);
+				}
+				give_item(iPlayer, "weapon_m4a1");
+				cs_set_user_bpammo(iPlayer, CSW_M4A1, 90);
+				give_item(iPlayer, "weapon_deagle");
+				cs_set_user_bpammo(iPlayer, CSW_DEAGLE, 35);
+				give_item(iPlayer,"weapon_knife")
+				give_item(iPlayer, "weapon_hegrenade");
+				give_item(iPlayer, "weapon_flashbang");
+				give_item(iPlayer, "weapon_smokegrenade");    
+			}
+			case 1:
+			{
+				if (user_has_weapon(iPlayer, CSW_C4) && get_user_team(iPlayer) == 1)
+					HasC4[iPlayer] = true;
+				else
+					HasC4[iPlayer] = false;
+				
+				strip_user_weapons (iPlayer)
+				if (HasC4[iPlayer])
+				{
+					give_item(iPlayer, "weapon_c4");
+					cs_set_user_plant(iPlayer);
+				}
+
+				give_item(iPlayer, "weapon_ak47");
+				cs_set_user_bpammo(iPlayer, CSW_AK47, 90);
+				give_item(iPlayer, "weapon_deagle");
+				cs_set_user_bpammo(iPlayer, CSW_DEAGLE, 35);
+				give_item(iPlayer,"weapon_knife")
+				give_item(iPlayer, "weapon_hegrenade");
+				give_item(iPlayer, "weapon_flashbang");
+				give_item(iPlayer, "weapon_smokegrenade");
+			}	
+			case 2:
+			{
+				if (user_has_weapon(iPlayer, CSW_C4) && get_user_team(iPlayer) == 1)
+					HasC4[iPlayer] = true;
+				else
+					HasC4[iPlayer] = false;
+				
+				strip_user_weapons (iPlayer)
+				if (HasC4[iPlayer])
+				{
+					give_item(iPlayer, "weapon_c4");
+					cs_set_user_plant(iPlayer);
+				} 	
+		
+				give_item(iPlayer, "weapon_awp");
+				cs_set_user_bpammo(iPlayer, CSW_AWP, 90);
+				give_item(iPlayer, "weapon_deagle");
+				cs_set_user_bpammo(iPlayer, CSW_DEAGLE, 35); 
+				give_item(iPlayer,"weapon_knife")
+				give_item(iPlayer, "weapon_hegrenade");
+				give_item(iPlayer, "weapon_flashbang");
+				give_item(iPlayer, "weapon_smokegrenade");
+			}
+		}
+		
+		menu_destroy( menu );
+		return PLUGIN_HANDLED;
+	}
