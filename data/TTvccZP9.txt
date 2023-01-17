@@ -1,0 +1,221 @@
+if not http then error("HTTP API must be enabled.") end
+if not term.isColor() then error("An Advanced Computer is required to play this game.") end
+
+------------------------------------------------------------------ utils
+
+local controls = {["\n"]="\\n", ["\r"]="\\r", ["\t"]="\\t", ["\b"]="\\b", ["\f"]="\\f", ["\""]="\\\"", ["\\"]="\\\\"}
+local whites = {['\n']=true; ['\r']=true; ['\t']=true; [' ']=true; [',']=true; [':']=true}
+local function removeWhite(str)
+	while whites[str:sub(1, 1)] do
+		str = str:sub(2)
+	end
+	return str
+end
+
+------------------------------------------------------------------ decoding
+
+local parseBoolean, parseNull, parseNumber, parseString, parseArray, parseMember, parseObject, parseValue
+local decodeControls = {}
+for k,v in pairs(controls) do
+	decodeControls[v] = k
+end
+
+parseBoolean = function(str)
+	if str:sub(1, 4) == "true" then
+		return true, removeWhite(str:sub(5))
+	else
+		return false, removeWhite(str:sub(6))
+	end
+end
+
+parseNull = function(str)
+	return nil, removeWhite(str:sub(5))
+end
+
+local numChars = {['e']=true; ['E']=true; ['+']=true; ['-']=true; ['.']=true}
+parseNumber = function(str)
+	local i = 1; while numChars[str:sub(i, i)] or tonumber(str:sub(i, i)) do i = i + 1 end
+	return tonumber(str:sub(1, i - 1)), removeWhite(str:sub(i))
+end
+
+parseString = function(str)
+	str = str:sub(2)
+	local s = ""
+	while str:sub(1,1) ~= "\"" do
+		local next = str:sub(1,1)
+		str = str:sub(2)
+		assert(next ~= "\n", "Unclosed string")
+
+		if next == "\\" then
+			local escape = str:sub(1,1)
+			str = str:sub(2)
+
+			next = assert(decodeControls[next..escape], "Invalid escape character")
+		end
+
+		s = s .. next
+	end
+	return s, removeWhite(str:sub(2))
+end
+
+parseArray = function(str)
+	str = removeWhite(str:sub(2))
+
+	local val = {}
+	local i = 1
+	while str:sub(1, 1) ~= "]" do
+		local v = nil
+		v, str = parseValue(str)
+		val[i] = v
+		i = i + 1
+		str = removeWhite(str)
+	end
+	return val, removeWhite(str:sub(2))
+end
+
+parseMember = function(str)
+	local k, str = parseValue(str)
+	local val, str = parseValue(str)
+	return k, val, str
+end
+
+parseObject = function(str)
+	str = removeWhite(str:sub(2))
+
+	local val = {}
+	while str:sub(1, 1) ~= "}" do
+		local k, v = nil, nil
+		k, v, str = parseMember(str)
+		val[k] = v
+		str = removeWhite(str)
+	end
+	return val, removeWhite(str:sub(2))
+end
+
+parseValue = function(str)
+	local fchar = str:sub(1, 1)
+	if fchar == "{" then
+		return parseObject(str)
+	elseif fchar == "[" then
+		return parseArray(str)
+	elseif tonumber(fchar) ~= nil or numChars[fchar] then
+		return parseNumber(str)
+	elseif str:sub(1, 4) == "true" or str:sub(1, 5) == "false" then
+		return parseBoolean(str)
+	elseif fchar == "\"" then
+		return parseString(str)
+	elseif str:sub(1, 4) == "null" then
+		return parseNull(str)
+	end
+end
+
+local function decode(str)
+	return parseValue(removeWhite(str))
+end
+
+------------------------------------------------------------------ main code
+
+local blacklist = {".gitattributes", ".gitignore", "LICENSE", "README.md"}
+local tArgs = {...}; local sx, sy = term.getSize()
+
+local function save(data, file, p)
+ 	local p = p or ""
+	local file = shell.resolve(file)
+	if not (fs.exists(string.sub(file,1,#file - #fs.getName(file))) and fs.isDir(string.sub(file,1,#file - #fs.getName(file)))) then
+		if fs.exists(string.sub(file,1,#file - #fs.getName(file))) then fs.delete(string.sub(file,1,#file - #fs.getName(file))) end
+		fs.makeDir(string.sub(file,1,#file - #fs.getName(file)))
+	end
+	local f = fs.open(file, "w")
+	f.write(data); f.close()
+end
+ 
+local function download(url, file, p) save(http.get(url).readAll(), file, p) end
+
+local function allowed(str)
+	for i = 1, #blacklist do
+		if blacklist[i] == str then return end
+	end; return true
+end
+
+if not tArgs[1] then
+	term.setBackgroundColor(colors.white)
+	term.setTextColor(colors.lightGray)
+	term.clear()
+	term.setCursorPos(1, sy - 1)
+	term.write("Credits to apemanzilla for their Gitget program")
+	term.setCursorPos(1, sy)
+	term.write("Credits to ElvishJerricco's for their JSON API")
+
+	term.setTextColor(colors.cyan)
+	term.setCursorPos((sx / 2) - 12, 3)
+	term.write("MiniatureCraft Installer")
+	term.setTextColor(colors.blue)
+	term.setCursorPos((sx / 2) - 9, 6)
+	term.write("Path to install to:")
+	term.setCursorPos((sx / 2) - 21, 10)
+	term.write("Leave blank for default folder, '/' for root.")
+	paintutils.drawLine(sx / 4, 8, (sx / 4) * 3, 8, colors.gray)
+	term.setCursorPos(sx / 4, 8)
+	term.setTextColor(colors.yellow)
+	path = read(); if path == "" then path = "MC/" end
+
+	term.setTextColor(colors.blue)
+	paintutils.drawLine(sx / 4, 6, (sx / 4) * 3, 6, colors.white)
+	term.setCursorPos((sx / 2) - 7, 6)
+	term.write("Installing...")
+end
+
+local branch = tArgs[2] and "Alpha" or "master"
+local data = decode(http.get("https://api.github.com/repos/Antelux/MiniatureCraft/git/trees/"..branch.."?recursive=1").readAll())
+if data.message and data.message == "Not found" then error("Could not find files.", 2) end
+
+if not tArgs[1] then
+	totalBar, currentPart = #data.tree - #blacklist, 0
+	paintutils.drawLine(sx / 4, 8, (sx / 4) * 3, 8, colors.white)
+	paintutils.drawLine((sx / 2) - (totalBar / 2), 8, (sx / 2) + (totalBar / 2), 8, colors.gray)
+end
+
+local path = path or tArgs[1]
+term.setTextColor(colors.green)
+for k, v in pairs(data.tree) do -- Create Directories
+    if v.type == "tree" then
+	    fs.makeDir(fs.combine(path, v.path))
+	    if not tArgs[1] then
+		    paintutils.drawPixel((sx / 2) - (#data.tree / 2) + currentPart, 8, colors.lime)
+		    paintutils.drawLine(1, 10, sx, 10, colors.white)
+		    local str = "Creating Directory " ..fs.combine(path, v.path)
+		    term.setCursorPos((sx / 2) - (#str / 2), 10)
+		    print(str)
+		    currentPart = currentPart + 1
+	    end
+	end
+end
+
+term.setTextColor(colors.yellow)
+for k,v in pairs(data.tree) do -- Download Files
+	if v.type == "blob" then
+		if allowed(v.path) then
+			download("https://raw.github.com/Antelux/MiniatureCraft/"..branch.."/"..v.path, fs.combine(path, v.path), path)
+			if not tArgs[1] then
+				paintutils.drawPixel((sx / 2) - (#data.tree / 2) + currentPart, 8, colors.lime)
+				paintutils.drawLine(1, 10, sx, 10, colors.white)
+				local fulltext = "Downloading File " ..path.. "" ..v.path
+				term.setCursorPos((sx / 2) - (#fulltext / 2), 10)
+				term.write(fulltext)
+				currentPart = currentPart + 1
+			end
+		end
+	end
+end
+
+if not tArgs[1] then
+	term.setTextColor(colors.blue)
+	term.setBackgroundColor(colors.black)
+	term.clear()
+	term.setCursorPos(1, 1)
+	print()
+	if string.find(path, "/") then print("Installation Complete. Run " ..path.. "mc to play.")
+	else print("Installation Complete. Run " ..path.. "/mc to play.") end
+	print()
+	term.setTextColor(colors.white)
+end
