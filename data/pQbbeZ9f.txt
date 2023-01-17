@@ -1,0 +1,278 @@
+import math 
+from queue import PriorityQueue
+import csv
+import multiprocessing as mp
+from rplidar import RPLidar
+import hashlib
+#constants start
+
+pos_pos = [] 
+pos_neg = [] 
+neg_pos = [] 
+neg_neg = [] 
+
+offset_x = 0
+offset_y = 0
+
+lidar = RPLidar('/dev/ttyUSB0')
+file = "lidar04.csv"
+fixed_file = "lidar04_fixed.csv"
+
+# constants end
+
+def scan():
+    try:
+        for scan in enumerate(lidar.iter_scans(max_buf_meas=False)):
+            list_version_data = list(scan)
+            for data in list_version_data:
+                if isinstance(data, list):
+                    for indiv_data_points in data:
+                        if isinstance(indiv_data_points, tuple):
+                            list_indiv_data_points = list(indiv_data_points)
+                            list_indiv_data_points.pop(0)
+                            angle = list_indiv_data_points[0]
+                            distance = list_indiv_data_points[1]
+                            length = distance
+                            angle = angle
+                            angle = math.radians(angle)
+                            x,y = (length * math.cos(angle)), (length * math.sin(angle))
+                            with open('lidar03.csv', 'a') as f:
+                                writer = csv.writer(f)
+                                writer.writerow([x,y])
+                elif isinstance(data, int):
+                    print("int")
+        if KeyboardInterrupt:
+            lidar.stop()
+            lidar.stop_motor()
+            lidar.disconnect()
+            scan()
+    except Exception as e:
+        print(e)
+        pass
+
+def eliminate_duplicates():
+    with open(file=file, mode="r") as f_in, open(file=fixed_file, mode="w") as f_out:
+        seen = set()  # a set to hold our 'visited' lines
+        for line in f_in:  # iterate over the input file line by line
+            line_hash = hashlib.md5(line.encode()).digest()  # hash the value
+            if line_hash not in seen:  # we're seeing this line for the first time
+                seen.add(line_hash)  # add it to the hash table
+                f_out.write(line)  # write the line to the output
+
+        pass            
+
+class Spot:
+    def __init__(self, row, col, total_rows):
+        self.row = row
+        self.col = col
+        self.x = row
+        self.y = col 
+        self.neighbors = []
+        self.total_rows = total_rows
+
+    def get_pos(self):
+        return self.row, self.col
+    
+    def is_closed(self):
+        return True
+    
+    def is_open(self):
+        return True
+    
+    def is_barrier(self):
+        return True
+    
+    def is_start(self):
+        return True
+    
+    def is_end(self):
+        return True
+    
+    def reset(self):
+        return True
+    
+    def make_closed(self):
+        return True
+    def make_open(self):
+        return True
+
+    def make_barrier(self):
+        return True
+    
+    def make_start(self):
+        return True
+
+    def make_end(self):
+        return True
+
+    def make_path(self):
+        return True
+
+    def update_neighbors(self, grid):
+        self.neighbors = []
+        if self.row < self.total_rows - 1 and not grid[self.row + 1][self.col].is_barrier():
+            self.neighbors.append(grid[self.row + 1][self.col])
+
+        if self.row > 0 and not grid[self.row - 1][self.col].is_barrier():
+            self.neighbors.append(grid[self.row - 1][self.col])
+
+        if self.col < self.total_rows - 1 and not grid[self.row][self.col + 1].is_barrier():
+            self.neighbors.append(grid[self.row][self.col + 1])
+
+        if self.col > 0 and not grid[self.row][self.col - 1].is_barrier():
+            self.neighbors.append(grid[self.row][self.col - 1])
+
+    def __lt__(self, other):
+        return False
+    
+def h(p1, p2):
+    x1, y1 = p1
+    x2, y2 = p2
+    return abs(x1 - x2) + abs(y1 - y2)
+
+def reconstruct_path(came_from, current):
+    while current in came_from:
+        current = came_from[current]
+        current.make_path()
+
+def algorithm(grid, start, end):
+    count = 0
+    open_set = PriorityQueue()
+    open_set.put((0, count, start))
+    came_from = {}
+    g_score = {spot: float("inf") for row in grid for spot in row}
+    g_score[start] = 0
+    f_score = {spot: float("inf") for row in grid for spot in row}
+    f_score[start] = h(start.get_pos(), end.get_pos())
+
+    open_set_hash = {start}
+
+    while not open_set.empty():
+        current = open_set.get()[2]
+        open_set_hash.remove(current)
+
+        if current == end:
+            reconstruct_path(came_from, end)
+            end.make_end()
+            return True
+
+        for neighbor in current.neighbors:
+            temp_g_score = g_score[current] + 1
+
+            if temp_g_score < g_score[neighbor]:
+                came_from[neighbor] = current
+                g_score[neighbor] = temp_g_score
+                f_score[neighbor] = temp_g_score + h(neighbor.get_pos(), end.get_pos())
+                if neighbor not in open_set_hash:
+                    count += 1
+                    open_set.put((f_score[neighbor], count, neighbor))
+                    open_set_hash.add(neighbor)
+                    neighbor.make_open()
+
+        if current != start:
+            current.make_closed()
+    
+    return False
+
+def make_grid(rows):
+    grid = []
+    for i in range(rows):
+        grid.append([])
+        for j in range(rows):
+            spot = Spot(i, j, rows)
+            grid[i].append(spot)
+
+    return grid
+
+def find_fix_quad_convert(x, y):
+    temp_list = []
+    if x >= 0 and y >= 0:
+        # print("Pos_Pos")
+        x = abs(x + 12000 + offset_x)
+        y = abs(y + offset_x)
+        temp_list.append(x)
+        temp_list.append(y)
+        # euclidean quadrant 1
+        pos_pos.append(temp_list)
+        return pos_pos
+    elif x <= 0 and y >= 0:
+        # print("Neg_Pos")
+        x = abs(x + offset_x)
+        y = abs(y + offset_y)
+        temp_list.append(x)
+        temp_list.append(y)
+        # euclidean quadrant 2
+        neg_pos.append(temp_list)
+        return neg_pos
+    elif x <= 0 and y <= 0:
+        # print("Neg_Neg")
+        x = abs(x + offset_x)
+        y = abs(y + 12000 + offset_y)
+        temp_list.append(x)
+        temp_list.append(y)
+        neg_neg.append(temp_list)
+        return neg_neg
+    elif x >= 0 and y <= 0:
+        # print("Pos_neg")z
+        x = abs(x + 12000 + offset_x)
+        y = abs(y + 12000 + offset_y)
+        temp_list.append(x)
+        temp_list.append(y)
+        pos_neg.append(temp_list)
+        return pos_neg
+    else:
+        print(str(x), str(y))
+        print("Error")
+
+
+
+
+def general():
+    ROWS = 24000 # change this to 24000 + offset from driving
+    grid = make_grid(ROWS)
+
+    start = None
+    end = None
+
+    run = True
+    started = False
+    while run:
+        with open(file=fixed_file, mode="r") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                x = int(float(row[0]))
+                y = int(float(row[1]))
+                find_fix_quad_convert(x, y)
+        for spot in pos_pos:
+            grid[spot[0]][spot[1]].make_barrier()
+        for spot in neg_pos:
+            grid[spot[0]][spot[1]].make_barrier()
+        for spot in neg_neg:
+            grid[spot[0]][spot[1]].make_barrier()
+        for spot in pos_neg:
+            grid[spot[0]][spot[1]].make_barrier()
+        # add start and end points here:
+        if spot == start:
+            # Make start = 0 0
+            start = grid[0][0]
+        elif spot == end:
+            end = grid[13500][13500]
+            for row in grid:
+                for spot in row:
+                    spot.update_neighbors(grid)   
+            algorithm(grid, start, end)
+            grid = make_grid(ROWS)
+
+general()
+
+if __name__ == '__name__':
+    p1 = mp.Process(target=scan)
+    p2 = mp.Process(target=eliminate_duplicates)
+    p3 = mp.Process(target=general)
+    p1.start()
+    p2.start()
+    p3.start()
+    p1.join()
+    p2.join()
+    p3.join()
+    
