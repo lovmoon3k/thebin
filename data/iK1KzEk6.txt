@@ -1,0 +1,74 @@
+'Testing chatGPT FreeBASIC/inline asm code generation... lol
+
+Sub RotoZoom(src() As Integer, angle As Single, zoom As Single)
+
+    ' Get the dimensions of the source image
+    Dim As Integer w = UBound(src, 1) + 1
+    Dim As Integer h = UBound(src, 2) + 1
+
+    ' Create a destination image of the same size
+    Dim As Integer dest(w-1, h-1) As Integer
+
+    ' Precalculate trigonometric values
+    Dim As Single cosA = Cos(angle)
+    Dim As Single sinA = Sin(angle)
+    Dim As Single zoom_inv = 1/zoom
+
+    ' Rotation and Scaling using assembly
+    Asm
+        mov eax, w
+        mov edx, h
+        mov r8d, cosA
+        mov r9d, sinA
+        mov xmm1, zoom_inv
+
+        ; Iterate over the destination image pixels
+        xor rdi, rdi ; rdi = y
+        @loopY:
+        xor rbx, rbx ; rbx = x
+        @loopX:
+
+        ; Calculate the source pixel coordinates
+        mov rcx, rbx
+        mov r10, rax
+        mov r11, xmm1
+        mul r10
+        sub rcx, rdi
+        mov r10d, r9d
+        mul r10d
+        mov tx, rcx
+
+        mov rcx, rbx
+        mov r10, rdi
+        mul r11
+        mov r10d, r8d
+        sub rcx, r10d
+        mov r10d, r9d
+        mul r10d
+        mov ty, rcx
+
+        ; Check if the source pixel coordinates are inside the bounds of the source image
+        cmp tx, eax
+        jae @continue
+        cmp ty, edx
+        jae @continue
+        ; Get the color of the source pixel and assign it to the destination pixel
+        mov r8d, tx
+        mov r9d, ty
+        mov eax, src(r8d, r9d)
+        mov dest(rbx, rdi), eax
+        jmp @end
+        @continue:
+        ; Assign a transparent color to the destination pixel
+        mov dest(rbx, rdi), -1
+        @end:
+        ; Next pixel
+        inc rbx
+        cmp rbx, rax
+        jl @loopX
+        inc rdi
+        cmp rdi, rdx
+        jl @loopY
+    End Asm
+    ' The result image is stored in dest()
+End Sub
