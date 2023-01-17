@@ -1,0 +1,158 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include "bits/stdc++.h"
+using namespace std;
+#define all(a) a.begin(), a.end()
+const int mod = 1e9 + 7;
+const int inv6 = 166666668;
+const int inv2 = 500000004;
+struct Mint {
+	int z;
+	Mint() : z(0) {}
+	Mint(int _z) : z(_z) {}
+	Mint operator-(const Mint& other) const {
+		int val = z - other.z + mod;
+		if (val >= mod) { val -= mod; }
+		return Mint(val);
+	}
+	Mint operator-(const int& other) const {
+		int val = z - other + mod;
+		if (val >= mod) { val -= mod; }
+		return Mint(val);
+	}
+	Mint operator+(const Mint& other) const {
+		int val = z + other.z;
+		if (val >= mod) { val -= mod; }
+		return Mint(val);
+	}
+	Mint operator+(const int& other) const {
+		int val = z + other;
+		if (val >= mod) { val -= mod; }
+		return Mint(val);
+	}
+	Mint operator*(const Mint& other) const {
+		int val = (1ll * z * other.z) % mod;
+		return Mint(val);
+	}
+	Mint operator*(const int& other) const {
+		int val = (1ll * z * other) % mod;
+		return Mint(val);
+	}
+};
+Mint ari(Mint n) {
+	return (n + 1ll) * n * inv2;
+}
+Mint seg_ari(int l, int r) {
+	return ari(r) - ari(l - 1);
+}
+Mint sqSum(Mint n) {
+	return n * (n + 1ll) * (n * 2ll + 1ll) * inv6;
+}
+Mint seg_sqSum(int l, int r) {
+	return sqSum(r) - sqSum(l - 1);
+}
+struct Node {
+	Mint sum[3];
+	int push;
+	Node() : push(-1) {
+		sum[0] = Mint();
+		sum[1] = Mint();
+		sum[2] = Mint();
+	}
+	Node operator+(const Node& other) {
+		Node res;
+		for (int _ = 0; _ < 3; _++) {
+			res.sum[_] = sum[_] + other.sum[_];
+		}
+		return res;
+	}
+};
+struct Segtree {
+	int n;
+	vector<Node> t;
+	Segtree(int _n, vector<int>& a) : n(_n) {
+		t.resize(4 * _n);
+		build(1, 0, _n - 1, a);
+	}
+	void build(int v, int tl, int tr, vector<int>& a) {
+		if (tl == tr) {
+			Mint up(1), pw(tl + 1), val(a[tl]);
+			for (int _ = 0; _ < 3; _++) {
+				t[v].sum[_] = val * up;
+				up = (up * pw);
+			}
+			return;
+		}
+		int tm = (tl + tr) / 2;
+		build(v * 2, tl, tm, a);
+		build(v * 2 + 1, tm + 1, tr, a);
+		t[v] = t[v * 2] = t[v * 2 + 1];
+	}
+	void push(int v, int tl, int tr) {
+		if (t[v].push == -1) { return; }
+		t[v].sum[0] = Mint(t[v].push) * (tr - tl + 1ll);
+		t[v].sum[1] = seg_ari(tl + 1, tr + 1) * t[v].push;
+		t[v].sum[2] = seg_sqSum(tl + 1, tr + 1) * t[v].push;
+		if (v * 2 + 1 < (int)t.size()) {
+			t[v * 2].push = t[v].push;
+			t[v * 2 + 1].push = t[v].push;
+		}
+		t[v].push = -1;
+	}
+	void update(int v, int tl, int tr, int l, int r, int val) {
+		push(v, tl, tr);
+		if (tl > r || tr < l) { return; }
+		if (tl >= l && tr <= r) {
+			t[v].push = val;
+			push(v, tl, tr);
+			return;
+		}
+		int tm = (tl + tr) / 2;
+		update(v * 2, tl, tm, l, r, val);
+		update(v * 2 + 1, tm + 1, tr, l, r, val);
+		t[v] = t[v * 2] + t[v * 2];
+	}
+	void update(int l, int r, int val) {
+		update(1, 0, n - 1, l, r, val);
+	}
+	Node Query(int v, int tl, int tr, int l, int r) {
+		push(v, tl, tr);
+		if (tl > r || tr < l) { return Node(); }
+		if (tl >= l && tr <= r) { return t[v]; }
+		int tm = (tl + tr) / 2;
+		return Query(v * 2, tl, tm, l, r) + Query(v * 2 + 1, tm + 1, tr, l, r);
+	}
+	Node Query(int l, int r) {
+		return Query(1, 0, n - 1, l, r);
+	}
+};
+signed main() {
+#ifdef _DEBUG
+	freopen("input.txt", "r", stdin);
+	freopen("output.txt", "w", stdout);
+#endif
+	ios_base::sync_with_stdio(false);
+	cin.tie(nullptr);
+	int n, q; cin >> n >> q;
+	vector<int> a(n);
+	for (int i = 0; i < n; i++) {
+		cin >> a[i];
+	}
+	Segtree T(n, a);
+	auto count_function = [&](int l, int r) {
+		Node sm = T.Query(l, r);
+		return (sm.sum[0] * l * l - (sm.sum[1] * 2ll * l) + sm.sum[2]).z;
+	};
+	while (q--) {
+		int tp; cin >> tp;
+		if (tp == 1) {
+			int l, r, x; cin >> l >> r >> x;
+			l--, r--;
+			T.update(l, r, x);
+		}
+		if (tp == 2) {
+			int l, r; cin >> l >> r;
+			l--, r--;
+			cout << count_function(l, r) << '\n';
+		}
+	}
+}
