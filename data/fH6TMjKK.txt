@@ -1,0 +1,526 @@
+// Was going to write it with treap :)
+
+#include <algorithm>
+#include <iostream>
+#include <limits.h>
+#include <numeric>
+#include <cassert>
+#include <bitset>
+#include <vector>
+#include <stack>
+#include <cmath>
+
+typedef long long llong;
+const int MAXN = 200000 + 10;
+const int MOD = 1000003967;
+const int MAXLOG = 18;
+const int INF = 1e9;
+
+const int TREE_SIZE = MAXN*MAXLOG;
+int bracketNum[256];
+char opposite[256];
+llong base[MAXN];
+struct Node
+{
+    int hash;
+    int oppHash;
+    int hashSize;
+    int active;
+    int lazy;
+    std::bitset <8> has;
+
+    Node()
+    {
+        hashSize = active = 0;
+        hash = oppHash = 0;
+        lazy = -1;
+    }
+};
+
+
+int n, q;
+int treeCnt;
+std::string s;
+std::stack <char> st;
+Node tree[TREE_SIZE * 4 + 1];
+std::vector <int> treePos[4*MAXN];
+std::vector <int> popped[4*MAXN];
+
+inline Node combine(Node left, Node right)
+{
+    if (left.hashSize == -1) 
+    {
+        return right;
+    }
+
+    if (right.hashSize == -1) 
+    {
+        return left;
+    }
+
+    Node ans;
+    ans.hash = (1LL * base[right.hashSize] * left.hash + right.hash) % MOD;
+    ans.oppHash = (left.oppHash + 1LL * right.oppHash * base[left.hashSize]) % MOD;
+    ans.hashSize = left.hashSize + right.hashSize;
+    ans.has = left.has | right.has;
+    return ans;
+}
+
+inline void push(int node, int l, int r)
+{
+    if (tree[node].lazy == -1)
+    {
+        return;
+    }
+
+    assert(tree[node].lazy != 0);
+    tree[node].hash = tree[node].oppHash = 0;
+    tree[node].hashSize = 0;
+    tree[node].active = tree[node].lazy;
+    tree[node].has.reset();
+
+    if (l != r)
+    {
+        tree[2*node].lazy = tree[node].lazy;
+        tree[2*node + 1].lazy = tree[node].lazy;
+    }
+
+    tree[node].lazy = -1;
+}
+
+void updateSegment(int l, int r, int node, int queryPos, char bracket, int active)
+{
+    push(node, l, r);
+    if (queryPos < l || r < queryPos) return;
+    // if (queryPos >= 6 && queryPos <= 8) std::cout << "update segment: " << l << ' ' << r << ' ' << node << ' ' << queryPos << ' ' << bracket << ' ' << active << '\n';
+    if (l == r)
+    {
+        if (active == 0)
+        {
+            tree[node].hash = bracketNum[bracket];
+            tree[node].oppHash = bracketNum[opposite[bracket]];
+            tree[node].hashSize = 1;
+        } else
+        {
+            tree[node].hash = 0;
+            tree[node].oppHash = 0;
+            tree[node].hashSize = 0;
+        }
+
+        tree[node].active = active;
+        tree[node].has[bracketNum[bracket]] = 1;
+        return;
+    }
+
+    int mid = (l + r) / 2;
+    updateSegment(l, mid, 2*node, queryPos, bracket, active);
+    updateSegment(mid + 1, r, 2*node + 1, queryPos, bracket, active);
+    tree[node] = combine(tree[2*node], tree[2*node + 1]);
+}
+
+void updateLazy(int l, int r, int node, int queryL, int queryR, int queryValue)
+{
+    push(node, l, r);
+    if (queryR <  l || r  < queryL) return;
+    if (queryL <= l && r <= queryR) return;
+    {
+        tree[node].lazy = queryValue;
+        push(node, l, r);
+        return;
+    }
+
+    int mid = (l + r) / 2;
+    updateLazy(l, mid, 2*node, queryL, queryR, queryValue);
+    updateLazy(mid + 1, r, 2*node + 1, queryL, queryR, queryValue);
+    tree[node] = combine(tree[2*node], tree[2*node + 1]);
+}
+
+Node queryNodeSegment(int l, int r, int node, int queryL, int queryR)
+{
+    // std::cout << "here: " << l << ' ' << r << ' ' << queryL << ' ' << queryR << '\n';
+    push(node, l, r);
+    if (queryL <= l && r <= queryR)
+    {
+        // std::cout << "in if: " << node << ' ' << 4*TREE_SIZE << "\n";
+        return tree[node];
+    }
+
+    int mid = (l + r) / 2;
+    Node ans; ans.hashSize = -1;
+    if (queryL <= mid) ans = combine(ans, queryNodeSegment(l, mid, 2*node, queryL, queryR));
+    if (mid + 1 <= queryR) ans = combine(ans, queryNodeSegment(mid + 1, r, 2*node + 1, queryL, queryR));
+    // std::cout << "done: " << l << ' ' << r << '\n';
+    return ans;
+}
+
+Node searchRight(int l, int r, int node, int queryL, int queryR, int k)
+{
+    // std::cout << "search right: " << l << ' ' << r << ' ' << node << ' ' << queryL << ' ' << queryR << ' ' << k << '\n';
+    assert(k != 0);
+    push(node, l, r);
+    int mid = (l + r) / 2;
+    if (l != r) push(2*node + 1, mid + 1, r);
+    if (queryL <= l && r <= queryR)
+    {
+        if (l == r) return tree[node];
+        if (tree[2*node + 1].hashSize >= k) return searchRight(mid + 1, r, 2*node + 1, queryL, queryR, k);
+        return combine(searchRight(l, mid, 2*node, queryL, queryR, k - tree[2*node + 1].hashSize), tree[2*node + 1]);
+    }
+
+    Node ans; ans.hashSize = -1;
+    if (mid + 1 <= queryR && tree[2*node + 1].hashSize >= 1)
+    {
+        Node right = searchRight(mid + 1, r, 2*node + 1, queryL, queryR, k);
+        if (right.hashSize == k) return right;
+        k -= right.hashSize;
+        ans = combine(ans, right);
+    }
+
+    if (k > 0)
+    {
+        assert(queryL <= mid);
+        Node left = searchRight(l, mid, 2*node, queryL, queryR, k);
+        ans = combine(left, ans);
+    }
+
+    return ans;
+}
+
+Node searchLeft(int l, int r, int node, int queryL, int queryR, int k)
+{
+    assert(k != 0);
+    push(node, l, r);
+    int mid = (l + r) / 2;
+    if (l != r) push(2*node, l, mid);
+    if (queryL <= l && r <= queryR)
+    {
+        if (l == r) return tree[node];
+        if (tree[2*node].hashSize >= k) return searchLeft(l, mid, 2*node, queryL, queryR, k);
+        return combine(tree[2*node], searchLeft(mid + 1, r, 2*node + 1, queryL, queryR, k - tree[2*node].hashSize));
+    }
+
+    Node ans; ans.hashSize = -1;
+    if (queryL <= mid && tree[2*node].hashSize >= 1)
+    {
+        Node left = searchLeft(l, mid, 2*node, queryL, queryR, k);
+        if (left.hashSize == k) return left;
+        k -= left.hashSize;
+        ans = combine(left, ans);
+    }
+
+    if (k > 0)
+    {
+        Node right = searchLeft(mid + 1, r, 2*node + 1, queryL, queryR, k);
+        ans = combine(ans, right);
+    }
+
+    return ans;
+}
+
+std::pair <int,int> searchRightPos(int l, int r, int node, int queryL, int queryR, int k)
+{
+    assert(k != 0);
+    push(node, l, r);
+    if (queryR <  l || r  < queryL) return {-1, 0};
+    int mid = (l + r) / 2;
+    if (l != r) push(2*node + 1, mid + 1, r);
+    if (queryL <= l && r <= queryR)
+    {
+        if (l == r) return {l, tree[node].hashSize};
+        if (tree[2*node + 1].hashSize >= k) return {searchRightPos(mid + 1, r, 2*node + 1, queryL, queryR, k).first, k};
+        auto res = searchRightPos(l, mid, 2*node, queryL, queryR, k - tree[2*node + 1].hashSize);
+        return {res.first, res.second + tree[2*node + 1].hashSize};
+    }
+
+    int removed = 0;
+    if (mid + 1 <= queryR) 
+    {
+        auto res = searchRightPos(mid + 1, r, 2*node + 1, queryL, queryR, k);
+        if (res.second >= k) return res;
+        k -= res.second;
+        removed = res.second;
+    }
+
+    auto res = searchRightPos(l, mid, 2*node, queryL, queryR, k);
+    return {res.first, res.second + removed};
+}
+
+std::pair <int,int> searchLeftPos(int l, int r, int node, int queryL, int queryR, int k)
+{
+    assert(k != 0);
+    push(node, l, r);
+    if (queryR <  l || r  < queryL) return {-1, 0};
+    int mid = (l + r) / 2;
+    if (l != r) push(2*node, mid + 1, r);
+    // std::cout << "search left: " << l << ' ' << r << ' ' << node << ' ' << queryL << ' ' << queryR << ' ' << k << ' ' << tree[node].hashSize << '\n';
+    if (queryL <= l && r <= queryR)
+    {
+        if (l == r) return {l, tree[node].hashSize};
+        if (tree[2*node].hashSize >= k) return {searchLeftPos(l, mid, 2*node, queryL, queryR, k).first, k};
+        auto res = searchLeftPos(mid + 1, r, 2*node + 1, queryL, queryR, k - tree[2*node].hashSize);
+        return {res.first, res.second + tree[2*node].hashSize};
+    }
+
+    int removed = 0;
+    if (queryL <= mid) 
+    {
+        auto res = searchLeftPos(l, mid, 2*node, queryL, queryR, k);
+        if (res.second >= k) return res;
+        k -= res.second;
+        removed = res.second;
+    }
+
+    auto res = searchLeftPos(mid + 1, r, 2*node + 1, queryL, queryR, k);
+    return {res.first, res.second + removed};
+}
+
+void buildTree(int l, int r, int node)
+{
+    if (l != r)
+    {
+        int mid = (l + r) / 2;
+        buildTree(l, mid, 2*node);
+        buildTree(mid + 1, r, 2*node + 1);
+    }
+
+    treePos[node].resize(r - l + 1);
+    popped[node].resize(r - l + 1);
+    while (!st.empty()) st.pop();
+    for (int i = l ; i <= r ; ++i)
+    {
+        treePos[node][i - l] = ++treeCnt;
+        if (!st.empty() && s[st.top()] == opposite[(int)s[i]]) 
+        {
+            popped[node][st.top() - l] = 2;
+            popped[node][i - l] = 1;
+            st.pop();
+        } else st.push(i);
+    }
+
+    for (int i = l ; i <= r ; ++i)
+    {
+        // if (treePos[node][i - l] >= 6 && treePos[node][i - l] <= 8) std::cout << "update here: " << i << ' ' << treePos[node][i - l] << ' ' << popped[node][i - l] << '\n';
+        updateSegment(1, TREE_SIZE, 1, treePos[node][i - l], s[i], popped[node][i - l]);
+    }
+}
+
+struct stackElement
+{
+    int l, r;
+};
+
+std::vector <stackElement> queryNodes;
+std::vector <stackElement> nodeStack;
+void query(int l, int r, int node, int queryL, int queryR)
+{
+    // std::cout << "node: " << l << ' ' << r << ' ' << queryL << ' ' << queryR << '\n';
+    if (queryL <= l && r <= queryR)
+    {
+        // std::cout << "in if!!!\n" << std::flush;
+        // std::cout << "push: " << treePos[node].size() << ' ' << std::flush << ' ' << treePos[node][0] << ' ' << treePos[node].back() << '\n' << std::flush;
+        queryNodes.push_back({treePos[node][0], treePos[node].back()});
+        return;
+    }
+
+    int mid = (l + r) / 2;
+    if (queryL <= mid) query(l, mid, 2*node, queryL, queryR);
+    if (mid + 1 <= queryR) query(mid + 1, r, 2*node + 1, queryL, queryR);
+}
+
+inline std::string answerQuery(int l, int r)
+{
+    while (!queryNodes.empty())
+    {
+        queryNodes.pop_back();
+    }
+
+    while (!nodeStack.empty())
+    {
+        nodeStack.pop_back();
+    }
+
+    // std::cout << "before query\n";
+    query(1, n, 1, l, r);
+    // std::cout << "done query\n" << std::flush;
+    for (int i = 0 ; i < queryNodes.size() ; ++i)
+    {
+        Node res = queryNodeSegment(1, TREE_SIZE, 1, queryNodes[i].l, queryNodes[i].r); // std::cout << "done with query\n" << std::flush;
+        // std::cout << "hereerere: " << queryNodes[i].l << ' ' << queryNodes[i].r << ' ' << res.hashSize << ' ' << res.hash << ' ' << res.oppHash << '\n';
+        if (res.hashSize == 0) continue;
+        // std::cout << "after query node: " << nodeStack.size() << "\n" << std::flush;
+        while (!nodeStack.empty() && queryNodes[i].l <= queryNodes[i].r)
+        {
+            Node toPush = queryNodeSegment(1, TREE_SIZE, 1, queryNodes[i].l, queryNodes[i].r);
+            Node curr = queryNodeSegment(1, TREE_SIZE, 1, nodeStack.back().l, nodeStack.back().r);
+            if (toPush.hashSize < curr.hashSize) break;
+            Node left = searchLeft(1, TREE_SIZE, 1, queryNodes[i].l, queryNodes[i].r, curr.hashSize);
+            // std::cout << "lefttt issss: " << queryNodes[i].l << ' ' << queryNodes[i].r << ' ' << toPush.hashSize << ' ' << left.hash << ' ' << left.oppHash << ' ' << curr.hash << '\n' << std::flush;
+            if (curr.hash != left.oppHash) break;
+            std::pair <int,int> leftSearch = searchLeftPos(1, TREE_SIZE, 1, queryNodes[i].l, queryNodes[i].r, curr.hashSize + 1);
+            // std::cout << "searched left: " << leftSearch.first << ' ' << leftSearch.second << ' ' << queryNodes[i].l << ' ' << queryNodes[i].r << ' ' << toPush.hashSize << '\n';
+            if (curr.hashSize + 1 <= toPush.hashSize) queryNodes[i].l = leftSearch.first;
+            else queryNodes[i].l = INF;
+            assert(queryNodes[i].l != -1);
+            // std::cout << "heeere\n";
+            nodeStack.pop_back();
+        }
+
+        // std::cout << "here size: " << nodeStack.size() << ' ' << queryNodes[i].l << ' ' << queryNodes[i].r << '\n' << std::flush;
+        if (queryNodes[i].l > queryNodes[i].r) continue;
+        if (nodeStack.empty()) nodeStack.push_back(queryNodes[i]);
+        else
+        {
+            // std::cout << "in else\n" << std::flush;
+            int ll = 0, rr = std::min(queryNodeSegment(1, TREE_SIZE, 1, nodeStack.back().l, nodeStack.back().r).hashSize, queryNodeSegment(1, TREE_SIZE, 1, queryNodes[i].l, queryNodes[i].r).hashSize) + 1, mid;
+            while (ll < rr - 1)
+            {
+                mid = (ll + rr) / 2;
+                // std::cout << "binaryy: " << ll << ' ' << rr << '\n' << std::flush;
+                Node leftHash = searchRight(1, TREE_SIZE, 1, nodeStack.back().l, nodeStack.back().r, mid);
+                // std::cout << "done right\n" << std::flush;
+                Node rightHash = searchLeft(1, TREE_SIZE, 1, queryNodes[i].l, queryNodes[i].r, mid);
+                // std::cout << "done queries\n" << std::flush;
+                if (leftHash.oppHash == rightHash.hash) ll = mid;
+                else rr = mid;
+            }
+
+            // std::cout << "done binary: " << ll << ' ' << rr << '\n';
+            if (rr <= queryNodeSegment(1, TREE_SIZE, 1, nodeStack.back().l, nodeStack.back().r).hashSize) nodeStack.back().r = searchRightPos(1, TREE_SIZE, 1, nodeStack.back().l, nodeStack.back().r, rr).first;
+            else nodeStack.pop_back();
+            assert(nodeStack.back().r != -1);
+            if (rr <= queryNodeSegment(1, TREE_SIZE, 1, queryNodes[i].l, queryNodes[i].r).hashSize) 
+            {
+                queryNodes[i].l = searchLeftPos(1, TREE_SIZE, 1, queryNodes[i].l, queryNodes[i].r, rr).first;
+                nodeStack.push_back(queryNodes[i]);
+            }
+        }
+    }
+
+    if (nodeStack.empty()) return "Yes";
+    return "No";
+}
+
+void solve()
+{
+    base[0] = 1;
+    for (int i = 1 ; i <= n ; ++i)
+    {
+        base[i] = (base[i - 1] * 9) % MOD;
+    }
+
+    buildTree(1, n, 1);
+    int qType, l, r;
+    for (int i = 1 ; i <= q ; ++i)
+    {
+        std::cin >> qType;
+        if (qType == 2)
+        {
+            std::cin >> l >> r;
+            std::cout << answerQuery(l, r) << '\n';
+            continue;
+        }
+        
+        int pos;
+        char symbol;
+        std::cin >> pos >> symbol;
+    }
+}
+
+void read()
+{
+    std::cin >> n;
+    std::cin >> s; s = ' ' + s;
+    std::cin >> q;
+}
+
+void fastIO()
+{
+    std::ios_base :: sync_with_stdio(0);
+    std::cout.tie(nullptr);
+    std::cin.tie(nullptr);
+}
+
+void initialize()
+{
+    opposite['('] = ')'; bracketNum['('] = 1;
+    opposite[')'] = '('; bracketNum[')'] = 2;
+    opposite['{'] = '}'; bracketNum['{'] = 3;
+    opposite['}'] = '{'; bracketNum['}'] = 4;
+    opposite['['] = ']'; bracketNum['['] = 5;
+    opposite[']'] = '['; bracketNum[']'] = 6;
+    opposite['<'] = '>'; bracketNum['<'] = 7;
+    opposite['>'] = '<'; bracketNum['>'] = 8;
+}
+
+int main()
+{
+    srand(584068701);
+    initialize();
+    // fastIO();
+    read();
+    solve();
+
+    return 0;
+}
+
+
+/*
+10
+>())(][<}{
+45
+2 1 1
+2 1 2
+2 1 3
+2 1 4
+2 1 5
+2 1 6
+2 1 7
+2 1 8
+2 1 9
+2 1 10
+2 2 2
+2 2 3
+2 2 4
+2 2 5
+2 2 6
+2 2 7
+2 2 8
+2 2 9
+2 2 10
+2 3 3
+2 3 4
+2 3 5
+2 3 6
+2 3 7
+2 3 8
+2 3 9
+2 3 10
+2 4 4
+2 4 5
+2 4 6
+2 4 7
+2 4 8
+2 4 9
+2 4 10
+2 5 5
+2 5 6
+2 5 7
+2 5 8
+2 5 9
+2 5 10
+2 6 6
+2 6 7
+2 6 8
+2 6 9
+2 6 10
+2 7 7
+2 7 8
+2 7 9
+2 7 10
+2 8 8
+2 8 9
+2 8 10
+2 9 9
+2 9 10
+2 10 10
+*/
