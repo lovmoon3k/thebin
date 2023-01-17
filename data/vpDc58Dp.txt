@@ -1,0 +1,128 @@
+//Include libraries
+#include <OneWire.h>
+#include <DallasTemperature.h>
+const int pinPo = A1;
+#define TdsSensorPin A0
+#define VREF 3.4      // analog reference voltage(Volt) of the ADC
+#define kValue 1.8    // kValue = value of calibrator TDS 
+#define SCOUNT  30           // sum of sample point
+int analogBuffer[SCOUNT];    // store the analog value in the array, read from ADC
+int analogBufferTemp[SCOUNT];
+int analogBufferIndex = 0, copyIndex = 0;
+float averageVoltage = 0, tdsValue = 0, temperature = 25;
+// Data wire is plugged into pin 2 on the Arduino
+#define ONE_WIRE_BUS A0
+// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
+OneWire oneWire(ONE_WIRE_BUS);
+// Pass our oneWire reference to Dallas Temperature.
+DallasTemperature sensors(&oneWire);
+
+void setup(void)
+{
+  Serial.begin(9600); //Begin serial communication
+  Serial.println("Arduino Digital Temperature // Serial Monitor Version"); //Print a message
+  sensors.begin();
+  Serial.begin(9600); // communication over a serial line at 9600 baud
+  Serial.begin(9600);
+  pinMode(TdsSensorPin, INPUT);
+}
+
+void loop(void)
+{
+  // Send the command to get temperatures
+  sensors.requestTemperatures();
+  Serial.print("Temperature");
+  Serial.println(sensors.getTempCByIndex(0)); // Why "byIndex"? You can have more than one IC on the same bus. 0 refers to the first IC on the wire
+  //Update value every 1 sec.
+  delay(1000);
+
+}
+
+void loop() {
+  // create auxiliary variables
+  int pole[10];
+  int zaloha;
+  unsigned long int prumerVysl = 0;
+  // nactení deseti vzorku po 10 ms do pole
+  for (int i = 0; i < 10; i++) {
+    pole[i] = analogRead(pinPo);
+    delay(10);
+  }
+  // sort the members of the field of measured results by size
+  for (int i = 0; i < 9; i++) {
+    for (int j = i + 1; j < 10; j++) {
+      if (pole[i] > pole[j]) {
+        zaloha = pole[i];
+        pole[i] = pole[j];
+        pole[j] = zaloha;
+      }
+    }
+  }
+  // save the 2nd to 8th result in
+     // variables from which the average is calculated
+     // (omit two field members at the beginning
+     // and end for better accuracy)
+  for (int i = 2; i < 8; i++) {
+    prumerVysl += pole[i];
+  }
+  // calculation of pH value from average  
+  float prumerPH = (float)prumerVysl * 5.0 / 1024 / 6; // measurement and conversion to the range 0-14 pH
+  float vyslednePH = -5.70 * prumerPH + 21.34;
+  // print the results over the serial line
+  Serial.print(" pH Value: ");
+  Serial.println(vyslednePH);
+  // pauza 900 ms before the new measurement, ie a total of 1s
+  delay(900);
+  {
+    static unsigned long analogSampleTimepoint = millis();
+    if (millis() - analogSampleTimepoint > 40U)  //every 40 milliseconds,read the analog value from the ADC
+    {
+      analogSampleTimepoint = millis();
+      analogBuffer[analogBufferIndex] = analogRead(TdsSensorPin);    //read the analog value and store into the buffer
+      analogBufferIndex++;
+      if (analogBufferIndex == SCOUNT)
+        analogBufferIndex = 0;
+    }
+    static unsigned long printTimepoint = millis();
+    if (millis() - printTimepoint > 800U)
+    {
+      printTimepoint = millis();
+      for (copyIndex = 0; copyIndex < SCOUNT; copyIndex++)
+        analogBufferTemp[copyIndex] = analogBuffer[copyIndex];
+      averageVoltage = getMedianNum(analogBufferTemp, SCOUNT) * (float)VREF / 1024.0; // read the analog value more stable by the median filtering algorithm, and convert to voltage value
+      float compensationCoefficient = 1.0 + 0.02 * (temperature - 25.0); //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
+      float compensationVolatge = averageVoltage / compensationCoefficient; //temperature compensation
+      tdsValue = (133.42 * compensationVolatge * compensationVolatge * compensationVolatge - 255.86 * compensationVolatge * compensationVolatge + 857.39 * compensationVolatge) * 0.5 * kValue; //convert voltage value to tds value
+      Serial.print("voltage:");
+      Serial.print(averageVoltage, 2);
+      Serial.print("V   ");
+      Serial.print("TDS Value:");
+      Serial.print(tdsValue, 0);
+      Serial.println("ppm");
+    }
+  }
+  int getMedianNum(int bArray[], int iFilterLen)
+  {
+    int bTab[iFilterLen];
+    for (byte i = 0; i < iFilterLen; i++)
+      bTab[i] = bArray[i];
+    int i, j, bTemp;
+    for (j = 0; j < iFilterLen - 1; j++)
+    {
+      for (i = 0; i < iFilterLen - j - 1; i++)
+      {
+        if (bTab[i] > bTab[i + 1])
+        {
+          bTemp = bTab[i];
+          bTab[i] = bTab[i + 1];
+          bTab[i + 1] = bTemp;
+        }
+      }
+    }
+    if ((iFilterLen & 1) > 0)
+      bTemp = bTab[(iFilterLen - 1) / 2];
+    else
+      bTemp = (bTab[iFilterLen / 2] + bTab[iFilterLen / 2 - 1]) / 2;
+    return bTemp;
+  }
+}
