@@ -1,0 +1,257 @@
+/*
+ * mm-naive.c - The fastest, least memory-efficient malloc package.
+ *
+ * In this naive approach, a block is allocated by simply incrementing
+ * the brk pointer.  Blocks are never coalesced or reused.  The size of
+ * a block is found at the first aligned word before the block (we need
+ * it for realloc).
+ *
+ * This code is correct and blazingly fast, but very bad usage-wise since
+ * it never frees anything.
+ */
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <unistd.h>
+
+#include "mm.h"
+#include "memlib.h"
+
+/* If you want debugging output, use the following macro.  When you hand
+ * in, remove the #define DEBUG line. */
+#define DEBUG
+#ifdef DEBUG
+#define debug(...) printf(__VA_ARGS__)
+#else
+#define debug(...)
+#endif
+
+/* do not change the following! */
+#ifdef DRIVER
+/* create aliases for driver tests */
+#define malloc mm_malloc
+#define free mm_free
+#define realloc mm_realloc
+#define calloc mm_calloc
+#endif /* def DRIVER */
+
+static uint8_t *heap_begin; // first byte of heap
+static uint8_t *heap_end;   // first byte after the heap
+
+typedef struct {
+  int32_t header;
+  /*
+   * We don't know what the size of the payload will be, so we will
+   * declare it as a zero-length array.  This allow us to obtain a
+   * pointer to the start of the payload.
+   */
+  uint8_t payload[];
+} block_t;
+
+static size_t round_up(size_t size) {
+  return (size + ALIGNMENT - 1) & -ALIGNMENT;
+}
+
+static size_t get_size(block_t *block) {
+  return block->header & -2;
+}
+
+static size_t get_size_of_payload(block_t *block) {
+  return get_size(block) - 2 * offsetof(block_t, payload);
+}
+
+static block_t *move_right(block_t *ptr, size_t how_much) {
+  uint8_t *help_ptr = (uint8_t *)ptr;
+  help_ptr += how_much;
+  return (block_t *)help_ptr;
+}
+
+static block_t *move_left(block_t *ptr, size_t how_much) {
+  uint8_t *help_ptr = (uint8_t *)ptr;
+  help_ptr -= how_much;
+  return (block_t *)help_ptr;
+}
+
+static void set_header(block_t *block, size_t size, bool current_is_allocated) {
+  block->header = size | current_is_allocated;
+}
+
+static void set_footer(block_t *block, size_t size, bool is_allocated) {
+  block = move_right(block, size - sizeof(block_t));
+  block->header = size | is_allocated;
+}
+
+static bool expand_heap(size_t size) {
+  // creates a free block at the end of heap of size at least 'size'
+  // returns true on success
+  size = round_up(2 * sizeof(block_t) + size);
+  block_t *free_block = mem_sbrk(size);
+  if ((long)free_block < 0)
+    return false;
+
+  heap_end += size;
+  set_header(free_block, size, false);
+  set_footer(free_block, size, false);
+  return true;
+}
+
+static bool next_is_free(block_t *block_next) {
+  return block_next < (block_t *)heap_end && (!(block_next->header & 1));
+}
+
+static void coalesce_with_next(block_t *left_block_ptr) {
+  size_t left_size = get_size(left_block_ptr);
+  block_t *block_next = move_right(left_block_ptr, left_size);
+  size_t size_sum = left_size;
+  if (next_is_free(block_next)) {
+    size_sum += get_size(block_next);
+  }
+  set_header(left_block_ptr, size_sum, false);
+  set_footer(left_block_ptr, size_sum, false);
+}
+
+static bool prev_is_free(block_t *right_block_ptr) {
+  block_t *block_prev = right_block_ptr - 1;
+  return right_block_ptr > (block_t *)heap_begin && (!(block_prev->header & 1));
+}
+
+static void coalesce_with_prev(block_t *right_block_ptr) {
+  block_t *block_prev = right_block_ptr - 1;
+  if (prev_is_free(right_block_ptr)) {
+    block_t *block_prev_start =
+      move_left(block_prev, get_size(block_prev) - sizeof(block_t));
+    size_t size_sum = get_size(right_block_ptr) + get_size(block_prev_start);
+    set_header(block_prev_start, size_sum, false);
+    set_footer(block_prev_start, size_sum, false);
+  }
+}
+
+static void split_blocks(block_t *block_ptr, size_t size) {
+  size_t final_block_size = get_size(block_ptr);
+  size_t needed_size = round_up(2 * sizeof(block_t) + size);
+  if (get_size(block_ptr) - 2 * sizeof(block_t) > needed_size) {
+    block_t *new_block_ptr = move_right(block_ptr, needed_size);
+    size_t  new_block_size = get_size(block_ptr) - needed_size;
+    // if next block is free, we merge it with the current block
+    set_header(new_block_ptr, new_block_size, false);
+    set_footer(new_block_ptr, new_block_size, false);
+    final_block_size = needed_size;
+  }
+  set_header(block_ptr, final_block_size, true);
+  set_footer(block_ptr, final_block_size, true);
+}
+/*
+ * mm_init - Called when a new trace starts.
+ */
+int mm_init(void) {
+  /* Pad heap start so first payload is at ALIGNMENT. */
+  size_t offset = ALIGNMENT - sizeof(block_t);
+  uint8_t *fake_begin = mem_sbrk(offset);
+  if ((long)fake_begin < 0)
+    return -1;
+  heap_begin = fake_begin + offset;
+  heap_end = heap_begin;
+  return 0;
+}
+
+/*
+ * malloc - Allocate a block by incrementing the brk pointer.
+ *      Always allocate a block whose size is a multiple of the alignment.
+ */
+void *malloc(size_t size) {
+  uint8_t *cur_ptr = heap_begin;
+  while (cur_ptr < heap_end) {
+    block_t *block_ptr = (block_t *)cur_ptr;
+    if (!(block_ptr->header & 1) && get_size_of_payload(block_ptr) >= size) {
+      break;
+    }
+    cur_ptr += get_size(block_ptr);
+  }
+  if (cur_ptr == heap_end) {
+    if (!expand_heap(size))
+      return NULL;
+  }
+
+  block_t *block_ptr = (block_t *)cur_ptr;
+  split_blocks(block_ptr, size);
+  return block_ptr->payload;
+}
+
+/*
+ * free - We don't know how to free a block.  So we ignore this call.
+ *      Computers have big memories; surely it won't be a problem.
+ */
+void free(void *ptr) {
+  if (ptr == NULL)
+    return;
+  block_t *block_ptr = (block_t *)ptr;
+  block_ptr -= 1;
+  coalesce_with_next(block_ptr);
+  coalesce_with_prev(block_ptr);
+}
+
+/*
+ * realloc - Change the size of the block by mallocing a new block,
+ *      copying its data, and freeing the old block.
+ **/
+void *realloc(void *old_ptr, size_t size) {
+  /* If size == 0 then this is just free, and we return NULL. */
+  if (size == 0) {
+    free(old_ptr);
+    return NULL;
+  }
+
+  /* If old_ptr is NULL, then this is just malloc. */
+  if (!old_ptr)
+    return malloc(size);
+
+  block_t *old_block_ptr = (block_t *)old_ptr;
+  old_block_ptr -= 1;
+  size_t old_size = get_size(old_block_ptr);
+  if (size + 2 * sizeof(block_t) < old_size) {
+    split_blocks(old_block_ptr, size);
+     if (move_right(old_block_ptr, get_size(old_block_ptr)) < (block_t*)heap_end)
+       coalesce_with_next(move_right(old_block_ptr, get_size(old_block_ptr)));
+    return old_ptr;
+  }
+
+  else {
+    void *new_ptr = malloc(size);
+
+    /* If malloc() fails, the original block is left untouched. */
+    if (!new_ptr)
+      return NULL;
+
+    /* Copy the old data. */
+    old_size -= 2 * sizeof(block_t);
+    // if (size < old_size)
+    //   old_size = size;
+    memcpy(new_ptr, old_ptr, old_size);
+    free(old_ptr);
+    return new_ptr;
+  }
+}
+
+/*
+ * calloc - Allocate the block and set it to zero.
+ */
+void *calloc(size_t nmemb, size_t size) {
+  size_t bytes = nmemb * size;
+  void *new_ptr = malloc(bytes);
+
+  /* If malloc() fails, skip zeroing out the memory. */
+  if (new_ptr)
+    memset(new_ptr, 0, bytes);
+
+  return new_ptr;
+}
+
+/*
+ * mm_checkheap - So simple, it doesn't need a checker!
+ */
+void mm_checkheap(int verbose) {
+}
