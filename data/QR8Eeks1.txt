@@ -1,0 +1,104 @@
+import re
+import sys
+import random
+import requests
+import itertools
+import pandas as pd
+from bs4 import BeautifulSoup
+
+
+# random time interval between each requests made to server:
+def randomTime(val):
+    ranges = [i for i in range(3, val+1)]
+    return random.choice(ranges)
+
+
+# Hundreds of thousands of user agents for server:
+def userAgents():
+    with open('user-agents.txt') as f:
+        agents = f.read().split("\n")
+        return random.choice(agents)
+
+
+# Using intertools to flatten multi-dimensional list:
+def flat(d_lists):
+    return list(itertools.chain(*d_lists))
+
+
+# Try except to return the value when there is no element. This helpsto a
+class TryExcept:
+    def text(self, element):
+        try:
+            return element.inner_text().strip()
+        except AttributeError:
+            return "Not available"    
+
+    def attributes(self, element, attr):
+        try:
+            return element.get_attribute(attr)
+        except AttributeError:
+            return "Not available"
+
+
+def amazon(play, head):
+    print(f"Initiating the Amazon automation | Powered by Playwright.")
+    amazon_dicts = []
+    catchClause = TryExcept()    
+
+    user_input = str(input("Enter a URL:> "))   
+    amazon_link_pattern = re.search("^https://www.amazon.com/s?k=*", user_input) 
+    if amazon_link_pattern != None:
+        print(f"Invalid link. Please try proper Amazon link.")
+        sys.exit()
+    
+    browser = play.chromium.launch(headless=head, slow_mo=3*1000)
+    page = browser.new_page(user_agent=userAgents())
+    page.goto(user_input)
+    
+    page.wait_for_timeout(timeout=randomTime(4)*1000)
+
+    product_name = re.sub(r"[^a-zA-Z0-9]", "", catchClause.text(page.query_selector("//span[@class='a-color-state a-text-bold']"))).capitalize()
+    print(f"Scraping | {product_name}.")
+    try:
+        last_page = page.query_selector("//span[@class='s-pagination-item s-pagination-disabled']").inner_text().strip()
+    except AttributeError:
+        last_page = page.query_selector_all("//span[@class='s-pagination-strip']/a")[-2].get_attribute('aria-label').split()[-1]
+    next_button = "//a[@class='s-pagination-item s-pagination-next s-pagination-button s-pagination-separator']"
+
+    print(f"Number of pages | {last_page}.")    
+
+    for click in range(int(last_page)):
+        print(f"Page number | {click+1}.")
+        page.wait_for_timeout(timeout=randomTime(8)*1000)
+        main_content = "//div[@class='s-main-slot s-result-list s-search-results sg-row']"            
+        
+        for contents in page.query_selector_all(main_content):                   
+            data = {
+                "Product": [catchClause.text(product) for product in contents.query_selector_all("//a[@class='a-link-normal s-underline-text s-underline-link-text s-link-style a-text-normal']")],
+                "ASIN": [catchClause.attributes(asin, 'data-asin') for asin in contents.query_selector_all("//div[@class='sg-col-4-of-24 sg-col-4-of-12 s-result-item s-asin sg-col-4-of-16 sg-col s-widget-spacing-small sg-col-4-of-20']")], 
+                "Price": [catchClause.text(price) for price in contents.query_selector_all("//span[@class='a-price']")],
+                "Review": [catchClause.text(review) for review in contents.query_selector_all("//span[@class='a-declarative']/a/i/span[@class='a-icon-alt']")],
+                "Review count": [catchClause.text(reviewCount) for reviewCount in contents.query_selector_all("//a[@class='a-link-normal s-underline-text s-underline-link-text s-link-style']/span[@class='a-size-base s-underline-text']")],
+                "Image": [catchClause.attributes(img, 'src') for img in contents.query_selector_all("//div[@class='a-section aok-relative s-image-fixed-height']/img[@class='s-image']")],
+                "Hyperlink": [f"""https://www.amazon.com{catchClause.attributes(link, 'href')}""" for link in contents.query_selector_all("//a[@class='a-link-normal s-underline-text s-underline-link-text s-link-style a-text-normal']")],
+            }
+             
+            amazon_dicts.append(data)
+            
+        amazon_dicts.append(data)
+        try:
+            page.query_selector(next_button).click()
+        except:
+            break
+       
+    browser.close()
+    
+    df = pd.DataFrame.from_dict(amazon_dicts[0])
+    df.to_json(f"{product_name}-Amazon database.json", index=False)
+
+    print("Done.")
+
+    
+   
+
+    
