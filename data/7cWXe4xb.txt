@@ -1,0 +1,174 @@
+#include "test_runner.h"
+
+#include <iostream>
+#include <map>
+#include <string>
+#include <unordered_map>
+#include <algorithm>
+
+using namespace std;
+
+using Id_Integer = int;
+using Id = string;
+using User = string;
+using Timestamp = int;
+using Karma = int;
+
+struct Record {
+    string id;
+    string title;
+    string user;
+    int timestamp;
+    int karma;
+};
+
+
+
+class Database {
+private:
+
+    Id_Integer unique_id = 0;
+    unordered_map<Id, Id_Integer> Id_to_Id_Integer;
+    unordered_map<Id, Record> Id_to_Record;
+
+    map<pair<User, Id_Integer>, const Record*> User_to_Ptr_Record; 
+    map<pair<Timestamp, Id_Integer>, const Record*> Timestamp_to_Ptr_Record;
+    map<pair<Karma, Id_Integer>, const Record*> Karma_to_Ptr_Record;
+
+public:
+
+    const Record* GetById(const string& id) const {
+
+        if (Id_to_Record.find(id) == Id_to_Record.end()) {
+            return nullptr;
+        }
+        return &Id_to_Record.at(id);
+    }
+
+    bool Put(const Record& record) {
+
+        const bool ans = Id_to_Record.insert({ record.id, record }).second;
+
+        if (ans) {
+            Id_to_Id_Integer[record.id] = unique_id;
+
+            User_to_Ptr_Record[{record.user, unique_id}] = GetById(record.id);
+            Timestamp_to_Ptr_Record[{record.timestamp, unique_id}] = GetById(record.id);
+            Karma_to_Ptr_Record[{record.karma, unique_id}] = GetById(record.id);
+            ++unique_id;
+        }
+
+        return ans;
+    }
+
+
+    bool Erase(const string& id) {
+        const auto Record_by_id = Id_to_Record[id];
+        const bool ans = Id_to_Record.erase(id);
+
+        if (ans) {
+            User_to_Ptr_Record.erase({ Record_by_id.user,  Id_to_Id_Integer[id] });
+            Timestamp_to_Ptr_Record.erase({ Record_by_id.timestamp , Id_to_Id_Integer[id] });
+            Karma_to_Ptr_Record.erase({ Record_by_id.karma , Id_to_Id_Integer[id] });
+        }
+
+        return ans;
+    }
+
+    template <typename Callback>
+    void RangeByTimestamp(int low, int high, Callback callback) const {
+
+         auto first_ = Timestamp_to_Ptr_Record.lower_bound({ low , 0});
+         auto second_ = Timestamp_to_Ptr_Record.upper_bound({ high , unique_id });
+
+         for (; first_ != second_; ++first_) {
+            if (!callback(*first_->second)) {
+                return;
+            }
+        }
+
+    }
+
+    template <typename Callback>
+    void RangeByKarma(int low, int high, Callback callback) const {
+
+        auto first_ = Karma_to_Ptr_Record.lower_bound({ low , 0 });
+        auto second_ = Karma_to_Ptr_Record.upper_bound({ high , unique_id });
+
+        for (; first_ != second_; ++first_) {
+            if (!callback(*first_->second)) {
+                return;
+            }
+        }
+
+    }
+
+    template <typename Callback>
+    void AllByUser(const string& user, Callback callback) const {
+
+        auto first_ = User_to_Ptr_Record.lower_bound({ user , 0 });
+        auto second_ = User_to_Ptr_Record.upper_bound({ user , unique_id });
+
+        for (; first_ != second_; ++first_) {
+            if (!callback(*(first_->second))) {
+                return;
+            }
+        }
+    }
+};
+
+// Put / RangeByKarma
+void TestRangeBoundaries() {
+    const int good_karma = 1000;
+    const int bad_karma = -10;
+
+    Database db;
+    db.Put({ "id1", "Hello there", "master", 1536107260, good_karma });
+    db.Put({ "id2", "O>>-<", "general2", 1536107260, bad_karma });
+
+    int count = 0;
+    db.RangeByKarma(bad_karma, good_karma, [&count](const Record&) {
+        ++count;
+        return true;
+        });
+
+    ASSERT_EQUAL(2, count);
+}
+
+// Put / AllByUser
+void TestSameUser() {
+    Database db;
+    db.Put({ "id1", "Don't sell", "master", 1536107260, 1000 });
+    db.Put({ "id2", "Rethink life", "master", 1536107260, 2000 });
+
+    int count = 0;
+    db.AllByUser("master", [&count](const Record&) {
+        ++count;
+        return true;
+        });
+
+    ASSERT_EQUAL(2, count);
+}
+
+// Put / Erase / GetById
+void TestReplacement() {
+    const string final_body = "Feeling sad";
+
+    Database db;
+    db.Put({ "id", "Have a hand", "not-master", 1536107260, 10 });
+    db.Erase("id");
+    db.Put({ "id", final_body, "not-master", 1536107260, -10 });
+
+    auto record = db.GetById("id");
+    ASSERT(record != nullptr);
+    ASSERT_EQUAL(final_body, record->title);
+}
+
+
+int main() {
+    TestRunner tr;
+    RUN_TEST(tr, TestRangeBoundaries);
+    RUN_TEST(tr, TestSameUser);
+    RUN_TEST(tr, TestReplacement);
+    return 0;
+}
