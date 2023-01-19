@@ -1,0 +1,163 @@
+clear all
+close all
+clc
+
+
+
+
+%% 1. kmeans clustering - Define aggregators positions
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+
+% Define the number of sensors and their positions
+LEN_X = 200;
+LEN_Y = 200;
+N_sens = 100;
+x_sens = -LEN_X/2 + rand(1, N_sens) * LEN_X;
+y_sens = -LEN_Y/2 + rand(1, N_sens) * LEN_Y;
+% My kmeans - Split sensors into clusters and define aggregators
+K = 5;
+epsilon_thr = 0.005;
+points = [x_sens; y_sens];
+colors1 = ["red", "green", "blue", "yellow", "cyan", "magenta", "black"];
+colors2 = zeros(K, 3);
+for k = 1 : K
+    colors2(k, :) = [rand, rand, rand];
+end
+
+colors = [];
+if K <= length(colors1)
+    colors = colors1;
+else
+    colors = colors2;
+end
+[aggregators, groups] = my_kmeans(x_sens, y_sens, N_sens, K, epsilon_thr, colors, colors1, colors2);
+aggregators = [LEN_X/2 -LEN_X/1.2 0 -LEN_X/2 LEN_X/1.5; ...
+               LEN_X/2 LEN_X/1.2 0 -LEN_X/3 -LEN_X/2.5] / 2;
+% aggregators = [100 -40 -100 -50 70; 50 110 10 -80 -80];
+
+
+%% 2. Fixed data about position and frequency
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+
+% BS === CP
+xb = 1.6 * LEN_X / 2;    yb = 0;    h_b = 15;    qb = [xb, yb];
+x_cp = xb;    y_cp = yb;    q_cp = [x_cp, y_cp];
+
+% Data EM waves
+f = 5.8 * 10^9;    c = 3 * 10^8;    lambda = c / f;    B = 10^6;
+Gt = 1;    Gr = 1;
+Gt_dB = natural_to_dB(Gt);    Gr_dB = natural_to_dB(Gr);
+P_aggr_max = 0.01;                       % 0.01 W = 10 dBm
+P_tr = P_aggr_max / 2;                   % 7 dBm
+
+% Formulas for noise
+sigma_dBm = -174 + 10 * log10(B);
+sigma_dB = sigma_dBm - 30;
+P_noise = dB_to_natural(sigma_dB);
+
+% Calculations
+Gt_dB = natural_to_dB(Gt);    Gr_dB = natural_to_dB(Gr);
+% FSPL
+d0 = 1;
+rho_1m_dB = - (20 * log10(d0 * f) + 20 * log10(4*pi/c) - Gt_dB - Gr_dB);
+rho_1m = dB_to_natural(rho_1m_dB);
+
+% Data of UAV-RIS
+H = 30;
+d = lambda / 2;
+delta_t = 2;
+v_max_kmh = 62;
+v_max = v_max_kmh / 3.6;                          % 16.67 m/s                 
+a_max = 8.2;                                      % 8.2 m/s^2
+
+% SNR Threshold
+SNR_thr = 1;
+rate_thr = B * log2(1 + SNR_thr);
+
+
+
+
+%% 3. UAV Components - Find flight time
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+% *************************************************************************
+
+
+
+% M_opt
+SNR_worst = 1;
+logos_max = 0.4;                % (v / vmax)_max
+[M_optimum, index, d_max, d_worst] = find_M_optimum(K, ...
+    q_cp, aggregators, H, h_b, P_noise, P_tr, rho_1m, SNR_worst);
+M = ceil(M_optimum);
+m_list = 1 : M;
+
+
+name = "Tattu 30.000 mAh";
+B_c = 666 * 3600;               % Wh  ---> W * s = Joule
+B_w = 4.67;                     % kgr
+UAV_w = 3.25;                   % kgr
+E_w = 7.76 / 1000;              % kgr
+T_max = 20;                     % kgr
+
+rho_air = 1.225;                % kgr/m^3
+v_a = 2.5;                      % 2.5 m/s
+C_d = 0.005;
+g = 9.81;                       % m/s^2
+A_RIS = M * (lambda / 10)^2;
+D_w = (rho_air * v_a^2 * C_d * A_RIS) / (2*g);
+
+
+% M_max
+M_max = find_M_max(logos_max, T_max, B_w, D_w, UAV_w, E_w);
+M_max = floor(M_max);
+
+
+
+
+
+% Worst Case Scenario (M_max)
+display('**********************************************************');
+fprintf('Worst case scenario,\nwhen M == M_max\n');
+display(' ');
+
+v_max_mine = v_max * logos_max;
+[Ltmin_minutes, P_tot_max, W] = find_Lt_minutes(M_max, logos_max, lambda, UAV_w, E_w, T_max, rho_air, v_a, C_d, g, v_max, B_w, B_c);
+Ltmin_sec = floor(Ltmin_minutes * 60);
+N_min = floor(Ltmin_sec / delta_t);
+pretty_Lt(M_max, logos_max, P_tot_max, Ltmin_minutes, N_min, delta_t, W, T_max);
+display('**********************************************************');
+display(' ');
+
+% This Case Scenario  (M)
+display('**********************************************************');
+fprintf('This case scenario,\nwhen M == M_optimum\n');
+display(' ');
+[Lt_minutes, P_tot, W] = find_Lt_minutes(M, logos_max, lambda, UAV_w, E_w, T_max, rho_air, v_a, C_d, g, v_max, B_w, B_c);
+Lt_sec = floor(Lt_minutes * 60);
+N = floor(Lt_sec / delta_t);
+pretty_Lt(M, logos_max, P_tot, Lt_minutes, N, delta_t, W, T_max);
+display('**********************************************************');
+display(' ');
+
+
+
+
+
+
+
+%% 4. Technical RIS Stats - Weights and Dimensions
+fprintf('\n\n\n\n');
+display('**********************************************************');
+% W = technical_RIS_stats(f, B, M, logos_max, lambda, UAV_w, E_w, T_max, rho_air, v_a, C_d, g, v_max, B_w, B_c);
+a = logos_max;
+W_total = RIS_info(a, B_w, D_w, T_max, M, E_w, UAV_w, f, B, lambda, N);
+display('**********************************************************');
+display(' ');
