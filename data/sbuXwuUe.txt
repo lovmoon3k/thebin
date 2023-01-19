@@ -1,0 +1,41 @@
+//This is written for ZScript https://zdoom.org/wiki/ZScript
+
+Class SightBlockChecker : LineTracer
+{
+	Bool BadLOF; //If true, there is something standing in the actors' line of fire.
+	Actor Shooter; //The actor firing the raycast.
+	Override ETraceStatus TraceCallback ()
+	{
+		Actor Mobj = Results.HitActor;
+		
+		//If the trace hit an actor that isn't the shooter, and has the specified token.
+		//This would be better implemented with a custom flag on your actor instead of a token, but a token also allows this to work more universally, as stupid as it is.
+		If (Results.HitType == Trace_HitActor && Mobj != Shooter && Mobj.FindInventory ("SightBlockToken",True))
+		{
+			BadLOF = True;
+			Return Trace_Stop;
+		}
+		
+		Return Trace_Skip;
+	}
+}
+
+//Height offset is the height relative to the callers' position that the trace will be shot from.
+//Range is how far the trace will go before it stops.
+Bool A_CheckSightBlockers (Double HeightOffset = 32, Double Range = MaxTargetRange)
+{
+	Let Check = New ("SightBlockChecker");
+	
+	Vector3 Direction = (AngleToVector(Angle, Cos(Pitch)), -Sin(Pitch)); //Fire the ray at wherever the actor is facing.
+	
+	Check.Shooter = Self;
+	Check.Trace ((Pos.X,Pos.Y,Pos.Z+HeightOffset),CurSector,Direction,MaxTargetRange,0);
+	
+	If (Check.BadLOF)
+	{
+		Check.Destroy();
+		Return False;
+	}
+	Check.Destroy();
+	Return True;
+}
