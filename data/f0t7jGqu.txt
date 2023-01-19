@@ -1,0 +1,106 @@
+use TSQL2012
+ 
+--Zadanie wstępne:
+--Utworzyć tabelę Logi, w której są kolumny id (identyfikator loga), opis , operacja (insert, update lub delete), dataoperacji.
+create table Logi(
+    id int identity(1,1) not null,
+    opis varchar(100) not null,
+    operacja varchar(20) not null,
+    dataoperacji date not null
+    )
+go 
+ 
+--1. Utworzyć trigger instead of delete dla tabeli Sales.Orders, który kasuje wszystkie rekordy razem z powiązanymi danymi z Sales.OrderDetails.
+--Wpisuje do tabeli Logi informację w postaci  (opis , operacja, dataoperacji)
+--jako ('Skasowano x rekordów z Order i y rekordów z OrderDetails', 'delete', bieżąca data)
+--Obsłużyć wyjątki, transakcje jeśli to wskazane. 
+create trigger t_sales_delete
+on Sales.Orders
+instead of delete
+as
+begin
+    declare @deletedOrders int;
+    declare @deletedDetails int;
+    set @deletedOrders = (select count(*) from deleted)
+    set @deletedDetails = (select count(*) from Sales.OrderDetails where orderid in (select orderid from deleted))
+    delete from Sales.OrderDetails where orderid = (select orderid from deleted);
+    delete from Sales.Orders where orderid = (select orderid from deleted);
+    insert into Logi (opis, operacja, dataoperacji) 
+        values (concat('Skasowano ', @deletedOrders, ' rekordow z tabeli Order i ', @deletedDetails, ' rekordów z OrderDetails'),
+            'delete', getdate())
+end
+go
+ 
+delete from Sales.Orders where orderid = 10248
+ 
+select * from Sales.Orders where orderid = 10248
+select * from Sales.OrderDetails  where orderid = 10248
+ 
+select * from Logi
+go
+--2. Utworzyć trigger after update dla tabeli Production.Categories, który zapisuje 
+--do tabeli Logi informację w postaci  (opis , operacja, dataoperacji)
+--jako ('Zmieniono nazwę(opis) kategorii z xx na yy', 'update', bieżąca data)
+--Obsłużyć wyjątki, transakcje jeśli to wskazane.
+ 
+create trigger t_categ_update
+on Production.Categories
+after update
+as
+begin
+    if @@rowcount=0 return
+    --set nocount on
+    declare @loginfo varchar(100);
+    set @loginfo = 'Zmieniono ';
+    
+    if ((select categoryname from inserted) != (select categoryname from deleted))
+    begin
+        set @loginfo += concat('nazwe kategorii z ', (select categoryname from deleted),
+            ' na ', (select categoryname from inserted), ', ');
+    end
+    
+    if ((select description from inserted) != (select description from deleted))
+    begin
+        set @loginfo += concat('opis kategorii z ', (select description from deleted),
+            ' na ', (select description from inserted), ', ');
+    end
+ 
+    insert into Logi (opis, operacja, dataoperacji) 
+        values (@loginfo, 'update', getdate())
+end
+go
+ 
+select * from Production.Categories
+insert into Production.Categories (categoryname, description) values ('testowa', 'kategoria')
+ 
+update Production.Categories set categoryname = 'NOWA', description = 'DOBRY OPIS' where categoryname = 'testowa'
+ 
+select * from Logi
+ 
+--3.Zaimportować dane z xml Shippers.xml (zalecane MERGE)
+--Gdy companyname jest w bazie zrobić update rekordu używając nowych danych z XML, 
+--w przeciwnym wypadku dodać nowy rekord. 
+merge Sales.Shippers as target
+using (
+    select
+       MY_XML.Company.query('companyname').value('.', 'nvarchar(40)') as companyname,
+       MY_XML.Company.query('phone').value('.', 'nvarchar(24)') as phone
+    from (select cast(MY_XML as xml)
+          from openrowset(bulk 'C:\Users\Programista\Documents\LK\bazy\kolokwium 2\Shippers.xml', single_blob) 
+          as T(MY_XML)) AS T(MY_XML)
+          cross apply MY_XML.nodes('Shippers/Company') as MY_XML (Company)
+) as source
+on target.companyname = source.companyname
+when matched then update set phone = source.phone
+when not matched then insert(companyname, phone) values(source.companyname, phone);
+ 
+select * from Sales.Shippers
+go
+     
+--4. Wyliczyć 8! korzystając z CTE
+with factorials(n, factorial) as (
+  select 1, 1
+  union all
+  select n + 1, (n + 1) * factorial from factorials where n < 8
+)
+select factorial from factorials where n = 8;

@@ -1,0 +1,75 @@
+import pickle
+
+import numpy as np
+
+
+if __name__ == '__main__':
+    # Path to pcl file (from first script)
+    spectrums_cube_file = (
+        '/media/michael/Data/TEMP/Ulyanovskoe/data/cubes/station-1.pcl'
+    )
+    # Origin spectrum from well observation
+    origin_spectrum_file = (
+        '/media/michael/Data/Projects/Ulyanovskoye_deposit/scripts/svan/'
+        '103-spectrums.dat'
+    )
+    # Export path with correlation values
+    export_path = (
+        '/media/michael/Data/TEMP/Ulyanovskoe/data/cubes/correlations.txt'
+    )
+    # Frequency limit for finding correlation value
+    f_min, f_max = 2, 7
+
+    # Don't touch next lines
+    origin_spectrum = np.loadtxt(
+        origin_spectrum_file, delimiter='\t', skiprows=1, usecols=[0, 1]
+    )
+    origin_spectrum = origin_spectrum[
+        (origin_spectrum[:, 0] > f_min) * (origin_spectrum[:, 0] < f_max)
+    ]
+
+    with open(spectrums_cube_file, 'rb') as file_ctx:
+        spectrums_cube = pickle.load(file_ctx)
+
+    correlations_info = []
+    for file_data in spectrums_cube:
+        spectrums = file_data['spectrums']
+        spectrums = spectrums[
+            (spectrums[:, 0] > f_min) * (spectrums[:, 0] < f_max)
+        ]
+        frequencies = file_data['spectrums'][:, 0]
+        for i in range(spectrums.shape[1] - 1):
+            spectrum_arr = spectrums[:, [0, i + 1]]
+            correct_spectrum = np.interp(
+                origin_spectrum[:, 0],
+                spectrum_arr[:, 0],
+                spectrum_arr[:, 1]
+            )
+            spectrum_arr = np.column_stack(
+                (origin_spectrum[:, 0], correct_spectrum)
+            )
+
+            correlation_value = round(np.corrcoef(
+                origin_spectrum[:, 1], spectrum_arr[:, 1]
+            )[0, 1], 3)
+
+            correlations_info.append(
+                [
+                    file_data['filename'],
+                    file_data['station'],
+                    file_data['sensor'],
+                    i,
+                    correlation_value
+                ]
+            )
+
+    with open(export_path, 'w') as file_ctx:
+        header = [
+            'FileName', 'Station', 'Sensor', 'BlockIndex', 'Correlation'
+        ]
+        header = '\t'.join(header) + '\n'
+        file_ctx.write(header)
+
+        for record in correlations_info:
+            line = '\t'.join(map(str, record)) + '\n'
+            file_ctx.write(line)

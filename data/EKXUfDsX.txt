@@ -1,0 +1,158 @@
+import os
+from typing import List, Dict
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+import pickle
+
+import numpy as np
+
+from seiscore import BinaryFile
+from seiscore.binaryfile.binaryfile import FileInfo
+from seiscore.binaryfile.binaryfile import BINARY_FILE_FORMATS
+from seiscore.functions.spectrum import average_spectrum
+
+
+@dataclass
+class SpectrumParameters:
+    sample_size_sec = 1048.576
+    offset_size_sec = 500
+    resample_frequency = 250
+    window_size = 8192
+    offset = 4096
+    median_filter = 7
+    marmett_filter = 7
+    spectrum_f_max = 20
+
+    def get_parts_count(self, start_datetime: datetime,
+                        stop_datetime: datetime) -> int:
+        time_diff_sec = (stop_datetime - start_datetime).total_seconds()
+        return int(
+            (time_diff_sec - self.sample_size_sec) / self.offset_size_sec
+        )
+
+
+def get_files_info(root_folder: str) -> List[FileInfo]:
+    bin_files_info = []
+    for root, _, files in os.walk(root_folder):
+        for filename in files:
+            extension = filename.split('.')[-1]
+            if extension not in BINARY_FILE_FORMATS.values():
+                continue
+            full_path = os.path.join(root, filename)
+
+            bin_data = BinaryFile(file_path=full_path)
+            bin_files_info.append(bin_data.short_file_info)
+    return bin_files_info
+
+
+def get_norming_curves(file_path: str) -> Dict[str, np.ndarray]:
+    with open(file_path) as file_ctx:
+        header = file_ctx.readline().rstrip().split('\t')[1:]
+
+    src_data = np.loadtxt(file_path, skiprows=1, delimiter='\t')
+    arrs = []
+    for i in range(len(header) - 1):
+        arrs.append(np.column_stack((src_data[:, 0], src_data[:, i + 1])))
+    return dict(zip(header, arrs))
+
+
+def get_norming_spectrum(source_spectrum: np.ndarray,
+                         norming_curve: np.ndarray):
+    correction_coeffs = np.interp(
+        source_spectrum[:, 0], norming_curve[:, 0], norming_curve[:, 1]
+    )
+    correct_sp_amplitudes = source_spectrum[:, 1] / correction_coeffs
+    return np.column_stack((source_spectrum[:, 0], correct_sp_amplitudes))
+
+
+if __name__ == '__main__':
+    # Path to folder with binary files
+    root_folder = '/media/michael/Data/TEMP/Ulyanovskoe/data/1'
+    # Path to file with norming curves
+    norming_curves_file_path = (
+        '/media/michael/Data/TEMP/Ulyanovskoe/data/norming-curves.dat'
+    )
+    # Path to export folder
+    export_folder = '/media/michael/Data/TEMP/Ulyanovskoe/data/cubes'
+    # Export file name
+    export_name = 'station-1.pcl'
+
+    # Don't touch next lines
+    parameters = SpectrumParameters()
+    spectrums_cube = []
+
+    files_info = get_files_info(root_folder=root_folder)
+    norming_curves = get_norming_curves(file_path=norming_curves_file_path)
+    for file_info in files_info:
+        print(f'Starting {file_info.name}...')
+        sensor = file_info.name.split('.')[0].split('_')[-1]
+        station = int(file_info.name.split('.')[0].split('_')[1])
+        parts_count = parameters.get_parts_count(
+            start_datetime=file_info.time_start,
+            stop_datetime=file_info.time_stop
+        )
+        print(f'Parts count={parts_count}')
+
+        bin_data = BinaryFile(
+            file_path=file_info.path,
+            resample_frequency=parameters.resample_frequency,
+            is_use_avg_values=True
+        )
+
+        spectrums_array = None
+        for i in range(parts_count):
+            t_start = (
+                file_info.time_start +
+                timedelta(seconds=parameters.offset_size_sec * i)
+            )
+            t_stop = (
+                    t_start +
+                    timedelta(seconds=parameters.sample_size_sec)
+            )
+            bin_data.read_date_time_start = t_start
+            bin_data.read_date_time_stop = t_stop
+
+            z_signal = bin_data.read_signal(component='Z')
+
+            avg_spectrum = average_spectrum(
+                signal=z_signal,
+                frequency=bin_data.resample_frequency,
+                window=parameters.window_size,
+                offset=parameters.offset,
+                median_filter=parameters.median_filter,
+                marmett_filter=parameters.marmett_filter
+            )
+            avg_spectrum = avg_spectrum[
+                avg_spectrum[:, 0] < parameters.spectrum_f_max
+            ]
+
+            norming_spectrum = get_norming_spectrum(
+                source_spectrum=avg_spectrum,
+                norming_curve=norming_curves[sensor]
+            )
+
+            if not i:
+                spectrums_array = norming_spectrum
+            else:
+                spectrums_array = np.column_stack(
+                    (spectrums_array, norming_spectrum[:, 1])
+                )
+
+        if spectrums_array:
+            spectrums_cube.append(
+                {
+                    'filename': file_info.name,
+                    'sensor': sensor,
+                    'station': station,
+                    'spectrums': spectrums_array
+                }
+            )
+        print(f'File {file_info.name} done')
+
+    export_path = os.path.join(export_folder, export_name)
+    with open(export_path, 'wb') as file_ctx:
+        pickle.dump(
+            obj=spectrums_cube,
+            file=file_ctx,
+            protocol=pickle.HIGHEST_PROTOCOL
+        )
