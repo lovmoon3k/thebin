@@ -1,0 +1,46 @@
+use TSQL2012
+
+create table Historia(
+    id int identity(1,1) not null,
+    tabela varchar(20) not null,
+    operacja varchar(20) not null,
+    recordid int not null,
+    oldvalue varchar(100),
+    newvalue varchar(100),
+    dataoperacji date not null
+    )
+go 
+
+--Zadanie 1
+create trigger t_prod_delete
+on Production.Products
+instead of delete
+as
+begin
+	alter table Production.Products nocheck constraint all
+	alter table Sales.OrderDetails nocheck constraint all
+ 
+	declare @productid int;
+	set @productid = (select productid from deleted);
+ 
+    delete from Sales.Orders where orderid in (select orderid from Sales.OrderDetails where productid = @productid);
+    delete from Sales.OrderDetails where productid = @productid;
+	delete from Production.Products where productid = @productid;
+ 
+	insert into Historia(tabela, operacja, recordid, oldvalue, newvalue, dataoperacji) 
+        values ('Products', 'delete', @productid, null, null, getdate());
+ 
+ 
+	alter table Production.Products check constraint all
+	alter table Sales.OrderDetails check constraint all
+end
+go
+
+--To jest do testów, ustawiasz inne niż 2 i testujesz, na początku będzie coś a jak skasujesz to już nic ^^
+select * from Production.Products where productid = 2
+select * from Sales.OrderDetails where productid = 2
+
+delete from Production.Products where productid = 2
+
+select * from Production.Products where productid = 2
+select * from Sales.OrderDetails where productid = 2
