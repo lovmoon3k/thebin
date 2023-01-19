@@ -1,0 +1,83 @@
+from html.parser import HTMLParser
+from enum import Enum
+import requests
+
+
+class Mode(Enum):
+    Idle = 1
+    ListProgramme = 2
+    TimeSpan = 3
+    TimeSpanClosed = 4
+    ListIntermezzo = 5
+    ListIntermezzoLine = 6
+
+
+class MezzoParser(HTMLParser):
+    mode = Mode.Idle
+    intermezzo = []
+    titles = ['Mezzo', 'Mezzo Live HD']
+
+    def handle_starttag(self, tag, attrs):
+        if self.mode == Mode.Idle:
+            if tag == "ul" and ("class", "list-programme") in attrs:
+                print('')
+                if (self.titles):
+                    title = self.titles.pop()
+                    uderscore = '*' * len(title)
+                    print(title)
+                    print(uderscore)
+                    print('')
+                self.mode = Mode.ListProgramme
+            return
+        if self.mode == Mode.ListProgramme:
+            if tag == "span":
+                self.mode = Mode.TimeSpan
+            if tag == "ul" and ("class", "programme__covers") in attrs:
+                self.mode = Mode.Idle
+            if tag == "ul" and ("class", "programme__date") in attrs:
+                self.mode = Mode.Idle
+            if tag == "script":
+                self.mode = Mode.Idle
+            if tag == "ul" and ("class", "list-intermezzo") in attrs:
+                self.mode = Mode.ListIntermezzo
+            return
+        if self.mode == Mode.ListIntermezzo:
+            if tag == "ul":
+                self.mode = Mode.ListIntermezzoLine
+            return
+
+    def handle_endtag(self, tag):
+        if self.mode == Mode.TimeSpan:
+            if tag == "span":
+                self.mode = Mode.TimeSpanClosed
+            return
+        if self.mode == Mode.ListIntermezzo:
+            if tag == "ul":
+                self.mode = Mode.ListProgramme
+            return
+        if self.mode == Mode.ListIntermezzoLine:
+            if tag == "ul":
+                self.mode = Mode.ListIntermezzo
+                print(' | '.join(self.intermezzo))
+                self.intermezzo.clear()
+            return
+
+    def handle_data(self, data):
+        if self.mode == Mode.TimeSpan:
+            print(data.strip())  # time
+            return
+        if self.mode == Mode.TimeSpanClosed:
+            print(data.strip())  # title
+            self.mode = Mode.ListProgramme
+            return
+        if self.mode == Mode.ListIntermezzoLine:
+            self.intermezzo.append(data.strip())
+            return
+
+
+url = "https://www.mezzo.tv/en/tv-schedule"
+cookies = {'regional': 'ru%7CEurope%2FMoscow'}
+source = requests.get(url, cookies=cookies).text
+
+parser = MezzoParser()
+parser.feed(source)
