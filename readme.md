@@ -1,11 +1,5 @@
-[**YVRqAJb4**](/data/YVRqAJb4.txt) (19/01/23 - 17:52)- 713 bytes
+[**3M4nZJBy**](/data/3M4nZJBy.txt) (19/01/23 - 17:58)- 2697 bytes
 
-[**YVRqAJb4**](/data/YVRqAJb4.txt) (19/01/23 - 17:52)- 713 bytes
-
-[**fkxiGXMp**](/data/fkxiGXMp.txt) (19/01/23 - 17:52)- 10055 bytes
-
-[**fkxiGXMp**](/data/fkxiGXMp.txt) (19/01/23 - 17:52)- 10055 bytes
-
-**Total Datas**: 5312
+**Total Datas**: 5313
 
 **Total Size**: 31.81 MB / 31.8 MB
