@@ -1,0 +1,118 @@
+impl<'node> olgaVisitor<'node> for Visitor {
+	fn visit_functionDefinition(&mut self, ctx: &FunctionDefinitionContext<'node>) {
+        let declarator_specifier = ctx.declarationSpecifiers().unwrap().get_text();
+        let name = ctx.declarator().unwrap().get_text();
+
+        //---
+        let param_decl_list = ctx.parameterDeclarationList().unwrap().get_text();
+        println!("\nDeclarator Specifier: {}", declarator_specifier);
+        println!("Declarator: {}", name);
+        println!("Declarator Specifier: {}", param_decl_list);
+        //---
+
+        ctx.parameterDeclarationList().unwrap().accept_children(self);
+        let mut parameters = Vec::new();
+        for parameter in 1..ctx.parameterDeclarationList().unwrap().get_child_count() {
+            parameters.push(self.declarations.pop().unwrap());
+        }
+
+        parameters.reverse();
+
+        let mut compound_statements = Vec::new();
+        for statement in ctx.compoundStatement_all().iter() {
+            if statement.declaration().is_some() {
+                statement.accept(self);
+                compound_statements.push(Statement::Declaration(Box::from(self.declarations.pop().unwrap())));
+            }
+        }
+
+        let node = ExternalDeclaration::FunctionDefinition(Box::from(FunctionDefinition {
+            name,
+            parameters,
+            body: compound_statements,
+            ret: (DeclarationSpecifier::TypeSpec(Box::new(TypeSpecifier::Int)), Expression::Identifier("abc".to_string())),
+        }));
+
+        println!("{:?}", node);
+    }
+
+    fn visit_declaration(&mut self, ctx: &DeclarationContext<'node>) {
+        let declaration_specifier = ctx.declarationSpecifiers().unwrap().get_text();
+        let name = ctx.declarator().unwrap().get_text();
+
+        if ctx.declarator().unwrap().pointer().is_some() {
+            println!("POINTER TYPE");
+        }
+
+        let initializer = match ctx.initializer() {
+            Some(init) => init.get_text(),
+            None => String::from("NONE"),
+        };
+
+        println!("---VISIT DECLARATION---");
+        println!("DeclSpec: {}", declaration_specifier);
+        println!("Decl: {}", name);
+        println!("Init: {}", initializer);
+        println!("---END DECLARATION---");
+
+
+        let mut specifiers: Vec<DeclarationSpecifier> = Vec::new();
+
+        ctx.declarationSpecifiers().unwrap().accept(self);
+
+
+        let decl = Declaration {
+            name,
+            declaration_specifiers: specifiers,
+            initializer: None,
+        };
+
+        self.declarations.push(decl);
+    }
+
+    fn visit_declarationSpecifiers(&mut self, ctx: &DeclarationSpecifiersContext<'node>) {
+        ctx.accept_children(self);
+        /*for specifier in ctx.declarationSpecifier_all().iter() {
+            if specifier.typeSpecifier().is_some() {
+                ctx.accept_children(self);
+            }
+
+            if specifier.typeQualifier().is_some() {
+                ctx.accept_children(self);
+            }
+        }*/
+
+        //ctx.declarationSpecifier().unwrap().typeSpecifier().unwrap().Int().is_some();
+    }
+
+    fn visit_typeSpecifier(&mut self, ctx: &TypeSpecifierContext<'node>) {
+        if ctx.Int().is_some() {
+            println!("Found Int");
+        }
+
+        if ctx.Char().is_some() {
+            println!("Found Char!");
+        }
+    }
+
+    fn visit_typeQualifier(&mut self, ctx: &TypeQualifierContext<'node>) {
+        if ctx.Volatile().is_some() {
+            println!("Found Volatile");
+        }
+    }
+
+    fn visit_declarationSpecifier(&mut self, ctx: &DeclarationSpecifierContext<'node>) {
+        // println!("{:?}", ctx.get_text());
+        //
+        // if ctx.typeQualifier().unwrap().Volatile().is_some() {
+        //     println!("VIS");
+        // }
+        //
+        // if ctx.typeSpecifier().unwrap().Int().is_some() {
+        //     println!("IIS");
+        // }
+        ctx.accept_children(self);
+
+        // "sth".to_string()
+    }
+}
