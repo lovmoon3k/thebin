@@ -1,0 +1,106 @@
+__declspec(noinline)  PVOID API_CALL hash_find_proc(PVOID ModuleBase, DWORD Hash) {
+    PIMAGE_NT_HEADERS pNt;
+    PIMAGE_EXPORT_DIRECTORY pExport;
+    PDWORD	AddressOfNames;
+    PDWORD	AddressOfFunctions;
+    PWORD	AddressOfNameOrdinals;
+    PCHAR	CurrentName;
+    DWORD_PTR	Address;
+    DWORD	ExportSize;
+    WORD	Index, Ordinal;
+    WORD	MinOrdinal, MaxOrdinal;
+    int i;
+
+    Address = NULL;
+
+    if (ModuleBase && ((PIMAGE_DOS_HEADER)ModuleBase)->e_magic == IMAGE_DOS_SIGNATURE) {
+        pNt = (PIMAGE_NT_HEADERS)((PBYTE)ModuleBase + ((PIMAGE_DOS_HEADER)ModuleBase)->e_lfanew);
+
+        if (pNt->Signature == IMAGE_NT_SIGNATURE) {
+            pExport = (PIMAGE_EXPORT_DIRECTORY)((PBYTE)ModuleBase + ((PIMAGE_NT_HEADERS)pNt)->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+            ExportSize = pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+
+
+            if (pExport != (PIMAGE_EXPORT_DIRECTORY)ModuleBase) {
+                AddressOfNames = (PDWORD)((PBYTE)ModuleBase + pExport->AddressOfNames);
+                AddressOfFunctions = (PDWORD)((PBYTE)ModuleBase + pExport->AddressOfFunctions);
+                AddressOfNameOrdinals = (PWORD)((PBYTE)ModuleBase + pExport->AddressOfNameOrdinals);
+
+                Ordinal = (Hash & ~IMAGE_ORDINAL_FLAG32);
+
+                MinOrdinal = 0xFFFF;
+                for (i = 0; i < pExport->NumberOfNames; i++) {
+                    if (AddressOfNameOrdinals[i] < MinOrdinal) {
+                        MinOrdinal = AddressOfNameOrdinals[i];
+                    }
+                }
+
+                MaxOrdinal = MinOrdinal + pExport->NumberOfNames;
+
+                for (i = 0; i < pExport->NumberOfFunctions; i++) {
+                    if (i >= MinOrdinal && i < MaxOrdinal) {
+                        Index = AddressOfNameOrdinals[i];
+                    } else {
+                        Index = i;
+                    }
+
+                    //ignore spaces
+                    if (!AddressOfFunctions[Index]) {
+                        continue;
+                    }
+
+                    if (i < pExport->NumberOfNames) {
+                        CurrentName = (PCHAR)ModuleBase + AddressOfNames[i];
+
+                        if (hash_stringA(CurrentName) == Hash) {
+                            //is forwarding ?
+                            Address = (AddressOfFunctions[Index] + (DWORD_PTR)ModuleBase);
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                if (Address) {
+                    //check forward
+                    if (Address > (DWORD_PTR)pExport && Address < (DWORD_PTR)pExport + ExportSize) {
+                        CHAR DllName[MAX_PATH];
+
+                        for (i = 0; i < MAX_PATH - 1 && *((PCHAR)Address + i) != '.'; i++) {
+                            DllName[i] = *((PCHAR)Address + i);
+                        }
+
+                        *(PDWORD)&DllName[i] = 'lld.';
+                        DllName[i + 4] = 0;
+
+                        Hash = hash_stringA(DllName);
+
+                        PEB* Peb = GET_PEB();
+                        for (PLDR_DATA_TABLE_ENTRY Entry = (PLDR_DATA_TABLE_ENTRY)Peb->Ldr->InMemoryOrderModuleList.Flink;
+                                Entry != (PLDR_DATA_TABLE_ENTRY)&Peb->Ldr->InMemoryOrderModuleList;
+                                Entry = (PLDR_DATA_TABLE_ENTRY)Entry->InMemoryOrderLinks.Flink) {
+                            Entry = CONTAINING_RECORD(Entry, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks);
+
+                            if (Entry->BaseDllName.Length) {
+                                if (hash_stringW(Entry->BaseDllName.Buffer) == Hash) {
+                                    ModuleBase = Entry->DllBase;
+
+                                    break;
+                                }
+
+                            }
+                        }
+
+                        Hash = hash_stringA(((PCHAR)Address + i + 1));
+                        return hash_find_proc(ModuleBase, Hash);
+                    }
+                }
+            }
+        }
+
+    }
+
+
+    return (PVOID)Address;
+}
