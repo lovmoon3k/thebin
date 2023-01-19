@@ -1,0 +1,128 @@
+local control = "ir_augment_control"
+local detec = "ir_augment_detector"
+local controler = peripheral.find(control)
+local detector = peripheral.find(detec)
+local speedRatio = 20 * 3.6
+local run = true
+local name = ""
+local reference = nil
+local final_speed = nil
+local tag = nil
+local args = {...}
+ 
+if controler == nil or detector == nil then
+  print("Control or Detector not found on Network.")
+  run = false
+else
+  reference = args[1]
+  final_speed = args[2]
+  if args[3] ~=nil then
+    tag = true
+    name = args[3]
+  else
+    tag = false
+  end
+end
+ 
+print(reference, final_speed, tag)
+ 
+--- Recursive Method of finding traveling braking distance
+--- cal.co: coefficient, v: speed, n: tick, s: distance
+local function callback(cal, v, n, s)
+  vnext = v - cal.co / (v * speedRatio + 100) 
+  if vnext > 0 then
+    s = callback(cal, vnext, n + 1, s + vnext)
+  else
+    print(n, s)
+  end
+  return s
+end
+ 
+--- Execute one brake upon calling and a train passing
+--- target: stopping point distance
+--- vtar: passing speed
+function braker(target, vtar, tag, name)
+  local event, aug = os.pullEvent("peripheral")
+  local consist = detector.consist()
+  local info = detector.info()
+  local tg = true
+  if info == nil then
+    return false   
+  end
+  if info.throttle == nil then
+    return false
+  end
+  if tag == true then
+    if string.find(detector.getTag(),name) then
+    else
+      tg = false
+    end
+  end
+  if consist.speed_km > 0 and tg == true then
+    print("Incoming Speed:",consist.speed_km)
+    cal = {}
+    loco_weight = 0
+    local size = 0
+    for _ in pairs(consist.locomotives) do size = size + 1 end
+    for i = 1,size do
+      loco_weight = loco_weight + consist.locomotives[tostring(i-1)].weight
+    end
+    true_traction = consist.total_traction_N + (consist.weight_kg - loco_weight) * 0.25 * 0.25 * 4.44822
+    cal.loco_num = consist.locomotives.n
+    x = 0.5 
+    cal.co = true_traction / consist.weight_kg / speedRatio * x * x * 100
+    print("Weight:",consist.weight_kg)
+ 
+    --- Find Proper Brake Vaule
+    delta = 0
+    target = target 
+    leftbound = 0
+    rightbound = 1
+    while true do
+      print("Trying:", x)
+      delta = target - callback(cal, consist.speed_km/speedRatio, 0, 0, vtar)
+      if delta < 0.05 and delta > -0.05 then
+        break
+      end
+      if delta > 0 then
+        --- if not catch up, apply less brake
+        cal.co = cal.co / x / x
+        rightbound = x
+        x = (leftbound + rightbound) / 2
+        cal.co = cal.co * x * x
+      elseif delta < 0 then
+        --- if overshoot, apply more brake
+        cal.co = cal.co / x / x
+        leftbound = x
+        x = (leftbound + rightbound) / 2
+        cal.co = cal.co * x * x
+        delta = delta * -1
+      end
+      --- break the loop if x reaches the boundries
+      if x == 1 or x == 0 then
+        print("Abitilties Exceeded")
+        break
+      end
+    end
+    print("Result:", x)
+    controler.setIndependentBrake(x)
+    controler.setThrottle(0)
+    print("--------")
+    print("Applying Brake")
+    print("--------")
+    return true
+  else
+    print("...")
+    return false
+  end
+end
+ 
+--- main function
+print("Waiting for train...")
+while run == true do
+  local result = braker(reference, final_speed, tag, name)
+  if result == true then
+    print("\n")
+    print("Waiting for train...")
+  end
+end
