@@ -1,0 +1,47 @@
+pub struct AntlrAst {
+  content_ptr: *mut str,
+  pub ctx_root: std::rc::Rc<super::grammar::bvemapparser::RootContext<'static>>
+}
+
+impl AntlrAst {
+
+  pub fn load(path: String, content: String) -> Result<AntlrAst, Box<dyn Error>> {
+    // Create a forgotten copy of content on the heap
+    let content_ptr = Box::leak(content.into_boxed_str());
+    // Use the pointer to create a reference with static lifetime
+    let input_stream = InputStream::new(unsafe { Box::leak(Box::from_raw(content_ptr)) });
+
+    let error_vec = SyntaxErrorVec::new(path.as_str());
+    let mut lexer = BveMapLexer::new(input_stream);
+    lexer.remove_error_listeners();
+    lexer.add_error_listener(Box::new(SyntaxErrorVecListener::new(&error_vec)));
+    let token_stream = CommonTokenStream::new(lexer);
+    if error_vec.has_error() {
+      return Err(error_vec.to_string().into());
+    }
+
+    let mut parser = BveMapParser::new(token_stream);
+    parser.remove_error_listeners();
+    parser.add_error_listener(Box::new(SyntaxErrorVecListener::new(&error_vec)));
+    let ctx_root = parser.root()?;
+    if error_vec.has_error() {
+      return Err(error_vec.to_string().into());
+    }
+
+    // TODO: Is there memory leaks?
+    Ok(AntlrAst {
+      content_ptr,
+      ctx_root 
+    })
+  }
+}
+
+impl Drop for AntlrAst {
+
+  fn drop(&mut self) {
+    unsafe {
+      // Manually free the content
+      drop(Box::from_raw(self.content_ptr));
+    }
+  }
+}
