@@ -1,0 +1,38 @@
+add_filter('woocommerce_coupon_is_valid', function($is_valid, $coupon, $obj) {
+    $coupon_author = get_post_field( 'post_author', $coupon->get_id() );
+    if(!wcfm_is_vendor($coupon_author)) return $is_valid;
+    $object = $obj->get_object();
+    $total_item_cost = 0;
+    if ( is_a( $object, 'WC_Cart' ) ) {
+        foreach ( wc()->cart->get_cart() as $cart_item ) {
+            $product = wc_get_product( $cart_item['data']->get_id() );
+            $vendor_id = wcfm_get_vendor_id_by_post( $product->get_id() );
+            if ( $vendor_id  && $vendor_id == $coupon_author) {
+                $total_item_cost += $cart_item['line_subtotal'];
+                if($object->display_prices_including_tax()) {
+                    $total_item_cost += $cart_item['line_subtotal_tax'];
+                }
+            }
+        }
+    } elseif ( is_a( $object, 'WC_Order' ) ) {
+        $line_items = $object->get_items( 'line_item' );
+        foreach($line_items as $item) {
+            $line_item = new WC_Order_Item_Product($item);
+            $product_id  = $line_item->get_product_id();
+            $vendor_id = wcfm_get_vendor_id_by_post($product_id);
+            if ( $vendor_id  && $vendor_id == $coupon_author) {
+                $total_item_cost += $line_item->get_subtotal();
+                if ( $object->get_prices_include_tax() ) {
+                    $total_item_cost += $line_item->get_subtotal_tax();
+                }
+            }
+        }
+    }
+    if($coupon->get_minimum_amount() > 0 && $coupon->get_minimum_amount() > $total_item_cost ) {
+        throw new Exception( sprintf( __( 'The minimum spend for this coupon is %s.', 'woocommerce' ), wc_price( $coupon->get_minimum_amount() ) ), 108 );
+    }
+    if($coupon->get_maximum_amount() > 0 && $coupon->get_minimum_amount() < $total_item_cost ) {
+        throw new Exception( sprintf( __( 'The maximum spend for this coupon is %s.', 'woocommerce' ), wc_price( $coupon->get_maximum_amount() ) ), 112 );
+    }
+    return $is_valid;
+}, 10, 3);
