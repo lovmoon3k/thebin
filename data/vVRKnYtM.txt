@@ -1,0 +1,144 @@
+local set = require('set')
+
+---comment
+---@param v1 Vec
+---@param v2 Vec
+---@return boolean
+local function pos_eq(v1, v2)
+    return v1.x == v2.x and v1.y == v2.y and v1.z == v2.z
+end
+
+---@class Vec
+---@field x number
+---@field y number
+---@field z number
+---@field magnitude number
+Vec = {}
+Vec.__index = Vec
+Vec.__eq = pos_eq
+
+---comment
+---@param x number
+---@param y number
+---@param z number
+---@return Vec
+function Vec.new(x, y, z)
+    local instance = setmetatable({}, Vec)
+    instance.x = x
+    instance.y = y
+    instance.z = z
+    instance.magnitude = math.sqrt(x^2 + y^2 + z^2)
+    return instance
+end
+
+---comment
+---@param other Vec
+---@return Vec
+function Vec:add(other)
+    return Vec.new(self.x + other.x, self.y + other.y, self.z + other.z)
+end
+
+---comment
+---@return Vec
+function Vec:neg()
+    return Vec.new(-self.x, -self.y, -self.z)
+end
+
+---comment
+---@param other Vec
+---@return Vec
+function Vec:sub(other)
+    return self:add(other:neg())
+end
+
+---comment
+---@param other Vec
+---@return Vec
+function Vec:mul(other)
+    return Vec.new(self.x * other.x, self.y * other.y, self.z * other.z)
+end
+
+---comment
+---@param value number
+---@return Vec
+function Vec:scale(value)
+    return Vec.new(self.x * value, self.y * value, self.z * value)
+end
+
+---comment
+---@return Vec
+function Vec:inverse()
+    return Vec.new(1/self.x, 1/self.y, 1/self.z)
+end
+
+---comment
+---@param other Vec
+---@return Vec
+function Vec:div(other)
+    return self:mul(other:inverse())
+end
+
+---comment
+---@param other Vec
+---@return number
+function Vec:dot(other)
+    return self.x * other.x + self.y * other.y + self.z * other.z
+end
+
+---comment
+---@param callable function
+---@return Vec
+function Vec:apply(callable)
+    return Vec.new(callable(self.x), callable(self.y), callable(self.z))
+end
+
+---comment
+---@param axis Vec
+---@param degrees integer
+function Vec:rotate(axis, degrees)
+    local theta = degrees * 0.0174533
+    axis = axis:scale(1 / math.sqrt(axis:dot(axis)))
+    local a = math.cos(theta / 2)
+    local bcd = axis:neg():scale(math.sin(theta / 2.0))
+    local b, c, d = bcd.x, bcd.y, bcd.z
+    local aa, bb, cc, dd = a * a, b * b, c * c, d * d
+    local bc, ad, ac, ab, bd, cd = b * c, a * d, a * c, a * b, b * d, c * d
+    local rotational_v1 = Vec.new(aa + bb - cc - dd, 2 * (bc + ad), 2 * (bd - ac))
+    local rotational_v2 = Vec.new(2 * (bc - ad), aa + cc - bb - dd, 2 * (cd + ab))
+    local rotational_v3 = Vec.new(2 * (bd + ac), 2 * (cd - ab), aa + dd - bb - cc)
+    return Vec.new(self:dot(rotational_v1), self:dot(rotational_v2), self:dot(rotational_v3))
+end
+
+---comment
+---@param other Vec
+---@return number
+function Vec:l1_dist(other)
+    return math.abs(self.x - other.x) + math.abs(self.y - other.y) + math.abs(self.z - other.z)
+end
+
+---comment
+---@param other Vec
+---@return integer
+function Vec:angle(other)
+    local uv1 = self:scale(1/self.magnitude)
+    local uv2 = other:scale(1/other.magnitude)
+    return math.floor(math.acos(uv1:dot(uv2) * 57.2958) + 0.5) ---same as round
+end
+
+---Returns a set of vectors
+---@return table
+function Vec:neighbors()
+    local ret = set({})
+    for dx in pairs({-1, 1}) do
+        ret.insert(Vec.new(dx, 0, 0))
+    end
+    for dy in pairs({-1, 1}) do
+        ret.insert(Vec.new(0, dy, 0))
+    end
+    for dz in pairs({-1, 1}) do
+        ret.insert(Vec.new(0, 0, dz))
+    end
+    return ret
+end
+
+return Vec
