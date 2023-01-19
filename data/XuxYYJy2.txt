@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# openRTSP -d 5 -n -V rtsp://172.30.0.152:36966/95797f34-89b4-4a2d-8865-962661fde9a1
+
+RTSP_PROXY=172.30.0.152
+DIRECTORY_FOR_CHECK=/tmp/checkrtsp
+LOG=$DIRECTORY_FOR_CHECK/result.log
+# продолжительность видеопотока
+REQUEST_LENGTH=2
+# ожидание после окончания приема видеопотока
+REQUEST_WAIT=2
+
+mkdir -p $DIRECTORY_FOR_CHECK
+
+psql -A -t -d intercom_db -c "select v_l.id as videolink, intercom.host from video_link v_l left outer join intercom on intercom.id = v_l.intercom_id where age_status = 'CURRENT' order by intercom.host" --field-separator ' ' | while read videolink host ; do
+        echo "result is $videolink - $host"
+        echo "" >> $LOG
+        echo ">>> $(date +%Y-%m-%d\ %T) check videolink - $videolink on device - $host" >> $LOG
+        /usr/local/bin/openRTSP -F $DIRECTORY_FOR_CHECK/openrtsp- -d $REQUEST_LENGTH -n -V rtsp://$RTSP_PROXY:36966/$videolink >> $LOG 2>&1
+
+        sleep $REQUEST_WAIT
+
+        if [ ! -s $DIRECTORY_FOR_CHECK/openrtsp-video-H264-1 ] || [ ! -s $DIRECTORY_FOR_CHECK/openrtsp-audio-PCMA-2 ] ; then
+                echo "$videolink - $host not ok!"
+                psql -q -d intercom_db -c "update video_link set expire_at=current_timestamp where id = '$videolink'"
+                echo ">>> $(date +%Y-%m-%d\ %T) Timestamp for video link $videolink on device $host has been updated." >> $LOG
+        else
+                echo "$videolink - $host ok!"
+        fi
+done
