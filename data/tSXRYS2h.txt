@@ -1,0 +1,66 @@
+const { Collection } = require("discord.js");
+let voiceManager = new Collection();
+
+module.exports = {
+    name: 'voiceStateUpdate',
+    async execute(client, oldState, newState) {
+        const { member, guild } = oldState;
+        let oldChannel = oldState.channel;
+        let newChannel = newState.channel;
+        const CreateVoiceChannelId = "ID BLABLABLA";
+
+        if (oldChannel !== newChannel && newChannel && newChannel.id === CreateVoiceChannelId) {
+            const voiceChannel = await guild.channels.create(
+                `🗣️︙${member.user.username}`,
+                {
+                    type: "GUILD_VOICE",
+                    parent: newChannel.parent,
+                    permissionOverwrites: [
+                        {
+                            id: member.id,
+                            allow: ["CONNECT", "MANAGE_CHANNELS"],
+                        },
+                        {
+                            id: guild.id,
+                            allow: ["CONNECT"],
+                        },
+                    ],
+                }
+            );
+
+            voiceManager.set(member.id, voiceChannel.id);
+            await newChannel.updateOverwrite(member, { CONNECT: false });
+            setTimeout(() => {
+                newChannel.updateOverwrite(member, { CONNECT: null });
+            }, 30 * 1000);
+
+            return setTimeout(() => {
+                member.voice.setChannel(voiceChannel);
+            }, 600);
+        }
+
+        const VChannel = voiceManager.get(member.id);
+        const members = oldChannel?.members.filter((m) => !m.user.bot).map((m) => m.id);
+        if (VChannel && oldChannel.id === VChannel && (!newChannel || newChannel.id !== VChannel)) {
+            if (members.length > 0) {
+                let randomID = members[Math.floor(Math.random() * members.length)];
+                let randomMember = guild.members.cache.get(randomID);
+                randomMember.voice.setChannel(oldChannel).then((v) => {
+                    randomMember.send(
+                        `**Vous gérez maintenant le channel vocal ${oldChannel}**`
+                    );
+                    oldChannel.setName(randomMember.user.username).catch((e) => null);
+                    oldChannel.updateOverwrite(randomMember, {
+                        CONNECT: true,
+                        MANAGE_CHANNELS: true,
+                    });
+                });
+                voiceManager.set(member.id, null);
+                voiceManager.set(randomMember.id, oldChannel.id);
+            } else {
+                voiceManager.set(member.id, null);
+                oldChannel.delete().catch((e) => null);
+            }
+        }
+    }
+};
