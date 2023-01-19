@@ -1,0 +1,32 @@
+#!/bin/zsh
+
+es_host="https://search-2-es-cluster.query.consul:9200"
+#es_host="https://search-2-es-cluster.query.consul-test:9200"
+es_host="https://search-2-backend.query.consul-test/api/v1/proxy"
+
+
+get_count_by_index() {
+  idx="$(printf %02d "$1")"
+  count=$(curl -s -XPOST "${es_host}/timeline-${idx}/_count" \
+    -H 'Content-Type: application/json' -d"
+  { \"query\": {
+    \"bool\": {
+      \"filter\": [
+        {\"terms\": {
+          \"searching_data.customer.colvir_id\": [$(python3 .local/sort_csv.py "$1")]
+        }}
+      ]
+    }
+  }
+
+  }" | sed -n 's/.*"count":\([0-9]*\).*/\1/p')
+  echo "$count"
+
+}
+total=0
+for i in {0..99}; do
+  count=$(get_count_by_index "$i")
+  echo "$i: $count"
+  total=$((total + count))
+done
+echo "Total: $total"
