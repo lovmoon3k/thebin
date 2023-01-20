@@ -1,0 +1,36 @@
+#!/bin/bash
+#
+# usage - check_cert <domain>
+#
+cert_file="/home/vhosts/${1}/conf/cert.pem"
+chksum_file="/home/vhosts/${1}/conf/cert.md5"
+ref_chksum=`cat $chksum_file`
+cert_chksum=`md5sum < ${cert_file} |awk '{print $1}'`
+#
+echo $ref_chksum
+echo $cert_chksum
+#
+# does the ref file exist?
+#
+if [[ -f "$chksum_file" ]]; then
+        # echo "$chksum_file exists."
+        if [[ $cert_chksum == $ref_chksum ]]
+        then
+        echo -e "\n\e[92mChecksum files match\e[39m\n"
+        # md5sums match - nothing to do
+        else
+        echo -e "\n\e[91mChecksum files do not match\e[39m\n"
+        # md5sums don't match so cert has been updated - need to restart dovecot and postfix
+        systemctl restart dovecot
+        systemctl restart postfix
+        # as the files no longer match the cert has changed so create new md5sum
+        md5sum < ${cert_file} |awk '{print $1}' > ${chksum_file}
+        fi
+else
+        echo "$ref_file does not exist."
+        # create it
+        md5sum < ${cert_file} |awk '{print $1}' > ${chksum_file}
+fi
+#
+# eof
+#
