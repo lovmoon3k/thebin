@@ -1,0 +1,145 @@
+import telebot
+from database import ab_list_on, ab_list_of
+import subprocess
+from telebot import types
+import time
+import threading
+import tracemalloc
+
+token = "888888888:AAAAAAAAAAAAAAAAAAAAAAAA-AAAA"
+bot = telebot.TeleBot(token)
+button_foo = types.InlineKeyboardButton('Так', callback_data='foo')
+button_bar = types.InlineKeyboardButton('Ні', callback_data='bar')
+
+keyboard = types.InlineKeyboardMarkup()
+keyboard.add(button_foo, button_bar)
+global adress_to_mon
+tracemalloc.start()
+
+
+def my_timer_on():
+    while True:
+        try:
+            from database import ab_list_on, ab_list_of
+            #print("my_timer_on")
+            time.sleep(180)
+            for i in range(len(ab_list_on)):
+                # print(i, list(ab_list_on.values())[i])
+                status, result = subprocess.getstatusoutput("ping -c1 -w2 " + str(list(ab_list_on.values())[i]))
+                #print(f'Status {status}')
+                if status != 0:
+                    bot.send_message(list(ab_list_on)[i], f"🔴Адреса {list(ab_list_on.values())[i]} не доступна🔴")
+                    ab_list_of.update({list(ab_list_on)[i]: list(ab_list_on.values())[i]})
+                    ab_list_on.pop(list(ab_list_on)[i])
+                    output = open("database.py", 'w')
+                    print("ab_list_on =", ab_list_on, file=output)
+                    print("ab_list_of =", ab_list_of, file=output)
+                    output.close()
+        except Exception as e:
+            print(e)
+
+def my_timer_off():
+    time.sleep(10)
+    while True:
+        try:
+            from database import ab_list_on, ab_list_of
+            #print("my_timer_of")
+            time.sleep(180)
+            for i in range(len(ab_list_of)):
+                # print(i, list(ab_list_on.values())[i])
+                status, result = subprocess.getstatusoutput("ping -c1 -w2 " + str(list(ab_list_of.values())[i]))
+                #print(f'Status {status}')
+                if status == 0:
+                    bot.send_message(list(ab_list_of)[i], f"🟢Адреса {list(ab_list_of.values())[i]} знову доступна🟢")
+                    ab_list_on.update({list(ab_list_of)[i]: list(ab_list_of.values())[i]})
+                    ab_list_of.pop(list(ab_list_of)[i])
+                    output = open("database.py", 'w')
+                    print("ab_list_on =", ab_list_on, file=output)
+                    print("ab_list_of =", ab_list_of, file=output)
+                    output.close()
+        except Exception as e:
+            print(e)
+
+def botter():
+    @bot.message_handler(commands=['help'])
+    def send_help(message):
+        print("Help")
+        keyboard = telebot.types.ReplyKeyboardMarkup(True)
+        keyboard.row('/start', '/help', '/restart')
+        bot.send_message(message.chat.id, "Натисність /start і вбийте ip адресу вашого роутера. Якщо адреса буде доступна то бот "
+                                          "запропонує вам додати адресу до моніторинга. Після цього він буде перевіряти доступність адреси кожні 3 хвилини."
+                                          "у випадку якщо адреса недостпна, бот надішле вам повідомлення. \nНатисніть /help щоб побачити цю інструкію \n"
+                                          "Натисніть /restart щоб видалити свої данні з бота", reply_markup=keyboard)
+
+    @bot.message_handler(commands=['restart'])
+    def send_restart(message):
+        print("Restart")
+        keyboard = telebot.types.ReplyKeyboardMarkup(True)
+        keyboard.row('/start', '/help', '/restart')
+        print(ab_list_on)
+        try:
+            ab_list_of.pop(message.chat.id)
+        except Exception as e:
+            print(e)
+        try:
+            ab_list_on.pop(message.chat.id)
+        except Exception as e:
+            print(e)
+        output = open("database.py", 'w')
+        print("ab_list_on =", ab_list_on, file=output)
+        print("ab_list_of =", ab_list_of, file=output)
+        output.close()
+        print(ab_list_on)
+        bot.send_message(message.chat.id, "Ваші данні видалені з бота", reply_markup=keyboard)
+
+    @bot.message_handler(commands=['start'])
+    def send_welcome(message):
+        print("Start")
+        msg = bot.send_message(message.chat.id, "Введіть IP адресу вашого роутера. Наприклад: 222.33.55.111")
+        bot.register_next_step_handler(msg, process_firstname_step)
+
+    def process_firstname_step(message):
+        global adress_to_mon
+        print(f"Got address {message.text}")
+        try:
+            bot.send_message(message.chat.id, "Дякую, перевіряємо доступність")
+            status, result = subprocess.getstatusoutput("ping -c1 -w2 " + str(message.text))
+            print(f'Status {status}')
+            if status != 0:
+                bot.send_message(message.chat.id, "Адреса недоступна")
+            else:
+                bot.send_message(message.chat.id, "Адреса доступна. Додати в моніторинг?", reply_markup=keyboard)
+                adress_to_mon = message.text
+        except Exception as e:
+            print(e)
+
+    @bot.callback_query_handler(func=lambda call: True)
+    def query_handler(call):
+        global adress_to_mon
+        bot.answer_callback_query(callback_query_id=call.id, text='Answer accepted!')
+        if call.data == 'foo':
+            ab_list_on.update({call.message.chat.id: adress_to_mon})
+            output = open("database.py", 'w')
+            print("ab_list_on =", ab_list_on, file=output)
+            print("ab_list_of =", ab_list_of, file=output)
+            output.close()
+            print(ab_list_on)
+            answer = 'Адресу додано!'
+        else:
+            answer = 'Можливо іншим разом.'
+
+        keyboard = telebot.types.ReplyKeyboardMarkup(True)
+        keyboard.row('/start', '/help', '/restart')
+        bot.send_message(call.message.chat.id, answer, reply_markup=keyboard)
+
+    if __name__ == '__main__':
+        bot.polling(none_stop=True)
+
+
+t1 = threading.Thread(target=botter)
+t2 = threading.Thread(target=my_timer_on)
+t3 = threading.Thread(target=my_timer_off)
+
+t1.start()
+t2.start()
+t3.start()
