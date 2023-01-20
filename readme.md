@@ -1,13 +1,7 @@
-[**bK6fPPRB**](/data/bK6fPPRB.txt) (21/01/23 - 04:36)- 942 bytes
+[**67TXLVFU**](/data/67TXLVFU.txt) (21/01/23 - 04:41)- 655 bytes
 
-[**JdG0A7Gp**](/data/JdG0A7Gp.txt) (21/01/23 - 04:36)- 1167 bytes
+[**67TXLVFU**](/data/67TXLVFU.txt) (21/01/23 - 04:41)- 655 bytes
 
-[**bK6fPPRB**](/data/bK6fPPRB.txt) (21/01/23 - 04:36)- 942 bytes
-
-[**v7Z6FM1K**](/data/v7Z6FM1K.txt) (21/01/23 - 04:36)- 632 bytes
-
-[**v7Z6FM1K**](/data/v7Z6FM1K.txt) (21/01/23 - 04:36)- 632 bytes
-
-**Total Datas**: 5614
+**Total Datas**: 5615
 
 **Total Size**: 33.69 MB / 33.7 MB
