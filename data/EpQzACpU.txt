@@ -1,0 +1,47 @@
+#include <stdio.h>
+#include <setjmp.h>
+#include <stdlib.h>
+
+typedef struct exception {
+    jmp_buf buf;
+    int code;
+} exception;
+
+exception buffer[10];
+int stp = 0;
+
+jmp_buf *try(int exception) {
+    buffer[stp].code = exception;
+    return &buffer[stp++].buf;
+}
+
+void endtry() {
+    stp--;
+}
+
+void throw(int exception) {
+    while (stp > 0 && buffer[stp - 1].code != exception) { stp--; }
+    stp--;
+    if (stp == -1) {
+        exit(13);
+    }
+    longjmp(buffer[stp].buf, buffer[stp].code);
+}
+
+int main(int argc, char *argv[]) {
+    if (!setjmp(*try(42))) {
+        puts("level 1");
+        if (!setjmp(*try(1))) {
+            puts("level 2");
+            throw(42);
+            puts("this string is not displayed");
+            endtry();
+        } else {
+            puts("handle exception 1");
+        }
+        endtry();
+    } else {
+        puts("handle exception 42");
+    }
+    return 0;
+}
