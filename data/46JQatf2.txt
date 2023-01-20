@@ -1,0 +1,173 @@
+from bs4 import BeautifulSoup
+from telegram import (ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup)
+from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters,
+                          ConversationHandler, CallbackQueryHandler)
+from selenium import webdriver
+import time
+global driver
+
+updater = Updater('5859661046:AAFBeyw41KImNwEOFsLWQw-gmph8qdpcUtg', use_context=True)
+
+LOGIN, PASSWORD = range(2)
+
+
+def get_data(update, context, url, query):
+    driver = context.user_data["driver"]
+
+    try:
+        driver.get(url=url)
+        time.sleep(3)
+
+        with open("index_selenium.html", "w", encoding="utf-8") as file:
+            file.write(driver.page_source)
+
+    except Exception as ex:
+        print(ex)
+
+    finally:
+        driver.close()
+        driver.quit()
+        return parcing_shedule(update, context, query)
+
+
+def parcing_shedule(update, context, query):
+    with open("index_selenium.html", 'r', encoding="utf-8") as f:
+        html_doc = f.read()
+        soup = BeautifulSoup(html_doc, 'html.parser')
+        schedule_container = soup.find('div', class_='week-schedule schedule-container week-container active')
+
+        if schedule_container is not None:
+            # Поиск контейнера с расписанием
+            day_containers = schedule_container.find_all('div', class_='day-container')
+
+            # Цикл по всему расписанию
+            for day_container in day_containers:
+                day_printed = False
+                day = day_container.find('span', {'class': 'day-name'}).text.strip()
+                hours = day_container.find_all('td', {'class': 'table-schedule-hours'})
+                disciplines = day_container.find_all('td', {'class': 'table-schedule-discipline'})
+                classrooms = day_container.find_all('td', {'class': 'table-schedule-classroom'})
+                teachers = day_container.find_all('td', {'class': 'table-schedule-teacher'})
+                for i in range(len(hours)):
+                    if not day_printed:
+                        hour = hours[i].text.strip()
+                        discipline = disciplines[i].text.strip()
+                        classroom = classrooms[i].text.strip()
+                        teacher = teachers[i].text.strip()
+                        # Составление расписания с написанным днем
+                        if discipline:
+                            send_schedule = day + '\n' + hour + '\n' + discipline + "Аудитория: " + classroom + '\n' + "Преподаватель: " + '\n' + teacher + '\n'
+                            day_printed = True
+                            query.message.reply_text(send_schedule)
+                            print(send_schedule)
+                    else:
+                        hour = hours[i].text.strip()
+                        discipline = disciplines[i].text.strip()
+                        classroom = classrooms[i].text.strip()
+                        teacher = teachers[i].text.strip()
+                        # Расписание, если день уже был написан
+                        if discipline:
+                            send_schedule = hour + '\n' + discipline + '\n' +"Аудитория: " + classroom + '\n' + "Преподаватель: " + '\n' + teacher + '\n'
+                            day_printed = False
+                            query.message.reply_text(send_schedule)
+                            print(send_schedule)
+
+        else:
+            print("Пусто")
+
+
+def start(update, context):
+    update.message.reply_text(
+        'Здравствуйте! Это ПГУТИ ассистент, я могу помочь вам с ориентированием в личном кабинете. \nДля начала введите свой логин',
+        reply_markup=ReplyKeyboardRemove())
+
+    return LOGIN
+
+
+def login(update, context):
+    login = update.message.text
+    context.user_data["login"] = login
+    update.message.reply_text("Введите пароль, указанный в зачетной книжке")
+    return PASSWORD
+
+
+def password(update, context):
+    password = update.message.text
+    login = context.user_data["login"]
+    driver = webdriver.ChromiumEdge()
+    driver.get("https://portal.psuti.ru/user/sign-in/login")
+    driver.find_element("id", "loginform-identity").send_keys(login)
+    driver.find_element("id", "loginform-password").send_keys(password)
+    driver.find_element("name", "login-button").click()
+    update.message.reply_text("Пожалуйста ожидайте, это займет немного времени")
+    time.sleep(3)
+    if driver.current_url == "https://portal.psuti.ru/user/sign-in/userset?_referrer=%2Fuser%2Fsign-in%2Flogin":
+        update.message.reply_text("Вход успешен!")
+        context.user_data["driver"] = driver
+        return create_first_inline_keyboard(update, context)
+    else:
+        update.message.reply_text("Вход не выполнен!")
+        return conversation_handler.END
+
+
+def create_first_inline_keyboard(update, context):
+    driver = context.user_data["driver"]
+    driver.get("https://portal.psuti.ru/user/sign-in/userset?_referrer=%2Fuser%2Fsign-in%2Flogin")
+    keyboard = [
+        [InlineKeyboardButton("Студент", callback_data='link1'),
+         InlineKeyboardButton("Абитуриент", callback_data='link2')]]
+
+    reply_markup = InlineKeyboardMarkup(keyboard, one_time_keyboard=True)
+    update.message.reply_text("Выберите в какой режим личного кабинета вы хотите попасть:", reply_markup=reply_markup)
+
+
+def callback_query(update, context):
+
+    driver = context.user_data["driver"]
+    query = update.callback_query
+    query.answer()
+    if query.data == 'link1':
+        query.edit_message_text(text="Вы входите в кабинет студента")
+        driver.get("https://portal.psuti.ru/user/sign-in/userset?role=Student")
+        option1_keyboard = [[InlineKeyboardButton("Ваше расписание", callback_data="Schedule"),
+                             InlineKeyboardButton("Ваша успеваемость", callback_data="Grade")]]
+        reply_markup = InlineKeyboardMarkup(option1_keyboard)
+        query.message.reply_text("Выберите, какую информацию вы хотите получить:", reply_markup=reply_markup)
+
+    elif query.data == "link2":
+        query.edit_message_text(text="Вы входите в кабинет абитуриента")
+        driver.get("https://portal.psuti.ru/abiturient/index")
+    elif query.data == 'Schedule':
+        query.edit_message_text(text="Ваше расписание")
+        url = "https://portal.psuti.ru/student/schedule?_referrer=%2Fstudent%2Findex"
+        driver.get(url)
+        return get_data(update, context, url, query)
+    elif query.data == "Grade":
+        query.edit_message_text(text="Ваша успеваемость")
+        driver.get("https://portal.psuti.ru/abiturient/index")
+
+    query.edit_message_text(text="Пожалуйста, подождите".format(query.data))
+
+
+def cancel(update, context):
+    update.message.reply_text("Отмена.")
+    return ConversationHandler.END
+
+
+conversation_handler = ConversationHandler(
+    entry_points=[CommandHandler('start', start)],
+    states={
+        LOGIN: [MessageHandler(Filters.text, login)],
+        PASSWORD: [MessageHandler(Filters.text, password)],
+    },
+    fallbacks=[CommandHandler('cancel', cancel)]
+)
+
+
+callback_query_handler = CallbackQueryHandler(callback_query)
+updater.dispatcher.add_handler(callback_query_handler)
+updater.dispatcher.add_handler(conversation_handler)
+dp = updater.dispatcher
+dp.add_handler(CommandHandler("schedule", parcing_shedule))
+updater.start_polling()
+updater.idle()
