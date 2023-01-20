@@ -1,0 +1,84 @@
+// ref:- https://hiroyukichishiro.com/atomic-in-c-language/
+// Example code of demonstrating threads with std::atomics
+//
+#include <iostream>
+#include <atomic>
+#include <thread>
+int data = 0;
+volatile std::atomic<bool> ready(false);
+
+// The function will print when it is sure the main thread set the trigger value to true
+//
+void f()
+{
+  while (!ready.load(std::memory_order_relaxed)) {
+  }
+  std::atomic_thread_fence(std::memory_order_acquire);
+  std::cout << data << std::endl;
+}
+
+// this function will set the value and feedback to the master to print it once done
+//
+void y()
+{
+  while (!ready.load(std::memory_order_relaxed)) {
+  }
+  std::atomic_thread_fence(std::memory_order_acquire);
+  std::cout << "\033[32m inside thread == " << data << "\033[0m" << std::endl;
+  data = 99;
+  std::atomic_thread_fence(std::memory_order_release);
+  ready.store(false, std::memory_order_relaxed);
+}
+
+int main()
+{
+  //
+  // In this one we wait for the for loop to be complete
+  //
+  std::thread t(f);
+  data = 3;
+  std::atomic_thread_fence(std::memory_order_release);
+
+  for (int ii=0; ii<=1000000; ++ii) {
+    data = ii;
+  }
+  ready.store(true, std::memory_order_relaxed);
+  t.join();
+
+  //
+  // In this one we dont wait for the for loop to be complete
+  //
+  std::thread x(f);
+  data = 3;
+  std::atomic_thread_fence(std::memory_order_release);
+  ready.store(true, std::memory_order_relaxed);
+  for (int ii=0; ii<=1000000; ++ii) {
+    data = ii;
+  }
+  x.join();
+
+  // 
+  // here we are waiting for the thread to set the atomic to a value and release it
+  //
+  std::thread z(y);
+  std::atomic_thread_fence(std::memory_order_release);
+  data = 3;
+  ready.store(true, std::memory_order_relaxed);
+  while (ready.load(std::memory_order_relaxed)) {
+  }
+  std::atomic_thread_fence(std::memory_order_acquire);
+  std::cout << data << std::endl;
+  z.join();
+
+  // 
+  // here we dont care about the thread before we print the atomic value
+  //
+  std::thread zz(y);
+  std::atomic_thread_fence(std::memory_order_release);
+  ready.store(true, std::memory_order_relaxed);
+  data = 3;
+  std::cout << data << std::endl;
+  data = 6;
+  zz.join();
+
+}
