@@ -1,0 +1,61 @@
+//сама таблица с примером здесь https://docs.google.com/spreadsheets/d/1Nx761zi5kCk2_u7ySIkzuGEKhSE3WUUi13Aqy4AEZoc/edit#gid=0
+//сюда вводим наш API-ключ, получать здесь https://beta.openai.com/account/api-keys
+const t = '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'
+
+//эта часть ответственна за создание меню для запуска скрипта
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Скрипты')
+    .addItem('Отправляем запрос', 'go').addToUi()
+};
+
+//главный скрипт
+function go() {
+  //адрес API, на который будем обращаться
+  const url = 'https://api.openai.com/v1/completions'
+
+  //но перед этим соберём аргументы: обращаемся к нашей таблице и к листу 🤖
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName('🤖');
+
+  //заберём значения из диапазона A2:D2
+  const args = sh.getRange("A2:D2").getValues()[0];
+
+  //распределим эти значения на четыре переменных, которые будем отправлять в запросе
+  const [model, max_tokens, temperature, prompt] = args;
+
+  //сам запрос, обращаемся к функции r (можете её использовать для обращения к другим API)
+  //в функцию передаём ссылка на API, метод (get, post, put), API-ключ и тело запроса
+  //в нашем случае тело это модель, вопрос, max_tokens, temperature
+  const request = r(url, 'post', t, {
+    "model": model,
+    "prompt": prompt,
+    "max_tokens": max_tokens,
+    "temperature": temperature
+  });
+
+  //извлекаем либо ответ, либо, если ответа нет (как правило, это какая-то ошибка) - возвращаем целиком запрос
+  const response = request.choices?.[0]?.text || request;
+
+  //вставляем на наш лист строку перед 3й строкой
+  sh.insertRowBefore(3);
+
+  //и вставляем в эту строчку дату и время, аргументы запроса и сам ответ
+  sh.getRange(3, 7, 1, 3).setValues([[new Date(), args.join("|"), response]]);
+}
+
+function r(url, method, token, data) {
+  let params = {
+    method: method,
+    muteHttpExceptions: true,
+    contentType: 'application/json;',
+    payload: JSON.stringify(data),
+    'headers': {
+      Authorization: 'Bearer ' + token
+    }
+  };
+
+  var r = UrlFetchApp.fetch(url, params);
+  r = JSON.parse(r)
+  return r;
+};
