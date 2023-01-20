@@ -1,0 +1,115 @@
+local sounds = game:GetService("ReplicatedStorage"):WaitForChild("FootstepsReplicatedStorage"):WaitForChild("Sounds")
+local footstep = game:GetService("ReplicatedStorage").FootstepsReplicatedStorage:WaitForChild("Footstep"):WaitForChild("FootstepPart")
+
+
+local footstepsContainer = Instance.new("Folder")
+footstepsContainer.Name = "FOOTSTEPS"
+footstepsContainer.Parent = workspace
+
+
+local ts = game:GetService("TweenService")
+local fadeTI = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+
+
+local char = game.Players.LocalPlayer.Character or game.Players.LocalPlayer.CharacterAdded:Wait()
+local hum = char:WaitForChild("Humanoid")
+
+local root = char:WaitForChild("HumanoidRootPart")
+root:WaitForChild("Running").Volume = 0
+
+local walkAnim = hum:WaitForChild("Animator"):LoadAnimation(script:WaitForChild("Animation"))
+
+local notWalkingStates = {Enum.HumanoidStateType.Jumping, Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Climbing, Enum.HumanoidStateType.Swimming, Enum.HumanoidStateType.Flying, Enum.HumanoidStateType.Freefall, Enum.HumanoidStateType.Landed}
+
+
+local footstepMaterials = {
+	"Sand",
+	"Mud",
+	"Grass",
+}
+
+local timeForStepToDisappear = 5
+
+local colorOffset = Color3.new(-0.1, -0.1, -0.1)
+
+
+game:GetService("RunService").Heartbeat:Connect(function()
+	
+	local md = hum.MoveDirection.Magnitude
+	local currentState = hum:GetState()
+	
+	walkAnim:AdjustSpeed(hum.WalkSpeed / 16)
+	
+	if md > 0.1 and not walkAnim.IsPlaying and not table.find(notWalkingStates, currentState) then
+		walkAnim:Play()
+
+	elseif (md <= 0.1 or table.find(notWalkingStates, currentState)) and walkAnim.IsPlaying then
+		walkAnim:Stop()
+	end
+end)
+
+
+function getPartUnderCharacter(foot)
+	
+	local origin = foot.Position + Vector3.new(0, 0.5, 0)
+	local direction = Vector3.new(0, -1, 0)
+	
+	local rp = RaycastParams.new()
+	rp.FilterDescendantsInstances = {char, footstepsContainer}
+	rp.IgnoreWater = true
+	
+	local ray = workspace:Raycast(origin, direction, rp)
+	
+	if ray and ray.Instance.Transparency < 1 then
+		
+		local material = string.split(tostring(ray.Material), ".")[3]
+		
+		local sound = sounds:FindFirstChild(material) or sounds:WaitForChild("Default")
+		
+		local soundCopy = sound:Clone()
+		soundCopy.Parent = foot
+		soundCopy:Play()
+		
+		soundCopy.Ended:Connect(function()
+			soundCopy:Destroy()
+		end)
+		
+		if ray.Instance.Anchored and table.find(footstepMaterials, material) then
+			
+			local newFootstep = footstep:Clone()
+			
+			local position = foot.Position + Vector3.new(0, newFootstep.Size.Y/2 - foot.Size.Y/2, 0)
+			local orientation = Vector3.new(0, foot.Orientation.Y, 0) + Vector3.new(ray.Normal.Z, 0, ray.Normal.X)
+			
+			newFootstep.CFrame = CFrame.new(position) * CFrame.Angles(orientation.X, math.rad(orientation.Y), orientation.Z)
+			
+			newFootstep.Material = ray.Instance.Material
+			
+			newFootstep.Transparency = ray.Instance.Transparency
+			
+			local r = math.clamp(ray.Instance.Color.R - colorOffset.R, 0, 1)
+			local g = math.clamp(ray.Instance.Color.G - colorOffset.G, 0, 1)
+			local b = math.clamp(ray.Instance.Color.B - colorOffset.B, 0, 1)
+			newFootstep.Color = Color3.new(r, g, b)
+			
+			newFootstep.Parent = footstepsContainer
+			
+			task.wait(timeForStepToDisappear)
+			
+			local fadeTween = ts:Create(newFootstep, fadeTI, {Transparency = 1})
+			fadeTween:Play()
+			
+			fadeTween.Completed:Wait()
+			fadeTween:Destroy()
+			newFootstep:Destroy()
+		end
+	end
+end
+
+
+walkAnim:GetMarkerReachedSignal("Right Foot Down"):Connect(function()
+	getPartUnderCharacter(char:WaitForChild("RightFoot"))
+end)
+walkAnim:GetMarkerReachedSignal("Left Foot Down"):Connect(function()
+	getPartUnderCharacter(char:WaitForChild("LeftFoot"))
+end)
