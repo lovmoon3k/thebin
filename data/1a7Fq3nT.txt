@@ -1,0 +1,42 @@
+// createSingle: "sugar" to wrap SolidJS createSignal accessors in a single variable
+// https://playground.solidjs.com/anonymous/8fa3834c-0a46-42f9-9ea9-4770434e4663
+import { render } from "solid-js/web";
+import { createSignal, Accessor, Setter } from "solid-js";
+
+interface SingleAccessor<T> extends Accessor<T> {
+  r: T;
+  w: T;
+  set: Setter<T>;
+}
+function createSingle <T> (iv: T): SingleAccessor<T> {
+  const [single, setter] = createSignal(iv);
+  if (!('set' in single)) (single as SingleAccessor<T>).set = setter;
+  if (!('r' in single)) Object.setPrototypeOf(single, createSingle.prototype);
+  return single as SingleAccessor<T>;
+}
+createSingle.prototype = {
+  get r () { return this(); },      // Read-only
+  get w () { return this(); },      // Read(/write) for ++, --, op=
+  set w (newv) { this.set(newv); }  // (Read/)write for plain assignment
+};
+
+function checkCompat (count: Accessor<number>, setCount: Setter<number>) { setCount(2); console.log(count()); }
+
+function Counter() {
+  const [count, setCount] = createSignal(1);
+  const increment = () => setCount(count() + 1);
+  const count1 = createSingle(1);
+  const increment1 = () => ++count1.w;
+
+  checkCompat(count1, count1.set);
+
+  return (
+    <>
+    <button type="button" onClick={increment}>Signal {count()}</button>
+    <button type='button' onClick={() => ++count1.w}>Single {count1.r}</button>
+    <button type='button' onClick={increment1}>Single Inc {count1.r}</button>
+    </>
+  );
+}
+
+render(() => <Counter />, document.getElementById("app")!);

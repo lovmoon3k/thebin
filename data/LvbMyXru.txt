@@ -1,0 +1,76 @@
+/// THIS SCRIPT WILL LET YOU DISPLAY THE WHOLE STEAM DISCOUNTED 
+/// WISHLIST IN DEVELOPER TOOLS IN CHROME OR EXPORT IT TO CSV.
+/// THIS IS USEFUL IF YOU HAVE A LARGE DISCOUNTED WISHLIST
+/// SINCE IT MIGHT TAKE A LONG TIME TO GO THROUGH IT AND
+/// THE ORDERING MIGHT CHANGE THE NEXT TIME YOU OPEN THE PAGE
+
+/// OPEN YOUR STEAM WISHLIST PAGE
+/// OPEN DEVELOPER TOOLS BY CLICKING F2
+/// CLICK THE CONSOLE TAB
+
+/// RUN THIS PART FIRST
+fetch('https://cdn.jsdelivr.net/npm/lodash@4.17.4/lodash.min.js')
+    .then(response => response.text())
+    .then(text => eval(text));
+parser = new DOMParser();
+
+/// RUN THIS NEXT
+allWishlist = _.map(Object.entries(g_rgAppInfo) , x => new Object({id: x[0], url: `https://store.steampowered.com/app/${x[0]}`,...x[1]}));
+allWishlistDiscounted = _.filter(Object.values(allWishlist), x=> _.filter( x.subs, y => y.discount_pct >0).length >0);
+allWishlistDiscountedWithInfo = _.map(allWishlistDiscounted, game => {
+  var data = {};
+  data.name = game.name;
+  if(game.subs.length > 0) {
+    var currentSubIndex = 0;
+    var domOriginalPrice = null;
+    domOriginalPrice = parser.parseFromString(game.subs[currentSubIndex].discount_block ,"text/xml");
+    while (
+        domOriginalPrice== null
+        || domOriginalPrice.querySelector(".discount_original_price") == null 
+        || domOriginalPrice.querySelector(".discount_final_price") == null 
+        || domOriginalPrice.querySelector(".discount_pct") == null){
+      if(game.subs[currentSubIndex] == null || game.subs[currentSubIndex].discount_block == null){
+        console.log("skipping");
+        currentSubIndex = currentSubIndex + 1;
+        continue;  
+      }
+      domOriginalPrice = parser.parseFromString(game.subs[currentSubIndex].discount_block ,"text/xml");
+      currentSubIndex = currentSubIndex + 1;
+      console.log(`${game.name} discount may only applies to bundle`);
+    }
+    try{
+      data.originalPrice = domOriginalPrice.querySelector(".discount_original_price").textContent;
+      data.finalPrice = domOriginalPrice.querySelector(".discount_final_price").textContent;
+      data.discount = domOriginalPrice.querySelector(".discount_pct").textContent;
+      data.url = game.url;
+    }catch(error) {
+      console.error("Error parsing "+game.name);
+      console.error(game);
+    }
+  }
+  return data;
+});
+
+
+/// RUN THE FOLLOWING TO SEE THE DATA IN CONSOLE
+console.table(allWishlistDiscountedWithInfo);
+
+
+/// RUN THE FOLLOWING TO DOWNLOAD THE DATA AS CSV.
+/// IF USING EXCEL, ITS RECOMMENDED TO IMPORT THE DATA
+/// RATHER THAN OPENING DIRECTLY DUE TO SOME CHARACTER
+/// CONVERSION
+date = new Date();
+filename = `${date.getFullYear()}${date.getMonth() +1}${date.getDate()}-wishlist.csv`;
+
+csvContent = "data:text/csv;charset=utf-8,"
+  + `${Object.keys(allWishlistDiscountedWithInfo[0]).map(value => `"${value}"`).join(",")}` + '\r\n'
+  + _.reduce(allWishlistDiscountedWithInfo, (str, next) => `${str}${Object.values(next).map(value => `"${value}"`).join(",")}\r\n`, '');
+  
+encodedUri = encodeURI(csvContent);
+link = document.createElement("a");
+link.setAttribute("href", encodedUri);
+link.setAttribute("download", filename);
+document.body.appendChild(link); // Required for FF
+
+link.click();
