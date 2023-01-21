@@ -1,0 +1,60 @@
+import cv2
+import numpy as np
+import time
+from numba import cuda
+
+# CUDA kernel function for further computation
+@cuda.jit
+def further_computation(image_in, image_out):
+    # 2D thread index
+    x, y = cuda.grid(2)
+
+    # image dimensions
+    rows, cols = image_in.shape[:2]
+
+    # ignore pixels outside the image boundary
+    if x >= rows or y >= cols:
+        return
+
+    # perform further computation
+    pixel = image_in[x, y]
+    image_out[x, y] = pixel * 2
+
+# main function
+def main():
+    start = time.time()
+    # list of image file names
+    image_files = ["dog-1.jpg", "dog-2.jpg", "dog-3.jpg", "dog-4.jpg", "dog-5.jpg", "dog-6.jpg", "dog-7.jpg", "dog-8.jpg", "dog-9.jpg", "dog-10.jpg"]
+
+    for i, image_file in enumerate(image_files):
+        #for k in range (0, 100):
+        # read input image
+        image = cv2.imread(image_file, cv2.IMREAD_GRAYSCALE)
+
+        # apply Canny edge detector
+        edges = cv2.Canny(image, 10, 100)
+
+        # allocate memory for output image on the GPU
+        image_out = cuda.to_device(np.zeros_like(edges))
+
+        # define CUDA thread grid
+        threadsperblock = (10, 1)
+        blockspergrid_x = (edges.shape[0] + threadsperblock[0] - 1) // threadsperblock[0]
+        blockspergrid_y = (edges.shape[1] + threadsperblock[1] - 1) // threadsperblock[1]
+        blockspergrid = (blockspergrid_x, blockspergrid_y)
+
+        # call CUDA kernel function
+        further_computation[blockspergrid, threadsperblock](edges, image_out)
+
+        # copy output image from the GPU to host memory
+        image_out = image_out.copy_to_host()
+        #save image
+        cv2.imwrite("output_image{}.jpg".format(i+1), image_out)
+        #cv2.imwrite("output_image{} - {}.jpg".format(image_file, k), image_out)
+    
+    end = time.time()
+    print("CUDA time: ", end - start, " s")
+
+if __name__ == "__main__":
+        main()
+    
