@@ -1,0 +1,76 @@
+Dim RealLines.s(0)
+#TempFile = "temp.m3u"
+
+InitNetwork()
+OpenConsole("m3u8 Video Downloader")
+
+tmpFile.s = GetTemporaryDirectory() + #TempFile
+
+PrintN("This program will let you download full vids given the m3u8 link.")
+PrintN("You get this link by loading a vid in your browser with the inspect panel open.")
+PrintN("In the network tab of the inspect panel, you will find the m3u8 link.")
+PrintN("You may need to refresh the page.")
+PrintN("")
+PrintN("Paste your m3u8 URL here:")
+theURL.s = Input()
+PrintN("")
+PrintN("Type your output file name (path or not):")
+outputFile.s = Input()
+
+If outputFile = ""
+	PrintN("ERROR: Bad file name!")
+	Print("Press ENTER to terminate. . .")
+	Input()
+	CloseConsole()
+	End
+EndIf
+If Right(outputFile, 4) <> ".mp4": outputFile + ".mp4": EndIf
+If Mid(outputFile, 2, 1) <> ":": outputFile = GetTemporaryDirectory() + outputFile: EndIf
+
+If ReceiveHTTPFile(theURL, tmpFile)
+	Delay(2000)
+	OpenFile(0, tmpFile)
+	lines = 0
+	Repeat
+		tmpLine.s = ReadString(0, #PB_UTF8)
+		If Left(tmpLine, 1) <> "#"
+			RealLines(lines) = tmpLine
+			lines + 1
+			ReDim RealLines.s(lines)
+		EndIf
+	Until Eof(0) = #True
+	lines - 1
+	CloseFile(0)
+	Delay(500)
+	DeleteFile(tmpFile, #PB_FileSystem_Force)
+	
+	lastSlash = Len(theURL) - FindString(ReverseString(theURL), "/") + 1 ; get the last slash in URL
+	stubURL.s = Left(theURL, lastSlash)
+	PrintN("Stub URL: " + stubURL)
+	PrintN("======================")
+	OpenFile(0, outputFile)
+	For i = 0 To lines
+		*buffer = ReceiveHTTPMemory(stubURL + RealLines(i))
+		If *buffer
+			size = MemorySize(*buffer)
+			PrintN("Writing chunk " + Str(i) + " of " + Str(lines))
+			PrintN(RealLines(i))
+			WriteData(0, *buffer, size)
+			FreeMemory(*buffer)
+		Else
+			PrintN("ERROR: Memory problem for this chunk.")
+		EndIf
+		Delay(500)
+	Next
+	CloseFile(0)
+	PrintN("")
+	PrintN("DONE!")
+Else
+	PrintN("")
+	PrintN("ERROR: Could not download m3u8 file!")
+EndIf
+
+Print("Press ENTER to terminate. . .")
+Input()
+CloseConsole()
+End
