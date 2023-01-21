@@ -1,0 +1,76 @@
+import cv2
+import cv2 as cv
+import numpy as np
+import time
+from numba import cuda
+
+# CUDA kernel function for further computation
+@cuda.jit
+def further_computation(image_in, image_out):
+    # 2D thread index
+    x, y = cuda.grid(2)
+
+    # image dimensions
+    rows, cols = image_in.shape[:2]
+
+    # ignore pixels outside the image boundary
+    if x >= rows or y >= cols:
+        return
+
+    # perform further computation
+    pixel = image_in[x, y]
+    image_out[x, y] = pixel * 2
+
+# main function
+
+def main():
+    # list of image file names
+    image_files = ["dog-1.jpg", "dog-2.jpg", "dog-3.jpg", "dog-4.jpg", "dog-5.jpg", "dog-6.jpg", "dog-7.jpg", "dog-8.jpg", "dog-9.jpg", "dog-10.jpg"]
+    _ = cv2.imread(image_files[0], cv2.IMREAD_GRAYSCALE)
+    height, width = _.shape[:2]
+    lh = round(height/5)
+    lw = round(width/5)
+    start = time.time()
+    for i, image_file in enumerate(image_files):
+        #print("Start analysis new image")
+
+        for k in range (0, 100):
+
+            # read input image
+            image = cv2.imread(image_file)
+            
+            # Cvt cuda format
+            #e1 = cv.getTickCount()
+            
+            img_gpu = cv2.cuda_GpuMat(image)
+            img_gpu = cv2.cuda.resize(img_gpu, (lw, lh), interpolation=cv2.INTER_CUBIC)
+            
+            #e2 = cv.getTickCount()
+
+            img_gpu = cv2.cuda.cvtColor(img_gpu, cv2.COLOR_BGR2GRAY)
+            
+            #e3 = cv.getTickCount()
+
+            detector = cv2.cuda.createCannyEdgeDetector(10,100)
+            edges = detector.detect(img_gpu)
+            
+            #e4 = cv.getTickCount()
+
+            freq = cv.getTickFrequency() / 1000
+           
+            #print("Resize time: {} ms  CvtColor time: {} ms  Canny time: {}".format((e2-e1)/freq, (e3-e2)/freq, (e4-e3)/freq))
+            canny = edges.download()
+            cv2.imshow("output_image", canny)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+            #print(100*"-")
+        #print("Going to next image")
+        end = time.time()
+    
+    print("GPU time: ", end - start, " s")
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+        main()
+
