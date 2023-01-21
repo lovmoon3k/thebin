@@ -1,0 +1,132 @@
+-- initialize Monitor
+local monitor = peripheral.find("monitor")
+if not monitor then error("Monitor not found.") end
+monitor.setTextScale(0.5)
+monitor.clear()
+monitor.setCursorPos(1, 1)
+monitor.setCursorBlink(false)
+print("Monitor initialized.")
+
+-- Init ColonyIntergrator
+local colony = peripheral.find("colonyIntegrator")
+if colony == nil then error("colonyIntegrator not found") end
+if not colony.isInColony then error("Block is not in a colony") end
+
+-- Init RSBridge
+local bridge = peripheral.find("rsBridge")
+if bridge == nil then error("rsBridge not found") end
+--bridge.exportItem({name="minecraft:birch_stairs", count=1}, "left")
+
+colony_requests = colony.getRequests()
+
+--get requests
+
+	local item_needed_key = {}
+	local item_needed_state = {}
+	local item_needed_name = {}
+	local item_needed_count = {}
+	local item_needed_target = {}
+	local item_needed_detailname = {}
+
+	local requestcounter = 0
+for key, item in pairs(colony_requests) do
+	item_needed_key[requestcounter] = key
+	item_needed_name[requestcounter] = item.name
+	item_needed_state[requestcounter] = item.state
+	item_needed_count[requestcounter] = item.count
+	item_needed_target[requestcounter] = item.target
+    --print("Item " .. key)
+    --print("Name: " .. item.name)
+    --print("State: " .. item.state)
+    --print("Count: " .. item.count)
+    --print("Target: " .. item.target)
+    --print("Items: ")
+    for j, item_detail in ipairs(item.items) do
+        --print("\t" .. item_detail.name)
+	item_needed_detailname[requestcounter] = item_detail.name
+    end
+	requestcounter = requestcounter + 1
+end
+
+
+-- get items in system
+local item_current_name = {}
+local item_current_amount = {}
+local item_current_isCraftable = {}
+local item_current_displayName = {}
+
+current_items = bridge.listItems()
+local currentitemcounter = 0
+for _, item in pairs(current_items) do
+    item_current_name[currentitemcounter] = (item.name or "Unknown")
+    item_current_amount[currentitemcounter] = (item.amount)
+    item_current_isCraftable[currentitemcounter] = (tostring(item.isCraftable))
+    item_current_displayName[currentitemcounter] = (item.displayName)
+	currentitemcounter = currentitemcounter + 1
+end
+
+
+print (currentitemcounter)
+for j = 0, requestcounter-1 do
+	local RSUseable = 0
+	local itemrequestedbutnotfound = item_needed_detailname[j]
+	for i = 0, currentitemcounter-1 do
+		if item_needed_state[j] == "IN_PROGRESS" then
+			print("Item: " .. item_needed_detailname[j])
+			--print("Needed: " .. item_current_isCraftable[i])
+			--print("Available: " .. item_current_displayName[i])
+
+			if item_current_displayName[i]:match(item_needed_detailname[j]) then
+            	--print("Item: " .. item_current_displayName[i])
+				--print ("Item Needed 1: " .. item_needed_detailname[j])
+
+				if item_current_amount[i] >= item_needed_count[j] then
+						bridge.exportItem({name=item_current_name[i], count=item_needed_count[j]}, "left")
+						print("Exporting " .. item_current_name[i])
+						local item = item_current_name[i]
+						local needed = item_needed_count[j]
+						RSUseable = 1	
+						itemfile.write(item_current_name[i])
+						itemfile.write("\n")
+						print ("wrote to log?")
+					if item_current_name[i] == "domum_ornamentum:shingle" then
+						print ("Unable to export " .. item_current_name[i])
+						RSUseable = 0
+					end
+
+				else
+
+
+-- If you don't find enough craft the missing ammount if craftable. 
+
+					if item_current_isCraftable[i] == "true" then
+						print("Craft more")
+						print(item_current_name[i])
+						bridge.craftItem({name=item_current_name[i], count=item_needed_count[j]})
+						RSUseable = 1
+					else
+						print("Unable to craft")
+						print(item_current_isCraftable[i])
+						file.write(item_current_name[i])
+						file.write("\n")
+						RSUseable = 0
+					end
+					end
+			else
+			--print("No Has")
+            --print("Item: " .. item_current_displayName[i])
+            --print ("Item Needed: " .. item_needed_name[j])
+
+			end
+
+        else
+		RSUseable = 1
+		end
+	end
+	if RSUseable == 0 then
+		--file.write(itemrequestedbutnotfound)
+		--file.write("\n")
+	end
+end
+--file.close()
+--itemfile.close()
