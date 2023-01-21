@@ -1,0 +1,67 @@
+import { render } from "solid-js/web";
+import { createSignal, SignalOptions, Accessor, Setter, Signal } from "solid-js";
+import { createEffect, createMemo } from "solid-js";
+ 
+type ReaderPrototype<T> = {
+  (): T;
+  get r (): T;
+}
+type SingleReader<T> = Accessor<T> & ReaderPrototype<T>;
+type AccessorPrototype<T> = ReaderPrototype<T> & {
+  get r (): T;
+  get w (): T;
+  reader: SingleReader<T>;
+  set (newv: any): SingleAccessor<T>;
+  set w (newv: any);
+  writer: Setter<T>;
+}
+type SingleAccessor<T> = Setter<T> & AccessorPrototype<T>;
+type CreateSingle<T> = {
+  (iv: T): SingleAccessor<T>;
+  accessorPrototype: AccessorPrototype<T>;
+  readerPrototype: ReaderPrototype<T>;
+}
+
+/*
+ * Summary for humans:
+ * Returns a single, augmented Signal read/write accessor, rw.
+ * rw.reader returns the (augmented-in-place) getter, ro, for segmentation of read/write access.
+ * rw.writer returns the original, unaugmented setter.
+ * rw.r, ro.r, and rw(), and ro() return the current value.
+ * rw.w = value and rw.set(value) change the value.
+ * rw.set(value) returns this.
+ */
+function createSingle<T> (iv: T | undefined = undefined, options?: SignalOptions<T | undefined> | undefined): SingleAccessor<T> {
+  const cs = createSingle as CreateSingle<T>;
+
+  if (!cs.readerPrototype) cs.readerPrototype = {
+    get r () { return this(); }
+  } as ReaderPrototype<T>;
+
+  if (!cs.accessorPrototype) cs.accessorPrototype = {
+    get r () { return this(); },
+    get w () { return this(); },
+    set (newv) { this.writer(newv); return this; },
+    set w (newv: any) { this.writer(newv); }
+  } as AccessorPrototype<T>;
+
+  const [getter, setter] = createSignal(iv, options);
+  Object.setPrototypeOf(getter, cs.readerPrototype);
+  const accessor = function () { return getter(); } as any;
+  Object.setPrototypeOf(accessor, cs.accessorPrototype);
+  accessor.reader = getter;
+  accessor.writer = setter;
+  return accessor as SingleAccessor<T>;
+};
+
+const [ s1, sets1 ] = createSignal(1)
+const m1 = createMemo(() => s1() * 2);
+console.log('s1 before', s1(), 'm1 before', m1()) // 1, 2
+sets1(3);
+console.log('s1 after', s1(), 'm1 after', m1()) // 3, 6
+const s2 = createSingle(5);
+console.log(s2.r, s2(), s2.reader.r, s2.reader()) // 5...
+const m2 = createMemo(() => s2.r * 2);
+console.log('s2 before', s2.r, 'm2 before', m2()) // 5, 10
+s2.w += 3
+console.log('s2 after', s2.r, 'm2 after', m2()) // 8, 16
