@@ -1,0 +1,73 @@
+----- USAGE -----
+------------------------------------------------------------------------------------------------
+-- This program allows you to clone specific files from any public GitHub repo
+-- Note: currently you can only clone a single file, not an entire repo
+
+-- Use "gitpull clone <downloaded file name> <URL for raw file data>"
+-- The URL should look something like this: raw.githubusercontent.com/user/repo/branch/file
+
+-- Use "gitpull update <file name>" to pull a previously downloaded file from github
+
+-- Use "rmlog <file name>" to make this program forget about the source URL of a specified file
+-- (You will not be able to use the "update" command for the specified file)
+
+-- Use "rm" to completely delete a file and its information from this computer
+
+-- Use "clearlog" to make this program forget all of its stored source URLs
+-- (You will not be able to use the "update" command for any previously downloaded files)
+------------------------------------------------------------------------------------------------
+
+
+
+----- PROGRAM START -----
+local args = {...}
+local command = args[1]
+local fileName	 = args[2]
+local url = args[3]
+local LOG_FILE_PATH = ".git_log"
+
+function removeLog()
+	file = fs.open(LOG_FILE_PATH, "r")
+	local table = textutils.unserialise(file.readAll())
+	file.close()
+
+	table[fileName] = nil
+
+	file = fs.open(LOG_FILE_PATH, "w")
+	file.write(textutils.serialise(table))
+	file.close()
+end
+
+if command == "clone" then
+	if fs.exists(LOG_FILE_PATH) then
+		local file = fs.open(LOG_FILE_PATH, "r")
+		local git_log = textutils.unserialise(file.readAll())
+		file.close()
+
+		git_log[fileName] = url
+
+		file = fs.open(LOG_FILE_PATH, "w")
+		file.write(textutils.serialise(git_log))
+		file.close()
+	else
+		local file = fs.open(LOG_FILE_PATH, "w")
+		file.writeLine(textutils.serialise({fileName.. "=" ..url}))
+		file.close()
+	end
+
+	shell.run("wget " .. url .. " " .. fileName)
+elseif command == "update" then
+	local file = fs.open(LOG_FILE_PATH, "r")
+	git_log = textutils.unserialise(file.readAll())
+	file.close()
+
+	shell.run("rm " .. fileName)
+	shell.run("wget " .. git_log[fileName] .. " " .. fileName)
+elseif command == "rmlog" then
+	removeLog()
+elseif command == "rm" then
+	removeLog()
+	shell.run("rm " ..file)
+elseif command == "clearlog" then
+	fs.open(LOG_FILE_PATH, "w").write(textutils.serialise({})).close()
+end

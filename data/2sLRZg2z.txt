@@ -1,0 +1,100 @@
+<?php
+use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ServerRequestInterface as Request;
+
+$app->get('/products', function (Request $request, Response $response, $args) {
+    $c = $GLOBALS['c'];
+    $ppre = $c->prepare('SELECT * from products');
+    $ppre->execute();
+    $res = $ppre->get_result();
+
+    $data = array();
+    while($row = $res->fetch_assoc()){
+        array_push($data, $row);
+    }
+    $json = json_encode(['data'=>$data], JSON_PRETTY_PRINT);
+
+    $response->getBody()->write($json);
+    return $response->withHeader('Content-Type', 'application/json');
+});
+$app->get('/products/{id}', function (Request $request, Response $response, $args) {
+    $c = $GLOBALS['c'];
+    $ppre = $c->prepare('SELECT * from products WHERE productCode = ?;');
+    $ppre->bind_param('s', $args['id']);
+    $ppre->execute();
+    $res = $ppre->get_result();
+
+    $data = $res->fetch_assoc();
+    if($data === null){
+        $json = json_encode(['message'=>'not found'], JSON_PRETTY_PRINT);
+    } else {
+        $json = json_encode(['data'=>$data], JSON_PRETTY_PRINT);
+    }
+    
+    $response->getBody()->write($json);
+    return $response->withHeader('Content-Type', 'application/json');
+});
+$app->get('/products/find/{filter}', function (Request $request, Response $response, $args) {
+    $c = $GLOBALS['c'];
+    $ppre = $c->prepare('SELECT * from products WHERE productCode LIKE ? OR productName LIKE ?;');
+    $filt = '%'.$args['filter'].'%';
+    $ppre->bind_param('ss', $filt, $filt);
+    $ppre->execute();
+    $res = $ppre->get_result();
+
+    $data = array();
+    while($row = $res->fetch_assoc()){
+        array_push($data, $row);
+    }
+    $json = json_encode(['data'=>$data], JSON_PRETTY_PRINT);
+
+    $response->getBody()->write($json);
+    return $response->withHeader('Content-Type', 'application/json');
+});
+
+$app->post('/products', function (Request $request, Response $response, $args) {
+    $c = $GLOBALS['c'];
+    
+    $body = json_decode($request->getBody(), true);
+
+    $ppre = $c->prepare('INSERT INTO `products` (`productCode`, `productName`, `productLine`, `productScale`, `productVendor`, `productDescription`, `quantityInStock`, `buyPrice`, `MSRP`) VALUES (?,?,?,?,?,?,?,?,?);');
+    $ppre->bind_param('sssssssss', $body['productCode'], $body['productName'], $body['productLine'], $body['productScale'], $body['productVendor'], $body['productDescription'], $body['quantityInStock'], $body['buyPrice'], $body['MSRP']);
+
+    try {
+        $json = json_encode(['success'=>$ppre->execute()], JSON_PRETTY_PRINT);
+    } catch(mysqli_sql_exception) {
+        $json = json_encode(['success'=>false], JSON_PRETTY_PRINT);
+    }
+
+    $response->getBody()->write($json);
+    return $response->withHeader('Content-Type', 'application/json');
+});
+
+$app->put('/products/{id}', function (Request $request, Response $response, $args) {
+    $c = $GLOBALS['c'];
+    $code = $args['id'];
+    
+    $body = json_decode($request->getBody(), true);
+
+    $ppre = $c->prepare('UPDATE `products` SET  `productName`=?, `productScale`=?, `productVendor`=?, `productDescription`=?, `quantityInStock`=?, `buyPrice`=?, `MSRP`=? WHERE productCode = ?;');
+    $ppre->bind_param('ssssssss', $body['productName'], $body['productScale'], $body['productVendor'], $body['productDescription'], $body['quantityInStock'], $body['buyPrice'], $body['MSRP'], $code);
+    $ppre->execute();
+
+    $json = json_encode(['success'=>$c->affected_rows !== 0], JSON_PRETTY_PRINT);
+
+    $response->getBody()->write($json);
+    return $response->withHeader('Content-Type', 'application/json');
+});
+
+$app->delete('/products/{id}', function (Request $request, Response $response, $args) {
+    $c = $GLOBALS['c'];
+
+    $ppre = $c->prepare('DELETE FROM `products` WHERE productCode = ?;');
+    $ppre->bind_param('s', $args['id']);
+    $ppre->execute();
+
+    $json = json_encode(['success'=>$c->affected_rows !== 0], JSON_PRETTY_PRINT);
+
+    $response->getBody()->write($json);
+    return $response->withHeader('Content-Type', 'application/json');
+});

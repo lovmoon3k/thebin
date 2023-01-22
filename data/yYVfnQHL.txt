@@ -1,0 +1,75 @@
+<?php
+use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ServerRequestInterface as Request;
+
+function getUser($email){
+    $c = $GLOBALS['c'];
+    $stmt = $c->prepare('SELECT * FROM employees WHERE email = ?');
+    $stmt->bind_param('s', $email);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    if($res->num_rows == 1){
+        $row = $res->fetch_assoc();
+        return $row;
+    }
+    else return "null";
+}
+
+$app->post('/employee/login', function (Request $request, Response $response, $args) {
+    $c = $GLOBALS['c'];
+    
+    $body = json_decode($request->getBody(), true);
+
+    $user = getUser($body['email']);
+
+    if($user === 'null' || ($user['password'] == null && $body['password'] != '')){
+        $json = json_encode(['success'=>false], JSON_PRETTY_PRINT);
+    } else {
+        if($user['password'] == null){
+            unset($user['password']);
+            $json = json_encode(['success'=>true, 'data'=>$user], JSON_PRETTY_PRINT);
+        } else {
+            if(password_verify($body['password'], $user['password'])){
+                unset($user['password']);
+                $json = json_encode(['success'=>true, 'data'=>$user], JSON_PRETTY_PRINT);
+            } else {
+                $json = json_encode(['success'=>false], JSON_PRETTY_PRINT);
+            }
+        }
+    }
+
+
+    $response->getBody()->write($json);
+    return $response->withHeader('Content-Type', 'application/json');
+});
+
+$app->post('/employee/changepass', function (Request $request, Response $response, $args) {
+    $c = $GLOBALS['c'];
+    
+    $body = json_decode($request->getBody(), true);
+
+    $user = getUser($body['email']);
+
+    if($user === 'null'){
+        $json = json_encode(['success'=>false], JSON_PRETTY_PRINT);
+    } else {
+        if($body['password_old'] === $body['password_new']){
+            $json = json_encode(['success'=>false], JSON_PRETTY_PRINT);
+        } else if($user['password'] == null || password_verify($body['password_old'], $user['password'])){
+            $ppre = $c->prepare('UPDATE `employees` SET `password` = ? WHERE email = ?;');
+            $pwd = password_hash($body['password_new'], PASSWORD_DEFAULT);
+
+            $ppre->bind_param('ss', $pwd, $body['email']);
+            
+            $ppre->execute();
+
+            $json = json_encode(['success'=>true], JSON_PRETTY_PRINT);
+        } else {
+            $json = json_encode(['success'=>false], JSON_PRETTY_PRINT);
+        }
+    }
+
+
+    $response->getBody()->write($json);
+    return $response->withHeader('Content-Type', 'application/json');
+});
