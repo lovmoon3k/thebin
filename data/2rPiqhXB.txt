@@ -1,0 +1,152 @@
+package com.xlife.common.capability;
+
+import net.minecraft.nbt.CompoundNBT;
+import net.minecraft.nbt.INBT;
+import net.minecraft.nbt.ListNBT;
+import net.minecraft.nbt.StringNBT;
+import net.minecraft.util.Util;
+
+import java.util.Arrays;
+import java.util.UUID;
+import java.util.stream.Stream;
+
+public class StoredLifeInformation implements ILifeInformation {
+
+    private String playerName;
+    private UUID playerUUID;
+    private float storedMaxHealth;
+    private String storedTimeLiving;
+    private String[] life = new String[]{"", "", ""};
+    private String[][] lives = new String[][]{this.life};
+
+    public String getPlayerName() {
+        return this.playerName;
+    }
+
+    public void setPlayerName(String name) {
+        this.playerName = name;
+    }
+
+    public UUID getPlayerUUID() {
+        return this.playerUUID;
+    }
+
+    public void setPlayerUUID(UUID uuid) {
+        this.playerUUID = uuid;
+    }
+
+    public float getMaxHealth() {
+        return this.storedMaxHealth;
+    }
+
+    public void setMaxHealth(float amount) {
+        this.storedMaxHealth = amount;
+    }
+
+    public String getTimeLiving() {
+        return this.storedTimeLiving;
+    }
+
+    public void setTimeLiving(String time) {
+        this.storedTimeLiving = time;
+    }
+
+    public String getCauseOfDeath(int fromLife) {
+        return this.lives[fromLife][0];
+    }
+
+    public String getDeathMessage(int fromLife) {
+        return this.lives[fromLife][1];
+    }
+
+    public String getTimeLasted(int fromLife) {
+        return this.lives[fromLife][2];
+    }
+
+    public String[] getLife() {
+        return this.life;
+    }
+
+    public void setLife(String[] life) {
+        this.life = life;
+    }
+
+    public String[] getLifeInfo(int fromLife) {
+        return this.lives[fromLife];
+    }
+
+    public void setLifeInfo(int fromLife, String cause, String message, String time) {
+        this.life[0] = cause;
+        this.life[1] = message;
+        this.life[2] = time;
+
+        this.lives[fromLife] = this.life;
+    }
+
+    /**
+     * Adds each player in map to the list written in the world cap.
+     */
+    public CompoundNBT writePlayer(CompoundNBT nbt) {
+        ListNBT players = new ListNBT();
+        this.playersMap.forEach((uuid, info) -> {
+            CompoundNBT data = new CompoundNBT();
+            data.putUniqueId("UUID", uuid);
+            data.put("Info", info);
+            players.add(data);
+        });
+        nbt.put("Players", players);
+        return nbt;
+    }
+
+    public void readPlayer(CompoundNBT nbt) {
+        nbt.getList("Players", 10).forEach(e -> {
+            CompoundNBT data = (CompoundNBT)e;
+            data.getUniqueId("UUID");
+            data.getCompound("Info");
+
+            this.readPlayerInfo(nbt);
+
+            this.playersMap.put(this.playerUUID, data);
+        });
+    }
+
+    public CompoundNBT writePlayerInfo(CompoundNBT nbt) {
+        ListNBT lives = new ListNBT();
+        lives.add(new StringNBT(Arrays.toString(this.getLife()).replace("]", "").replace("[", "")));
+
+        nbt.put("Lives", lives);
+        nbt.putString("Name", this.getPlayerName());
+        nbt.putUniqueId("UUID", this.getPlayerUUID());
+        nbt.putFloat("Health", this.getMaxHealth());
+        nbt.putString("Living", this.getTimeLiving());
+        return nbt;
+    }
+
+    public void readPlayerInfo(CompoundNBT nbt) {
+        if (nbt.contains("Lives", 10)) {
+            CompoundNBT livesNBT = nbt.getCompound("Lives");
+
+            String[] causeArray = livesNBT.getString("").split(", ");
+            this.setLife(causeArray);
+        }
+        this.setPlayerName(nbt.getString("Name"));
+        this.setPlayerUUID(nbt.getUniqueId("UUID"));
+        this.setMaxHealth(nbt.getFloat("Health"));
+        this.setTimeLiving(nbt.getString("Living"));
+    }
+
+    private static ListNBT makeTagList(Stream<INBT> items) {
+        return Util.make(new ListNBT(), list -> items.forEach(list::add));
+    }
+
+    private static ListNBT makeStringList(Stream<String> items) {
+        return makeTagList(items.map(StringNBT::new));
+    }
+
+    static String[] getStringListAsArray(CompoundNBT tag, String key) {
+        final INBT var = tag.get(key);
+        if (!(var instanceof ListNBT)) throw new IllegalArgumentException("Tag " + key + " is not list.");
+        return ((ListNBT) var).stream().map(INBT::getString).toArray(String[]::new);
+    }
+
+}
