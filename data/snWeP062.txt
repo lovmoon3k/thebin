@@ -1,0 +1,157 @@
+args = {...}
+
+numTunnels = tonumber(args[1])
+tunnelLength = tonumber(args[2])
+
+distance = 0  -- The forward distance from the chest
+offset = 0    -- The distance left or right of the chest
+orientation = 0  -- Direction the turtle is currently facing 0 indicates facing away from the chest at the start and 3 indicates facing left.
+
+-- Attempt to move the turtle left 1 space and update the appropriate variable
+function moveForward ()
+    local success = turtle.forward()
+    if success then
+        if orientation == 0 then
+            distance = distance + 1
+        elseif orientation == 1 then
+            offset = offset + 1
+        elseif orientation == 2 then
+            distance = distance - 1
+        elseif orientation == 3 then
+            offset = offset -1
+        end
+    end
+end
+
+-- Turn the turtle to the left and update the orientation
+function turnLeft ()
+    local success = turtle.turnLeft()
+    if success then
+        orientation = orientation - 1
+        if orientation < 0 then
+            orientation = 3
+        end
+    end
+end
+
+-- Turn the turtle to the right and update the orientation
+function turnRight()
+    local success = turtle.turnRight()
+    if success then
+        orientation = orientation + 1
+        if orientation > 3 then
+            orientation = 0
+        end
+    end
+end
+
+
+-- Sets the turtle's orientation to the new 
+function setOrientation(targetOrientation)
+    while orientation ~= targetOrientation do
+        turnLeft()
+    end
+end
+
+-- Mine the block under the turtle and move forward
+function mineAndMove()
+    turtle.digUp()
+    turtle.dig()
+    moveForward()
+end
+
+-- Digs a tunnel in the direction of the current orientation
+function digTunnel()
+
+    while math.abs(offset) < tunnelLength do
+        mineAndMove()
+    end
+end
+
+-- Return the Turtle to the central shaft
+function resetToCenter()
+
+    -- This will move the turtle to the correct orientation
+    if offset < 0 then
+        setOrientation(1)
+    else
+        setOrientation(3)
+    end
+
+    -- Move the the turtle into the center of the shaft
+    while offset ~= 0 do
+        moveForward()
+    end
+end
+
+
+-- This will extend the central shaft enough to dig the next tunnel
+function extendShaft()
+
+    setOrientation(0)
+
+    local newDistance = distance + 4
+    while distance < newDistance do
+        mineAndMove()
+    end
+end
+
+
+-- Attempts to place a torch if one is present in the inventory
+function placeTorch() 
+    for i=1, 16 do
+        turtle.select(i)
+
+        item = turtle.getItemDetail()
+
+        if item ~= nil and item["name"] == "minecraft:torch" then
+            turtle.placeUp()
+        end
+    end
+end        
+
+function main()
+    for pairs=0, numTunnels do
+        -- Extend the shaft for the next set of tunnels
+        extendShaft()
+
+        -- Set the orientation to dig left
+        setOrientation(3)
+
+        -- Dig the tunnel to the left
+        digTunnel()
+        turtle.digUp()
+        placeTorch()
+        resetToCenter()
+
+        -- Set the orientation to dig right
+        setOrientation(1)
+
+        digTunnel()
+        turtle.digUp()
+        placeTorch()
+        resetToCenter()
+    end
+end
+
+-- Entrypoinnt for the script
+
+-- Estimate the required fuel for this dig. Intentionally overestimates by 40%
+requiredFuel = ((numTunnels * tunnelLength * 2) + (numTunnels * 8)) * 1.4
+
+-- Wait for the turtle to refuel 
+if requiredFuel < 20000 then
+    print("The turtle requires " .. requiredFuel .. " to dig the mine.")
+    print("Please place fuel in the highlighted slot below")
+    while turtle.getFuelLevel() < requiredFuel do
+        success = turtle.refuel()
+        if success then
+            print("Current Fuel" .. turtle.getFuelLevel())
+            print("Required Fuel" .. requiredFuel)
+        end
+    end
+    print("Fueling Complete starting dig")
+    main()
+else
+    print("Turtle cannot hold enough fuel to dig the quarry")
+end
