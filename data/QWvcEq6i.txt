@@ -1,0 +1,73 @@
+import discord
+from helper import CheggHelper
+import os
+from html2image import Html2Image
+
+obj = CheggHelper()
+
+
+def html2image(html):
+    hti = Html2Image(output_path='answers')
+    # get uid between _ and .html
+    uid = html.split('_')[1].split('.')[0]
+    # html to image with best fit size
+    hti.screenshot(html_file=html, save_as=f'answer_{uid}.jpg')
+    return f'./answers/answer_{uid}.jpg'
+
+
+class MyClient(discord.Client):
+    async def on_ready(self):
+        print(f'Logged on as {self.user}!')
+
+    async def on_message(self, message):
+        print(f'Message from {message.author}: {message.content}')
+        # check if it is chegg.com link and the channel is chegg
+        if message.content.startswith(
+                'https://www.chegg.com/homework-help') and message.channel.name == 'chegg-backup':
+            try:
+                # send gif with typing color yellow
+                embed = discord.Embed(color=discord.Color.yellow())
+                # embed.set_image(url='https://ilovestudying.xyz/loading.gif')
+                embed.title = 'Processing...'
+                embed.set_footer(text='Powered by UniAIO', icon_url='https://i.imgur.com/cDcmM19.png')
+                # delete the message
+                await message.delete()
+                msg = await message.channel.send(embed=embed, content=message.author.mention)
+                ques_link = message.content.strip()
+                stat, filex, captionx = obj.getQAns(ques_link)
+                if stat:
+                    # img = html2image(filex)
+                    # move filex to /var/www/html folder
+                    os.system(f'mv {filex} /var/www/html')
+                    html_link = f'https://ilovestudying.xyz/{filex.replace("./answers/", "")}'
+
+                    # update message with image
+                    embed = discord.Embed(color=discord.Color.green())
+                    embed.set_image(url=None)
+                    embed.title = captionx
+                    # embed description
+                    embed.description = f'[Click here to view full answer]({html_link})'
+                    embed.add_field(name='Requested Link', value=f'[Click here]({ques_link})')
+                    embed.add_field(name='Requester', value=message.author.mention)
+                    embed.set_footer(text='Powered by UniAIO', icon_url='https://i.imgur.com/cDcmM19.png')
+                    await msg.edit(embed=embed)
+                    # os.remove(img)
+                    # os.remove(filex)
+                else:
+                    embed = discord.Embed(color=discord.Color.red())
+                    embed.set_image(url=None)
+                    embed.title = 'Error'
+                    embed.description = f'```{captionx}```'
+                    embed.add_field(name='Requested Link', value=f'[Click here]({ques_link})')
+                    embed.add_field(name='Requester', value=message.author.mention)
+                    embed.set_footer(text='Powered by UniAIO', icon_url='https://i.imgur.com/cDcmM19.png')
+                    await msg.edit(embed=embed)
+            except Exception as e:
+                await message.channel.send(str(e))
+
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+client = MyClient(intents=intents)
+client.run('got rid of token')
