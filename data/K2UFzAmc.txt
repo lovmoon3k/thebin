@@ -1,0 +1,264 @@
+#include "test_runner.h"
+
+#include <iostream>
+#include <map>
+#include <string>
+#include <unordered_map>
+
+using namespace std;
+
+using Id = string;
+using User = string;
+using Timestamp = int;
+using Karma = int;
+
+struct Record {
+    string id;
+    string title;
+    string user;
+    int timestamp;
+    int karma;
+};
+
+class Database {
+private:
+
+    struct Data {
+        Record record;
+        
+        //unordered_multimap<User, const Record*>::iterator itr_on_user;
+        multimap<User, const Record*>::iterator itr_on_user;
+
+        multimap<Timestamp, const Record*>::iterator itr_on_timestamp;
+        multimap<Karma, const Record*>::iterator itr_on_karma;
+    };
+
+    unordered_map<Id, Data> Id_to_Data;
+
+    //unordered_multimap<User, const Record*> User_to_Ptr_Record;
+    multimap<User, const Record*> User_to_Ptr_Record;
+
+    multimap<Timestamp, const Record*> Timestamp_to_Ptr_Record;
+    multimap<Karma, const Record*> Karma_to_Ptr_Record;
+
+public:
+
+    const Record* GetById(const string& id) const {
+
+        if (Id_to_Data.find(id) == Id_to_Data.end()) {
+            return nullptr;
+        }
+        return &Id_to_Data.at(id).record;
+
+    }
+
+    const Record* GetDataRecord_ById(const string& id)  {
+        return &Id_to_Data[id].record;
+    }
+
+    bool Put(const Record& record) {
+
+         const bool check_insert = (Id_to_Data.find(record.id) == Id_to_Data.end()) ;
+
+        if (check_insert) {
+
+            // error! why&!
+            //Id_to_Data[record.id] = Data{ record, nullptr, nullptr, nullptr };           
+            //Id_to_Data.insert({ record.id,{ record, nullptr, nullptr, nullptr } });
+
+            Id_to_Data[record.id] = Data{  };
+            
+            const auto itr_to_user = User_to_Ptr_Record.insert({ record.user, GetDataRecord_ById(record.id) });
+            const auto itr_to_timestamp = Timestamp_to_Ptr_Record.insert({ record.timestamp, GetDataRecord_ById(record.id) });
+            const auto itr_to_karma = Karma_to_Ptr_Record.insert({ record.karma, GetDataRecord_ById(record.id) });
+
+            Id_to_Data[record.id] = Data{ record, itr_to_user, itr_to_timestamp, itr_to_karma };
+            //Id_to_Data.insert({ record.id,{ record, itr_to_user, itr_to_timestamp, itr_to_karma } });
+        }
+
+        return check_insert;
+    }
+    
+    bool Erase(const string& id) {
+        const auto Data_by_id = Id_to_Data[id];
+        //const bool check_insert = Id_to_Data.erase(id);
+        const bool check_insert = (Id_to_Data.find(id) != Id_to_Data.end());
+
+        if (check_insert) {
+            User_to_Ptr_Record.erase(Data_by_id.itr_on_user);
+            Timestamp_to_Ptr_Record.erase(Data_by_id.itr_on_timestamp);
+            Karma_to_Ptr_Record.erase(Data_by_id.itr_on_karma);
+            Id_to_Data.erase(id);
+        }
+
+        return check_insert;
+    }
+
+    template <typename Callback>
+    void RangeByTimestamp(int low, int high, Callback callback) const {
+
+        auto begin_timestamp = Timestamp_to_Ptr_Record.lower_bound(low);
+        auto end_timestamp = Timestamp_to_Ptr_Record.upper_bound(high);
+
+        for (; begin_timestamp != end_timestamp; ++begin_timestamp) {
+            if (!callback(*begin_timestamp->second)) {
+                return;
+            }
+        }
+
+    }
+
+    template <typename Callback>
+    void RangeByKarma(int low, int high, Callback callback) const {
+        
+        auto begin_karma = Karma_to_Ptr_Record.lower_bound(low);
+        auto end_karma = Karma_to_Ptr_Record.upper_bound(high);
+
+        for (; begin_karma != end_karma; ++begin_karma) {
+            if (!callback(*begin_karma->second)) {
+                return;
+            }
+        }
+
+    }
+
+    template <typename Callback>
+    void AllByUser(const string& user, Callback callback) const {
+
+        auto [begin_user, end_user] = User_to_Ptr_Record.equal_range(user);
+        
+        for (; begin_user != end_user; ++begin_user) {
+            if (!callback(*begin_user->second)) {
+                return;
+            }
+        }
+
+    }
+
+};
+
+
+// Put / RangeByTimestamp
+void TestRangeTimestamp() {
+    const int good_karma = 1000;
+    const int bad_karma = -10;
+
+    Database db;
+    db.Put({ "id1", "Hello there", "master", good_karma, 1536107260 });
+    db.Put({ "id2", "O>>-<", "general2", bad_karma, 1536107260 });
+
+    int count = 0;
+    db.RangeByTimestamp(bad_karma, good_karma, [&count](const Record&) {
+        ++count;
+        return true;
+        });
+
+    ASSERT_EQUAL(2, count);
+}
+
+// Put / AllByUser
+void TestBiggestSameUser() {
+    Database db;
+    db.Put({ "id1", "Don't sell", "master", 1536107260, 1000 });
+    db.Put({ "id2", "Rethink life", "master", 1536107260, 2000 });
+    db.Put({ "id3", "Don't sell", "master", 1536107260, 1000 });
+    db.Put({ "id4", "Rethink life", "master", 1536107260, 2000 });
+    db.Put({ "id5", "Don't sell", "master", 1536107260, 1000 });
+    db.Put({ "id6", "Rethink life", "master", 1536107260, 2000 });
+    db.Put({ "id7", "Don't sell", "master", 1536107260, 1000 });
+    db.Put({ "id8", "Rethink life", "master", 1536107260, 2000 });
+    db.Put({ "id9", "Don't sell", "master", 1536107260, 1000 });
+    db.Put({ "id10", "Rethink life", "master", 1536107260, 2000 });
+    db.Put({ "id11", "Don't sell", "master", 1536107260, 1000 });
+    db.Put({ "id12", "Rethink life", "master", 1536107260, 2000 });
+
+    int count = 0;
+    db.AllByUser("master", [&count](const Record&) {
+        ++count;
+        return true;
+        });
+
+    ASSERT_EQUAL(12, count);
+}
+
+
+// Put / RangeByKarma
+void NEWTestRangeBoundaries() {
+    const int good_karma = 1000;
+    const int bad_karma = -10;
+
+    Database db;
+    db.Put({ "id1", "Hello there", "master", 1536107260, good_karma });
+    db.Put({ "id2", "O>>-<", "general2", 1536107260, bad_karma });
+    db.Put({ "id3", "O>>-<", "general3", 1536107260, 110 });
+
+    db.RangeByKarma(bad_karma, good_karma, [](const Record& rec) {
+        
+        return true;
+        });
+
+}
+
+//________________________________________________
+
+// Put / RangeByKarma
+void TestRangeBoundaries() {
+    const int good_karma = 1000;
+    const int bad_karma = -10;
+
+    Database db;
+    db.Put({ "id1", "Hello there", "master", 1536107260, good_karma });
+    db.Put({ "id2", "O>>-<", "general2", 1536107260, bad_karma });
+
+    int count = 0;
+    db.RangeByKarma(bad_karma, good_karma, [&count](const Record&) {
+        ++count;
+        return true;
+        });
+
+    ASSERT_EQUAL(2, count);
+}
+
+// Put / AllByUser
+void TestSameUser() {
+    Database db;
+    db.Put({ "id1", "Don't sell", "master", 1536107260, 1000 });
+    db.Put({ "id2", "Rethink life", "master", 1536107260, 2000 });
+
+    int count = 0;
+    db.AllByUser("master", [&count](const Record&) {
+        ++count;
+        return true;
+        });
+
+    ASSERT_EQUAL(2, count);
+}
+
+// Put / Erase / GetById
+void TestReplacement() {
+    const string final_body = "Feeling sad";
+
+    Database db;
+    db.Put({ "id", "Have a hand", "not-master", 1536107260, 10 });
+    db.Erase("id");
+    db.Put({ "id", final_body, "not-master", 1536107260, -10 });
+
+    auto record = db.GetById("id");
+    ASSERT(record != nullptr);
+    ASSERT_EQUAL(final_body, record->title);
+}
+
+//________________________________________________
+
+int main() {
+    TestRunner tr;
+    RUN_TEST(tr, TestRangeTimestamp);
+    RUN_TEST(tr, TestBiggestSameUser);
+    
+
+    RUN_TEST(tr, TestRangeBoundaries);
+    RUN_TEST(tr, TestSameUser);
+    RUN_TEST(tr, TestReplacement);
+
+    return 0;
+}
