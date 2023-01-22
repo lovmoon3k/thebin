@@ -1,0 +1,372 @@
+
+#include "TPixelPlotter.h"
+#include "CIMXLoader.h"
+#include "depreciate/Ttypes.h"
+#include "colour/colour.h"
+#include "ILightSampler.h"
+
+namespace mg
+{
+#pragma pack(push)
+#pragma pack(1)
+enum  imxFormat
+{
+	// every mode the PS2 supports...
+	imxIndex4,
+	imxIndex8,
+	imxRGBA5551,
+	imxRGB888,
+	imxRGBA8888,
+	imxGrayscale16b,				// 16-bit grayscale bitmap data	
+	imxNoFormat,
+	imxAsInt		= 0xFFFFFFFF
+};
+
+enum imxChunkType
+{
+	imxClut16,
+	imxClut256,
+	imxBitmap,		// data stored in this chunk depends on imxFormat type
+	imxEnd,
+	imxUserData,			// data stored here is left to the user application to parse
+	imxChnkAsInt	= 0xFFFFFFFF
+} ;
+
+
+typedef struct imxHeader_
+{
+	UINT32		header;				// "\0X0I" (bytes: 49 4D 58 00)
+	UINT8		md5[16];
+	UINT32		xsize, ysize;
+	imxFormat	format;
+} imxHeader;
+
+typedef struct imxChunk_
+{
+	imxChunkType	type;
+	UINT32			len;
+} imxChunk;
+#pragma pack(pop)
+
+size_t calcimxfilesize(ISurface2D *img,IPixelFormat *format)
+{
+	size_t size=sizeof(imxHeader);
+
+	switch (format->get_pixel_byte_size())
+	{		
+		case 4:size+=(16<<2)+8;break;
+		case 8:size+=(256<<2)+8;break;
+	}
+	size+=(img->stride()*img->size().y)+8+8; //8 for header, 8 for end
+	return size;
+}
+
+imxHeader hdr;
+
+
+bool get_imx_metrics(FILE *f,tmath::CVector2i &size,EPixelFormat &pixel_format)
+{	
+	fread(&hdr,1,sizeof(imxHeader),f);
+	size.x=hdr.xsize;
+	size.y=hdr.ysize;
+	switch (hdr.format)
+	{
+		case imxIndex8:			pixel_format=EPF_INDEX_8I;break;
+		case imxGrayscale16b:	pixel_format=EPF_L_8I;break;
+		case imxRGBA8888:		pixel_format=EPF_ARGB_8I;break;
+		case imxNoFormat:		pixel_format=EPF_UNKNOWN;
+		default :
+			return false;
+	}
+	return true;
+}
+
+
+mg::Targb<UINT8> lcmaprgb[256];
+UINT32 lcmap[256];
+
+void convert_palette(bool isindexed,int count)
+{
+	while (count--)
+	{
+		lcmaprgb[count].swaprgb();
+		if (isindexed) //||remapped
+			lcmap[count]=count;
+		else
+			lcmap[count]= 0;//g2d::get_colour(*(UINT32*)&lcmaprgb[count]);		
+	}
+}
+
+UINT32 get_total_chunk_sizes(FILE *f)
+{
+	imxChunk chnk;
+	chnk.type=imxChnkAsInt;
+	UINT32 fpos=ftell(f);
+	UINT32 count= 0;
+	while (chnk.type!=imxEnd)
+	{
+		fread(&chnk,8,1,f);
+		count+=chnk.len+8;
+		fseek(f,chnk.len,SEEK_CUR);
+	}
+	fseek(f,fpos,SEEK_SET);
+	return count;
+}
+
+template <class PIXEL_TYPE>
+bool read_imx_data(TPixelPlotter<PIXEL_TYPE> &pp,FILE *f)
+{
+	imxChunk chnk;
+	chnk.len= 0;
+	chnk.type=imxClut16;
+	bool foundbitmap=false;
+	int i= 0;
+	UINT32 x,y;
+	UINT32 pdata;
+	pdata= 0;
+	bool haspalette=((hdr.format==imxIndex4)||(hdr.format==imxIndex8));
+	//if (!feof(f)) return false;
+	while (chnk.type!=imxEnd)
+	{
+		fread(&chnk,8,1,f);
+		if (feof(f)) return true;
+		switch (chnk.type)
+		{
+		case imxClut16:
+			fread(lcmaprgb,16<<2,1,f);				
+			//convert_palette(bm->isindexed()!= 0,16);								
+			//buildimagecolourpalettes(bm,lcmaprgb);
+			break;
+		case imxClut256:
+			fread(lcmaprgb,256<<2,1,f);
+			//convert_palette(bm->isindexed()!= 0,256);
+			//buildimagecolourpalettes(bm,lcmaprgb);
+			break;
+		case imxBitmap:
+			if (!foundbitmap)
+			{
+				for (y= 0;y<hdr.ysize;y++)
+				switch (hdr.format)
+				{
+					case imxIndex4:
+						for (x= 0;x<(hdr.xsize>>1);x+=2)
+						{	
+							fread(&pdata,1,1,f);
+							pp.plot(lcmap[pdata & 3]);
+							pp.plot(lcmap[pdata & 3]);															
+						}							
+
+						break;
+					case imxIndex8:
+						for (x= 0;x<hdr.xsize;x+=1)
+						{	
+							fread(&pdata,1,1,f);
+					
+							pp.plot(pdata);		//lcmap[pdata]
+						}
+						break;
+
+					case imxGrayscale16b:
+						for (x= 0;x<hdr.xsize;x+=1)
+						{	
+							fread(&pdata,2,1,f);
+							pdata=(pdata >> 8)|(pdata & 0x0000FF00)|((pdata << 8)& 0x00FF0000);
+							pp.plot(pdata);
+						}
+
+						break;
+					case imxRGBA5551:
+						for (x= 0;x<hdr.xsize;x+=1)
+						{	
+							fread(&pdata,2,1,f);
+							pdata=((pdata << 17)& 0xFF000000)|((pdata << 9)& 0x00FF0000)|((pdata << 6)& 0x0000FF00)|((pdata << 3)& 0x000000FF);
+							pdata=SWAPRGB(pdata);
+							//fix brightness
+							if (pdata & 0x80000)
+								pdata |= 0x30000;
+							if (pdata & 0x800)
+								pdata |= 0x300;
+							if (pdata & 0x8)
+								pdata |= 0x3;
+								
+							//pdata.
+							pp.plot(pdata);
+						}
+						break;
+					case imxRGB888:
+						for (x= 0;x<hdr.xsize;x+=1)
+						{	
+							pdata= 0;
+							fread(&pdata,3,1,f);
+							//pdata=(pdata>> 8) ;
+							pdata=SWAPRGB(pdata);
+							pp.plot(pdata);							
+						}
+						break;
+					case imxRGBA8888:
+						for (x= 0;x<hdr.xsize;x+=1)
+						{	
+							fread(&pdata,4,1,f);
+							//different byte ordering so swap it
+							pdata=SWAPRGB(pdata)|0xFF000000;
+							
+							pp.plot(pdata);
+							
+						}
+						break;						
+				}					
+			}else
+				fseek(f,chnk.len,SEEK_CUR);
+			foundbitmap=true;
+			break;
+		default:
+			fseek(f,chnk.len,SEEK_CUR);
+		}
+	}
+	return true;
+
+}
+
+
+COffScreenTexture *read_imx(FILE *f)
+{
+	tmath::CVector2i wsize;
+	EPixelFormat pformat;
+	
+	if (!get_imx_metrics(f,wsize,pformat))
+		return NULL;	
+
+	COffScreenTexture *new_texture=new COffScreenTexture(wsize,pformat);
+	
+	
+	if (pformat == EPF_ARGB_8I)
+	{
+		typedef TPixelPlotter<mg::Cargb_i8> pixel_plotter_type;		
+		pixel_plotter_type pixel_plot((mg::Cargb_i8 *)new_texture->lock(),new_texture->size(),new_texture->stride()/new_texture->get_pixel_byte_size());
+		if (!read_imx_data(pixel_plot,f)) return NULL;    			
+	}else if (pformat == mg::EPF_INDEX_8I)
+	{
+		typedef TPixelPlotter<UINT8> pixel_plotter_type;	
+		pixel_plotter_type pixel_plot((UINT8*)new_texture->lock(),new_texture->size(),new_texture->stride()/new_texture->get_pixel_byte_size());
+		if (!read_imx_data(pixel_plot,f)) return NULL;    			
+	}
+
+	return new_texture;
+		
+	
+}
+
+/*
+bool writeimx(FILE *f,tsurface *bm)
+{
+	imxChunk chnk;	
+	hdr.header= 0x00584D49;
+	//bung that random data back there!
+	if (bm->pfd==PXFunknown)
+	{
+		hdr.xsize= 0;
+		hdr.ysize= 0;
+		hdr.format=imxNoFormat;
+		fwrite(&hdr,sizeof(hdr),1,f);
+		fwrite(bm->scrptr,bm->offsd,1,f);
+		return true;
+	}
+	hdr.xsize=bm->size.x;
+	hdr.ysize=bm->size.y;
+	switch (bm->pfd)
+	{		
+	case PXFi4:			hdr.format=imxIndex4;break;
+	case PXFi8:			hdr.format=imxIndex8;break;
+	case PXFr5g6b5:		hdr.format=imxRGBA5551;break;
+	case PXFa1r5g5b5:	hdr.format=imxRGBA5551;break;
+	case PXFr8g8b8:		hdr.format=imxRGB888;break;
+	case PXFa8r8g8b8:	hdr.format=imxRGBA8888;break;
+	case PXFl16:		hdr.format=imxGrayscale16b;break;
+
+		//case PXFr4g4b4a4:
+	default:return false;		//if it's not one of these formats, it isn't an imx.. ,maybe I should convert to the closest format?
+	}
+	fwrite(&hdr,sizeof(hdr),1,f);
+
+	if (bm->isindexed() && bm->palette)
+	{				
+		chnk.len=bm->palette->size <<2;
+		switch (bm->pfd)
+		{
+		case PXFi8:chnk.type=imxClut256;break;
+		case PXFi4:chnk.type=imxClut16;break;
+		}
+		fwrite(&chnk,8,1,f);
+		mg::Targb<UINT8> wcol,*rcol=bm->palette->rgbadata;
+		for (UINT32 i= 0;i<bm->palette->size;i++)
+		{
+			wcol=*rcol;
+			wcol.swaprgb();
+			fwrite(&wcol,4,1,f);	
+			rcol++;
+		}
+	}
+
+	chnk.type=imxBitmap;
+	int bmstride=bm->get_stride(hdr.xsize);
+	chnk.len=bmstride*hdr.ysize;
+	fwrite(&chnk,8,1,f);
+	UINT32 pdata;
+	UINT32 x;
+	for (UINT32 y= 0;y<hdr.ysize;y++)
+	{
+		char *idata=(char*)bm->get_pointer_at_char(0,y);
+		switch (bm->pfd)
+		{
+		case PXFi8:				
+		case PXFi4:								
+		case PXFl16:								
+			fwrite(idata,bmstride,1,f);
+			idata+=bmstride;
+			break;
+		case PXFr5g6b5:
+			for (x= 0;x<hdr.xsize;x++)
+			{				
+				pdata=*(UINT16*)idata;				
+				pdata=((pdata >> 11) & 0x1F)|((pdata << 10) & 0x7C00)|((pdata >> 1)& 0x3E0);
+				fwrite(&pdata,2,1,f);
+				idata+=2;
+			}
+			break;
+		case PXFa1r5g5b5:
+			for (x= 0;x<hdr.xsize;x++)
+			{				
+				//{0x7C00,0x3E0,0x1F
+				pdata=*(UINT16*)idata;								
+				pdata=((pdata >> 10) & 0x1F)|((pdata << 10) & 0x7C00)|(pdata & 0x3E0);
+				fwrite(&pdata,2,1,f);
+				idata+=2;
+			}
+			break;
+		case PXFr8g8b8:
+			for (x= 0;x<hdr.xsize;x+=1)
+			{	
+				pdata=*(UINT32*)idata;								
+				pdata=SWAPRGB(pdata);
+				fwrite(&pdata,3,1,f);				
+				idata+=3;
+			}
+			break;
+		case PXFa8r8g8b8:
+			for (x= 0;x<hdr.xsize;x++)
+			{	
+				pdata=*(UINT32*)idata;				
+				pdata=SWAPRGB(pdata);
+				fwrite(&pdata,4,1,f);			
+				idata+=4;
+			}
+
+			break;						
+		}		
+	}
+	chnk.type=imxEnd;
+	chnk.len= 0;
+	fwrite(&chnk,8,1,f);
+	return true;
+}*/
+}
