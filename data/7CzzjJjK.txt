@@ -1,0 +1,182 @@
+const WebSocket = require('ws');
+const fetch = require('node-fetch');
+
+const {token, prefix, host, user, pass, db} = require("./config.json");
+const fs = require("fs");
+const mysql = require("mysql");
+const colors = require('colors');
+
+var today = new Date();
+var date = today.getFullYear()+'-'+(today.getMonth()+1)+'-'+today.getDate();
+var time = today.getHours() + ":" + today.getMinutes() + ":" + today.getSeconds();
+var dateTime = date+' '+time;
+var tmp_prefix = "[" + dateTime + "] ";
+var consolePrefix = tmp_prefix.white;
+
+var func = require("./functions.js");
+
+// Newly Reported Users
+var reports = [];
+var notificationChannel = [];
+
+var con = mysql.createConnection({
+    user: user,
+    host: host,
+    password: pass,
+    database: db
+});
+
+// config
+const socket = new WebSocket('wss://www.guilded.gg/websocket/v1', {
+    headers: {
+        Authorization: `Bearer ${token}`
+    },
+});
+
+module.exports = {
+
+
+    sendChannelMessageById: function(channelId,message){
+
+        var result = null;
+
+        fetch(`https://www.guilded.gg/api/v1/channels/${channelId}/messages`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                "content": message,
+            })
+        }).then(res => res.json())
+            .then(jsonData => {
+                //console.log(jsonData);
+                console.log("Channel Message Send Response: " + jsonData.status);
+                result = jsonData.status;
+            });
+
+        if (result === null) {
+            return true;
+        } else {
+            return false;
+        }
+    },
+    sendChannelEmbedById: function(channelId, embedTitle, embedContent) {
+
+        var result = null;
+
+        fetch(`https://www.guilded.gg/api/v1/channels/${channelId}/messages`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                "content": " ",
+                "embeds": [{
+                    "title": embedTitle,
+                    "description": embedContent
+                }]
+            })
+        }).then(res => res.json())
+            .then(jsonData => {
+                //console.log(jsonData);
+                console.log("Channel Embed Send Response: " + jsonData.status);
+                result = jsonData.status;
+            });
+
+        if (result === null) {
+            return true;
+        } else {
+            return false;
+        }
+    },
+    checkUserBanStatus: function(userId) {
+
+        let sql1 = "SELECT * FROM banned WHERE userId='" + userId + "';";
+        con.query(sql1, function (err, result) {
+            if (err == null && result.length > 0) {
+
+                // Get data from result
+                var username = result[0].username;
+                var additionalgroups = result[0].additionalgroups;
+                var primarygroups = result[0].usergroup;
+
+
+                if (result == null) {
+                    return false;
+                }
+
+                console.log(consolePrefix + result[0].userId + " was banned for " + result[0].reason);
+            } else {
+                console.log(consolePrefix + "SQL Error: " + err);
+            }
+        });
+    },
+    loadPlugins: function() {
+        // Plugins
+        // Befehl-Handler oder sowas
+        fs.readdir("./commands/", (err, files) => {
+            if (err) console.log(consolePrefix + err);
+
+            let jsfile = files.filter(f => f.split(".").pop() === "js")
+            if (jsfile.length <= 0) {
+                return console.info(consolePrefix + "Couldn't find any Commands!");
+            }
+
+
+            console.clear();
+            console.log(" ");
+            console.log(consolePrefix + "Loading Plugins...".yellow);
+
+            jsfile.forEach((f, i) => {
+                console.log(consolePrefix + i + " | " + f);
+                let pull = require(`./commands/${f}`);
+                //client.commands.set(pull.config.name, pull);
+                //pull.config.aliases.forEach(alias => {
+                //client.aliases.set(alias, pull.config.name);
+                //});
+            });
+        });
+    },
+    getNotificationChannelId: function(serverId) {
+
+        if (notificationChannel[serverId] != null) {
+            return notificationChannelId[serverId];
+        }
+
+        let sql1 = "SELECT * FROM server WHERE serverId='" + serverId + "';";
+
+        con.query(sql1, function (err, result) {
+            if (err == null && result.length > 0) {
+
+                // Get data from result
+                notificationChannel[serverId] = result[0].notificationChannelId;
+
+
+                if (result == null) {
+                    sendChannelMessageById("", "No Notification Channel Set")
+                    console.log("Unable to find default channel id for server " + serverId);
+                    return false;
+                }
+            } else {
+                console.log(consolePrefix + "Couldnt get default channel. Maybe its not set?");
+                console.log(consolePrefix + "SQL Error: " + err);
+            }
+        });
+    },
+    getUserNameById: function(id) {
+        fetch(`https://www.guilded.gg/api/v1/users/${id}`, {
+            method: 'GET',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json"
+            }
+        }).then(res => res.json())
+            .then(jsonData => {
+                //console.log(jsonData);
+                console.log(jsonData.status);
+            });
+    }
+}
