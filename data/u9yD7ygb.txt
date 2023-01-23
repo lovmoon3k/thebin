@@ -1,0 +1,118 @@
+// Server
+    using System.Net;
+    using System.Diagnostics;
+    using System.Timers;
+    namespace httpserver1;
+
+    public static class Program{
+
+        public static System.Timers.Timer _poller=new System.Timers.Timer(1000);
+        public static int _connectionCount=0;
+        static HttpListener _listener=new HttpListener();
+        
+        public static void ListenerCallback(IAsyncResult ar){
+
+            Interlocked.Increment(ref _connectionCount);
+            var context= _listener.EndGetContext(ar);
+            context.Response.StatusCode=200;
+            context.Response.StatusDescription="OK";
+            
+            context.Response.Close();
+            Interlocked.Decrement(ref _connectionCount);
+        }
+        public static void ProcessRequests(){
+            var result = _listener.BeginGetContext(ListenerCallback, _listener);
+            var startNew = Stopwatch.StartNew();
+            result.AsyncWaitHandle.WaitOne();
+            startNew.Stop();
+        }
+
+
+        public static void Main(){
+
+            _listener=new HttpListener();
+            _listener.Prefixes.Add("http://*:8080/");
+            _listener.Start();
+
+            _poller=new System.Timers.Timer(1000);
+            _poller.AutoReset=true;
+            _poller.Elapsed+=(o,e)=>{
+                Console.WriteLine($"{DateTime.Now.ToShortTimeString()}: Connection Count={_connectionCount}");
+            };
+            _poller.Enabled=true;
+            _poller.Start();
+
+            while(true){
+                ProcessRequests();
+            }
+        }
+    }
+
+//Client
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+
+using System.Text;
+using System.Text.Json;
+using System.Timers;
+
+var _clients=0;
+
+Func<int,string> GetData=(n)=>{
+    var strSource="ABCDEFGHIJKLMNOPQRSTUVWXY123456";
+    var rnd=new System.Random();
+    var sb=new StringBuilder();
+    for(var i=0;i<n;i++){
+        sb.Append(strSource[rnd.Next(0,strSource.Length)]);
+    }
+    return sb.ToString();
+};
+
+ Action clientSend=()=>{
+
+    Interlocked.Increment(ref _clients);
+    var socketsHandler=new SocketsHttpHandler(){
+        PooledConnectionLifetime=TimeSpan.FromSeconds(5)
+    };
+
+    var httpClient=new HttpClient(){
+        BaseAddress=new Uri("Http://127.0.0.1:8080")
+    };
+    var rnd=new System.Random();
+    using StringContent content=new(
+        JsonSerializer.Serialize(new{
+            userId=rnd.Next(1,100_000),
+            title="title"+Guid.NewGuid().ToString(),
+            SomeData=GetData(100_000)
+        })
+    );
+
+    var msg=new HttpRequestMessage(HttpMethod.Post,"companies");
+
+    msg.Content=content;
+    msg.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+    msg.Content.Headers.ContentType=new MediaTypeHeaderValue("application/json");
+
+    var resp=httpClient.Send(msg);
+    httpClient.Dispose();
+    Interlocked.Decrement(ref _clients);
+ };
+
+var _poller=new System.Timers.Timer(1000);
+_poller.AutoReset=true;
+_poller.Elapsed +=(o,e)=>{
+    Console.WriteLine($"{DateTime.Now.ToShortTimeString()}: Client Count={_clients}");
+};
+_poller.Enabled=true;
+_poller.Start();
+
+for(var i=0;i<100_000;i++){
+    Thread.Sleep(100);
+    Parallel.For(0, 1000, i =>
+    {
+        clientSend();
+    });
+}
+
