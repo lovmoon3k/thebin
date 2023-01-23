@@ -1,0 +1,91 @@
+uiSkin5 = new Skin(Gdx.files.internal("skins/sgxui/sgx-ui.json")) {
+				// Override JsonLoader to load and set up the fonts manually.
+				// Source: Skin Composer (click "Project->Fonts..." then "Add...->FreeType Font" then on the button "More Info..." and finally "Copy custom serializer to clipboard").
+				@Override
+				protected Json getJsonLoader(final FileHandle skinFile) {
+					Json json = super.getJsonLoader(skinFile);
+					final Skin skin = this;
+					
+					json.setSerializer(BitmapFont.class, new Json.ReadOnlySerializer<BitmapFont>() {
+						public BitmapFont read(Json json, JsonValue jsonData, @SuppressWarnings("rawtypes") Class type) {
+							/*
+							 * Here we bypass loading of these 5 fonts:
+							 * - font
+							 * - font-markup
+							 * - small
+							 * - small-markup
+							 * - title
+							 * We load these fonts manually.
+							 */
+							if (jsonData.name.equals("font")) {
+								BitmapFont font = GUIUtils.loadFont("fonts/font-export", true); // enable mipmaps
+								font.getData().setScale(0.39f);
+								font.setUseIntegerPositions(false); // default is true, which screws with certain glyph positions and looks bad (like certain letters being 1 pixel higher/lower than other letters)
+								return font;
+							} else if (jsonData.name.equals("font-markup")) {
+								BitmapFont font = GUIUtils.cloneFont(skin.get("font", BitmapFont.class));
+								font.getData().markupEnabled = true;
+								return font;
+							} else if (jsonData.name.equals("small")) {
+								BitmapFont font = GUIUtils.loadFont("fonts/font-small-export", true); // enable mipmaps
+								font.getData().setScale(0.46f);
+								font.setUseIntegerPositions(false); // default is true, which screws with certain glyph positions and looks bad (like certain letters being 1 pixel higher/lower than other letters)
+								return font;
+							} else if (jsonData.name.equals("small-markup")) {
+								BitmapFont font = GUIUtils.cloneFont(skin.get("small", BitmapFont.class));
+								font.getData().markupEnabled = true;
+								return font;
+							} else if (jsonData.name.equals("title")) {
+								BitmapFont font = GUIUtils.loadFont("fonts/font-title-export", true); // enable mipmaps
+								font.getData().setScale(0.33f);
+								font.getData().markupEnabled = true;
+								font.setUseIntegerPositions(false); // default is true, which screws with certain glyph positions and looks bad (like certain letters being 1 pixel higher/lower than other letters)
+								return font;
+							} else {
+								if (true) // to avoid compile error with the code below
+									throw new RuntimeException("Unknown font - mission implementation!");
+							}
+							
+							@SuppressWarnings("unused")
+							String path = json.readValue("file", String.class, jsonData);
+							int scaledSize = json.readValue("scaledSize", int.class, -1, jsonData);
+							Boolean flip = json.readValue("flip", Boolean.class, false, jsonData);
+							Boolean markupEnabled = json.readValue("markupEnabled", Boolean.class, false, jsonData);
+							
+							FileHandle fontFile = skinFile.parent().child(path);
+							if (!fontFile.exists()) fontFile = Gdx.files.internal(path);
+							if (!fontFile.exists()) throw new SerializationException("Font file not found: " + fontFile);
+							
+							// Use a region with the same name as the font, else use a PNG file in the same directory as the FNT file.
+							String regionName = fontFile.nameWithoutExtension();
+							try {
+								BitmapFont font;
+								Array<TextureRegion> regions = skin.getRegions(regionName);
+								if (regions != null)
+									font = new BitmapFont(new BitmapFontData(fontFile, flip), regions, true);
+								else {
+									TextureRegion region = skin.optional(regionName, TextureRegion.class);
+									if (region != null)
+										font = new BitmapFont(fontFile, region, flip);
+									else {
+										FileHandle imageFile = fontFile.parent().child(regionName + ".png");
+										if (imageFile.exists())
+											font = new BitmapFont(fontFile, imageFile, flip);
+										else
+											font = new BitmapFont(fontFile, flip);
+									}
+								}
+								font.getData().markupEnabled = markupEnabled;
+								// Scaled size is the desired cap height to scale the font to.
+								if (scaledSize != -1) font.getData().setScale(scaledSize / font.getCapHeight());
+								return font;
+							} catch (RuntimeException ex) {
+								throw new SerializationException("Error loading bitmap font: " + fontFile, ex);
+							}
+						}
+					});
+					
+					return json;
+				}
+			};
+		}}); // skins
