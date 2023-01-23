@@ -1,0 +1,113 @@
+local numNPCs = 50
+
+local npcTypes = game:GetService("ServerStorage"):WaitForChild("NPCTypes")
+local npcAnimations = game:GetService("ServerStorage"):WaitForChild("NPCAnimations")
+
+local pathPoints = workspace:WaitForChild("PathPoints")
+
+local npcFolder = Instance.new("Folder")
+npcFolder.Name = "NPCs"
+npcFolder.Parent = workspace
+
+local rnd = Random.new()
+
+local ps = game:GetService("PhysicsService")
+local npcCG = "NPCs"
+ps:RegisterCollisionGroup(npcCG)
+ps:CollisionGroupSetCollidable(npcCG, npcCG, false)
+
+
+
+function spawnNPC()
+	
+	local allNPCs = npcTypes:GetChildren()
+	
+	local newNPC = allNPCs[rnd:NextInteger(1, #allNPCs)]:Clone()
+	
+	for _, d in pairs(newNPC:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.CollisionGroup = npcCG
+		end
+	end
+	
+	local pathList = pathPoints:GetChildren()
+
+	local randomPoint = pathList[rnd:NextInteger(1, #pathList)]
+	newNPC.HumanoidRootPart.CFrame = randomPoint.CFrame
+	
+	newNPC.Parent = npcFolder
+	
+	
+	local allIdleAnims = npcAnimations:WaitForChild("IdleAnimations"):GetChildren()
+	local randomIdleAnim = allIdleAnims[rnd:NextInteger(1, #allIdleAnims)]
+	local idleAnim = newNPC.Humanoid:LoadAnimation(randomIdleAnim)
+	
+	local allWalkAnims = npcAnimations:WaitForChild("WalkAnimations"):GetChildren()
+	local randomWalkAnim = allWalkAnims[rnd:NextInteger(1, #allWalkAnims)]
+	local walkAnim = newNPC.Humanoid:LoadAnimation(randomWalkAnim)
+	
+	
+	local currentPoint = randomPoint
+	
+	local lastPoint = nil
+	
+	while true do
+		
+		task.wait(rnd:NextNumber(0, 3))
+		
+		idleAnim:Stop()
+		walkAnim:Play()
+		
+		
+		local relativePoints = currentPoint:GetChildren()
+		
+		local targetPointValue = relativePoints[rnd:NextInteger(1, #relativePoints)]
+		
+		while targetPointValue.Value == lastPoint do
+			table.remove(relativePoints, table.find(relativePoints, targetPointValue))
+			targetPointValue = relativePoints[rnd:NextInteger(1, #relativePoints)]
+		end 
+		
+		local targetPoint = targetPointValue.Value
+		
+		local rndX = rnd:NextNumber(-0.2, 0.2)
+		local rndZ = rnd:NextNumber(-0.2, 0.2)
+		local rndOffset = Vector3.new(rndX, 0, rndZ)
+		
+		local goalPos = targetPoint.Position + rndOffset
+			
+		newNPC.Humanoid:MoveTo(goalPos)
+		
+		
+		local targetReached = false
+		
+		local moveToConnection
+		moveToConnection = newNPC.Humanoid.MoveToFinished:Connect(function(reached)
+			
+			targetReached = reached
+			
+			if targetReached then
+				moveToConnection:Disconnect()
+				
+				walkAnim:Stop()
+				idleAnim:Play()
+				
+			else
+				newNPC.Humanoid:MoveTo(goalPos)
+			end
+		end)
+		
+		
+		repeat 
+			task.wait(0.2)
+		until targetReached
+		
+		lastPoint = currentPoint
+		currentPoint = targetPoint
+	end
+end
+
+
+for i = 1, numNPCs do
+	task.spawn(spawnNPC)
+end
