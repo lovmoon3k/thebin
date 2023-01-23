@@ -1,0 +1,104 @@
+/** kik.core.chat.profile.ConversationManager.java */
+
+    /* renamed from: a */
+    private int getConversationTypeImpl(ConversationInfoHolder conversationInfoHolder, KikContact kikContact) {
+        if (kikContact == null) {
+            return 1;
+        }
+        boolean z = kikContact instanceof KikGroup;
+        if (!z) {
+            boolean chatRetained = conversationInfoHolder.getMetaInfo().getChatRetained();
+            if (!kikContact.getBareJid().isAnonymousMatch() || conversationInfoHolder.getMetaInfo().getChatEndTime() <= 0) {
+                if (kikContact.isBlocked() && chatRetained) {
+                    return 16;
+                }
+                if (kikContact.isBlocked()) {
+                    return 4;
+                }
+                if (kikContact.getAppearInConvosList() || kikContact.isInRoster()) {
+                    return 1;
+                }
+                if (kikContact.isIgnored()) {
+                    return 8;
+                }
+                return (m4815e(conversationInfoHolder) || conversationInfoHolder.getMetaInfo().shouldShowWhenEmpty()) ? 1 : 2;
+            }
+            return 32;
+        } else if (z) {
+            KikGroup kikGroup = (KikGroup) kikContact;
+            if (kikGroup.isInRoster()) {
+                if (kikGroup.isPublic()) {
+                    return 1;
+                }
+                int i = 0;
+                boolean z2 = false;
+                boolean z3 = false;
+                for (Message message : new ArrayList(conversationInfoHolder.getDialogue())) {
+                    StatusMessage statusMessage = (StatusMessage) MessageAttachment.getAttachment(message, StatusMessage.class);
+                    SystemMessage systemMessage = (SystemMessage) MessageAttachment.getAttachment(message, SystemMessage.class);
+                    KikContact authorizingContact = this._profile.getAuthorizingContact(message, true);
+                    if (statusMessage != null && statusMessage.hasSpecialVisibility()) {
+                        authorizingContact = this._profile.getContact(statusMessage.getUserJid(), false);
+                    }
+                    if ((statusMessage == null && systemMessage == null) || (statusMessage != null && statusMessage.hasSpecialVisibility())) {
+                        i++;
+                        if (authorizingContact == null) {
+                            return 1;
+                        }
+                        if (!authorizingContact.isBlocked() && authorizingContact.isInRoster()) {
+                            return 1;
+                        }
+                        if (authorizingContact.getJid().equals(CredentialData.getPersistedCredentials(this._storage).getJid())) {
+                            return 1;
+                        }
+                        if (!authorizingContact.isBlocked() && !authorizingContact.isInRoster()) {
+                            if (authorizingContact.isIgnored()) {
+                                z3 = true;
+                            } else {
+                                z2 = true;
+                            }
+                        }
+                    }
+                }
+                if (i != 0) {
+                    if (z2) {
+                        return 2;
+                    }
+                    return z3 ? 8 : 4;
+                }
+                List<String> members = kikGroup.getMembers();
+                if (members.size() != 0 || conversationInfoHolder.getMetaInfo().shouldShowWhenEmpty()) {
+                    boolean z4 = false;
+                    boolean z5 = false;
+                    for (String str : members) {
+                        KikContact contact = this._profile.getContact(str, false);
+                        if (contact == null) {
+                            if (Jid.isValid(str)) {
+                                z5 = true;
+                            } else {
+                                z4 = true;
+                            }
+                        } else if (contact != null && contact.isBlocked()) {
+                            return 4;
+                        } else {
+                            if (!contact.isInRoster()) {
+                                if (contact.isIgnored()) {
+                                    z4 = true;
+                                } else {
+                                    z5 = true;
+                                }
+                            }
+                        }
+                    }
+                    if (z4) {
+                        return 8;
+                    }
+                    return (!conversationInfoHolder.getMetaInfo().shouldShowWhenEmpty() && z5) ? 2 : 1;
+                }
+                return 4;
+            }
+            return 4;
+        } else {
+            return 1;
+        }
+    }
