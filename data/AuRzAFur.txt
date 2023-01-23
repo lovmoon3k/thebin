@@ -1,0 +1,203 @@
+#define _CRT_SECURE_NO_WARNINGS
+#pragma comment(linker, "/STACK:16777216")
+
+#include <algorithm>
+#include <numeric>
+
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <queue>
+#include <set>
+#include <map>
+#include <stack>
+#include <unordered_map>
+#include <unordered_set>
+#include <bitset>
+
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
+#include <cctype>
+#include <cassert>
+
+#include <cmath>
+#include <complex>
+
+using namespace std;
+
+//#define int long long
+using ull = unsigned long long;
+using ll = long long;
+using db = double; // or double, if TL is tight
+using vi = vector<ll>;
+using vb = vector<bool>;
+using vvi = vector<vector<int>>;
+
+// pairs
+#define mp make_pair
+
+// vectors
+#define all(x) x.begin(), x.end()
+#define rall(x) x.rbegin(), x.rend()
+#define sor(x) sort(all(x))
+
+#define rep(n) for(int i=0;i<n;i++)
+
+#define print(v) for(auto i : v)cout<<i<<" ";
+
+const db eps = 1e-12;
+const int MOD = 1e9 + 7;// 998244353;
+const ll INF = 1e18 + 5; // not too close to LLONG_MAX
+const db PI = acos((db)-1);
+
+int binpow(int a, int p, int mod) {
+    if (!p) return 1;
+    if (p & 1) return a * binpow(a, p - 1, mod) % mod;
+    int t = binpow(a, p >> 1, mod);
+    return t * t % mod;
+}
+
+#define MAXN 1100
+#define inf 0x3f3f3f3f
+
+struct node{
+    int v , f , c , val ;
+    node ( ) {}
+    node ( int _v, int _f , int _c , int _val ) {
+        v = _v, f = _f , c = _c , val = _val ;
+    }
+};
+
+int v; // number of vertixes
+vector<node> edges ;
+vector<int> graph[MAXN];
+int dist[MAXN], ptr[MAXN], pai[MAXN] ;
+map<pair<int, int>, int> edge_to_idx; // for every edge contains index of this edge in vector<node> edges
+
+void add ( int u , int v , int c , int val ) {
+    edges.emplace_back(v , 0 , c , val );
+    edge_to_idx[{u, v}] = edges.size() - 1;
+
+    graph[u].push_back(edges.size()-1);
+    edges.emplace_back(u, 0, 0, -val);
+    graph[v].push_back(edges.size() - 1);
+}
+
+pair<int, int> operator+(pair<int, int> a , pair<int, int> b) {
+    a.first += b.first;
+    a.second += b.second;
+    return a;
+}
+
+bool dijkstra(int s , int t) {
+    for (int i = 0; i < v; i++) {
+        dist[i] = inf;
+        pai[i] = -1;
+    }
+    dist[s] = 0;
+    priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> q;
+    q.push({0, s});
+    while (!q.empty()) {
+        int d = q.top().first, u = q.top().second;
+        q.pop();
+        if (d > dist[u])
+            continue;
+        for (auto e : graph[u]) {
+            if (dist[u] + edges[e].val < dist[edges[e].v] && edges[e].c - edges[e].f > 0) {
+                dist[edges[e].v] = dist[u] + edges[e].val;
+                pai[edges[e].v] = u;
+                q.push({dist[edges[e].v], edges[e].v});
+            }
+        }
+    }
+    return dist[t] != inf;
+}
+
+pair<int, int> dfs(int s, int t, int f) {
+    if (s == t)
+        return {0, f};
+    for (int& i = ptr[s]; i < graph[s].size(); i++) {
+        int e = graph[s][i];
+        if (pai[edges[e].v] == s && dist[edges[e].v] == dist[s] + edges[e].val && edges[e].c - edges[e].f > 0) {
+            pair<int, int> x = pair<int, int>(edges[e].val, 0) + dfs(edges[e].v, t, min(f, edges[e].c - edges[e].f));
+            if (x.second) {
+                edges[e].f += x.second;
+                edges[e ^ 1].f -= x.second;
+                return x;
+            }
+        }
+    }
+    return {0, 0};
+}
+
+pair<int, int> get(int s, int t) {
+    pair<int, int> ans = {0, 0};
+    while (dijkstra(s, t)) {
+        memset(ptr, 0, sizeof ptr);
+        pair<int, int> x;
+        while ((x = dfs(s, t, inf)).second)
+            ans = ans + x;
+    }
+
+    ans.first = 0;
+    for (auto& edge : edges) {
+        ans.first += edge.f * edge.val;
+    }
+    ans.first /= 2;
+    return ans;
+}
+
+int manhattan(array<int, 3>& a, array<int, 3>& b) {
+    return abs(a[0] - b[0]) + abs(a[1] - b[1]) + 1;
+}
+
+int main() {
+    int sz1, sz2; cin >> sz1 >> sz2;
+    v = sz1 + sz2 + 2;
+    vector<array<int, 3>> buildings(sz1), shelters(sz2);
+    for (int i = 0; i < sz1; i++) {
+        cin >> buildings[i][0] >> buildings[i][1] >> buildings[i][2];
+    }
+    for (int i = 0; i < sz2; i++) {
+        cin >> shelters[i][0] >> shelters[i][1] >> shelters[i][2];
+    }
+
+    for (int i = 0; i < sz1; i++) {
+        add(0, i + 1, buildings[i][2], 0);
+    }
+    for (int i = 0; i < sz1; i++) {
+        for (int j = 0; j < sz2; j++) {
+            add(i + 1, j + 1 + sz1, shelters[j][2], manhattan(buildings[i], shelters[j]));
+        }
+    }
+    for (int j = 0; j < sz2; j++) {
+        add(j + 1 + sz1, sz1 + sz2 + 1, shelters[j][2], 0);
+    }
+    pair<int, int> res = get(0, sz1 + sz2 + 1);
+    int maxFlow = res.second;
+    int minCost = res.first;
+    int hisCost = 0;
+    for (int i = 0; i < sz1; i++) {
+        for (int j = 0; j < sz2; j++) {
+            int x; cin >> x;
+            int temp = manhattan(buildings[i], shelters[j]);
+            hisCost += x * temp;
+        }
+    }
+
+    if (hisCost == minCost) {
+        cout << "OPTIMAL\n";
+    } else {
+        cout << "SUBOPTIMAL\n";
+        for (int i = 0; i < sz1; i++) {
+            for (int j = 0; j < sz2; j++) {
+                cout << edges[edge_to_idx[{i + 1, j + sz1 + 1}]].f << " ";
+            }
+            cout << "\n";
+        }
+    }
+
+    return 0;
+}
