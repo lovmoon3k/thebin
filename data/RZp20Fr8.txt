@@ -1,0 +1,128 @@
+package helpers
+
+import (
+	"awsbilling/api/v1/configuration"
+	"awsbilling/api/v1/models"
+	"fmt"
+
+	"context"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
+	"github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
+	"log"
+	"strconv"
+	"strings"
+	"time"
+)
+
+
+func LoadConfigs(profile string) *costexplorer.Client {
+	var client *costexplorer.Client
+	if profile != "DEFAULT" {
+		profileName := strings.Split(profile, " ")
+		cfg, err := config.LoadDefaultConfig(context.TODO(),
+			config.WithSharedConfigFiles(
+				[]string{"config.ini"}),
+			config.WithSharedConfigProfile(profileName[1]),
+		)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		client = costexplorer.NewFromConfig(cfg)
+	}
+	return client
+}
+
+
+
+func GetSavingPlanUtilization() {
+	//accountsSavingPlanUtilizationOutput := make(map[string][]costexplorer.GetSavingsPlansUtilizationOutput)
+	profiles := configuration.GetProfiles()
+	//var savingPlanUtilizationOutput costexplorer.GetSavingsPlansUtilizationOutput
+	for _, profile := range profiles {
+		if profile != "DEFAULT" {
+			client := LoadConfigs(profile)
+
+			var SavingPlanUtilizationInput costexplorer.GetSavingsPlansUtilizationInput
+			var dateInterval types.DateInterval
+
+			currentTime := time.Now()
+			//endDate := currentTime.Format("2006-01-02")
+			eDate := currentTime.AddDate(0, 0, -2)
+			endDate := eDate.Format("2006-01-02")
+
+			// start of the year
+			//sDate := strconv.Itoa(currentTime.Year())
+			//startDate := sDate + "-01-01"
+
+			//Start date previous 12months
+			sDate := currentTime.AddDate(-1, 0, 0)
+			startDate := sDate.Format("2006-01-02")
+
+			dateInterval.Start = aws.String(startDate)
+			dateInterval.End = aws.String(endDate)
+
+			SavingPlanUtilizationInput.TimePeriod = &dateInterval
+			SavingPlanUtilizationInput.Granularity = types.GranularityMonthly
+
+
+
+			//var d types.DimensionValues
+			//d.Key = "LINKED_ACCOUNT"
+			//d.Values = []string{"434671623581"}
+
+			//d.Key = "SAVINGS_PLANS_TYPE"
+			//d.Values = []string{"ComputeSavingsPlans"}
+			//d.MatchOptions = []types.MatchOption{"EQUALS"}
+
+			//var e types.Expression
+			//e.Dimensions = &d
+
+			//filter := e
+
+			//filter := types.Expression{Dimensions: &d}
+			//SavingPlanUtilizationInput.Filter = &filter
+
+			//savingPlanUtilizationOutput, err := client.GetSavingsPlansUtilization(context.TODO(), &SavingPlanUtilizationInput)
+
+
+			var d2 types.Dimension
+
+			d2 = "LINKED_ACCOUNT"
+			//dimension := "LINKED_ACCOUNT"
+
+			linkedAccount := "434671623581"
+
+
+			// Specify the time period for the utilization data
+			start1 := time.Now().AddDate(0, 0, -30)
+			end2 := time.Now()
+
+			// Create the input parameters for the API call
+			input := &costexplorer.GetSavingsPlansUtilizationInput{
+				TimePeriod: &types.DateInterval{
+					Start: aws.String(start1.Format("2006-01-02")),
+					End:   aws.String(end2.Format("2006-01-02")),
+				},
+				Filter: &types.Expression{
+					Dimensions: &types.DimensionValues{
+						Key:    d2,
+						Values: []string{linkedAccount},
+					},
+				},
+			}
+			savingPlanUtilizationOutput, err := client.GetSavingsPlansUtilization(context.TODO(), input)
+
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fmt.Println(savingPlanUtilizationOutput)
+
+		}
+	}
+}
