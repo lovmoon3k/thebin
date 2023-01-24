@@ -1,0 +1,37 @@
+global g_Frequency
+SetBatchLines, -1
+Process, Priority,, A
+DllCall("QueryPerformanceFrequency", "Int64*", g_Frequency)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;               Lumi                  ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+lSleep(s_time, ByRef start = "") {
+    Critical
+    DllCall("QueryPerformanceCounter", "Int64*", CounterBefore)
+    if (start != "")
+        CounterBefore := start
+    g_Frequency ? g_Frequency : DllCall("QueryPerformanceFrequency", "Int64*", g_Frequency)
+    if (s_time > 25) {
+        DllCall("QueryPerformanceCounter", "Int64*", CounterAfter)
+        Critical Off
+        Sleep % s_time - (1000 * (CounterAfter - CounterBefore) / g_Frequency) - 25
+    }
+    Critical
+    End := (CounterBefore + ( g_Frequency * (s_time/1000))) - 1
+    loop
+    {
+        DllCall("QueryPerformanceCounter", "Int64*", CounterAfter)
+    }
+    until (End <= CounterAfter)
+    Critical Off
+    ;return Round(((1000 * (CounterAfter - CounterBefore) / g_Frequency) - s_time), 4)
+    ;will return the offset from the input time, usually in the ten-thousandths of a millisecond
+    ;the return calculation will make the sleep take about 0.01 ms longer
+    ;there is also an unavoidable ~.002 delay between lines executed by ahk
+}
+
+MeasureTime(ByRef begin, ByRef end) {
+    g_Frequency ? g_Frequency : DllCall("QueryPerformanceFrequency", "Int64*", g_Frequency)
+    return Round(( 1000 * (end - begin) / g_Frequency), 3)
+}
