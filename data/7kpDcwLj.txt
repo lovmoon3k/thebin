@@ -1,0 +1,78 @@
+ public static class Signals
+    {
+        public static T Get<T>() where T : ISignal, new() => SignalCollection.Get<T>();
+
+        public static void Add(string hash, Action action) => SignalCollection.Add(hash, action);
+
+        public static void Remove(string hash, Action action) => 
+            SignalCollection.Remove(hash, action);
+
+        static readonly SignalCollection SignalCollection = new();
+    }
+    
+    public interface ISignal
+    {
+        string Hash { get; }
+
+        public bool HasHash(string hash) => Hash == hash;
+    }
+
+    public class SignalCollection
+    {
+        readonly Dictionary<Type, ISignal> _signals = new();
+        
+        public T Get<T>() where T : ISignal, new()
+        {
+            if (_signals.TryGetValue(typeof(T), out var signal))
+                return (T)signal;
+            return (T)Bind(typeof(T));
+        }
+
+        public void Add(string hash, Action action)
+        {
+            var s = Get(hash) as ASignal;
+            s?.AddListener(action);
+        }
+
+        public void Remove(string hash, Action action)
+        {
+            var s = Get(hash) as ASignal;
+            s?.RemoveListener(action);
+        }
+
+        ISignal Get(string hash) => _signals.Values.FirstOrDefault(signal => signal.HasHash(hash));
+        
+        ISignal Bind(Type signalType)
+        {
+            if(_signals.TryGetValue(signalType, out var signal))
+            {
+                Debug.LogError($"Signal already registered for type {signalType}");
+                return signal;
+            }
+            signal = (ISignal)Activator.CreateInstance(signalType);
+            _signals.Add(signalType, signal);
+            return signal;
+        }
+    }
+    
+    public abstract class ABaseSignal : ISignal
+    {
+        string _hash;
+        public string Hash => string.IsNullOrEmpty(_hash) ?  (_hash = GetType().ToString()) : _hash;
+    }
+    
+    public abstract class ASignal : ABaseSignal
+    {
+        public void AddListener(Action handler) => _action += handler;
+        public void RemoveListener(Action action) => _action -= action;
+        public void Dispatch() => _action?.Invoke();
+        Action _action;
+    }
+    
+    public abstract class ASignal<T>: ABaseSignal
+    {
+        public void Dispatch(T arg) => _action?.Invoke(arg);
+        public void AddListener(Action<T> action) => _action += action;
+        public void RemoveListener(Action<T> action) => _action -= action;
+        Action<T> _action;
+    }
