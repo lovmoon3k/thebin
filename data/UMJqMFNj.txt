@@ -1,0 +1,884 @@
+class AutomaticPlay extends UICommonAPI
+    dependson(YetiQuickSlotWnd)
+    dependson(YetiQuickSlotWnd);
+
+var WindowHandle Me;
+var WindowHandle AutoTargetWnd;
+var TextBoxHandle AutoTargetTitle_text;
+var AnimTextureHandle AutoTargetAllON_ToggleEffect_Anim;
+var ButtonHandle TargetSwap_BTN;
+var ButtonHandle TargetPickupToggle_BTN;
+var ButtonHandle TargetMannerToggle_BTN;
+var ButtonHandle Combat_BTN;
+var WindowHandle AutoTargetAllON_Win;
+var WindowHandle AutoTargetAllOFF_Win;
+var ButtonHandle AutoTargetAll_BTN;
+var bool autotarget_bShortTarget;
+var bool autotarget_bUseAutoTarget;
+var bool autotarget_bIsPickupOn;
+var NWindow.UIEventManager.EAutoNextTargetMode autotarget_nTargetMode;
+var int autotarget_nHPPotionPercent;
+var bool autotarget_bIsMannerModeOn;
+var bool bActivateAll;
+var int nCombatOnOff;
+var YetiQuickSlotWnd YetiQuickSlotwndScript;
+var int autotarget_nHPPetPotionPercent;
+var int bFixCombatZone;
+var int bStopIfMoving;
+var int bShowRange;
+var int bTownMode;
+var int bTargetRaidBoss;
+var int iRange1;
+var int iRange2;
+var string bypass_combat;
+var string bypass_moving;
+var string bypass_showrange;
+var string bypass_targetboss;
+var string bypass_townmode;
+var ButtonHandle NextTargetDistanceOptionBtn;
+var ButtonHandle FixedCombatZoneBtn;
+var ButtonHandle StopIfMovingBtn;
+var ButtonHandle ShowTargetRangeBtn;
+var ButtonHandle TownModeBtn;
+var ButtonHandle TargetRaidBossBtn;
+var bool bLoadByStart;
+
+function OnRegisterEvent()
+{
+    RegisterEvent(9750);
+    RegisterEvent(40);
+    RegisterEvent(11170);
+    RegisterEvent(11030);
+    RegisterEvent(5720);
+    RegisterEvent(11152);
+    RegisterEvent(11280);
+    return;
+}
+
+function OnLoad()
+{
+    Initialize();
+    return;
+}
+
+function Initialize()
+{
+    Me = GetWindowHandle("AutomaticPlay");
+    AutoTargetWnd = GetWindowHandle("AutomaticPlay.AutoTargetWnd");
+    AutoTargetTitle_text = GetTextBoxHandle("AutomaticPlay.AutoTargetWnd.AutoTargetTitle_text");
+    AutoTargetAllON_ToggleEffect_Anim = GetAnimTextureHandle("AutomaticPlay.AutoTargetWnd.AutoTargetAllON_Win.ToggleEffect_Anim");
+    AutoTargetAllON_Win = GetWindowHandle("AutomaticPlay.AutoTargetWnd.AutoTargetAllON_Win");
+    TargetSwap_BTN = GetButtonHandle("AutomaticPlay.AutoTargetWnd.TargetSwap_BTN");
+    TargetPickupToggle_BTN = GetButtonHandle("AutomaticPlay.AutoTargetWnd.TargetPickupToggle_BTN");
+    TargetMannerToggle_BTN = GetButtonHandle("AutomaticPlay.AutoTargetWnd.TargetMannerToggle_BTN");
+    AutoTargetAllOFF_Win = GetWindowHandle("AutomaticPlay.AutoTargetWnd.AutoTargetAllOFF_Win");
+    AutoTargetAll_BTN = GetButtonHandle("AutomaticPlay.AutoTargetWnd.AutoTargetAll_BTN");
+    Combat_BTN = GetButtonHandle("AutomaticPlay.AutoTargetWnd.Combat_BTN");
+    setCombatTooltip();
+    Autotarget_updateCombatButton();
+    YetiQuickSlotwndScript = YetiQuickSlotWnd(GetScript("YetiQuickSlotwnd"));
+    bypass_combat = SettingSectorStr("bypass", "autoplay_FixedCombatZone");
+    bypass_moving = SettingSectorStr("bypass", "autoplay_StopIfMoving");
+    bypass_showrange = SettingSectorStr("bypass", "autoplay_ShowRange");
+    bypass_targetboss = SettingSectorStr("bypass", "autoplay_TargetRaidBoss");
+    bypass_townmode = SettingSectorStr("bypass", "autoplay_TownMode");
+    NextTargetDistanceOptionBtn = GetButtonHandle("AutomaticPlay.NextTargetDistanceOptionBtn");
+    FixedCombatZoneBtn = GetButtonHandle("AutomaticPlay.FixedCombatZoneBtn");
+    StopIfMovingBtn = GetButtonHandle("AutomaticPlay.StopIfMovingBtn");
+    ShowTargetRangeBtn = GetButtonHandle("AutomaticPlay.ShowTargetRangeBtn");
+    TargetRaidBossBtn = GetButtonHandle("AutomaticPlay.TargetRaidBossBtn");
+    TownModeBtn = GetButtonHandle("AutomaticPlay.TownModeBtn");
+    bFixCombatZone = GetOptionInt("AutoPlay", "FixedCombatZoneBtn");
+    bStopIfMoving = GetOptionInt("AutoPlay", "StopIfMovingBtn");
+    bShowRange = GetOptionInt("AutoPlay", "ShowTargetRangeBtn");
+    bTargetRaidBoss = GetOptionInt("AutoPlay", "TargetRaidBossBtn");
+    bTownMode = GetOptionInt("AutoPlay", "TownModeBtn");
+    return;
+}
+
+function RequestBypassLogic(string btnName, optional bool preload)
+{
+    local string and;
+
+    
+    if(btnName == "NextTargetDistanceOptionBtn")
+    {
+        
+        if(isShow("ApplyDistanceWnd"))
+        {
+            HideW("ApplyDistanceWnd");            
+        }
+        else
+        {
+            ShowW("ApplyDistanceWnd");
+            FocusW("ApplyDistanceWnd");
+        }        
+    }
+    else
+    {
+        
+        if(btnName == "FixedCombatZoneBtn")
+        {
+            
+            if(!preload)
+            {
+                
+                if(bFixCombatZone == 1)
+                {
+                    bFixCombatZone = 0;                    
+                }
+                else
+                {
+                    bFixCombatZone = 1;
+                }
+            }
+            RequestBypassToServer(bypass_combat $ string(bFixCombatZone));
+            Say(bypass_combat $ string(bFixCombatZone));
+            SetOptionInt("AutoPlay", "FixedCombatZoneBtn", bFixCombatZone);
+            TwoLineTooltip("Fixed Combat Zone - On", "Fixed Combat Zone - Off", FixedCombatZoneBtn, bFixCombatZone);
+            
+            if(bFixCombatZone == 1)
+            {
+                and = "ON";                
+            }
+            else
+            {
+                and = "OFF";
+            }
+            FixedCombatZoneBtn.SetTexture("L2UI_CT9.FixedBTN_ShotD_Normal" $ and, "L2UI_CT9.FixedBTN_ShotD_Normal" $ and, "L2UI_CT9.FixedBTN_ShotD_OverON" $ and);            
+        }
+        else
+        {
+            
+            if(btnName == "StopIfMovingBtn")
+            {
+                
+                if(!preload)
+                {
+                   
+                    if(bStopIfMoving == 1)
+                    {
+                        bStopIfMoving = 0;                        
+                    }
+                    else
+                    {
+                        bStopIfMoving = 1;
+                    }
+                }
+                RequestBypassToServer(bypass_moving $ string(bStopIfMoving));
+                Say(bypass_moving $ string(bStopIfMoving));
+                SetOptionInt("AutoPlay", "StopIfMovingBtn", bStopIfMoving);
+                TwoLineTooltip("Stop Farming if Moving - On", "Stop Farming if Moving - Off", StopIfMovingBtn, bStopIfMoving);
+               
+                if(bStopIfMoving == 1)
+                {
+                    and = "ON";                    
+                }
+                else
+                {
+                    and = "OFF";
+                }
+                StopIfMovingBtn.SetTexture("L2UI_CT9.MoveBTN_ShotD_Normal" $ and, "L2UI_CT9.MoveBTN_ShotD_Normal" $ and, "L2UI_CT9.MoveBTN_ShotD_Over" $ and);                
+            }
+            else
+            {
+                
+                if(btnName == "ShowTargetRangeBtn")
+                {
+                    
+                    if(!preload)
+                    {
+                        
+                        if(bShowRange == 1)
+                        {
+                            bShowRange = 0;                            
+                        }
+                        else
+                        {
+                            bShowRange = 1;
+                        }
+                    }
+                    RequestBypassToServer(bypass_showrange $ string(bShowRange));
+                    Say(bypass_showrange $ string(bShowRange));
+                    SetOptionInt("AutoPlay", "ShowTargetRangeBtn", bShowRange);
+                    TwoLineTooltip("Show Targetting Range - On", "Show Targetting Range - Off", ShowTargetRangeBtn, bShowRange);
+                    
+                    if(bShowRange == 1)
+                    {
+                        and = "ON";                        
+                    }
+                    else
+                    {
+                        and = "OFF";
+                    }
+                    ShowTargetRangeBtn.SetTexture("L2UI_CT9.ZoneBTN_ShotD_Normal" $ and, "L2UI_CT9.ZoneBTN_ShotD_Normal" $ and, "L2UI_CT9.ZoneBTN_ShotD_Over" $ and);                    
+                }
+                else
+                {
+                    
+                    if(btnName == "TownModeBtn")
+                    {
+                        
+                        if(!preload)
+                        {
+                            
+                            if(bTownMode == 1)
+                            {
+                                bTownMode = 0;                                
+                            }
+                            else
+                            {
+                                bTownMode = 1;
+                            }
+                        }
+                        RequestBypassToServer(bypass_townmode $ string(bTownMode));
+                        Say(bypass_townmode $ string(bTownMode));
+                        SetOptionInt("AutoPlay", "TownModeBtn", bTownMode);
+                        TwoLineTooltip("Town Mode - On", "Town Mode - Off", TownModeBtn, bTownMode);
+                        
+                        if(bTownMode == 1)
+                        {
+                            and = "ON";                            
+                        }
+                        else
+                        {
+                            and = "OFF";
+                        }
+                        TownModeBtn.SetTexture("L2UI_CT9.TownBTN_ShotD_Normal" $ and, "L2UI_CT9.TownBTN_ShotD_Normal" $ and, "L2UI_CT9.TownBTN_ShotD_Over" $ and);                        
+                    }
+                    else
+                    {
+                        
+                        if(btnName == "TargetRaidBossBtn")
+                        {
+                           
+                            if(!preload)
+                            {
+                                
+                                if(bTargetRaidBoss == 1)
+                                {
+                                    bTargetRaidBoss = 0;                                    
+                                }
+                                else
+                                {
+                                    bTargetRaidBoss = 1;
+                                }
+                            }
+                            RequestBypassToServer(bypass_targetboss $ string(bTargetRaidBoss));
+                            Say(bypass_targetboss $ string(bTargetRaidBoss));
+                            SetOptionInt("AutoPlay", "TargetRaidBossBtn", bTargetRaidBoss);
+                            TwoLineTooltip("Target Raid Boss - On", "Target Raid Boss - Off", TargetRaidBossBtn, bTargetRaidBoss);
+                            
+                            if(bTargetRaidBoss == 1)
+                            {
+                                and = "ON2";                                
+                            }
+                            else
+                            {
+                                and = "OFF2";
+                            }
+                            TargetRaidBossBtn.SetTexture("L2UI_CT9.RaidsBTN_ShotD_Normal" $ and, "L2UI_CT9.RaidsBTN_ShotD_Normal" $ and, "L2UI_CT9.RaidsBTN_ShotD_Over" $ and);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return;
+}
+
+function TwoLineTooltip(string text1, string text2, ButtonHandle Handle, int _true)
+{
+    local Color b0, b1;
+    local array<DrawItemInfo> drawListArr;
+
+    b0 = getInstanceL2Util().Gray;
+    b1 = getInstanceL2Util().Gray;
+    
+    if(_true == 1)
+    {
+        b0 = getInstanceL2Util().Yellow;        
+    }
+    else
+    {
+        b1 = getInstanceL2Util().Yellow;
+    }
+    drawListArr[drawListArr.Length] = addDrawItemText(text1, b0, "", true, true);
+    drawListArr[drawListArr.Length] = addDrawItemText(text2, b1, "", true, true);
+    Handle.SetTooltipCustomType(MakeTooltipMultiTextByArray(drawListArr));
+    return;
+}
+
+function OnShow()
+{
+    
+    if(getInstanceUIData().getIsLiveServer())
+    {
+        Me.HideWindow();
+        return;
+    }
+    OptionIniLoad();
+    updateElements();
+    return;
+}
+
+function updateElements()
+{
+    Autotarget_UpdateAutoTargetState();
+    Autotarget_NextTargetSetCusomTooltip();
+    Autotarget_updateNextTargetButton();
+    Autotarget_updatePickupButton();
+    Autotarget_PickupSetCusomTooltip();
+    Autotarget_updateMannerModeButton();
+    Autotarget_MannerModeSetCusomTooltip();
+    return;
+}
+
+function OnEvent(int Event_ID, string param)
+{
+    
+    if(getInstanceUIData().getIsLiveServer())
+    {
+        return;
+    }
+    switch(Event_ID)
+    {
+        
+        case 9750:
+            initAll();
+           
+            break;
+        
+        case 40:
+            bActivateAll = false;
+            nCombatOnOff = 0;
+            bLoadByStart = false;
+            setCombatTooltip();
+            Autotarget_updateCombatButton();
+            Autotarget_Init();
+            
+            break;
+        
+        case 11170:
+            Debug("EV_AutoplaySetting" @ param);
+            AutoplaySettingHandler(param);
+            
+            if(!bLoadByStart)
+            {
+                RequestBypassLogic("FixedCombatZoneBtn", true);
+                RequestBypassLogic("StopIfMovingBtn", true);
+                RequestBypassLogic("ShowTargetRangeBtn", true);
+                RequestBypassLogic("TargetRaidBossBtn", true);
+                RequestBypassLogic("TownModeBtn", true);
+                bLoadByStart = true;
+            }
+            
+            break;
+        
+        case 11030:
+        
+        case 5720:
+            NextTargetModeHandler();
+            
+            break;
+        
+        case 11152:
+            
+            if(autotarget_bUseAutoTarget)
+            {
+                requestAutoPlay(false);
+            }
+            
+            break;
+        
+        case 11280:
+            ParseInt(param, "OnOff", nCombatOnOff);
+            setCombatTooltip();
+            Autotarget_updateCombatButton();
+           
+            break;
+        
+        default:
+            break;
+    }
+    return;
+}
+
+function setCombatTooltip()
+{
+    local array<DrawItemInfo> drawListArr;
+
+    
+    if(nCombatOnOff > 0)
+    {
+        drawListArr[drawListArr.Length] = addDrawItemText(GetSystemString(13263), getInstanceL2Util().PKNameColor, "", true, true);
+        drawListArr[drawListArr.Length] = addDrawItemText(GetSystemString(13264), getInstanceL2Util().White, "", true, true);        
+    }
+    else
+    {
+        drawListArr[drawListArr.Length] = addDrawItemText(GetSystemString(13263), getInstanceL2Util().White, "", true, true);
+        drawListArr[drawListArr.Length] = addDrawItemText(GetSystemString(13264), getInstanceL2Util().PKNameColor, "", true, true);
+    }
+    Combat_BTN.SetTooltipCustomType(MakeTooltipMultiTextByArray(drawListArr));
+    return;
+}
+
+function initAll()
+{
+    Me.ShowWindow();
+    bActivateAll = false;
+    YetiQuickSlotwndScript.setPlayAutoTargetActiveAnim();
+    return;
+}
+
+function NextTargetModeHandler()
+{
+    local NWindow.UIEventManager.EAutoNextTargetMode nTargetMode;
+
+    nTargetMode = GetNextTargetModeOption();
+    
+    if(int(autotarget_nTargetMode) != int(nTargetMode))
+    {
+        
+        if(autotarget_bUseAutoTarget)
+        {
+            requestAutoPlay(autotarget_bUseAutoTarget);
+        }
+    }
+    return;
+}
+
+function AutoplaySettingHandler(string param)
+{
+    local int nIsAutoPlayOn, nNextTargetMode, nIsNearTargetMode, nIsPickupOn, nHPPotionPercent, nIsMannerModeOn,
+	    nHPPetPotionPercent;
+
+    ParseInt(param, "IsPickupOn", nIsPickupOn);
+    ParseInt(param, "IsAutoPlayOn", nIsAutoPlayOn);
+    ParseInt(param, "NextTargetMode", nNextTargetMode);
+    ParseInt(param, "IsNearTargetMode", nIsNearTargetMode);
+    ParseInt(param, "HPPotionPercent", nHPPotionPercent);
+    ParseInt(param, "HPPetPotionPercent", nHPPetPotionPercent);
+    ParseInt(param, "IsMannerModeOn", nIsMannerModeOn);
+    autotarget_bUseAutoTarget = numToBool(nIsAutoPlayOn);
+    autotarget_bShortTarget = numToBool(nIsNearTargetMode);
+    autotarget_bIsPickupOn = numToBool(nIsPickupOn);
+    autotarget_bIsMannerModeOn = numToBool(nIsMannerModeOn);
+    autotarget_nHPPotionPercent = nHPPotionPercent;
+    autotarget_nHPPetPotionPercent = nHPPetPotionPercent;
+    updateElements();
+    
+    if(nIsAutoPlayOn > 0)
+    {
+        CallGFxFunction("ExpBar", "AutoCamera_State", "state=OnAutoPlay");        
+    }
+    else
+    {
+        CallGFxFunction("ExpBar", "AutoCamera_State", "state=OffAutoPlay");
+    }
+    return;
+}
+
+function bool getActivateAll()
+{
+    return bActivateAll;
+    return;
+}
+
+function OnClickButton(string Name)
+{
+    switch(Name)
+    {
+        
+        case "AutoAll_BTN":
+            Debug("--- Api call : RequestAutomaticUseItemActivateAll, " @ string(!bActivateAll));
+            class'ShortcutWndAPI'.static.RequestAutomaticUseItemActivateAll(!bActivateAll);
+            
+            break;
+        
+        case "TargetSwap_BTN":
+            Autotarget_OnSwap_Target_BTNClick();
+            requestAutoPlay(autotarget_bUseAutoTarget);
+            
+            break;
+        
+        case "TargetPickupToggle_BTN":
+            Autotarget_TargetPickupToggle_BTNClick();
+            requestAutoPlay(autotarget_bUseAutoTarget);
+            
+            break;
+        
+        case "TargetMannerToggle_BTN":
+            Autotarget_TargetMannerToggle_BTNClick();
+            requestAutoPlay(autotarget_bUseAutoTarget);
+            
+            break;
+        
+        case "AutoTargetAll_BTN":
+            requestAutoPlay(!autotarget_bUseAutoTarget);
+            
+            break;
+        
+        case "Combat_BTN":
+            ExecuteCommand("/combatmode");
+            
+            break;
+        
+        case "NextTargetDistanceOptionBtn":
+       
+        case "FixedCombatZoneBtn":
+       
+        case "StopIfMovingBtn":
+       
+        case "ShowTargetRangeBtn":
+        
+        case "TargetRaidBossBtn":
+        
+        case "TownModeBtn":
+            RequestBypassLogic(Name);
+           
+            break;
+       
+        default:
+            break;
+    }
+    return;
+}
+
+function OnRButtonDown(WindowHandle a_WindowHandle, int X, int Y)
+{
+    
+    if("AutoAll_BTN" == a_WindowHandle.GetWindowName())
+    {
+        OnClickButton(a_WindowHandle.GetWindowName());
+    }
+    return;
+}
+
+function OptionIniLoad()
+{
+    local int nLongTarget, nIsPickupOn, nIsMannerModeOn;
+
+    GetINIBool("AutomaticPlay", "a", nLongTarget, "windowsInfo.ini");
+    GetINIBool("AutomaticPlay", "e", nIsPickupOn, "windowsInfo.ini");
+    GetINIBool("AutomaticPlay", "p", nIsMannerModeOn, "windowsInfo.ini");
+    autotarget_bIsPickupOn = numToBool(nIsPickupOn);
+    autotarget_bShortTarget = !numToBool(nLongTarget);
+    autotarget_bIsMannerModeOn = numToBool(nIsMannerModeOn);
+    return;
+}
+
+function Autotarget_Init()
+{
+    autotarget_bUseAutoTarget = false;
+    return;
+}
+
+function executeTarget()
+{
+    
+    if(autotarget_bShortTarget)
+    {
+        ExecuteCommand("/targetnext");
+        Debug("/targetnext");        
+    }
+    else
+    {
+        ExecuteCommand("/targetnext2");
+        Debug("/targetnext2");
+    }
+    return;
+}
+
+function setShortcutTooltip(string tooltipStr)
+{
+    AutoTargetAll_BTN.SetTooltipCustomType(MakeTooltipMultiText(GetSystemString(2165), getInstanceL2Util().White,, true, tooltipStr, getInstanceL2Util().BWhite,, true));
+    return;
+}
+
+function Autotarget_NextTargetSetCusomTooltip()
+{
+    local Color b0, b1;
+    local array<DrawItemInfo> drawListArr;
+
+    b0 = getInstanceL2Util().Gray;
+    b1 = getInstanceL2Util().Gray;
+    
+    if(autotarget_bShortTarget)
+    {
+        b0 = getInstanceL2Util().Yellow;        
+    }
+    else
+    {
+        b1 = getInstanceL2Util().Yellow;
+    }
+    drawListArr[drawListArr.Length] = addDrawItemText(GetSystemString(3956), b0, "", true, true);
+    drawListArr[drawListArr.Length] = addDrawItemText(GetSystemString(3957), b1, "", true, true);
+    TargetSwap_BTN.SetTooltipCustomType(MakeTooltipMultiTextByArray(drawListArr));
+    return;
+}
+
+function Autotarget_PickupSetCusomTooltip()
+{
+    local Color b0, b1;
+    local array<DrawItemInfo> drawListArr;
+
+    b0 = getInstanceL2Util().Gray;
+    b1 = getInstanceL2Util().Gray;
+    TargetPickupToggle_BTN.ClearTooltip();
+    TargetPickupToggle_BTN.SetTooltipType("text");
+    
+    if(autotarget_bIsPickupOn)
+    {
+        b0 = getInstanceL2Util().Yellow;        
+    }
+    else
+    {
+        b1 = getInstanceL2Util().Yellow;
+    }
+    drawListArr[drawListArr.Length] = addDrawItemText(GetSystemString(3993), b0, "", true, true);
+    drawListArr[drawListArr.Length] = addDrawItemText(GetSystemString(3992), b1, "", true, true);
+    TargetPickupToggle_BTN.SetTooltipCustomType(MakeTooltipMultiTextByArray(drawListArr));
+    return;
+}
+
+function Autotarget_MannerModeSetCusomTooltip()
+{
+    local Color b0, b1;
+    local array<DrawItemInfo> drawListArr;
+
+    b0 = getInstanceL2Util().Gray;
+    b1 = getInstanceL2Util().Gray;
+    TargetMannerToggle_BTN.ClearTooltip();
+    TargetMannerToggle_BTN.SetTooltipType("text");
+    
+    if(autotarget_bIsMannerModeOn)
+    {
+        b0 = getInstanceL2Util().Yellow;        
+    }
+    else
+    {
+        b1 = getInstanceL2Util().Yellow;
+    }
+    drawListArr[drawListArr.Length] = addDrawItemText(GetSystemString(13080), b0, "", true, true);
+    drawListArr[drawListArr.Length] = addDrawItemText(GetSystemString(13081), b1, "", true, true);
+    TargetMannerToggle_BTN.SetTooltipCustomType(MakeTooltipMultiTextByArray(drawListArr));
+    return;
+}
+
+function OnRButtonUp(WindowHandle a_WindowHandle, int X, int Y)
+{
+    switch(a_WindowHandle.GetWindowName())
+    {
+        
+        case "AutoTargetAll_BTN":
+        
+        case "MacroShortcutItem":
+            requestAutoPlay(!autotarget_bUseAutoTarget);
+            
+            break;
+        
+        default:
+            break;
+    }
+    return;
+}
+
+function bool getUseAutoTarget()
+{
+    return autotarget_bUseAutoTarget;
+    return;
+}
+
+function Autotarget_OnSwap_Target_BTNClick()
+{
+    autotarget_bShortTarget = !autotarget_bShortTarget;
+    SetINIBool("AutomaticPlay", "a", !autotarget_bShortTarget, "windowsInfo.ini");
+    
+    if(autotarget_bShortTarget)
+    {
+        getInstanceL2Util().showGfxScreenMessage(GetSystemString(3956));        
+    }
+    else
+    {
+        getInstanceL2Util().showGfxScreenMessage(GetSystemString(3957));
+    }
+    Autotarget_NextTargetSetCusomTooltip();
+    Autotarget_updateNextTargetButton();
+    return;
+}
+
+function Autotarget_TargetMannerToggle_BTNClick()
+{
+    autotarget_bIsMannerModeOn = !autotarget_bIsMannerModeOn;
+    SetINIBool("AutomaticPlay", "p", autotarget_bIsMannerModeOn, "windowsInfo.ini");
+   
+    if(autotarget_bIsMannerModeOn)
+    {
+        getInstanceL2Util().showGfxScreenMessage(GetSystemString(13080));        
+    }
+    else
+    {
+        getInstanceL2Util().showGfxScreenMessage(GetSystemString(13081));
+    }
+    Autotarget_updateMannerModeButton();
+    Autotarget_MannerModeSetCusomTooltip();
+    return;
+}
+
+function Autotarget_TargetPickupToggle_BTNClick()
+{
+    autotarget_bIsPickupOn = !autotarget_bIsPickupOn;
+    SetINIBool("AutomaticPlay", "e", autotarget_bIsPickupOn, "windowsInfo.ini");
+    
+    if(autotarget_bIsPickupOn)
+    {
+        getInstanceL2Util().showGfxScreenMessage(GetSystemString(3993));        
+    }
+    else
+    {
+        getInstanceL2Util().showGfxScreenMessage(GetSystemString(3992));
+    }
+    Autotarget_updatePickupButton();
+    Autotarget_PickupSetCusomTooltip();
+    return;
+}
+
+function Autotarget_updateNextTargetButton()
+{
+   
+    if(autotarget_bShortTarget)
+    {
+        TargetSwap_BTN.SetTexture("L2UI_NewTex.AutomaticPlay.TargetBTN_ShotD_Normal", "L2UI_NewTex.AutomaticPlay.TargetBTN_ShotD_Normal", "L2UI_NewTex.AutomaticPlay.TargetBTN_ShotD_Over");        
+    }
+    else
+    {
+        TargetSwap_BTN.SetTexture("L2UI_NewTex.AutomaticPlay.TargetBTN_LongD_Normal", "L2UI_NewTex.AutomaticPlay.TargetBTN_LongD_Normal", "L2UI_NewTex.AutomaticPlay.TargetBTN_LongD_Over");
+    }
+    return;
+}
+
+function Autotarget_updatePickupButton()
+{
+    
+    if(autotarget_bIsPickupOn)
+    {
+        TargetPickupToggle_BTN.SetTexture("L2UI_NewTex.AutomaticPlay.GetBTNON_Normal", "L2UI_NewTex.AutomaticPlay.GetBTNON_Normal", "L2UI_NewTex.AutomaticPlay.GetBTNON_Over");        
+    }
+    else
+    {
+        TargetPickupToggle_BTN.SetTexture("L2UI_NewTex.AutomaticPlay.GetBTNOff_Normal", "L2UI_NewTex.AutomaticPlay.GetBTNOff_Normal", "L2UI_NewTex.AutomaticPlay.GetBTNOff_Over");
+    }
+    return;
+}
+
+function Autotarget_updateMannerModeButton()
+{
+    
+    if(autotarget_bIsMannerModeOn)
+    {
+        TargetMannerToggle_BTN.SetTexture("L2UI_NewTex.AutomaticPlay.MannerBTNON_Normal", "L2UI_NewTex.AutomaticPlay.MannerBTNON_Normal", "L2UI_NewTex.AutomaticPlay.MannerBTNON_over");        
+    }
+    else
+    {
+        TargetMannerToggle_BTN.SetTexture("L2UI_NewTex.AutomaticPlay.MannerBTNOff_Normal", "L2UI_NewTex.AutomaticPlay.MannerBTNOff_Normal", "L2UI_NewTex.AutomaticPlay.MannerBTNOff_over");
+    }
+    return;
+}
+
+function Autotarget_updateCombatButton()
+{
+    
+    if(nCombatOnOff > 0)
+    {
+        Combat_BTN.SetTexture("L2UI_NewTex.AutomaticPlay.CombatBTNON_Normal", "L2UI_NewTex.AutomaticPlay.CombatBTNON_Normal", "L2UI_NewTex.AutomaticPlay.CombatBTNON_Over");        
+    }
+    else
+    {
+        Combat_BTN.SetTexture("L2UI_NewTex.AutomaticPlay.CombatBTNOff_Normal", "L2UI_NewTex.AutomaticPlay.CombatBTNOff_Normal", "L2UI_NewTex.AutomaticPlay.CombatBTNOff_Over");
+    }
+    return;
+}
+
+function Autotarget_UpdateAutoTargetState()
+{
+    
+    if(autotarget_bUseAutoTarget)
+    {
+        AnimTexturePlay(AutoTargetAllON_ToggleEffect_Anim, true);
+        GetWindowHandle("AutomaticPlay.AutoTargetWnd.AutoTargetAllON_Win").ShowWindow();
+        GetWindowHandle("AutomaticPlay.AutoTargetWnd.AutoTargetAllOFF_Win").HideWindow();        
+    }
+    else
+    {
+        AnimTextureStop(AutoTargetAllON_ToggleEffect_Anim, true);
+        GetWindowHandle("AutomaticPlay.AutoTargetWnd.AutoTargetAllON_Win").HideWindow();
+        GetWindowHandle("AutomaticPlay.AutoTargetWnd.AutoTargetAllOFF_Win").ShowWindow();
+    }
+    YetiQuickSlotwndScript.setPlayAutoTargetActiveAnim();
+    return;
+}
+
+function requestAutoPlay(bool bUseAutoTarget, optional int nHPPotionPercent, optional int nHPPetPotionPercent)
+{
+    local AutoplaySettingData pAutoplaySettingData;
+
+    autotarget_nTargetMode = GetNextTargetModeOption();
+    pAutoplaySettingData.IsAutoPlayOn = bUseAutoTarget;
+    pAutoplaySettingData.IsPickupOn = autotarget_bIsPickupOn;
+    pAutoplaySettingData.NextTargetMode = autotarget_nTargetMode;
+    pAutoplaySettingData.IsNearTargetMode = autotarget_bShortTarget;
+    pAutoplaySettingData.IsMannerModeOn = autotarget_bIsMannerModeOn;
+    
+    if(nHPPotionPercent > 0)
+    {
+        pAutoplaySettingData.HPPotionPercent = nHPPotionPercent;        
+    }
+    else
+    {
+        pAutoplaySettingData.HPPotionPercent = autotarget_nHPPotionPercent;
+    }
+    
+    if(nHPPetPotionPercent > 0)
+    {
+        pAutoplaySettingData.HPPetPotionPercent = nHPPetPotionPercent;        
+    }
+    else
+    {
+        pAutoplaySettingData.HPPetPotionPercent = autotarget_nHPPetPotionPercent;
+    }
+    UpdateAutoplaySetting(pAutoplaySettingData);
+    return;
+}
+
+function requestAutoPlayForAutoPotion(int nHPPotionPercent)
+{
+    requestAutoPlay(autotarget_bUseAutoTarget, nHPPotionPercent);
+    return;
+}
+
+function requestAutoPlayForAutoPotionPet(int nHPPetPotionPercent)
+{
+    requestAutoPlay(autotarget_bUseAutoTarget, autotarget_nHPPotionPercent, nHPPetPotionPercent);
+    return;
+}
+
+function requestAutoPlayForAutoPotionWithPet(int nHPPotionPercent, int nHPPetPotionPercent)
+{
+    requestAutoPlay(autotarget_bUseAutoTarget, nHPPotionPercent, nHPPetPotionPercent);
+    return;
+}
+
+function showHideForYeti(bool bShow)
+{
+    
+    if(bShow)
+    {
+        Me.ShowWindow();        
+    }
+    else
+    {
+        Me.HideWindow();
+    }
+    return;
+}
