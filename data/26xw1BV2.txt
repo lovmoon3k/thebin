@@ -1,0 +1,153 @@
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <time.h>
+#define MAX 1000
+#define IDS_NR 3
+int ids[IDS_NR] = {1, 2, 3};
+
+typedef struct {
+  uint16_t year;
+  uint8_t month, day, idx;
+  int16_t val;
+} SensorReg;
+
+int randBetween(int low, int high) {
+  return (rand() % (high - low + 1)) + low;
+}
+
+FILE *safeOpenFile(const char *const path, const char *const mode) {
+    FILE *file = NULL;
+    file = fopen(path, mode);
+    if (file == NULL) {
+        perror("opening error!");
+        exit(EXIT_FAILURE);
+    }
+    return file;
+}
+ 
+void safeCloseFile(FILE *file) {
+    if (fclose(file) == EOF) {
+        perror(NULL);
+    }
+}
+
+void printSensorReg(const SensorReg *const sr) {
+  printf("%hu %hhu %hhu %hhu %hd\n", sr->year, sr->month, sr->day, sr->idx, sr->val);
+}
+
+void genTest() {
+  SensorReg sr;
+  FILE *f = safeOpenFile("data.bin", "wb");
+  //defect
+  for (int i = 0; i < 10; i++) {
+    sr.year = randBetween(1990, 2023);
+    sr.month = randBetween(1, 12);
+    sr.day = randBetween(1, 30);
+    sr.idx = ids[0];
+    sr.val = randBetween(MAX + 1, MAX * 10);
+    if (rand() & 1) {
+      //sr.val *= -1;
+    }
+    fwrite(&sr, sizeof(sr), 1, f);
+    //printSensorReg(&sr);
+  }
+  //probleme
+  for (int i = 0; i < 10; i++) {
+    sr.year = randBetween(1990, 2023);
+    sr.month = randBetween(1, 12);
+    sr.day = randBetween(1, 30);
+    sr.idx = ids[1];
+    if (i & 1) sr.val = randBetween(MAX + 1, MAX * 10);
+    else sr.val = randBetween(0, MAX);
+    if (rand() & 1) {
+      sr.val *= -1;
+    }
+    fwrite(&sr, sizeof(sr), 1, f);
+    //printSensorReg(&sr);
+  }
+  //ok
+  for (int i = 0; i < 10; i++) {
+    sr.year = randBetween(1990, 2023);
+    sr.month = randBetween(1, 12);
+    sr.day = randBetween(1, 30);
+    sr.idx = ids[2];
+    sr.val = randBetween(0, MAX);
+    if (rand() & 1) {
+      sr.val *= -1;
+    }
+    fwrite(&sr, sizeof(sr), 1, f);
+    //printSensorReg(&sr);
+  }
+  safeCloseFile(f);
+}
+
+int checkOk(uint8_t idx) {
+  SensorReg sr;
+  FILE *f = safeOpenFile("data.bin", "rb");
+  while (fread(&sr, sizeof(sr), 1, f) == 1) {
+    if (sr.idx == idx) {
+      //printf("%d", sr.val);
+      if (-MAX > sr.val || sr.val > MAX) {
+	return 0;
+      }
+    }
+  }
+  safeCloseFile(f);
+  return 1;
+}
+
+int checkBroke(uint8_t idx) {
+  SensorReg sr;
+  FILE *f = safeOpenFile("data.bin", "rb");
+  while (fread(&sr, sizeof(sr), 1, f) == 1) {
+    if (sr.idx == idx) {
+      if (-MAX <= sr.val && sr.val <= MAX) {
+	return 0;
+      }
+    }
+  }
+  safeCloseFile(f);
+  return 1;
+}
+
+void solve() {
+  int sum = 0;
+  for (int i = 0; i < 3; i++) {
+    if (checkOk(ids[i])) {
+      printf("good sensor: %d\n", ids[i]);
+      sum += i;
+      break;
+    }
+  }
+  for (int i = 0; i < 3; i++) {
+    if (checkBroke(ids[i])) {
+      printf("bad sensor: %d\n", ids[i]);
+      sum -= i;
+      break;
+    }
+  }
+  printf("broke sensor: %d\n", ids[IDS_NR - sum]);
+}
+
+void solve2() {
+  uint16_t year;
+  uint8_t month;
+  scanf("%hu %hhu", &year, &month);
+  FILE *f = safeOpenFile("data.bin", "rb");
+  SensorReg sr;
+  while (fread(&sr, sizeof(sr), 1, f) == 1) {
+    if (sr.year == year && sr.month == month) {
+      printSensorReg(&sr);
+    }
+  }
+  safeCloseFile(f);
+}
+
+int main(void) {
+  srand(time(NULL));
+  genTest();
+  solve();
+  solve2();
+  return 0;
+}
