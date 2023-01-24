@@ -1,0 +1,188 @@
+function waitForUserInput()
+    getUserInput("Press enter to continue")
+end
+
+function getUserInput(displayString)
+    printTextColoured(displayString, colours.yellow)
+    return read()
+end
+
+function printTextColoured(str, fg_col)
+    term.setTextColor(fg_col)
+    print(str)
+    term.setTextColor(colours.white)
+end
+
+function writeTextColoured(str, fg_col)
+    term.setTextColor(fg_col)
+    term.write(str)
+    term.setTextColor(colours.white)
+end
+
+function concat_str(str, join, text)
+    if (#str == 0) then
+        return text
+    else
+        return str .. join .. text
+    end
+end
+
+function concatTable(table, joinText, selector)
+    local buffer = ""
+    local len = #table
+    local index = 1
+    for i, k in pairs(table) do
+        local txt = selector(i, k)
+        if (index == len) then
+            if (txt == nil) then
+                return buffer
+            elseif (#buffer == 0) then
+                return txt
+            else
+                return buffer .. joinText .. txt
+            end
+        elseif (txt ~= nil) then
+            buffer = concat_str(buffer, joinText, txt)
+        end
+
+        index = index + 1
+    end
+
+    if (buffer == nil) then
+        return ""
+    end
+
+    return buffer
+end
+
+function printAdvMethodInfo(method_data)
+    local retTypeTable = method_data["returnTypes"]
+    local argsTable = method_data["args"]
+    local descStr = method_data["description"]
+    if (descStr ~= nil) then
+        printTextColoured(descStr, colours.cyan)
+    end
+
+    if (argsTable ~= nil and #argsTable > 0) then
+        printTextColoured("Args: ", colours.lightGrey)
+        for index, inner_data in pairs(argsTable) do
+            local isVarArg = inner_data["vararg"] == true
+            local isNullable = inner_data["nullable"] == true
+            local typeName = inner_data["type"]
+            local isOptional = inner_data["optional"] == true
+            local argName = inner_data["name"]
+
+            local flagsBuf = ""
+            if (isVarArg) then
+                flagsBuf = concat_str(flagsBuf, ", ", "varargs")
+            end
+            if (isNullable) then
+                flagsBuf = concat_str(flagsBuf, ", ", "nullable")
+            end
+            if (isOptional) then
+                flagsBuf = concat_str(flagsBuf, ", ", "optional")
+            end
+
+            writeTextColoured("  " .. index .. ": ", colours.lightGrey)
+            writeTextColoured(typeName, colours.green)
+            printTextColoured(" " .. argName, colours.lightBlue)
+            -- print("  " .. index .. ": " .. typeName .. " " .. argName)
+            if (#flagsBuf > 0) then
+                printTextColoured("     " .. flagsBuf, colours.grey)
+            end
+
+        end
+    end
+
+    if (retTypeTable ~= nil and #retTypeTable > 0) then
+        local typeStr = concatTable(retTypeTable, ", ", function(k, v) 
+            if (v == nil or #v == 0) then
+                return nil
+            else
+                return v
+            end
+        end)
+
+        writeTextColoured("Return type(s): ", colours.lightGrey)
+        printTextColoured(typeStr, colours.green)
+    end
+end
+
+function printAdvancedMethodData(advancedDataTable, specificMethod)
+    if (advancedDataTable == nil or #advancedDataTable == 0) then
+        return
+    end
+
+    for md_name, md_data in pairs(advancedDataTable) do
+        if (specificMethod == nil or specificMethod == md_name) then
+            print(md_name)
+            printAdvMethodInfo(md_data)
+        end
+    end
+end
+
+function printSide(side)
+    local w, h = term.getSize()
+
+    local buffer = ""
+    local lastPrint = ""
+    local methodTable = peripheral.wrap(side)
+    local methods = peripheral.getMethods(side)
+    print(#methods .. " methods available")
+    for i, n in pairs(methods) do
+        if (#buffer + #n > w) then
+            lastPrint = buffer
+            printTextColoured(buffer, colours.lightGrey)
+            buffer = n
+        else
+            buffer = concat_str(buffer, ", ", n)
+        end
+    end
+
+    if ((lastPrint == buffer) == false) then
+        printTextColoured(buffer, colours.lightGrey)
+    end
+
+    local adv = methodTable.getAdvancedMethodsData()
+    if (adv == nil) then
+        print("There is no advanced method data available")
+        waitForUserInput()
+        return
+    end
+
+    local input = getUserInput("Press enter to continue, or enter a method name:")
+    if (input == "") then
+        return
+    end
+
+    local tab = adv[input]
+    if (tab == nil) then
+        printTextColoured("No advanced data for method: " .. input, colours.red)
+    else
+        printAdvMethodInfo(tab)
+    end
+
+    waitForUserInput()
+end
+
+while true do
+    term.clear()
+    term.setCursorPos(1,1)
+    print("Enter 'all' to list all sides, or a specific side")
+    print("to print all available methods on that side")
+    print("Available sides: " .. concatTable(peripheral.getNames(), ", ", function (k, v) return v end))
+    print("---------------------------------------------------")
+    local input = read()
+    if (input == "all") then
+        for i, v in pairs(peripheral.getNames()) do
+            print(v .. " -> " .. peripheral.getType(v))
+        end
+        waitForUserInput()
+    elseif (input == "left" or input == "right" or input == "front" or input == "back" or input == "top" or input == "bottom") then
+        printSide(input)
+    elseif (input == "exit") then
+        return
+    else
+        printTextColoured("Unknown command: " .. input, colours.red)
+    end
+end
