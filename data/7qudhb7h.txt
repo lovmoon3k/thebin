@@ -1,0 +1,124 @@
+#include "fmbf.h"
+#include "fmin.h"
+#include <set>
+#include <string>
+
+//прототипы
+void insertStudent ( int *stat );
+void findPopularLastName();
+
+struct STUDENT_FOR_TEST
+{
+	char     FirstName[51];  // Имя
+    char     SecondName[51]; // Отчество
+    char     LastName[51];   // Фалимлие
+	bdate BirthDay;
+	//int bdate[3]; //{y, m, d} Дата рождения
+};
+
+STUDENT_FOR_TEST testStudentsPool[] = {
+	{"Иван", "Иванович", "Иванов", RSL_SCTR_BDATE(1990, 6, 15)},
+	{"Дмитрий", "Дмитриевич", "Дмитров",  RSL_SCTR_BDATE(1989, 9, 19)},
+	{"Дмитрий", "Дмитриевич", "Дмитров", RSL_SCTR_BDATE(1989, 9, 19)},
+	{"Инакентий", "Корнеевич", "Иванов", RSL_SCTR_BDATE(1999, 1, 13)},
+};
+
+
+void workOnDstudent_dbt()
+{
+	int stat = 0;
+	char isOpenFileStudent = 0;
+
+	if ( !FileSTUDENT )
+	{
+		isOpenFileStudent = 1;
+		stat = iOpenSTUDENT( 1 );
+	}
+
+	if ( !stat )
+	{
+		insertStudent( &stat ); //Добавление студентов
+		findPopularLastName(); //поиск самой частой фамилии
+	}
+
+	
+	// А после работы - закрыть
+	if ( FileSTUDENT && isOpenFileStudent )
+	{
+	   bfClose( &FileSTUDENT );
+	}
+}
+
+
+void insertStudent ( int *stat )
+{
+	for (int i=0; i< (sizeof(testStudentsPool) / sizeof(testStudentsPool[0])); i++)
+	{	
+		if(FindSTUDENT_LASTNAME_FIRSTNAME_SECONDNAME(testStudentsPool[i].LastName, testStudentsPool[i].FirstName, testStudentsPool[i].SecondName, NULL)) //поиск записи (будущего дубля)
+		{
+			STUDENT *recBuf = (STUDENT*)FileSTUDENT->RecBuf;
+
+			bdate BirthDay = testStudentsPool[i].BirthDay;
+
+			memset( recBuf, 0, sizeof(STUDENT) );
+			// если бы в TStudent были бы атрибуты типа db_lmoney, необходимо 
+			// было бы этим атрибутам присвоить значение DB_LMONEY_ZERO 
+
+			strcpy(recBuf->FirstName, testStudentsPool[i].FirstName );
+			strcpy(recBuf->SecondName, testStudentsPool[i].SecondName );
+			strcpy(recBuf->LastName, testStudentsPool[i].LastName );
+			recBuf->Birthday = BirthDay;
+
+			// Обратите внимание, StudentID остался равным 0
+			*stat = bfOp(FileSTUDENT, Binsert);
+		}
+	}
+}
+
+int countLastName (char *LastName)
+{
+	int counter = 0;
+	STUDENT *recBuf = (STUDENT*)FileSTUDENT->RecBuf;
+	SKF_STUDENT_LASTNAMEFIRSTNAMESECONDNAME(LastName, NULL, NULL);
+
+	for( int st=bfGet(FileSTUDENT, BgetF); !st; st=bfGet(FileSTUDENT, BgetN ) )
+	{
+			counter = counter + 1;
+	}
+	return counter;
+}
+
+void findPopularLastName()
+{
+	int countPopularLastName = 0;
+	char PopularLastName[51];
+
+	set<string> LastNameList;
+	
+	STUDENT *recBuf = (STUDENT*)FileSTUDENT->RecBuf;
+	SKF_STUDENT_LASTNAMEFIRSTNAMESECONDNAME(NULL, NULL, NULL);
+
+	for( int st=bfGet(FileSTUDENT, BgetF); !st; st=bfGet(FileSTUDENT, BgetN ) )
+	{
+		LastNameList.insert(string(recBuf->LastName));
+	}
+	
+	for (auto it = LastNameList.begin(); it != LastNameList.end(); ++it)
+	{
+		char tLastName[51];
+		strcpy(tLastName, it->c_str());
+		
+		int tCount = countLastName(tLastName);
+		if (countPopularLastName < tCount)
+		{
+			countPopularLastName = tCount;
+			strcpy(PopularLastName, it->c_str());
+		}
+	}
+	//выводим самое популярное
+	meswin(PopularLastName);
+}
+
+
+
+
