@@ -1,0 +1,128 @@
+local Run = game:GetService("RunService")
+local UserInput = game:GetService("UserInputService")
+local Tween = game:GetService("TweenService")
+
+local Assets = game.ReplicatedStorage.Assets
+
+local tool = script.Parent.Parent
+local anims = tool:WaitForChild("Anims")
+local events = tool:WaitForChild("Events")
+local muzzle = tool.GunModel.Muzzle
+
+repeat wait() until tool.Parent:IsA("Backpack") or tool.Parent:FindFirstChild("Humanoid")
+
+local plr = script:FindFirstAncestorWhichIsA("Player")
+local char = plr.Character
+local hum = char.Humanoid
+local mouse = plr:GetMouse()
+local cam = workspace.CurrentCamera
+
+local equipped = false
+local firing = false
+local canShoot = true
+
+local idleAnim = hum:LoadAnimation(anims.Idle)
+local fireAnim = hum:LoadAnimation(anims.Fire)
+local aimAnim = hum:LoadAnimation(anims.Aim)
+
+local recoilX = {-8, 2}
+local recoilZ = {-12, 12}
+local recoilY = {6, 10}
+local bulletVelocity = {900, 1100}
+local bulletSpread = {0, 0.5}
+
+
+
+
+local function Fire()
+	canShoot = false
+
+	local bullet = Assets.Bullet:Clone()
+	bullet.CFrame = muzzle.CFrame
+	bullet.Velocity = muzzle.CFrame.LookVector * math.random(bulletVelocity[1], bulletVelocity[2]) + char.HumanoidRootPart.Velocity
+	bullet.Parent = workspace.Bullets
+	bullet.PrevPos.Value = bullet.Position + bullet.CFrame.LookVector * bullet.Size.Z/2
+	game:GetService("Debris"):AddItem(bullet, 5)
+
+	wait(0.08)
+	canShoot = true
+end
+
+
+local function HitDetection()
+	local function BulletHitEnemy(bullet, hit)
+		bullet:Destroy()
+		
+		local damage = 15
+		if hit.Name == "Head" then
+			damage *= 4
+		end
+		damage *= bullet.Velocity.Magnitude/1000
+		
+		hit.Parent.Humanoid:TakeDamage(damage)
+	end
+	
+	
+	for _, bullet in pairs(workspace.Bullets:GetChildren()) do
+		local origin = bullet.PrevPos.Value
+		local direction = bullet.Position - bullet.PrevPos.Value
+		local params = RaycastParams.new()
+		params.FilterDescendantsInstances = {bullet, char, workspace.Bullets}
+		local raycast = workspace:Raycast(origin, direction, params)
+		if raycast then
+			bullet.Position = raycast.Position - bullet.CFrame.LookVector * bullet.Size.Z/2
+			if bullet.Velocity.Magnitude < (math.random(bulletVelocity[1], bulletVelocity[2]))/3 then
+				bullet:Destroy()
+			end
+			
+			if raycast.Instance.Parent:FindFirstChild("Humanoid") then
+				BulletHitEnemy(bullet, raycast.Instance)
+			end
+		end
+		bullet.Touched:Connect(function(hit)
+			if hit.Parent:FindFirstChild("Humanoid") and hit.Parent ~= char then
+				BulletHitEnemy(bullet, hit)
+			else
+				if bullet.Velocity.Magnitude < (math.random(bulletVelocity[1], bulletVelocity[2]))/3 then
+					bullet:Destroy()
+				end
+			end
+		end)
+
+		if bullet and bullet:FindFirstChild("PrevPos") then
+			bullet.PrevPos.Value = bullet.Position + bullet.CFrame.LookVector * bullet.Size.Z/2
+		end
+	end
+end
+
+
+local function MainLoop()
+	if equipped then
+		if firing then
+			if canShoot then
+				Fire()
+			end
+		end
+	end
+
+	HitDetection() 
+end
+
+
+
+Run.RenderStepped:Connect(function()
+	MainLoop()
+end)
+
+
+
+mouse.Button1Down:Connect(function()
+	if equipped then
+		firing = true
+	end
+end)
+
+
+mouse.Button1Up:Connect(function()
+	firing = false
+end)
