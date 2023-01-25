@@ -1,0 +1,91 @@
+from typing import Dict, Tuple, List
+import numpy as np
+
+
+CORRELATION_LIMIT = -1, 1
+CLASSIFY_RATIO = 2
+LEFT_TYPE, RIGHT_TYPE, EQUAL_TYPE = 0, 1, 2
+STEP_SIZE = 0.01
+
+
+def load_coordinates(file_path: str) -> Dict[int, Tuple[float, float]]:
+    with open(file_path) as file_ctx:
+        file_ctx.readline()
+        coords = {}
+        for line in file_ctx:
+            t = line.rstrip().split('\t')
+            station, x, y = int(t[0]), float(t[2]), float(t[3])
+            coords[station] = (x, y)
+        return coords
+
+
+def load_correlations(file_path: str) -> Dict[int, List[float]]:
+    correlations = {}
+    with open(file_path) as file_ctx:
+        file_ctx.readline()
+        for line in file_ctx:
+            t = line.rstrip().split('\t')
+            station, correlation = int(t[1]), float(t[4])
+            if np.isnan(correlation):
+                continue
+            correlations[station] = correlations.get(station, []) + [correlation]
+    return correlations
+
+
+def get_statistic_curve(arr: List[float], step: float):
+    box_count = int((CORRELATION_LIMIT[1] - CORRELATION_LIMIT[0]) / step)
+    statistic_curve = [0 for _ in range(box_count)]
+    for item in arr:
+        index = int((item - CORRELATION_LIMIT[0]) / step)
+        statistic_curve[index] += 1
+    return statistic_curve
+
+
+def classify_curve(arr: List[int], step: float) -> int:
+    xs = [-1 + x * step for x in range(len(curve))]
+    zero_index = len(arr) // 2
+    left_area = np.trapz(arr[:zero_index], xs[:zero_index])
+    right_area = np.trapz(arr[zero_index:], xs[zero_index:])
+
+    left_ratio = left_area / right_area
+    right_ratio = right_area / left_area
+
+    if left_ratio < right_ratio > CLASSIFY_RATIO:
+        return RIGHT_TYPE
+    if right_ratio < left_ratio > CLASSIFY_RATIO:
+        return LEFT_TYPE
+    return EQUAL_TYPE
+
+
+if __name__ == '__main__':
+    coordinates_file_path = '/media/michael/Data/TEMP/Скрипты/fact_coords.dat'
+    correlations_file_path = '/media/michael/Data/TEMP/Скрипты/311-1.dat'
+    export_file_path = '/media/michael/Data/TEMP/Скрипты/stat-info.txt'
+
+    stations_coords = load_coordinates(file_path=coordinates_file_path)
+    correlations = load_correlations(file_path=correlations_file_path)
+
+    export_array = []
+    for station, coordinates in stations_coords.items():
+        arr = correlations.get(station, [])
+        if not arr:
+            continue
+        curve = get_statistic_curve(arr=arr, step=STEP_SIZE)
+        curve_type = classify_curve(arr=curve, step=STEP_SIZE)
+
+        if curve_type == EQUAL_TYPE:
+            arr = [x for x in arr if x > 0]
+
+        max_value = round(max(arr), 3)
+        median_value = round(np.median(arr), 3)
+        mean_value = round(np.mean(arr), 3)
+
+        t = [station] + list(coordinates) + [max_value, median_value, mean_value]
+        export_array.append(t)
+
+    header = ['Name', 'x', 'y', 'MaxValue', 'MedianValue', 'MeanValue']
+    with open(export_file_path, 'w') as file_ctx:
+        file_ctx.write('\t'.join(header) + '\n')
+        for row in export_array:
+            line = '\t'.join(map(str, row)) + '\n'
+            file_ctx.write(line)
