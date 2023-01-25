@@ -1,0 +1,48 @@
+def objective(trial):
+
+    # Выберем модели
+    classifier_name = trial.suggest_categorical(
+        "classifier", ["LogReg", "RandomForest", "SGDClassifier"])
+
+    # выберем гиперпараметры:
+    if classifier_name == 'LogReg':
+        logreg_c = trial.suggest_float("C", 1, 20.0)
+        log_class_weight = trial.suggest_categorical(
+            "class_weight", ['balanced', None])
+        log_penalty = trial.suggest_categorical(
+            'penalty', ['l2', None])
+        classifier_obj = LogisticRegression(
+            C=logreg_c, class_weight=log_class_weight, penalty=log_penalty, random_state=987654, n_jobs=-1)
+    elif classifier_name == 'SGDClassifier':
+        sgd_eta0 = trial.suggest_float("eta0", 0, 1.0)
+        sgd_class_weight = trial.suggest_categorical(
+            "class_weight", ['balanced', None])
+        sgd_loss = trial.suggest_categorical(
+            "loss", ['hinge', 'log_loss', 'modified_huber', 'squared_hinge'])
+        classifier_obj = SGDClassifier(
+            eta0=sgd_eta0, class_weight=sgd_class_weight, loss=sgd_loss, random_state=987654, n_jobs=-1)
+    else:
+        rf_n_estimators = trial.suggest_int("n_estimators", 100, 800)
+        rf_max_depth = trial.suggest_int("max_depth", 2, 32, log=True)
+        rf_class_weight = trial.suggest_categorical(
+            "class_weight", ['balanced', None])
+        classifier_obj = RandomForestClassifier(
+            max_depth=rf_max_depth, n_estimators=rf_n_estimators, class_weight=rf_class_weight, random_state=987654, n_jobs=-1)
+
+    for step in range(100):
+        classifier_obj.fit(features_train_t, target_train)
+
+        # Промежуточное целевое значение
+        intermediate_value = f1_score(
+            target_valid, classifier_obj.predict(features_valid_t))
+        trial.report(intermediate_value, step)
+
+        # Обрезка на основании целевого значения
+        if trial.should_prune():
+            raise optuna.TrialPruned()
+        return intermediate_value
+
+
+study = optuna.create_study(direction="maximize", pruner=optuna.pruners.MedianPruner(
+    n_startup_trials=5, n_warmup_steps=30, interval_steps=10))
+study.optimize(objective, n_trials=100)
