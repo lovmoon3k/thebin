@@ -1,13 +1,7 @@
-[**WqmqiWkE**](/data/WqmqiWkE.txt) (26/01/23 - 06:53)- 27741 bytes
+[**fy1baxSU**](/data/fy1baxSU.txt) (26/01/23 - 06:59)- 905 bytes
 
-[**gyK00Tka**](/data/gyK00Tka.txt) (26/01/23 - 06:53)- 1195 bytes
+[**fy1baxSU**](/data/fy1baxSU.txt) (26/01/23 - 06:59)- 905 bytes
 
-[**jPLcFFP8**](/data/jPLcFFP8.txt) (26/01/23 - 06:53)- 1818 bytes
+**Total Datas**: 6452
 
-[**gyK00Tka**](/data/gyK00Tka.txt) (26/01/23 - 06:53)- 1195 bytes
-
-[**jPLcFFP8**](/data/jPLcFFP8.txt) (26/01/23 - 06:53)- 1818 bytes
-
-**Total Datas**: 6451
-
-**Total Size**: 38.15 MB / 38.2 MB
+**Total Size**: 38.16 MB / 38.2 MB
