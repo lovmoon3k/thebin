@@ -1,0 +1,97 @@
+# Debian provides several sources that may be used to install software from including the operating system.
+# These sources will be used to build virtual machines from.
+export _DEBIAN_SOURCE_URL="http://ftp.us.debian.org/debian/dists/bullseye/main/installer-amd64/"
+export _DEBIAN_FRONTEND_GTK_KERNEL="${_DEBIAN_SOURCE_URL}/current/images/netboot/gtk/debian-installer/amd64/linux"
+export _DEBIAN_FRONTEND_GTK_INITRD="${_DEBIAN_SOURCE_URL}/current/images/netboot/gtk/debian-installer/amd64/initrd.gz"
+export _DEBIAN_FRONTEND_DEFAULT_KERNEL="${_DEBIAN_SOURCE_URL}/current/images/netboot/debian-installer/amd64/linux"
+export _DEBIAN_FRONTEND_DEFAULT_INITRD="${_DEBIAN_SOURCE_URL}/current/images/netboot/debian-installer/amd64/initrd.gz"
+
+
+make_kvm_virtual_machine_now_from_debian_org ()
+{
+# Description: Function to create a Debian KVM virtual michine disk and define a VM. This function should be
+# used on a Qemu/KVM virtual host that the virtual guest is to be used on.
+# NOTE: QCOW2 is a storage format for virtual .
+# machine disk images QCOW stands for QEMU copy on write. The QCOW2 format decouples the physical storage
+# layer from the virtual layer by adding a mapping between logical and physical blocks.
+# NOTE2: Kernel-based Virtual Machine (KVM) is an open source virtualization technology built into Linux®.
+# Specifically, KVM lets you turn Linux into a hypervisor that allows a host machine to run multiple,
+# isolated virtual environments called guests or virtual machines (VMs). KVM is part of Linux.
+# For complete info: https://www.redhat.com/en/topics/virtualization/what-is-KVM
+#
+# Use the check_dependencies function to make sure the needed software is available.
+# Usage: Either simply call this function to use the defaults or:
+# Call this function with "function" "RAM_SIZE" "DISK_SIZE" "DISK_FORMAT" "DISK_FILE"
+# Omitting any of the arguments will us the default instead.
+#
+# Globals:
+# Arguments: None
+# Outputs:
+# Returns:
+# Usage:
+# End of Documentation
+
+	write_status "${FUNCNAME[0]}:"
+	count=1
+	for i in qemu-utils qemu-tools qemu-kvm qemu-system-x86 virt-install
+	do
+		write_status "🧩 ${count}	- Verifying dependencies ( ${i} )..."
+		check_dependencies $i &>/dev/null
+		count=$((count + 1))
+	done
+
+	# Lookup specific binaries: use full path since they may just have been added and not in $PATH yet, and set variables.
+	: "${bin_virt_install:=$(type -p virt-install)}"
+	: "${PRESEED_FILE:="$(make_preseed_cfg $( mktemp -d ) ssh-server )"}"
+	if echo "${CONFIG:="ssh-server"}" |grep server &>/dev/null ; then : "${SRVorVDI="server"}" ; else : "${SRVorVDI="desktop"}" ; fi
+
+
+	case "${SRVorVDI}" in
+		server | Server )
+				: "${vm_kernel="${_DEBIAN_FRONTEND_DEFAULT_KERNEL}"}"
+				: "${vm_initrd="${_DEBIAN_FRONTEND_DEFAULT_INITRD}"}"
+				: "${ui_diplay_style="theme=light"}"
+				: "${vm_usecase="Server"}"
+				;;
+		desktop | Desktop )
+				: "${vm_kernel="${_DEBIAN_FRONTEND_GTK_KERNEL}"}"
+				: "${vm_initrd="${_DEBIAN_FRONTEND_GTK_INITRD}"}"
+				: "${ui_diplay_style="theme=dark"}"
+				: "${vm_usecase="VDI"}"
+				;;
+		*)	;;
+	esac
+
+	write_status "🔎 	- Discovering what the appropriate VM net interface is (default or br'0 - n')"
+	: ${virt_net="$(if ls /sys/class/net |grep br |grep -v virbr >/dev/null; then echo "bridge:$(ls /sys/class/net)" |grep br ; else echo default;fi)"}
+	: ${source_url:="${_DEBIAN_SOURCE_URL}"}
+
+	_summary_message="The virtual machine (Debian_${vm_usecase}_${SRVFUNC}_${CONFIG}_${RANDOM}) \n
+	📋 - Using the instructions in PRESEED: ${PRESEED_FILE} \n
+	🔧 - And Using this source for the packages and files to download: \n
+	🌎 - ${source_url} \n
+	🌎 - ${vm_kernel} \n
+	🌎 - ${vm_initrd} \n
+	✅ - Using the network: ${virt_net} \n
+	✅ - Memory: ${3:-2048} \n
+	✅ - CPU's: ${2:-2} \n
+	✅ - Disk Size: ${4:-40} \n You may attach to this server and see the progress at IP: $(hostname -I))"
+
+
+	# create image and run installer
+	"${bin_virt_install}" --name Debian_${vm_usecase}_"${SRVFUNC}"_"${CONFIG}"_"${RANDOM}" \
+		--vcpus "${2:-2}" \
+		--memory "${3:-2048}" \
+		--network "${virt_net}" \
+		--location="${source_url}" \
+		--disk size="${4:-40}" \
+		--os-variant="${1:-debian10}" \
+		--video "virtio" --channel "spicevmc" \
+		--initrd-inject="${PRESEED_FILE}" \
+		--install kernel="${vm_kernel}",initrd="${vm_initrd}" \
+		--extra-args "ks=file:/$(basename $PRESEED_FILE) ${ui_diplay_style}" \
+		--noautoconsole && $RTD_GUI --backtitle "$BRANDING" --title "NOTICE!" --msgbox "${_summary_message}" 0 0 \
+	|| ( read -p "💥 - An ERROR has occurred. Please press [ENTER] to continue..." && return 1 )
+
+	for i in  PRESEED_FILE vm_kernel vm_initrd source_url CONFIG ui_diplay_style ; do unset $i ; done
+}
