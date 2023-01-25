@@ -1,0 +1,113 @@
+BROOT=$(dirname $(readlink -f $BASH_SOURCE))
+#source $BROOT/.bash_aliases
+#. ~/.bash_aliases
+#. /git/sasnet/qemu/bash_aliases
+
+br() {
+  local CFG=~/.bashrc
+  local CFG=$BROOT/.bashrc
+  [[ ! -z "$1" ]] && local OPT=+/"^${1}.*()"
+  vi $OPT $CFG
+  source $CFG
+}
+
+oam_console() {
+  /opt/ssg/bin/netcat -vv -u 100.64.2.1 8000
+}
+
+config_data2safe_storage() {
+  for i in $(seq 0 2) ; do
+    echo -n $(md5sum /opt/ssg/config/conf_data.json | cut -f 1 -d \ ) > /mnt/data/safe_storage/mnt/data/config/conf_data.json/A/md5.${i}
+    cp -v /opt/ssg/config/conf_data.json /mnt/data/safe_storage/mnt/data/config/conf_data.json/A/back.${i}
+  done
+}
+
+
+replace_so() {
+  df -h /opt/ssg/lib/
+  mv -vf /opt/ssg/lib/*.so /tmp/
+  mv -v /opt/ssg/bin/*.so /opt/ssg/lib/
+  df -h /opt/ssg/lib/
+}
+
+alias xstrace_comms_c='strace -c -f ./gdu-comms -l 6 '
+
+xstrace_() {
+  strace -ff -o strace $@
+}
+# !file
+alias xstrace_comms2='xstrace_ -X verbose -T -s 256 -b execve -e trace=\!clock_gettime64,poll,getpid,clock_nanosleep_time64,_newselect,futex,fcntl64,socket,epoll_wait,mprotect,epoll_ctl '
+
+alias tail_comms='tail -f comms.* '
+
+alias xrun='LD_LIBRARY_PATH=../lib '
+
+comms_strace_bak() {
+  HM=$(date +%H%M)
+  mkdir $HM
+  mv -v comms.* $HM
+}
+
+strace_log() {
+  PROCESS=$1
+  PID=$(pgrep -n $PROCESS)
+  echo "$PROCESS pid is $PID"
+  LOG=/mnt/data/log//mnt/data/log/STrace/${PROCESS}_${PID}_strace.log
+  echo " ================================= " >> $LOG ; date >> $LOG
+  strace -v -s 120 -p $PID 2>&1 | tee -a $LOG
+}
+
+strace_pid() {
+  PID=$1
+  LOG="/mnt/data/log//mnt/data/log/STrace/${PID}_$2$3$4$5_strace.log"
+  echo " ================================= " >> $LOG ; date >> $LOG
+  strace -v -s 120 -p $PID 2>&1 | tee -a $LOG
+}
+
+killjobs() {
+  while jobs %% ; do
+    kill $@ %%
+  done
+  #kill $@ `jobs -p -s` # stopped
+  #kill $@ `jobs -p -r` # running
+}
+
+run_oam() {
+# adds process id of started oam command to env variable which name is passed as the 1st arg
+  local  __resultvar=$1
+  OAM_RUNNER="netcat -u 100.64.2.1 8000"
+  echo . ; echo "    >>> RUNNING: ${@:2} ..."
+  echo "${@:2}" | $OAM_RUNNER &
+  local __PID=$!
+  eval $__resultvar+=\("$__PID"\)
+  sleep 0.4
+}
+
+run_oams() {
+  PIDS=()
+  run_oam PIDS gdu-wd loglevel --get
+  run_oam PIDS gdu-wd stats --get
+  run_oam PIDS gdu-wd stats --list
+  run_oam PIDS gdu-comms stats --get
+  run_oam PIDS gdu-wd help
+  run_oam PIDS gdu-comms help
+  run_oam PIDS gdu-wd stats --get --collector GduComms
+  echo About to kill ${PIDS[@]}
+  kill ${PIDS[@]}
+}
+
+oam_stress() {
+for i in $(seq 9999) ; do
+  run_oams
+done
+}
+
+# pass command to evaluate between oam calls e.g. $ comms_stats_periodic sleep 2
+comms_stats_periodic() {
+  while : ; do
+    eval $@ # e.g. sleep 0.2
+    PIDS=()
+    run_oam PIDS gdu-wd stats --get --collector GduComms
+    kill $PIDS
+  done
+}
