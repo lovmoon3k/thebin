@@ -1,0 +1,163 @@
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import Card from '../../UI/Card';
+import styles from './Home.module.css';
+
+interface NotificationType {
+		documentSymbol: string;
+		notifyingMember: string;
+		distributionDate: string;
+		title: string;
+}
+
+const SingleNotification: React.FC<NotificationType> = (
+	singleNotification
+) => {
+	let title = '';
+	if (singleNotification.title) {
+		title = singleNotification.title.replaceAll(/<(.*?)>/g, '');
+		title = title.replaceAll(/(&nbsp;)/g, '');
+		if (title.length > 137) {
+			title = title.substring(0, 137) + '...';
+		}
+	}
+
+	return (
+		<div className={styles.single_notification}>
+			<div>
+				<b>
+					{singleNotification.notifyingMember +
+						', ' +
+						singleNotification.distributionDate}
+				</b>
+			</div>
+			<div>
+				<Link
+					to={`/en/DetailedNotification/?ds=${singleNotification.documentSymbol}`}
+				>
+					{singleNotification.documentSymbol}
+				</Link>{' '}
+				{title}
+			</div>
+		</div>
+	);
+};
+
+const Home = () => {
+	const [notifications, setNotifications] = useState([]);
+	const [isLoading, setIsLoading] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		const fetchNotifications = async () => {
+			setIsLoading(true);
+			setError(null);
+			try {
+				const response = await fetch(
+					'https://epingalert.org/api/v1/notifications/getLatestNotifications?language=1',
+					{
+						headers: {
+							Accept: 'application/json',
+						},
+					}
+				);
+
+				if (!response.ok) {
+					throw new Error('Something went wrong!');
+				}
+				const data = await response.json();
+
+				setNotifications(data);
+			} catch (error: unknown) {
+				if (error instanceof Error) {
+					setError(error?.message);
+				} else {
+					console.log('Unknown error', error);
+				}
+			}
+			setIsLoading(false);
+		};
+		fetchNotifications();
+	}, []);
+
+	let content: JSX.Element | JSX.Element[] = <p>No new notifications found.</p>;
+
+	if (notifications.length > 0) {
+		content = notifications.map(
+			(singleNotification: {
+				documentSymbol: string;
+				notifyingMember: string;
+				distributionDate: string;
+				title: string;
+			}) => (
+				<SingleNotification
+					key={singleNotification.documentSymbol}
+					singleNotification={singleNotification}
+				/>
+			)
+		);
+	}
+
+	if (error) {
+		content = <p>{error}</p>;
+	}
+
+	if (isLoading) {
+		content = <p>Loading information...</p>;
+	}
+
+	return (
+		<div className={styles.home_container}>
+			<img
+				src="/images/international-trade.webp"
+				alt="International Trade"
+				className={styles.home_image}
+			/>
+			<Card title="What is the ePing SPS & TBT Platform?">
+				<p>
+					The ePing SPS & TBT Platform facilitates tracking sanitary and
+					phytosanitary (SPS) and technical barriers to trade (TBT) measures. As
+					a user, you can, amongst others:
+				</p>
+				<ul>
+					<li>
+						<p>
+							Browse <b>notifications</b> on new and updated product
+							regulations.
+						</p>
+					</li>
+					<li>
+						<p>
+							Find information on <b>trade concerns</b> discussed in the WTO SPS
+							and TBT committees.
+						</p>
+					</li>
+					<li>
+						<p>
+							Locate information on <b>enquiry points</b> and{' '}
+							<b>notification authorities</b>.
+						</p>
+					</li>
+					<li>
+						<p>
+							Sign up to receive <a href="/">email alerts</a> and to follow
+							notifications on products and/or markets of interest.
+						</p>
+					</li>
+					<li>
+						<p>
+							<b>Reach out</b> to national and international counterparts.
+						</p>
+					</li>
+				</ul>
+				<p>
+					Please visit the WTO <a href="/">SPS</a> and <a href="/">TBT</a>{' '}
+					gateways for more information on these Agreements.
+				</p>
+			</Card>
+			{<Card title="Latest notifications">{content}</Card>}
+		</div>
+	);
+};
+
+export default Home;
