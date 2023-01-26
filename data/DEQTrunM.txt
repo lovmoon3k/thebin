@@ -1,0 +1,149 @@
+<?php
+
+/*
+ * Plugin Name: Rewrite "Hersteller" & "Dienstleistungen" permalinks
+ * Plugin URI: http://maciejbis.net
+ * Description: A plugin that adjusts the functionality of this website
+ * Version: 1.0
+ * Author: Maciej Bis
+ * Author URI: http://www.maciejbis.net
+ * License: GPL2
+ */
+
+/**
+ * Detect ad permalinks
+ */
+function bis_detect_cpt_permalinks( $query ) {
+	global $wpdb, $pm_query, $wp, $wp_rewrite;
+
+	// 1. Extract the slugs
+	preg_match( '/datenrettung-([^\/]+)\/(([^\/]*)(-[^-\/]+))(?:\/|$)/Ui', $wp->request, $parts );
+
+	if ( ! empty( $parts[2] ) ) {
+		// 2A. Get all posts that have exact or similar slug extracted from URL
+		$post_slug     = basename( $parts[2] );
+		$post_slug_alt = basename( $parts[3] );
+
+		$sql_query = sprintf( 'SELECT ID FROM %1$s WHERE 1=1 AND 
+		(
+			(post_type = "dienstleistung" AND (post_name = "%2$s" OR post_name LIKE "%2$s-%%")) OR
+			(post_type = "hersteller" AND (post_name = "%3$s" OR post_name LIKE "%3$s-%%"))
+		)
+		', $wpdb->posts, esc_sql( $post_slug ), esc_sql( $post_slug_alt ) );
+		$url_posts = $wpdb->get_col( $sql_query );
+
+		// 2B. Get all posts that are assigned to a "ort" term extracted from URL
+		$term_slug = basename( $parts[1] );
+
+		$sql_query = sprintf( 'SELECT object_id FROM %s AS tr LEFT JOIN %s AS t ON tr.term_taxonomy_id = t.term_id WHERE t.slug = "%s"', $wpdb->term_relationships, $wpdb->terms, esc_sql( $term_slug ) );
+
+		$ort_posts = $wpdb->get_col( $sql_query );
+
+		// 2C. Check what posts are in both arrays (there should be only one post)
+		if ( ! empty( $url_posts ) && ! empty( $ort_posts ) ) {
+			$found_posts = array_intersect( $url_posts, $ort_posts );
+
+			if ( ! empty( $found_posts ) ) {
+				$post_id = (int) reset( $found_posts );
+				$post    = get_post( $post_id );
+			}
+		}
+
+		if ( ! empty( $post->post_name ) ) {
+			$new_query = array(
+				'post_type'       => $post->post_type,
+				$post->post_type  => $post->post_name,
+				'name'            => $post->post_name,
+				'do_not_redirect' => 1,
+			);
+		}
+
+		// 3. Debug the query parameters
+		if ( isset( $_GET['debug_bis_query'] ) ) {
+			printf( '<pre>%s</pre> <pre>%s</pre> <pre>%s</pre>', print_r( $parts, true ), print_r( $query, true ), print_r( $new_query, true ) );
+			die();
+		}
+
+		// 4. Overwrite the query object & Disable canonical redirect
+		if ( ! empty( $new_query ) ) {
+			remove_action( 'template_redirect', 'wp_old_slug_redirect' );
+			remove_action( 'template_redirect', 'redirect_canonical' );
+			add_filter( 'wpml_is_redirected', '__return_false', 99, 2 );
+			add_filter( 'pll_check_canonical_url', '__return_false', 99, 2 );
+
+			$query = $new_query;
+		}
+	}
+
+	return $query;
+}
+
+add_filter( 'request', 'bis_detect_cpt_permalinks', 9999 );
+
+/**
+ * Rewrite permalinks
+ */
+function pm_filter_cpt_permalinks( $permalink, $post ) {
+	if ( empty( $post->post_type ) || $post->post_status !== 'publish' ) {
+		return $permalink;
+	}
+
+	if ( in_array( $post->post_type, array( 'hersteller', 'dienstleistung' ) ) ) {
+		// Get the slug of assigned 'orte' term 
+		$o_terms       = wp_get_object_terms( $post->ID, 'orte' );
+		$o_lowest_term = ( ! is_wp_error( $o_terms ) && ! empty( $o_terms ) && is_object( $o_terms[0] ) ) ? pm_get_lowest_element( $o_terms[0], $o_terms ) : "";
+		$o_slug        = ( ! empty( $o_lowest_term->slug ) ) ? $o_lowest_term->slug : '';
+
+		// A. Hersteller (datenrettung-%orte_flat%/%hersteller%-%herstellerkategorie%)
+		if ( $post->post_type == 'hersteller' ) {
+
+			// Get the slug of assigned 'herstellerkategorie' term 
+			$h_terms       = wp_get_object_terms( $post->ID, 'herstellerkategorie' );
+			$h_lowest_term = ( ! is_wp_error( $h_terms ) && ! empty( $h_terms ) && is_object( $h_terms[0] ) ) ? pm_get_lowest_element( $h_terms[0], $h_terms ) : "";
+			$h_slug        = ( ! empty( $h_lowest_term->slug ) ) ? $h_lowest_term->slug : '';
+
+			$new_permalink = sprintf( '%s/datenrettung-%s/%s-%s', trim( get_option( 'home' ), '/' ), $o_slug, sanitize_title( $post->post_title ), $h_slug );
+		}
+
+		// B. Datenrettung (datenrettung-%orte_flat%/%dienstleistung%)
+		if ( $post->post_type == 'dienstleistung' ) {
+			$new_permalink = sprintf( '%s/datenrettung-%s/%s', trim( get_option( 'home' ), '/' ), $o_slug, sanitize_title( $post->post_title ) );
+		}
+
+		$permalink = user_trailingslashit( $new_permalink );
+	}
+
+	return $permalink;
+}
+
+add_filter( 'post_type_link', 'pm_filter_cpt_permalinks', 1000, 2 );
+
+/**
+ * Get the lowest-level term
+ */
+function pm_get_lowest_element( $first_element, $elements ) {
+	if ( ! empty( $elements ) && ! empty( $first_element ) ) {
+		// Get the ID of first element
+		if ( ! empty( $first_element->term_id ) ) {
+			$first_element_id = $first_element->term_id;
+			$parent_key       = 'parent';
+		} else if ( ! empty( $first_element->ID ) ) {
+			$first_element_id = $first_element->ID;
+			$parent_key       = 'post_parent';
+		} else if ( is_numeric( $first_element ) ) {
+			$first_element_id = $first_element;
+			$parent_key       = 'post_parent';
+		} else {
+			return false;
+		}
+
+		$children = wp_filter_object_list( $elements, array( $parent_key => $first_element_id ) );
+		if ( ! empty( $children ) ) {
+			// Get the first term
+			$child_term    = reset( $children );
+			$first_element = pm_get_lowest_element( $child_term, $elements );
+		}
+	}
+
+	return $first_element;
+}
