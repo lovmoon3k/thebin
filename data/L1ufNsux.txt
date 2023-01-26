@@ -1,0 +1,48 @@
+#!python
+import os
+import sys
+import subprocess
+import re
+import time
+
+os.chdir("C://Users/USER/Downloads/scrcpy-win64-v1.19/")
+output = subprocess.check_output("ipconfig", shell=True).decode()
+match = re.search(r"Default.*(192\.168\.43\.\d+)", output)
+DEVICE_IP = None
+if match:
+    DEVICE_IP = match.group(1)
+
+if len(sys.argv) > 1 and sys.argv[1] == "usb":
+    # Get a list of connected devices
+    devices = subprocess.check_output("adb devices", shell=True).decode()
+    devices = [d for d in devices.split("\n") if "\t" in d]
+    for device in devices:
+        device = device.split("\t")[0]
+        if DEVICE_IP and device == DEVICE_IP+":5555":
+            continue
+        print("Running over device", device)
+        subprocess.run(["./scrcpy.exe", "-S", "-s", device])
+else:
+    if DEVICE_IP is None and len(sys.argv)>1 and sys.argv[1] == 'setup':
+        print("Trying to run setup. Please be patient...")
+        print("Toggling wifi hotspot on/off.")
+        subprocess.run(["adb", "shell", "am", "start", "-n", "com.android.settings/.TetherSettings"])
+        subprocess.run(["adb", "shell", "input", "keyevent", "20"])
+        subprocess.run(["adb", "shell", "input", "keyevent", "66"])
+        subprocess.run(["adb", "shell", "input", "keyevent", "66"])
+        subprocess.run(["adb", "tcpip", "5555"])
+        print("Waiting for system to connect to wifi hotspot....")
+        while True:
+           time.sleep(1)
+           output = subprocess.check_output("ipconfig", shell=True).decode()
+           if match := re.search(r"Default.*(192\.168\.43\.\d+)", output):
+               DEVICE_IP = match.group(1)
+               break
+
+    # Get the IP address of the device
+    if not DEVICE_IP:
+        raise ValueError("Device IP not found. Run airdroid.py setup to turn on hotspot if it is not on.")
+    # Connect to the device over wifi
+    subprocess.run(["adb", "connect", DEVICE_IP])
+    print("Running over wifi", DEVICE_IP+":5555")
+    subprocess.run(["./scrcpy.exe", "-s", DEVICE_IP, "-S"])
