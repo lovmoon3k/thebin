@@ -1,0 +1,124 @@
+""" import required modules"""
+import json
+import numpy as np
+import pandas as pd
+import lasio
+import pickle
+import lasio
+from scipy import stats
+import json
+
+class Las_dict_of_mnemonics_matching():
+    def __init__(self, las_file_path, path_to_wl_unit_lang_model, lang, confidence_level, dict_of_mnemonic):
+        
+        " read las file using lasio library"
+        self.las  = lasio.read(las_file_path)
+        
+        " load ML model to predict unit of measurement using well logging data  "
+        self.loaded_model = pickle.load(open(path_to_wl_unit_lang_model, "rb"))[0]
+        
+        " user language "
+        self.lang = lang
+        
+        " confidence lavel "
+        self.confidence_level = confidence_level 
+        
+        " read dict_of_mnemonic "
+        self.dict_of_mnemonic = dict_of_mnemonic
+        
+    def get_inlog_mnemonic(self, curve):
+              
+        find_inLog = []
+        for mnem_element in self.dict_of_mnemonic:
+            if curve.mnemonic.lower() in mnem_element['possible_mnemonics']:
+                 find_inLog.append(mnem_element['log_' + self.lang])
+                    
+        inLog_mnem = ''    
+        if len(find_inLog) > 0:
+            inLog_mnem = find_inLog[0]
+        
+        return(inLog_mnem)
+    
+    def get_pred_unit(self, curve, inLog_mnem):
+        
+        pred_Unit = ''
+        if len(inLog_mnem) > 0:
+            """ generate input data """
+            log_values = curve.data
+            log_values = log_values[~np.isnan(log_values)]
+            median = np.median(log_values)
+            mean = np.mean(log_values)
+            mode = stats.mode(log_values)[0][0]
+            min_ = np.min(log_values)
+            max_ = np.max(log_values)
+            input_ = np.array([[median, mean, mode, min_, max_]]).reshape(1, -1)
+            
+            """ get predict using Machine Learning model """
+            probs = self.loaded_model.predict_proba(input_)
+            if any(k >= self.confidence_level for k in probs[0]):
+                pred_Unit = self.loaded_model.predict(input_)[0]
+            
+        return(pred_Unit)
+    
+    def get_found_inlog_unit(self, curve):
+        
+        find_inLog_unit = ''
+        find_unit = []
+        for mnem_element in self.dict_of_mnemonic:
+            if curve.mnemonic.lower() in mnem_element['possible_mnemonics']:
+                find_unit.append(list(mnem_element['inlog_unit_and_convertation_' + self.lang].keys()))
+        if len(find_unit) > 0:
+            find_inLog_unit = find_unit[0][0]
+        
+        return(find_inLog_unit)
+    
+    def get_convertation_func(self, curve, pred_Unit, find_inLog_unit):
+        
+        convertation_func = ''
+        # generate rule of convertation
+        if pred_Unit == find_inLog_unit != '':
+            convertation_func = 1
+ 
+        if len(pred_Unit) > 0 and len(find_inLog_unit) > 0 and pred_Unit != find_inLog_unit:
+            convertation_func_list = []
+            for mnem_element in self.dict_of_mnemonic:
+                if curve.mnemonic.lower() in mnem_element['possible_mnemonics']:
+                    convertation_func_list.append(mnem_element['inlog_unit_and_convertation_' + lang][find_inLog_unit][pred_Unit])
+            convertation_func = convertation_func_list[0]
+        return(convertation_func)
+        
+    
+        
+    def get_matching_matrix(self):
+        output_list = []
+        for curve in self.las.curves:
+            """ get inLog_mnem """
+            inLog_mnem = self.get_inlog_mnemonic(curve)
+            
+            """ predict units for curve where inLog mnemonic detected """
+            pred_Unit = self.get_pred_unit(curve, inLog_mnem)  
+            
+            """ find inLog unit """
+            find_inLog_unit = self.get_found_inlog_unit(curve)
+            
+            """ find inLog unit """
+            convertation_func = self.get_convertation_func(curve, pred_Unit, find_inLog_unit)
+            
+            output_list.append(
+            [
+            curve.descr,
+            curve.mnemonic,
+            inLog_mnem,
+            curve.unit,
+            pred_Unit,
+            find_inLog_unit,
+            convertation_func,
+            ]
+            )
+                   
+        return(output_list)
+    
+lang = 'ru'
+CONFIDENCE_LAVEL = 0.9
+mnemonics_matching = Las_dict_of_mnemonics_matching('welllogging_example.las', "wl_18_unit_model_" + lang + ".pickle", lang, CONFIDENCE_LAVEL, mnemonics)
+output_list = mnemonics_matching.get_matching_matrix()
