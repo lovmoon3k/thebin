@@ -1,9 +1,5 @@
-[**Desc4g7U**](/data/Desc4g7U.txt) (26/01/23 - 11:48)- 2282 bytes
+[**pMpp52cg**](/data/pMpp52cg.txt) (26/01/23 - 11:54)- 2152 bytes
 
-[**NvKDtGpV**](/data/NvKDtGpV.txt) (26/01/23 - 11:48)- 5158 bytes
-
-[**NvKDtGpV**](/data/NvKDtGpV.txt) (26/01/23 - 11:48)- 5158 bytes
-
-**Total Datas**: 6479
+**Total Datas**: 6480
 
 **Total Size**: 38.41 MB / 38.4 MB
