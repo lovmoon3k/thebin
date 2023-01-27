@@ -1,0 +1,237 @@
+<?php
+  // Path: src\Core\Persistence\BookManager.php
+
+  namespace Foxx\Library\Core\Persistence;
+  use Foxx\Library\Core\Model\Book;
+  use Foxx\Library\Core\Model\Loan;
+  use Foxx\Library\Core\Enums\GetBooksBy;
+  use Foxx\Library\Core\Enums\SetBookBy;
+  use Foxx\Library\Core\Exception\BookException;
+
+  /**
+   * BookManager
+   * 
+   * Is a class that manages the books and loans
+   * 
+   * @package Foxx\Library\Core\Persistence
+   * @author Foxx Azalea Pinkerton
+   */
+  class BookManager {
+    const DEBUG = true;
+
+    /**
+     * @var array $books The books
+     */
+    private $books = array(); 
+
+    /**
+     * @var array $loans The loans
+     */
+    private $loans = array();
+
+
+    public function __construct() {
+      $this->loadBooks();
+    }
+
+    public function __destruct() {
+      $this->saveBooks();
+    }
+
+    /**
+     * loadBooks
+     * 
+     * Is a function that loads the books from the json file
+     * 
+     * @return void
+     */
+    private function loadBooks() {
+      /**
+       * @var array $books The books from the json file
+       */
+      $books = json_decode(file_get_contents(__DIR__ . DIRECTORY_SEPARATOR . "Files" . DIRECTORY_SEPARATOR . "Books.json"), true);
+      foreach ($books as $book) {
+        $bookLoans = array();
+        foreach ($book["loan"] as $loan) {
+          $bookLoans[] = new Loan($loan["userId"], $loan["date"], $loan["due"], $loan["returned"], $loan["returned_date"], $loan["id"]);
+        }
+        $this->books[] = new Book(
+          $book["title"],
+          $book["author"],
+          $book["genres"],
+          $book["description"],
+          $bookLoans,
+          $book["cover"],
+          $book["rating"],
+          $book["ratings"],
+          $book["id"]
+        );
+      }
+    }
+
+    /**
+     * saveBooks
+     * 
+     * Is a function that saves the books to the json file
+     * 
+     * @return void
+     */
+    private function saveBooks() {
+      $books = array();
+      foreach ($this->books as $book) {
+        $books[] = $book->jsonSerialize();
+      }
+      file_put_contents(__DIR__ . DIRECTORY_SEPARATOR . "Files" . DIRECTORY_SEPARATOR . "Books.json", json_encode($books));
+    }
+
+    /**
+     * addBook
+     * 
+     * Is a function that adds a book to the books array
+     */
+    public function addBook(Book $book) {
+      $this->books[] = $book;
+      
+      self::DEBUG ? $this->saveBooks() : null;
+    }
+
+    /**
+     * addLoan
+     * 
+     * Is a function that adds a loan to the loans array
+     */
+    public function addLoan(Loan $loan) {
+      $this->loans[] = $loan;
+    }
+
+    /**
+     * getBooks
+     * 
+     * Is a function that returns the books array
+     */
+    public function getBooks() {
+      return $this->books;
+    }
+
+    /**
+     * getLoans
+     * 
+     * Is a function that returns the loans array
+     */
+    public function getLoans() {
+      return $this->loans;
+    }
+
+    /**
+     * getLoanById
+     * 
+     * Is a function that returns a loan by its id
+     * 
+     * @param int $id The id of the loan
+     * @return Loan|null The loan or null if not found
+     */
+    public function getLoanById($id) {
+      foreach ($this->loans as $loan) {
+        if ($loan->getId() == $id) {
+          return $loan;
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Get a book by criteria
+     * 
+     * Returns an array of books with the specific criteria, whether
+     * its the title, author or id. If id is specified it will check
+     * 
+     * @param GetBooksBy $getby The criteria
+     * @param mixed $value The value to check for
+     * @return Book[] An array of books
+     * @throws BookException If the book is not found.
+     * @author Command_String#6538
+     */
+    public function getBooksBy(GetBooksBy $getby, mixed $value): array {
+      $books = array();
+      foreach ($this->books as $book) {
+        switch ($getby) {
+          case GetBooksBy::Author:
+            $get = $book->author();
+            break;
+          case GetBooksBy::Genre:
+            $get = $book->genre();
+            break;
+          case GetBooksBy::Title:
+            $get = $book->title();
+            break;
+          case GetBooksBy::Id:
+            $get = $book->id();
+            break;
+        }
+
+        if ($get == $value) {
+          $books[] = $book;
+        }
+      }
+      if (count($books) > 0) {
+        return $books;
+      } else {
+        switch ($getby) {
+          case GetBooksBy::Author:
+            throw new BookException(BookException::NO_RECORD_BY_AUTHOR . $value, BookException::NO_RECORD_BY_AUTHOR_CODE);
+            break;
+          case GetBooksBy::Genre:
+            throw new BookException(BookException::NO_RECORD_BY_GENRE . $value, BookException::NO_RECORD_BY_GENRE_CODE);
+            break;
+          case GetBooksBy::Title:
+            throw new BookException(BookException::NO_RECORD_BY_TITLE . $value, BookException::NO_RECORD_BY_TITLE_CODE);
+            break;
+          case GetBooksBy::Id:
+            throw new BookException(BookException::NO_RECORD_BY_ID . $value, BookException::NO_RECORD_BY_ID_CODE);
+            break;
+            
+        }
+      }
+    }
+
+    // set the things for the book
+
+    /**
+     * Sets the book by the given value
+     *
+     * @param SetBookBy $setby
+     * @param string|Loan|array|int $value
+     * @param Book $book
+     * @return void
+     */
+    public function setBookBy(SetBookBy $setby, mixed $value, Book $book) {
+      switch ($setby) {
+        case SetBookBy::Author:
+          $book->author($value);
+          break;
+        case SetBookBy::Title:
+          $book->title($value);
+          break;
+        case SetBookBy::Description:
+          $book->description($value);
+          break;
+        case SetBookBy::Genres:
+          $book->genres($value);
+          break;
+        case SetBookBy::Cover:
+          $book->cover($value);
+          break;
+        case SetBookBy::AddRating:
+          $book->addRating($value);
+          break;
+        case SetBookBy::AddLoan:
+          $book->addLoan($value);
+          break;
+        case SetBookBy::Id:
+          $book->id($value);
+          break;
+      }
+
+      self::DEBUG ? $this->saveBooks() : null;
+    }
+  }
