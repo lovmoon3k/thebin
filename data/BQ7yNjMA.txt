@@ -1,0 +1,66 @@
+#include <stdio.h>
+#include <WinSock2.h>
+#include <iphlpapi.h>
+#include <WS2tcpip.h>
+#include <locale.h>
+#pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "iphlpapi.lib")
+
+#define MAX_TRIES 3
+int main() {
+	setlocale(LC_ALL, "ru_RU.UTF-8");
+	WSADATA d;
+	if (WSAStartup(MAKEWORD(2, 2), &d)) {
+		printf("Failed to initialize\n");
+		return -1;
+	}
+	ULONG dwRetVal;
+	ULONG family = AF_UNSPEC;
+	PIP_ADAPTER_ADDRESSES adr;
+	ULONG outBufLen = 15000;
+	int tries = 0;
+	do {
+		adr = (IP_ADAPTER_ADDRESSES*)HeapAlloc(GetProcessHeap(), 0, outBufLen);
+		
+		dwRetVal =
+			GetAdaptersAddresses(family, GAA_FLAG_INCLUDE_PREFIX, NULL, adr, &outBufLen);
+		if (dwRetVal != ERROR_SUCCESS) {
+			HeapFree(GetProcessHeap(), 0, adr);
+			adr = NULL;
+		}
+		else {
+			break;
+		}
+		tries++;
+	} while ((tries < MAX_TRIES) && (dwRetVal == ERROR_BUFFER_OVERFLOW));
+	int j = 0;
+	
+	if (dwRetVal == ERROR_SUCCESS) {
+		while (adr) {
+			++j;
+			printf("%S\n", adr->FriendlyName);
+
+			int i = 0;
+			PIP_ADAPTER_UNICAST_ADDRESS_LH pUnicast = adr->FirstUnicastAddress;
+			while (pUnicast) {
+				printf("%s\n", pUnicast->Address.lpSockaddr->sa_family == AF_INET ? "IPv4" : "IPv6");
+				char ap[100];
+				if (getnameinfo(pUnicast->Address.lpSockaddr,
+								pUnicast->Address.iSockaddrLength, 
+								ap, sizeof(ap), 0, 0, NI_NUMERICHOST) == 0)
+				{
+					printf("%s\n", ap);
+				}
+			
+				pUnicast = pUnicast->Next;
+			}
+			
+
+			printf("\n");
+			adr = adr->Next;
+		}
+	}
+
+	WSACleanup();
+	return 0;
+}
