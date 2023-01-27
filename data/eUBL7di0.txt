@@ -1,0 +1,135 @@
+#!/bin/bash
+#---------------------------------------------------#
+# getspot.sh                                        #
+# Phillip J Rhoades                                 #
+# 2023-01-26                                        #
+#---------------------------------------------------#
+# Requires curl and jq                              #
+#---------------------------------------------------#
+# This script will check a public SPot XML/JSON     #
+# feed every XXX number of seconds. If there is     #
+# a new message (Tracking/Custom/OK), it will       #
+# will print out the message, coordinates, and      #
+# a link to a google map of the message location.   #
+# Monitor a Spot device from the console!           # 
+#---------------------------------------------------#
+
+
+#----------------------------------------------
+# Make ctrl-c exit nicer
+#----------------------------------------------
+trap "echo Exited!; exit;" SIGINT SIGTERM
+
+#----------------------------------------------
+# Sleep between refreshes at least 150 seconds
+# or Spot will ban your IP and shut down your
+# xml/json feed. You can make it refresh less
+# often just fine though.
+#----------------------------------------------
+
+refreshTime=150
+
+#----------------------------------------------
+# You'll need to create an XML/JSON feed
+# on the spot website using your account
+# https://www.findmespot.com/en-us/support/spot-x/get-help/general/spot-api-support
+#----------------------------------------------
+# 
+# Then put your feedID here
+#----------------------------------------------
+
+feedID="YOUR-SPOT-feedID-GOES-HERE"
+
+#----------------------------------------------#
+# The work begins here.                        #
+#----------------------------------------------#
+
+while :
+do
+	#----------------------------------------------
+	# Save the previous message ID 
+	# and don't refresh display if there
+	# is no new message.
+	prevID=$id
+
+	#----------------------------------------------
+	# For testing use a downloaded file
+	# so you don't flood the feed with requests
+	#data="`cat spottest.json |jq -r .response.feedMessageResponse.messages.message`"
+	#----------------------------------------------
+
+	#----------------------------------------------
+	#For real use this link
+	data="`curl -s https://api.findmespot.com/spot-main-web/consumer/rest-api/2.0/public/feed/$feedID/latest.json |jq -r .response.feedMessageResponse.messages.message`"
+	#----------------------------------------------
+
+	if  [ -z "$data" ]; then
+		echo "Could Not Connect To Spot Server"
+	else
+		latitude=`echo $data|jq -r .latitude`
+		longitude=`echo $data|jq -r .longitude`
+		dateTime=$(date -d `echo $data|jq -r .dateTime`)
+		messengerName=`echo $data|jq -r .messengerName`
+		messageType=`echo $data|jq -r .messageType`
+		messageContent=`echo $data|jq -r .messageContent`
+		batteryState=`echo $data|jq -r .batteryState`
+		unixTime=`echo $data|jq -r .unixTime`
+		messengerId=`echo $data|jq -r .messengerId`
+		id=`echo $data|jq -r .id`
+	fi
+
+	if  [[ "$prevID" == "$id" ]]; then
+		# Message has not updated so wait 
+		# and try again on next cycle
+		true
+	else
+		echo "-------------------------------"
+		echo "Message Type: $messageType"
+		echo "Date/Time: $dateTime"
+		echo "From: $messengerName"
+		echo "Battery: $batteryState"
+		if  [[ "$messageType" != "TRACK" ]]; then
+			echo "Message:"
+			echo "****************"
+			echo "$messageContent"
+			echo "****************"
+		fi
+		echo "Coordinates: $latitude,$longitude"
+		# Most xterminals let you right click and open links
+		# so this should work that way for opening a google map
+		# of the checked-in location.
+		echo "Map: http://maps.google.com/maps?q=$latitude,$longitude+(SPOT)&z=14&ll=$latitude,$longitude"
+	fi
+
+	#----------------------------------------------
+	# Waiting the number of seconds
+	# before trying the feed again.
+	#----------------------------------------------
+	# Reset thesleep to refreshTime every cycle
+	# for new countdown.
+
+	thesleep=$refreshTime
+
+	#----------------------------------------------	
+	# There's a progress spinner here
+	# for friendly UI purposes.
+	# The four .25 seconds equal one second
+	# per "turn" of the spinner.
+	#----------------------------------------------
+	while [ $thesleep -gt 0 ]
+	do
+		echo -n "| Updating in $thesleep seconds"
+		sleep .25
+		echo -n -e "\033[2K\r"
+		echo -n "/ Updating in $thesleep seconds"
+		sleep .25
+		echo -n -e "\033[2K\r"
+		echo -n "— Updating in $thesleep seconds"
+		sleep .25
+		echo -n -e "\033[2K\r"
+		echo -n "\\ Updating in $thesleep seconds"
+		sleep .25
+		echo -n -e "\033[2K\r"
+		thesleep=$(($thesleep - 1))
+	done
+done
