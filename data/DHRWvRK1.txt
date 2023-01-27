@@ -1,0 +1,42 @@
+drop table if exists tmp_cur_forecast ;
+create temporary table tmp_cur_forecast as
+--определяем самый актуальный прогноз на каждую неделю
+with gf_prev as (
+select f.code_lm::text as item, 
+	f.site_code  as loc, 
+	f.estm_forecast as forecast,  
+	f.calculation_date , 
+	concat(f."year", f.week_num)::int as sem, 
+	row_number() over(partition by f.code_lm, f.site_code, concat(f."year", f.week_num) order by f.calculation_date desc) as rn 
+    from replenishment_marts.v_gold_forecast f
+    where f.site_code = 13
+    ),
+--отбираем самый актуальный прогноз для недели
+gf as (select * from gf_prev where rn = 1)  
+select gf.item, gf.loc, gf.forecast, sem.semddeb, sem.semdfin
+from gf 
+join gold_refgwr_ods.v_fctsem sem on gf.sem = sem.semnsem
+;
+
+--первые чеки (я тут уже просто взяла артикулы, проданные за два дня в октябре, чтобы найти хоть какой-то прогноз по ним
+with new_i as (
+select distinct a.store_id, a.item, a.opened_dttm::date 
+   	from (
+   	select rl.store_id, rl.line_item_id::text as item, rl.opened_dttm::date,
+   		row_number() over(partition by rl.store_id, rl.line_item_id order by rl.opened_dttm asc) rn
+   	from dds.v_receipt_lines_public rl
+   	where rl.store_id=13
+   	) a
+   	where --a.rn = 1 and
+   	a.opened_dttm::date between '2022-10-01'::date 
+   	-- - interval '42 days' 
+   	and '2022-10-02'::date
+   	)
+select new_i.store_id, new_i.item, tcf.item as item_f, --new_i.opened_dttm,
+tcf.forecast,
+case when forecast notnull then 'есть прогноз'
+else 'нет прогноза' end as ff
+from new_i
+left join tmp_cur_forecast tcf on trim(tcf.item) = trim(new_i.item) and
+tcf.loc = new_i.store_id --and tcf.semdfin opened_dttm
+order by 3 desc
