@@ -1,0 +1,76 @@
+#include <targets\AT91SAM7.h>
+#include "pcf8833u8_lcd.h"
+#include <ctl_api.h>
+#include <stdio.h>
+
+char b[4] = {0};
+int p = 0;
+
+void wyswietl(char b) {
+//    sprintf("%.f", 12);
+    ADC_CR = 1<<1;	// lub ADC_CR_START; // start konwersji na aktywnych kanałach
+    while ((ADC_SR & ADC_SR_EOC5) == 0) {}  // dopóki flaga EOC6 jest rowna 0 (konwersja na kanale 6 nie zakończona - rób nic) 
+    sprintf(b, "%d.%d", 20+((ADC_CDR5-530)/5), ADC_CDR5 % 10);// wykonaj akcję przypisaną do konwersji
+    LCDPutStr(b, 55,50,LARGE,WHITE,BLACK);
+}
+
+void TIMER0_ISR () {
+//    wyswietl(b);//zmiana stanu LCD_BL
+    p = ADC_CDR5;
+    ADC_CR = 1<<1;	// lub ADC_CR_START; // start konwersji na aktywnych kanałach
+    while ((ADC_SR & ADC_SR_EOC5) == 0) {}  // dopóki flaga EOC6 jest rowna 0 (konwersja na kanale 6 nie zakończona - rób nic) 
+    sprintf(b, "%d.%d", 20+((ADC_CDR5-530)/5), ADC_CDR5 % 10);// wykonaj akcję przypisaną do konwersji
+    LCDPutStr(b, 55,50,LARGE,WHITE,BLACK);
+    TC0_SR;   // na początku pusty odczyt rejestru statusu - kasowanie flagi przerwania CPCS
+}
+
+void TIMER0_ISR1 () {
+    TC0_CCR ^= (1<<0) | (0<<1) | (1<<2);
+    PIOB_ISR;
+}
+
+ 
+int pomiar(){
+				// w rejestrze ADC_MR możliwe również ustawienia niższej rozdzielczości
+
+  return ADC_CDR5;
+}
+ 
+int main(void){
+ 
+  char b[7];
+ 
+  InitLCD();  
+  LCDClearScreen();
+  Backlight(BL_ON);
+
+  ctl_global_interrupts_disable();
+
+  PMC_PCER|=(1<<3) | (1<<12) | (1<<17); // Power management controller (s. 30 datasheet);
+  PIOB_OER = (1<<20);
+  PIOB_OWER = (1<<20);
+  TC0_CCR = (1<<1);
+  TC0_SR;
+  TC0_CMR = (1<<2) | (1<<14);
+  TC0_CCR = (1<<0) | (1<<2);
+  TC0_IER= (1<<4);
+  TC0_RC = 9400;
+  PIOB_IER = (1<<3);
+
+  // konfiguracja ADC, konwersja wartości napięcia z kanału 3 przetwornika:
+  ADC_CR = 1 << 0; 	// lub ADC_CR_SWRST – to inny zapis tego samego – reset przetwornika
+  ADC_CHER = 1 << 5;	// aktywowanie kanałów na których ma być przeprowadzona konwersja
+  ADC_IDR = 0xFFFFF;	// świadomie wyłączamy przerwania od wszystkich zdarzeń(źródeł) z ADC
+  ADC_MR = (23<<ADC_MR_PRESCAL_BIT) | (2<<ADC_MR_STARTUP_BIT) | (1<<ADC_MR_SHTIM_BIT);
+
+  ctl_unmask_isr(3);
+  ctl_set_isr(12,1,CTL_ISR_TRIGGER_FIXED,TIMER0_ISR,0);
+  ctl_set_isr(3,2,CTL_ISR_TRIGGER_FIXED,TIMER0_ISR1,0);
+  ctl_unmask_isr(12);
+  ctl_global_interrupts_enable();
+ 
+  while(1){
+//    sprintf(b, "%d.%d", 20+((pomiar()-530)/5), pomiar() % 10);// wykonaj akcję przypisaną do konwersji
+//    LCDPutStr(b,55,50,LARGE,WHITE,BLACK);
+  }
+}
