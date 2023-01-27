@@ -1,0 +1,28 @@
+select first_date, last_date, work_code,to_char(first_date,'Day') "FROM",to_char(last_date,'Day') "TO",'Sick',sum(hrs) from (select ptd.*  
+from   pd_trf_day  ptd, work_code wc, person p, vo_person_category vopc
+where ptd.work_code_id = wc.work_code_id
+and wc.work_code_std_category_id = 2
+and ptd.person_id = p.person_id
+and p.vo_person_category_id = vopc.vo_person_category_id
+and TO_CHAR(ptd.date_day, 'DY','NLS_DATE_LANGUAGE=AMERICAN') NOT IN ('SAT', 'SUN') -- not sure if weekends should be excluded since there are records for them
+and (:person_id is null or ptd.person_id = :person_id) -- person_id param
+and (:vehicle_owner_id is null or vopc.vehicle_owner_id = :vehicle_owner_id) -- vehicle_owner_id param
+and (:vo_person_category_id is null or vopc.vo_person_category_id = :vo_person_category_id) -- vo_person_category_id param
+and (:from_date is null or ptd.date_day >= :from_date) -- from_date param
+and (:to_date is null or ptd.date_day <= :to_date) -- to_date param
+)
+match_recognize ( 
+  order by date_day 
+  measures  
+    first(date_day) as first_date, 
+    last(date_day) as last_date,
+    nvl(trf_dhr,0) as hrs,
+    count(*) as days,
+    work_code_id as work_code,
+    match_number() as grp
+  pattern ( strt consecutive* ) 
+  define  
+    consecutive as date_day = ( prev ( date_day ) + 1 ) 
+)
+group by first_date,last_date,work_code
+order by first_date;
