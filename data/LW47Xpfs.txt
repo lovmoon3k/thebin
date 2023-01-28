@@ -1,0 +1,54 @@
+import pandas as pd
+import branca
+import folium
+import numpy as np
+import json
+import geopandas as gpd
+
+geo_data = gpd.read_file("C:\\Users\\xduan\\OneDrive - Eastside Preparatory School\\Documents\\Winter10th\\Adv Prog DataViz\\geojson-counties-fips.json")
+covid_df = pd.read_csv("C:\\Users\\xduan\\OneDrive - Eastside Preparatory School\\Documents\\Winter10th\\Adv Prog DataViz\\United_States_COVID-19_County_Level_of_Community_Transmission_as_Originally_Posted_-_ARCHIVED.csv")
+
+geo_data = geo_data[["id", "geometry"]]
+geo_data["id"] = geo_data["id"].astype(str)
+
+covid_df["report_date"] = pd.to_datetime(covid_df["report_date"])
+covid_df.drop(covid_df[covid_df["report_date"] != "2021-12-29"].index, inplace=True)
+covid_df.drop(["community_transmission_level"], axis=1, inplace=True)
+
+covid_df.rename(columns={"cases_per_100K_7_day_count_change":"new_cases_7days",
+                         "percent_test_results_reported_positive_last_7_days":"pct_positive_7days"},
+                inplace=True)
+
+covid_df["new_cases_7days"] = covid_df["new_cases_7days"].str.replace(",", "")
+for i in covid_df.index:
+    if covid_df.loc[i, "new_cases_7days"] == "suppressed":
+        covid_df.loc[i, "new_cases_7days"] = 0.0
+covid_df["new_cases_7days"] = covid_df["new_cases_7days"].astype(float)
+
+covid_df["pct_positive_7days"] = covid_df["pct_positive_7days"].fillna(0.0)
+covid_df["pct_positive_7days"] = covid_df["pct_positive_7days"] / 100
+covid_df["fips_code"] = covid_df["fips_code"].astype(str)
+
+covid_df.reset_index(inplace=True)
+
+print(geo_data.info())
+print(covid_df.info())
+
+data = pd.merge(geo_data, covid_df, left_on="id", right_on="fips_code", how="outer")
+print(data.head())
+
+m = folium.Map(location=[45, -100], zoom_start=4)
+folium.LayerControl().add_to(m)
+
+bins = (data["new_cases_7days"].quantile([0,0.2,0.4,0.6,0.8,1])).tolist()
+folium.Choropleth(
+    geo_data=geo_data,
+    data=data,
+    columns=["fips_code", "new_cases_7days"],
+    bins=bins,
+    key_on="feature.properties.id",
+    fill_color="YlOrRd",
+    line_color="black"
+).add_to(m) 
+
+m.save("program03.html")
