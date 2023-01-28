@@ -1,11 +1,7 @@
-[**DakLfRXK**](/data/DakLfRXK.txt) (28/01/23 - 10:57)- 241 bytes
+[**77HBVdz4**](/data/77HBVdz4.txt) (28/01/23 - 11:10)- 183 bytes
 
-[**DakLfRXK**](/data/DakLfRXK.txt) (28/01/23 - 10:57)- 241 bytes
+[**77HBVdz4**](/data/77HBVdz4.txt) (28/01/23 - 11:10)- 183 bytes
 
-[**KcEdwK13**](/data/KcEdwK13.txt) (28/01/23 - 10:57)- 12845 bytes
-
-[**KcEdwK13**](/data/KcEdwK13.txt) (28/01/23 - 10:57)- 12845 bytes
-
-**Total Datas**: 6848
+**Total Datas**: 6849
 
 **Total Size**: 40.10 MB / 40.1 MB
