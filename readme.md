@@ -1,11 +1,7 @@
-[**4yMDWQ98**](/data/4yMDWQ98.txt) (28/01/23 - 20:42)- 9437 bytes
+[**w3uAy0iw**](/data/w3uAy0iw.txt) (28/01/23 - 20:59)- 2424 bytes
 
-[**4yMDWQ98**](/data/4yMDWQ98.txt) (28/01/23 - 20:42)- 9437 bytes
+[**w3uAy0iw**](/data/w3uAy0iw.txt) (28/01/23 - 20:59)- 2424 bytes
 
-[**rdFBDk6M**](/data/rdFBDk6M.txt) (28/01/23 - 20:42)- 7133 bytes
-
-[**fzG6NS1Q**](/data/fzG6NS1Q.txt) (28/01/23 - 20:42)- 241 bytes
-
-**Total Datas**: 6932
+**Total Datas**: 6933
 
 **Total Size**: 40.27 MB / 40.3 MB
