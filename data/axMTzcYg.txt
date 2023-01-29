@@ -1,0 +1,325 @@
+BVHBuildNode* RecursiveBuild(BVHPrimitiveInfo* info, int begin, int end, int* totalNodes)
+{
+	BVHBuildNode* node = (BVHBuildNode*)_aligned_malloc(sizeof(BVHBuildNode), 16);
+	node->mChildren[0] = node->mChildren[1] = nullptr;
+	(*totalNodes)++;
+
+	AABB bounds = AABB();
+	for (int i = begin; i < end; i++)
+	{
+		bounds.Union(info[i].mBounds);
+	}
+
+	int primitives = end - begin;
+	if (primitives <= mMaxPrimsInNode)
+	{
+		// Create leaf
+		unsigned int idx = mIndexNext;
+		mIndexNext += primitives;
+		if (mIndexNext > mIndexCount)
+		{
+			mIndices = (unsigned int*)realloc(mIndices, sizeof(unsigned int) * mIndexCount * 2);
+			mIndexCount *= 2;
+		}
+
+		for (int i = 0; i < primitives; i++)
+		{
+			mIndices[idx + i] = info[begin + i].mPrimitiveID;
+		}
+
+		node->InitLeaf(idx, primitives, bounds, mTopLevel, mPrintDebugInfo);
+		return node;
+	}
+	else
+	{
+		// Compute bound of primitive centroids, choose split dimension 
+		AABB centroidBounds = AABB();
+		for (int i = begin; i < end; ++i)
+		{
+			centroidBounds.Union(info[i].mCentroid);
+		}
+
+		// Get splitting dimension
+		int dim = centroidBounds.GetLongestAxis();
+
+		// If some conditions are met, build just a single leaf
+		if (centroidBounds.mMin[dim] == centroidBounds.mMax[dim] || end - begin <= mMaxPrimsInNode)
+		{
+			// Create leaf
+			unsigned int idx = mIndexNext;
+			mIndexNext += primitives;
+			if (mIndexNext > mIndexCount)
+			{
+				mIndices = (unsigned int*)realloc(mIndices, sizeof(unsigned int) * mIndexCount * 2);
+				mIndexCount *= 2;
+			}
+
+			for (int i = 0; i < primitives; i++)
+			{
+				mIndices[idx + i] = info[begin + i].mPrimitiveID;
+			}
+
+			node->InitLeaf(idx, primitives, bounds, mTopLevel, mPrintDebugInfo);
+			return node;
+		}
+		// Otherwise partition based on split method
+		else
+		{
+			int mid = -1;
+			float pmid = -1.0f;
+			BVHPrimitiveInfo* midPtr = NULL;
+
+			float minCost = std::numeric_limits<float>::infinity();
+			unsigned int minBucket = 0;
+			float leafCost = 0.0f;
+
+			unsigned int minPosition = 0;
+			unsigned int minAxis = 0;
+
+			switch (mSplitMode)
+			{
+			// Splitting in the middle of longest axis
+			case SplitMode::MIDDLE:
+				pmid = (centroidBounds.mMin[dim] + centroidBounds.mMax[dim]) / 2.0f;
+				midPtr = std::partition(&info[begin], &info[end], [dim, pmid](const BVHPrimitiveInfo& pi) { return pi.mCentroid[dim] < pmid; });
+				mid = (int)(midPtr - &info[0]);
+				if (mid != begin && mid != end)
+				{
+					break;
+				}
+
+			// Splitting based on median
+			case SplitMode::EQUAL_COUNTS:
+				mid = (begin + end) / 2;
+				std::nth_element(&info[begin], &info[mid], &info[end - 1] + 1, [dim](const BVHPrimitiveInfo& a, const BVHPrimitiveInfo& b) { return a.mCentroid[dim] < b.mCentroid[dim]; });
+				break;
+
+			// SAH splitting
+			case SplitMode::SAH:
+				if (primitives <= 2)
+				{
+					mid = (begin + end) / 2;
+					std::nth_element(&info[begin], &info[mid], &info[end - 1] + 1, [dim](const BVHPrimitiveInfo& a, const BVHPrimitiveInfo& b) { return a.mCentroid[dim] < b.mCentroid[dim]; });
+				}
+				else
+				{
+					// For each axis
+					unsigned int bestAxis = 0;
+					for (unsigned int axis = 0; axis < 3; axis++)
+					{
+						// Re-initialize buckets
+						for (unsigned int i = 0; i < mBucketsCount; i++)
+						{
+							mBuckets[i].mBounds = AABB();
+							mBuckets[i].mCount = 0;
+							mSahCost[i] = 0.0f;
+						}
+
+						// Prepare for SAH-partition buckets
+						for (int i = begin; i < end; i++)
+						{
+							unsigned int b = (unsigned int)((float)mBucketsCount * ((info[i].mCentroid[axis] - centroidBounds.mMin[axis]) / (centroidBounds.mMax[axis] - centroidBounds.mMin[axis])));
+							if (b >= mBucketsCount)
+							{
+								b = mBucketsCount - 1;
+							}
+
+							mBuckets[b].mCount++;
+							mBuckets[b].mBounds.Union(info[i].mBounds);
+						}
+
+						// Compute costs for splitting after each bucket
+						for (unsigned int i = 0; i < mBucketsCount - 1; i++)
+						{
+							AABB b0 = AABB();
+							AABB b1 = AABB();
+							int count0 = 0;
+							int count1 = 0;
+
+							for (unsigned int j = 0; j <= i; j++)
+							{
+								b0.Union(mBuckets[j].mBounds);
+								count0 += mBuckets[j].mCount;
+							}
+
+							for (unsigned int j = i + 1; j < mBucketsCount; j++)
+							{
+								b1.Union(mBuckets[j].mBounds);
+								count1 += mBuckets[j].mCount;
+							}
+
+							mSahCost[i] = 1.0f + (count0 * b0.GetSurfaceArea() + count1 * b1.GetSurfaceArea()) / bounds.GetSurfaceArea();
+						}
+
+						// Select best cost bucket
+						for (unsigned int i = 0; i < mBucketsCount - 1; i++)
+						{
+							if (mSahCost[i] < minCost)
+							{
+								minCost = mSahCost[i];
+								minBucket = i;
+								bestAxis = axis;
+							}
+						}
+					}
+
+					leafCost = (float)primitives;
+					dim = bestAxis;
+					if (leafCost < minCost || primitives > mMaxPrimsInNode)
+					{
+						midPtr = std::partition(&info[begin], &info[end], [&](const BVHPrimitiveInfo& pi)
+						{
+							unsigned int b = (unsigned int)((float)mBucketsCount * ((pi.mCentroid[dim] - centroidBounds.mMin[dim]) / (centroidBounds.mMax[dim] - centroidBounds.mMin[dim])));
+							if (b >= mBucketsCount)
+							{
+								b = mBucketsCount - 1;
+							}
+
+							return b <= minBucket;
+						});
+						mid = (int)(midPtr - &info[0]);
+					}
+					else
+					{
+						// Create leaf
+						unsigned int idx = mIndexNext;
+						mIndexNext += primitives;
+						if (mIndexNext > mIndexCount)
+						{
+							mIndices = (unsigned int*)realloc(mIndices, sizeof(unsigned int) * mIndexCount * 2);
+							mIndexCount *= 2;
+						}
+
+						for (int i = 0; i < primitives; i++)
+						{
+							mIndices[idx + i] = info[begin + i].mPrimitiveID;
+						}
+
+						node->InitLeaf(idx, primitives, bounds, mTopLevel, mPrintDebugInfo);
+						return node;
+					}
+				}
+				break;
+
+			// SAH with spatial splits
+			case SplitMode::SPLIT_SAH:
+				if (primitives <= 2)
+				{
+					mid = (begin + end) / 2;
+					std::nth_element(&info[begin], &info[mid], &info[end - 1] + 1, [dim](const BVHPrimitiveInfo& a, const BVHPrimitiveInfo& b) { return a.mCentroid[dim] < b.mCentroid[dim]; });
+				}
+				else
+				{
+					// For each axis
+					unsigned int bestAxis = 0;
+					for (unsigned int axis = 0; axis < 3; axis++)
+					{
+						// Re-initialize buckets
+						for (unsigned int i = 0; i < mBucketsCount; i++)
+						{
+							mBuckets[i].mBounds = AABB();
+							mBuckets[i].mCount = 0;
+							mSahCost[i] = 0.0f;
+						}
+
+						// Prepare for SAH-partition buckets
+						for (int i = begin; i < end; i++)
+						{
+							unsigned int b = (unsigned int)((float)mBucketsCount * ((info[i].mCentroid[axis] - centroidBounds.mMin[axis]) / (centroidBounds.mMax[axis] - centroidBounds.mMin[axis])));
+							if (b >= mBucketsCount)
+							{
+								b = mBucketsCount - 1;
+							}
+
+							mBuckets[b].mCount++;
+							mBuckets[b].mBounds.Union(info[i].mBounds);
+						}
+
+						// Compute costs for splitting after each bucket
+						for (unsigned int i = 0; i < mBucketsCount - 1; i++)
+						{
+							AABB b0 = AABB();
+							AABB b1 = AABB();
+							int count0 = 0;
+							int count1 = 0;
+
+							for (unsigned int j = 0; j <= i; j++)
+							{
+								b0.Union(mBuckets[j].mBounds);
+								count0 += mBuckets[j].mCount;
+							}
+
+							for (unsigned int j = i + 1; j < mBucketsCount; j++)
+							{
+								b1.Union(mBuckets[j].mBounds);
+								count1 += mBuckets[j].mCount;
+							}
+
+							mSahCost[i] = 1.0f + (count0 * b0.GetSurfaceArea() + count1 * b1.GetSurfaceArea()) / bounds.GetSurfaceArea();
+						}
+
+						// Select best cost bucket
+						for (unsigned int i = 0; i < mBucketsCount - 1; i++)
+						{
+							if (mSahCost[i] < minCost)
+							{
+								minCost = mSahCost[i];
+								minBucket = i;
+								bestAxis = axis;
+							}
+						}
+					}
+
+					leafCost = (float)primitives;
+					dim = bestAxis;
+					if (leafCost < minCost || primitives > mMaxPrimsInNode)
+					{
+						midPtr = std::partition(&info[begin], &info[end], [&](const BVHPrimitiveInfo& pi)
+						{
+							unsigned int b = (unsigned int)((float)mBucketsCount * ((pi.mCentroid[dim] - centroidBounds.mMin[dim]) / (centroidBounds.mMax[dim] - centroidBounds.mMin[dim])));
+							if (b >= mBucketsCount)
+							{
+								b = mBucketsCount - 1;
+							}
+
+							return b <= minBucket;
+						});
+						mid = (int)(midPtr - &info[0]);
+					}
+					else
+					{
+						// Create leaf
+						unsigned int idx = mIndexNext;
+						mIndexNext += primitives;
+						if (mIndexNext > mIndexCount)
+						{
+							mIndices = (unsigned int*)realloc(mIndices, sizeof(unsigned int) * mIndexCount * 2);
+							mIndexCount *= 2;
+						}
+
+						for (int i = 0; i < primitives; i++)
+						{
+							mIndices[idx + i] = info[begin + i].mPrimitiveID;
+						}
+
+						node->InitLeaf(idx, primitives, bounds, mTopLevel, mPrintDebugInfo);
+						return node;
+					}
+				}
+				break;
+			}
+
+			if (begin == mid || mid == end)
+			{
+				mid = (begin + end) / 2;
+				std::nth_element(&info[begin], &info[mid], &info[end - 1] + 1, [dim](const BVHPrimitiveInfo & a, const BVHPrimitiveInfo & b) { return a.mCentroid[dim] < b.mCentroid[dim]; });
+			}
+
+			node->InitInterior(dim,
+				RecursiveBuild(info, begin, mid, totalNodes),
+				RecursiveBuild(info, mid, end, totalNodes));
+		}
+	}
+
+	return node;
+}
