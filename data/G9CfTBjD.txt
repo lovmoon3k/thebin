@@ -1,0 +1,158 @@
+local folders_to_save = {
+	['Backpack'] = game.ReplicatedStorage.Items
+}
+
+local reload_items_on_reset = true
+
+local DataStoreService = game:GetService("DataStoreService")
+local ItemStore = DataStoreService:GetDataStore("ItemStore")
+
+local PlayerData = {}
+
+local function LoadItemsFromData(player: Player, data, onReset: boolean)
+	local folders = {}
+
+	for storeFolderName, itemsFolder in pairs(folders_to_save) do
+		local folder = player:FindFirstChild(storeFolderName)
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = storeFolderName
+			folder.Parent = player
+		end
+		folders[storeFolderName] = folder
+	end
+
+	local function AddItem(item: Instance, folder: Folder, index: number)
+
+		if not data[folder.Name] then
+			data[folder.Name] = {}
+		end
+
+		if not index then
+			index = #data[folder.Name] + 1
+			table.insert(data[folder.Name], index, item.Name)
+		end
+
+
+		item.AncestryChanged:Connect(function(_, newParent)
+			if newParent ~= folder and folder.Parent ~= nil then
+				data[folder.Name][index] = nil
+			end
+		end)
+	end
+
+	for storeFolderName, savedItems in pairs(data) do
+
+		if onReset == true and storeFolderName ~= 'Backpack' then
+			continue
+		end
+
+
+		local itemsFolder: Folder = folders_to_save[storeFolderName]
+
+		if itemsFolder then
+
+			local folder = folders[storeFolderName]
+
+			for index, itemName in pairs(savedItems) do
+				local item = itemsFolder:FindFirstChild(itemName)
+				if item then
+					local playerItem = item:Clone()
+					playerItem.Parent = folder
+
+					AddItem(playerItem, folder, index)
+				else
+					warn(player, 'has unknown item that is said to be in folder', storeFolderName, ":", itemName)
+				end
+			end
+
+		else
+			warn(player, 'has unknown directory saved in data:', storeFolderName)
+		end
+	end
+
+
+	for storeFolderName, folder in pairs(folders) do
+		folders[storeFolderName] = nil
+
+		if onReset == true and storeFolderName ~= 'Backpack' then
+			continue
+		end
+
+		folder.ChildAdded:Connect(function(item)
+			AddItem(item, folder)
+		end)
+	end
+end
+
+local function Load(player: Player)
+
+	if PlayerData[player] then
+		return warn(player, 'data is already loaded')
+	end
+
+	local dataKey = 'key_' .. player.UserId
+
+	local loadedData = nil
+	local success, result = pcall(function()
+		loadedData = ItemStore:GetAsync(dataKey)
+	end)
+
+	if not success then
+		error(success)
+	end
+
+	if loadedData == nil then
+		loadedData = {} -- we give it empty data
+	end
+
+	warn(player, 'items have been loaded')
+
+	return loadedData
+end
+
+local function Save(player: Player)
+	local dataKey = 'key_' .. player.UserId
+
+	local data = PlayerData[player]
+
+	local success, result = pcall(function()
+		ItemStore:SetAsync(dataKey, data, {player.UserId})
+	end)
+
+	if not success then
+		error(result)
+	end
+
+	warn('Successfully saved', player, 'items to Datastore')
+end
+
+game.Players.PlayerAdded:Connect(function(player: Player)
+	local data = Load(player)
+	PlayerData[player] = data
+
+	local character = player.Character or player.CharacterAdded:Wait()
+	LoadItemsFromData(player, data)
+
+	if reload_items_on_reset == true then
+		player.CharacterAdded:Connect(function(character: Model)
+			LoadItemsFromData(player, data, true)
+		end)    
+	end
+end)
+
+game.Players.PlayerRemoving:Connect(function(player: Player)
+	Save(player)
+
+	if PlayerData[player] then
+		table.clear(PlayerData[player])
+	end
+
+	PlayerData[player] = nil
+end)
+
+game:BindToClose(function()
+	for _, player in pairs(game.Players:GetPlayers()) do
+		Save(player)
+	end
+end)
