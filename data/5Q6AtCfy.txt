@@ -1,0 +1,64 @@
+extends Area2D
+
+# Service class, used for attaching new behaviour to body
+# It's used instead of multiple inheritance or programmatical composition
+# For example: instead of inheriting Wall or Jar from class Breakable, we'd 
+# add Breakable node that is an instance of Area2D with predefined script for 
+# taking damage and vanishing
+# This can be achieved programmaticaly, via creating Breakable class, and than 
+# incapsulating and using it in target's script, but why bother?
+
+# --------- STATS ------------------------- #
+export(int) var hp = 1 #minimal hp - destroys after any hit
+
+# --------- SOUNDS ------------------------ #
+# Arrays allow to use multiple sounds with some chance that one of them will play on trigger
+export(Array, Resource) var recieving_damage_sound: Array
+export(Array, Resource) var destroy_sound: Array
+
+# --------- ANIMATION --------------------- #
+export(Resource) var destroy_animation
+export(Resource) var recieve_damage_animation
+
+# --------- METADATA ---------------------- #
+var rng = RandomNumberGenerator.new()
+
+func _ready():
+	if(destroy_animation != null):
+		$AnimationPlayer.add_animation("DESTROY", destroy_animation)
+	if(recieve_damage_animation != null):
+		$AnimationPlayer.add_animation("RECIEVE_DAMAGE", recieve_damage_animation)
+	rng.randomize()
+
+func recieve_damage(damage):
+	if(damage < hp): 
+		hp -= damage
+		_play_random_sound(recieving_damage_sound)
+		print(str(self) + ": im damaged")
+		if($AnimationPlayer.has_animation("RECIEVE_DAMAGE")):
+			$AnimationPlayer.play("RECIEVE_DAMAGE")
+	else:
+		_play_random_sound(destroy_sound)
+		if($AnimationPlayer.has_animation("DESTROY")):
+			$AnimationPlayer.play("DESTROY")
+			$DestroyTimer.wait_time = $AnimationPlayer.current_animation_length
+		print(str(self) + ": destroy sequence engaged")
+		if(!$AnimationPlayer.is_playing() and $AudioStreamPlayer.playing):
+			$DestroyTimer.wait_time = $AudioStreamPlayer.stream.get_length()
+		#$DestroyTimer.start()
+		if(get_parent().has_node("AnimationPlayer")):
+			$"../AnimationPlayer".play("SHATTER")
+
+func _play_random_sound(collection:Array):
+	if(!collection.empty()):
+		if not $AudioStreamPlayer.playing:
+			#print(str(collection.size())+" sounds")
+			var sound_number = rng.randi_range(0, collection.size()-1)
+			#print("chosen: "+str(sound_number)+" its "+str(collection[sound_number]))
+			$AudioStreamPlayer.stream = collection[sound_number]
+			$AudioStreamPlayer.play()
+
+func _destroy():
+	#print(str(self) + ": gotta die")
+	var parent_of_entity = get_parent().get_parent() # assuming that Breakable element is a direct child of Entity that should posess such quality 
+	parent_of_entity.remove_child(self.get_parent()) # remove parent and self from stage
