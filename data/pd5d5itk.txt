@@ -1,0 +1,242 @@
+<?php
+
+/*
+ * Plugin Name: Hersteller/Dienstleistungen permalinks
+ * Plugin URI: http://maciejbis.net
+ * Description: A plugin that adjusts the functionality of this website
+ * Version: 1.0
+ * Author: Maciej Bis
+ * Author URI: http://www.maciejbis.net
+ * License: GPL2
+*/
+
+/**
+ * Detect CPT permalinks
+ */
+function bis_detect_cpt_permalinks( $query ) {
+	global $wpdb, $pm_query, $wp, $wp_rewrite, $orte_term;
+
+	// 1. Extract the slugs
+	preg_match( '/datenrettung-([^\/]+)\/(([^\/]*)(-[^-\/]+)?)(?:\/|$)/Ui', $wp->request, $parts );
+
+	if ( ! empty( $parts[2] ) ) {
+		$term_slug     = basename( $parts[1] );
+		$post_slug     = basename( $parts[2] );
+		$post_slug_alt = basename( $parts[3] );
+		
+		// 2A. Get all posts that have exact or similar slug extracted from URL
+		$sql_query = sprintf( 'SELECT ID FROM %1$s WHERE 1=1 AND (
+				(post_type = "dienstleistung" AND (post_name = "%2$s" OR post_name LIKE "%2$s-%%")) OR
+				(post_type = "hersteller" AND (post_name = "%3$s" OR post_name LIKE "%3$s-%%" OR post_name = "%2$s" OR post_name LIKE "%2$s-%%"))
+		)', $wpdb->posts, esc_sql( $post_slug ), esc_sql( $post_slug_alt ) );
+		$url_posts = $wpdb->get_col( $sql_query );
+		
+		// Example (can be removed later)
+		if ( $post_slug == 'permalink-manager' ) {
+			$post_id = (int) reset( $url_posts );
+			$post    = get_post( $post_id );
+			
+			$orte_term = get_term_by( 'slug', $term_slug, 'orte' );
+		} else {
+			// 2B. Get all posts that are assigned to a "ort" term extracted from URL
+			$sql_query = sprintf( 'SELECT object_id FROM %s AS tr LEFT JOIN %s AS t ON tr.term_taxonomy_id = t.term_id WHERE t.slug = "%s"', $wpdb->term_relationships, $wpdb->terms, esc_sql( $term_slug ) );
+			$ort_posts = $wpdb->get_col( $sql_query );
+
+			// 2C. Check what posts are in both arrays (there should be only one post)
+			if ( ! empty( $url_posts ) && ! empty( $ort_posts ) ) {
+				$found_posts = array_intersect( $url_posts, $ort_posts );
+
+				if ( ! empty( $found_posts ) ) {
+					$post_id = (int) reset( $found_posts );
+					$post    = get_post( $post_id );
+				}
+			}	
+		}
+	} // If no post was found, check if the URL is used by a post without "orte" term
+	else if ( ! empty( $query['name'] ) ) {
+
+		$sql_query = sprintf( 'SELECT ID, post_title FROM %1$s p WHERE post_type IN ( "dienstleistung", "hersteller" ) AND (post_name = "%2$s" OR post_name LIKE "%2$s-%%") AND post_status = "publish" AND ID NOT IN (SELECT object_id FROM %3$s tr INNER JOIN %4$s tt ON tr.term_taxonomy_id = tt.term_taxonomy_id AND tt.taxonomy = "orte")', $wpdb->posts, basename( $query['name'] ), $wpdb->term_relationships, $wpdb->term_taxonomy );
+		$post_id   = $wpdb->get_var( $sql_query );
+
+		if ( ! empty( $post_id ) ) {
+			$post = get_post( $post_id );
+		}
+	}
+
+	// 3. Set the query parameters
+	if ( ! empty( $post->post_name ) ) {
+		$new_query = array(
+			'post_type'       => $post->post_type,
+			$post->post_type  => $post->post_name,
+			'name'            => $post->post_name,
+			'do_not_redirect' => 1,
+		);
+	}
+
+	// 4. Debug the query parameters
+	if ( isset( $_GET['debug_bis_query'] ) ) {
+		$new_query = ( ! empty( $new_query ) ) ? $new_query : $query;
+		var_dump( $parts );
+
+		echo ( ! empty( $parts ) ) ? sprintf( '<h2>URL Parts:</h2><pre>%s</pre>', print_r( $parts, true ) ) : '';
+		echo ( ! empty( $sql_query ) ) ? sprintf( '<h2>SQL query:</h2><pre>%s</pre>', print_r( $sql_query, true ) ) : '';
+		echo ( ! empty( $query ) ) ? sprintf( '<h2>Old query value:</h2><pre>%s</pre>', print_r( $query, true ) ) : '';
+		echo ( ! empty( $new_query ) ) ? sprintf( '<h2>New query value Parts:</h2><pre>%s</pre>', print_r( $new_query, true ) ) : '';
+		echo ( ! empty( $term_slug ) ) ? sprintf( '<h2>Detected "orte" slug:</h2><pre>%s</pre>', print_r( $term_slug, true ) ) : '';
+
+		die();
+	}
+
+	// 5. Overwrite the query object & disable canonical redirect
+	if ( ! empty( $new_query ) ) {
+		remove_action( 'template_redirect', 'wp_old_slug_redirect' );
+		remove_action( 'template_redirect', 'redirect_canonical' );
+		add_filter( 'wpml_is_redirected', '__return_false', 99, 2 );
+		add_filter( 'pll_check_canonical_url', '__return_false', 99, 2 );
+
+		$query = $new_query;
+	}
+
+	return $query;
+}
+
+add_filter( 'request', 'bis_detect_cpt_permalinks', 9999 );
+
+/**
+ * Rewrite permalinks
+ */
+function bis_filter_cpt_permalinks( $permalink, $post, $leavename, $sample ) {
+	if ( empty( $post->post_type ) || $post->post_status !== 'publish' ) {
+		return $permalink;
+	}
+
+	if ( in_array( $post->post_type, array(
+		'hersteller',
+		'dienstleistung'
+	) ) ) {
+		// Get the slug of assigned 'orte' term
+		$o_terms       = wp_get_object_terms( $post->ID, 'orte' );
+		$o_lowest_term = ( ! is_wp_error( $o_terms ) && ! empty( $o_terms ) && is_object( $o_terms[0] ) ) ? bis_get_lowest_element( $o_terms[0], $o_terms ) : "";
+		$o_slug        = ( ! empty( $o_lowest_term->slug ) ) ? $o_lowest_term->slug : '';
+
+		// A. Hersteller
+		if ( $post->post_type == 'hersteller' ) {
+
+			// Get the slug of assigned 'herstellerkategorie' term
+			$h_terms       = wp_get_object_terms( $post->ID, 'herstellerkategorie' );
+			$h_lowest_term = ( ! is_wp_error( $h_terms ) && ! empty( $h_terms ) && is_object( $h_terms[0] ) ) ? bis_get_lowest_element( $h_terms[0], $h_terms ) : "";
+			$h_slug        = ( ! empty( $h_lowest_term->slug ) ) ? $h_lowest_term->slug : '';
+
+			// If some specific 'herstellerkategorie' terms are assigned, the term slug should not be appended to the end of URL
+			// Permalink format: datenrettung-%orte_flat%/%hersteller%
+			if ( in_array( $h_slug, array( 'raid' ) ) && ! empty ( $o_slug ) ) {
+				$new_permalink = sprintf( '%s/datenrettung-%s', trim( get_option( 'home' ), '/' ), $o_slug );
+				$new_slug      = sanitize_title( $post->post_title );
+			} // Permalink format: datenrettung-%orte_flat%/%hersteller%-%herstellerkategorie%
+			else if ( ! empty( $o_slug ) && ! empty ( $h_slug ) ) {
+				$new_permalink = sprintf( '%s/datenrettung-%s', trim( get_option( 'home' ), '/' ), $o_slug );
+				$new_slug      = sprintf( '%s-%s', sanitize_title( $post->post_title ), $h_slug );
+			} // Permalink format: %hersteller%-%herstellerkategorie%
+			else {
+				$new_permalink = trim( get_option( 'home' ), '/' );
+				$new_slug      = sanitize_title( $post->post_title );
+			}
+		}
+
+		// B. Dienstleistung
+		if ( $post->post_type == 'dienstleistung' ) {
+			// Permalink format: datenrettung-%orte_flat%/%dienstleistung%
+			if ( ! empty( $o_slug ) ) {
+				$new_permalink = sprintf( '%s/datenrettung-%s', trim( get_option( 'home' ), '/' ), $o_slug );
+				$new_slug      = sanitize_title( $post->post_title );
+			} // Permalink format: %dienstleistung%
+			else {
+				$new_permalink = trim( get_option( 'home' ), '/' );
+				$new_slug      = sanitize_title( $post->post_title );
+			}
+		}
+
+		if ( ! empty( $sample ) ) {
+			$new_permalink .= "/%{$post->post_type}%";
+		} else if ( empty( $leavename ) ) {
+			$new_permalink .= "/{$new_slug}";
+		}
+
+		$permalink = user_trailingslashit( $new_permalink );
+	}
+
+	return $permalink;
+}
+
+add_filter( 'post_type_link', 'bis_filter_cpt_permalinks', 1000, 4 );
+
+/**
+ * Register [orte] shortcode
+ */
+function bis_orte_shortcode($atts, $content) {
+	global $orte_term;
+	
+	$atts = shortcode_atts( array(
+		'before'   => 'in',
+		'after'    => 'in',
+		'no-orte'  => ''
+	), $atts, 'orte' );
+	
+	if ( !empty( $orte_term->slug ) ) {
+		$orte = $orte_term->name;
+	}
+
+	// If 'orte' was found, use it
+	if(!empty($orte)) {
+		$html = (!empty($atts['before'])) ? $atts['before'] : '';
+		$html .= $orte;
+		$html .= (!empty($atts['after'])) ? $atts['after'] : '';	
+	}
+	// If no 'orte' was found, use alternative text (if set in shortcode)
+	else if(!empty($atts['no-orte'])) {
+		$html = $atts['no-orte'];
+	} else {
+		$html = '';
+	}
+	
+	return $html;
+}
+add_shortcode( 'orte', 'bis_orte_shortcode' );
+
+/**
+ * Allow shortcodes in the titles
+ */
+add_filter( 'the_title', 'do_shortcode' );
+
+/**
+ * Get the lowest-level term
+ */
+function bis_get_lowest_element( $first_element, $elements ) {
+	if ( ! empty( $elements ) && ! empty( $first_element ) ) {
+		// Get the ID of first element
+		if ( ! empty( $first_element->term_id ) ) {
+			$first_element_id = $first_element->term_id;
+			$parent_key       = 'parent';
+		} else if ( ! empty( $first_element->ID ) ) {
+			$first_element_id = $first_element->ID;
+			$parent_key       = 'post_parent';
+		} else if ( is_numeric( $first_element ) ) {
+			$first_element_id = $first_element;
+			$parent_key       = 'post_parent';
+		} else {
+			return false;
+		}
+
+		$children = wp_filter_object_list( $elements, array(
+			$parent_key => $first_element_id
+		) );
+		if ( ! empty( $children ) ) {
+			// Get the first term
+			$child_term    = reset( $children );
+			$first_element = bis_get_lowest_element( $child_term, $elements );
+		}
+	}
+
+	return $first_element;
+}
+
