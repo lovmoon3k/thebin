@@ -1,0 +1,193 @@
+import 'package:camera_platform_interface/camera_platform_interface.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+class CameraPage extends StatefulWidget {
+  const CameraPage({Key? key}) : super(key: key);
+
+  @override
+  State<CameraPage> createState() => _CameraPageState();
+}
+
+class _CameraPageState extends State<CameraPage> {
+  List<CameraDescription> _cameras = <CameraDescription>[];
+  String _cameraInfo = 'Unknown';
+  ResolutionPreset _resolutionPreset = ResolutionPreset.veryHigh;
+  int _cameraIndex = 0;
+  int _cameraId = -1;
+  bool _initialized = false;
+  Size? _previewSize;
+  XFile? imageFile;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsFlutterBinding.ensureInitialized();
+
+    _fetchCameras(context).then((value) => _inizializeCamera());
+  }
+
+  @override
+  void dispose() {
+    _fetchCameras(context);
+    _inizializeCamera();
+    super.dispose();
+  }
+
+  /// Fetches list of available cameras from camera_windows plugin.
+  Future<void> _fetchCameras(context) async {
+    String cameraInfo;
+    List<CameraDescription> cameras = <CameraDescription>[];
+
+    int cameraIndex = 0;
+    try {
+      cameras = await CameraPlatform.instance.availableCameras();
+      if (cameras.isEmpty) {
+        cameraInfo = 'No available cameras';
+
+        showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+                  title: const Text('Errore Camera'),
+                  actions: [
+                    ElevatedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: Text(
+                          'Ok',
+                          style: Theme.of(context).textTheme.button,
+                        ))
+                  ],
+                ));
+      } else {
+        cameraIndex = _cameraIndex % cameras.length;
+        cameraInfo = 'Found camera: ${cameras[cameraIndex].name}';
+
+        print(cameraInfo);
+      }
+    } on PlatformException catch (e) {
+      cameraInfo = 'Failed to get cameras: ${e.code}: ${e.message}';
+      print(cameraInfo);
+    }
+
+    if (mounted) {
+      setState(() {
+        _cameraIndex = cameraIndex;
+        _cameras = cameras;
+        _cameraInfo = cameraInfo;
+      });
+    }
+  }
+
+  Future<void> _inizializeCamera() async {
+    assert(!_initialized);
+    if (_cameras.isEmpty) {
+      return;
+    }
+    int cameraId = 1;
+    try {
+      final int cameraIndex = _cameraIndex % _cameras.length;
+      final CameraDescription camera = _cameras[cameraIndex];
+
+      cameraId = await CameraPlatform.instance.createCamera(
+        camera,
+        _resolutionPreset,
+      );
+      final Future<CameraInitializedEvent> initialized =
+          CameraPlatform.instance.onCameraInitialized(cameraId).first;
+
+      await CameraPlatform.instance.initializeCamera(
+        cameraId,
+      );
+      final CameraInitializedEvent event = await initialized;
+      _previewSize = Size(
+        event.previewWidth,
+        event.previewHeight,
+      );
+      if (mounted) {
+        setState(() {
+          _initialized = true;
+          _cameraId = cameraId;
+          _cameraIndex = cameraIndex;
+          _cameraInfo = 'Capturing camera: ${camera.name}';
+        });
+      }
+    } on CameraException catch (e) {
+      try {
+        if (cameraId >= 0) {
+          await CameraPlatform.instance.dispose(cameraId);
+        }
+      } on CameraException catch (e) {
+        debugPrint('Failed to dispose camera: ${e.code}: ${e.description}');
+      }
+
+      // Reset state.
+      if (mounted) {
+        setState(() {
+          _initialized = false;
+          _cameraId = -1;
+          _cameraIndex = 0;
+          _previewSize = null;
+
+          _cameraInfo =
+              'Failed to initialize camera: ${e.code}: ${e.description}';
+        });
+      }
+    }
+  }
+
+  Future<void> _takePicture() async {
+    final XFile picture = await CameraPlatform.instance.takePicture(_cameraId);
+
+    try {
+      // ignore: use_build_context_synchronously
+      Navigator.pop(context, picture);
+    } on CameraException catch (e) {
+      debugPrint('Error occured while taking picture: $e');
+      return null;
+    }
+  }
+
+  Widget _buildPreview() {
+    return CameraPlatform.instance.buildPreview(_cameraId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      resizeToAvoidBottomInset: false,
+      body: ListView(
+        children: [
+          if (_initialized && _cameraId > 0 && _previewSize != null)
+            Container(
+              constraints: const BoxConstraints(maxHeight: 800, maxWidth: 500),
+              child: AspectRatio(
+                aspectRatio: _previewSize!.width / _previewSize!.height,
+                child: _buildPreview(),
+              ),
+            ),
+          Container(
+            constraints: const BoxConstraints(maxHeight: 200, maxWidth: 500),
+            color: Colors.black,
+            child: Row(
+              children: [
+                ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text(
+                      'Esci',
+                      style: Theme.of(context).textTheme.button,
+                    )),
+                IconButton(
+                  icon: const Icon(
+                    Icons.circle,
+                    color: Colors.white,
+                  ),
+                  onPressed: () => _takePicture(),
+                ),
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+}
