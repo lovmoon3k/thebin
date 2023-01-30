@@ -1,19 +1,9 @@
-[**LfA10q3a**](/data/LfA10q3a.txt) (30/01/23 - 14:52)- 2423 bytes
+[**MEQaiu2v**](/data/MEQaiu2v.txt) (30/01/23 - 14:57)- 2423 bytes
 
-[**9bY99xaz**](/data/9bY99xaz.txt) (30/01/23 - 14:52)- 2423 bytes
+[**xDJK80XA**](/data/xDJK80XA.txt) (30/01/23 - 14:57)- 14027 bytes
 
-[**7YkBds9R**](/data/7YkBds9R.txt) (30/01/23 - 14:52)- 3166 bytes
+[**xDJK80XA**](/data/xDJK80XA.txt) (30/01/23 - 14:57)- 14027 bytes
 
-[**LfA10q3a**](/data/LfA10q3a.txt) (30/01/23 - 14:52)- 2423 bytes
+**Total Datas**: 7297
 
-[**9bY99xaz**](/data/9bY99xaz.txt) (30/01/23 - 14:52)- 2423 bytes
-
-[**7YkBds9R**](/data/7YkBds9R.txt) (30/01/23 - 14:52)- 3166 bytes
-
-[**AZSp4dG6**](/data/AZSp4dG6.txt) (30/01/23 - 14:52)- 15131 bytes
-
-[**AZSp4dG6**](/data/AZSp4dG6.txt) (30/01/23 - 14:52)- 15131 bytes
-
-**Total Datas**: 7295
-
-**Total Size**: 41.98 MB / 42.0 MB
+**Total Size**: 42.00 MB / 42.0 MB
