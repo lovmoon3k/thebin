@@ -1,0 +1,135 @@
+program new;
+
+function TruncatedGauss(Left:Double=0; Right:Double=1; CUTOFF:Single=0): Double;
+begin
+  if CUTOFF <= 0 then CUTOFF := 4.5;
+
+  Result := CUTOFF+1;
+  while Result >= CUTOFF do
+    Result := Abs(Sqrt(-2 * Ln(Random())) * Cos(2 * PI * Random()));
+  Result := Result / CUTOFF * (Right-Left) + Left;
+end;
+
+function NormalRange(Min, Max: Int64; CUTOFF:Single=0): Int64;
+begin
+  if CUTOFF <= 0 then CUTOFF := 4.5;
+  case Random(0,1) of
+    0: Result := Round((Max+Min)/2.0 + TruncatedGauss(0, (Max-Min)/2, CUTOFF));
+    1: Result := Round((Max+Min)/2.0 - TruncatedGauss(0, (Max-Min)/2, CUTOFF));
+  end;
+end;
+
+function GaussRand(Mean, Dev: Double): Double;
+var
+  len: Double;
+begin
+  len := Dev * Sqrt(-2 * Ln(Random()));
+  Result := Mean + len * Cos(2 * PI * Random());
+end;
+
+
+var
+  a: array of Double;
+  log,srl: TDoubleArray;
+
+procedure TMufasaBitmap.DrawBoxBlend(b: TBox; Color: Int32);
+var
+  x,y: Int32;
+begin
+  for y:=b.y1 to b.y2 do
+    for x:=b.x1 to b.x2 do
+    try
+      Self.SetPixel(x,y, color xor Self.GetPixel(x,y));
+    except end;
+end;
+
+
+procedure PlotSimpleHistogram(bmp: TMufasaBitmap; list: TDoubleArray; lo,hi:Int32; color: Int32);
+var
+  i,x,y,h:Int64;
+  hfact,wfact,minv,maxv:Double;
+  count: TIntegerArray;
+  W := 2;
+begin
+  minv := list.Min();
+  maxv := list.Max();
+
+  wfact := BMP.GetWidth()  / (hi-lo+1);
+
+  SetLength(count, BMP.GetWidth() div W + 1);
+  for i:=0 to High(list) do try
+    Inc(count[Round((list[i]-lo) * wfact) div W]);
+  except end;
+
+  h := BMP.GetHeight()-1;
+  hfact := (BMP.GetHeight()-50) / (count.max()+1);
+  for x:=0 to High(count) do
+  begin
+    y := Trunc(count[x] * hfact);
+    try
+      BMP.DrawBoxBlend(Box(x*W, h-y, x*W+(W-2), h), color);
+    except
+    end;
+  end;
+end;
+
+
+procedure OnTerm();
+var
+  histo: TMufasaBitmap;
+begin
+  WriteLn('Standard deviation: ', log.Stddev(),'ms');
+  WriteLn('Avg press duration: ', log.Mean(),  'ms');
+
+  // histogram
+  histo := TMufasaBitmap.Create();
+  histo.SetSize(500,350);
+  PlotSimpleHistogram(histo, srl, 0,350,$00FF00);
+  PlotSimpleHistogram(histo, log, 0,350,$0000FF);
+  histo.Show();
+  histo.Free();
+end;
+
+var
+  k: Int32;
+  kd: Boolean;
+begin
+  srl := [];
+  for 0 to 1000 do
+    srl += GaussRand(80,15);
+
+  AddOnTerminate(@OnTerm);
+end;
+
+// capture userdata:
+begin
+  SetLength(a, 256);
+
+  while True do
+  begin
+    // this loop uses less than 1 ms, so it wont distort the results
+    for k:=60 to 160 do
+    begin
+      if not (Chr(k) in ['a'..'z','A'..'Z', '0'..'9','.',',','-']) then
+        continue;
+
+      kd := isKeyDown(k);
+      if kd and (a[k] = 0) then
+        a[k] := PerformanceTimer()
+      else if (a[k] <> 0) and (not kd) then
+      begin
+        log += PerformanceTimer() - a[k];
+        a[k] := 0;
+      end;
+    end;
+  end;
+end.
+
+
+// day 1 (night)
+> Standard deviation: 10ms
+> Avg press duration: 80ms
+
+// day 2 (daytime)
+> Standard deviation: 15.8ms
+> Avg press duration: 71ms
