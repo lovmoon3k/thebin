@@ -1,0 +1,133 @@
+/*
+Using code from https://docs.rs/iced_native/0.7.0/src/iced_native/widget/column.rs.html
+*/
+
+use iced::{Element, Length, Size};
+use iced_native::{Widget, widget::Tree};
+
+#[macro_export]
+macro_rules! stack {
+    () => (
+        StackLayout::new()
+    );
+    ($($x:expr),+ $(,)?) => (
+        StackLayout::with_children(vec![$(Element::from($x)),+])
+    );
+}
+
+pub struct StackLayout<'a, Message, Renderer> {
+    width: Length,
+    height: Length,
+    children: Vec<Element<'a, Message, Renderer>>
+}
+
+impl<'a, Message, Renderer> StackLayout<'a, Message, Renderer> {
+    pub fn new() -> Self {
+        Self::with_children(Vec::new())
+    }
+
+    pub fn with_children(children: Vec<Element<'a, Message, Renderer>>) -> Self {
+        Self { 
+            children,
+            width: Length::Shrink,
+            height: Length::Shrink,
+         }
+    }
+
+    pub fn width(mut self, width: Length) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub fn height(mut self, height: Length) -> Self {
+        self.height = height;
+        self
+    }
+
+    pub fn push(
+        mut self,
+        child: impl Into<Element<'a, Message, Renderer>>,
+    ) -> Self {
+        self.children.push(child.into());
+        self
+    }
+}
+
+impl<'a, Message, Renderer> Default for StackLayout<'a, Message, Renderer> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a, Message, Renderer> Widget<Message, Renderer>
+for StackLayout<'a, Message, Renderer>
+where
+Renderer: iced_native::Renderer,
+{
+    fn children(&self) -> Vec<Tree> {
+        self.children.iter().map(Tree::new).collect()
+    }
+
+    fn width(&self) -> Length {
+        self.width
+    }
+
+    fn height(&self) -> Length {
+        self.height
+    }
+
+    fn layout(
+        &self,
+        renderer: &Renderer,
+        limits: &iced_native::layout::Limits,
+    ) -> iced_native::layout::Node {
+        if self.children.is_empty() {iced_native::layout::Node::new(Size::ZERO)} 
+        else {self.children.first().unwrap().as_widget().layout(renderer, limits)}
+    }
+
+    fn draw(
+        &self,
+        tree: &iced_native::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &<Renderer as iced_native::Renderer>::Theme,
+        style: &iced_native::renderer::Style,
+        layout: iced_native::Layout<'_>,
+        cursor_position: iced::Point,
+        viewport: &iced::Rectangle,
+    ) {
+        for ((child, state), layout) in self
+            .children
+            .iter()
+            .zip(&tree.children)
+            .zip(layout.children())
+        {
+            child.as_widget().draw(
+                state,
+                renderer,
+                theme,
+                style,
+                layout,
+                cursor_position,
+                viewport,
+            );
+        }
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        let mut children_array = vec![];
+        self.children.iter().for_each(|elt| children_array.push(elt));
+        let children_slice = children_array.as_slice();
+        tree.diff_children(children_slice);
+    }
+}
+
+impl<'a, Message, Renderer> From<StackLayout<'a, Message, Renderer>> for Element<'a, Message, Renderer>
+where
+Message: 'a,
+Renderer: iced_native::Renderer + 'a,
+{
+    fn from(stack: StackLayout<'a, Message, Renderer>) -> Self 
+    {
+        Self::new(stack)
+    }
+}
