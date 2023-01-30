@@ -1,0 +1,42 @@
+Set-Location $PSScriptRoot
+
+
+function MVIT {
+    param (
+        [pscustomobject]$Obj
+    )
+    [System.IO.FileInfo]$Path = Join-Path $PSScriptRoot 'objects' $Obj.Hash.Substring(0, 2) $Obj.Hash
+    [System.IO.FileInfo]$Destination = Join-Path $PSScriptRoot 'assets' $Obj.Name
+    try {
+        $Hash = (Get-FileHash $Path -Algorithm SHA1).Hash.ToLower()
+    }
+    catch {
+        throw 'Get File Hash Error'
+    }
+    if ($Hash -eq $Obj.Hash) {
+        if (-not $Destination.Directory.Exists) {
+            New-Item $Destination.DirectoryName -Type Directory -Force | Out-Null
+        }
+        Copy-Item $Path $Destination -Force
+    }
+    else {
+        throw 'Hash Validation Failed'
+    }
+}
+
+
+
+
+$Json = Get-Content '1.19.json' -Raw | ConvertFrom-Json
+[pscustomobject[]]$Objs = @()
+foreach ($Obj in $Json.objects.psobject.properties) {
+    $Objs += [PSCustomObject]@{
+        Name = $Obj.Name
+        Hash = $Obj.Value.Hash
+    }
+}
+
+for ($i = 0; $i -lt $Objs.Count; $i++) {
+    Write-Host 'Now' ($i + 1) '/' $Objs.Count $Objs[$i].Name
+    MVIT $Objs[$i]
+}
