@@ -1,0 +1,113 @@
+// wire i2c
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+
+LiquidCrystal_I2C lcd(0x27,16,2);
+
+/* Fill-in information from Blynk Device Info here */
+#define BLYNK_TEMPLATE_ID "TMPLw9XNnIqp"
+#define BLYNK_DEVICE_NAME "Electrical Monitors"
+#define BLYNK_TOKEN "PnioYx4Vs7Bqdp2TBmTocItsyCRP1ipa"
+
+/* Comment this out to disable prints and save space */
+#define BLYNK_PRINT Serial
+
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+
+// Your WiFi credentials.
+// Set password to "" for open networks.
+char ssid[] = "test";
+char pass[] = "b0bc1b62";
+
+#include <Filters.h>
+
+float testFrequency = 50; // signal frequency (Hz)
+float windowLength = 40.0/testFrequency; // how long to average the signal, for statistist
+
+int Sensor = 0;
+
+float intercept = -0.04; // adjust untuk kalibrasi
+float slope = 0.0964; // adjust untuk kalibrasi
+float current_Volts;
+
+unsigned long previousMillis1 = 0;
+const long interval1 = 1000;
+
+RunningStatistics inputStats;
+
+BlynkTimer timer;
+
+void sendSensor() {   
+  Sensor = analogRead(A0); // read the analog in value:
+  inputStats.input(Sensor); // log to Stats function
+      
+  current_Volts = inputStats.sigma()* slope + intercept; //Calibartions for offset and amplitude
+  current_Volts = current_Volts*(49.3231); //Further calibrations for the amplitude     
+
+  Blynk.virtualWrite(V0, current_Volts);
+}
+
+void setup() {
+  Wire.begin();
+  Serial.begin(115200);
+  Blynk.begin(BLYNK_TOKEN, ssid, pass);
+    
+  lcd.init();
+  lcd.backlight();
+  
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("AC METER");
+  lcd.setCursor(0,1);
+  lcd.print("V1.0");
+  delay(5000);
+
+  inputStats.setWindowSecs( windowLength );
+  timer.setInterval(1000L, sendSensor);
+}
+
+void loop() {
+  unsigned long currentMillis = millis();
+  Blynk.run();
+  timer.run();
+  
+while( true  ) {  
+   if(currentMillis - previousMillis1 >= interval1) {
+      previousMillis1 = currentMillis;
+        current_Volts = inputStats.sigma()* slope + intercept; //Calibartions for offset and amplitude
+        current_Volts = current_Volts*(49.3231); //Further calibrations for the amplitude     
+        if (current_Volts < 100) {
+          lcd.clear();
+          lcd.setCursor(0,0);
+          lcd.print("TEGANGAN TURUN!");
+          lcd.setCursor(0,1);
+          lcd.print("ADA MASALAH");
+        } else if (current_Volts > 100) {
+          lcd.clear();
+          lcd.setCursor(0,0);
+          lcd.print("VOLTAGE");
+          lcd.setCursor(0,1);
+          lcd.print(current_Volts);
+          lcd.print("V");
+        } else if (current_Volts > 240) {
+          lcd.clear();
+          lcd.setCursor(0,0);
+          lcd.print("BAHAYA!");
+          lcd.setCursor(0,1);
+          lcd.print("ADA KESALAHAN");
+        }
+    }
+    delay(2);
+  } 
+
+  if(currentMillis - previousMillis1 >= interval1) {
+    previousMillis1 = currentMillis;
+    if (ledState == LOW) {
+      ledState = HIGH;
+    } else {
+      ledState = LOW;
+    }
+    digitalWrite(ledPin, ledState);
+  }
+}
