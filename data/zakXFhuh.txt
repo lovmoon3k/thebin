@@ -1,0 +1,131 @@
+local growingSpeed = 31 -- 31 when using , else 61
+local growingCount = 0
+
+local function getEmpty()
+	-- find the first empty slot and return the slot number
+	local rc = false
+	local slot = 0
+	while not rc and slot <= 16 do
+		slot = slot + 1
+		if turtle.getItemCount(slot) == 0 then
+			rc = slot
+		end
+	end
+	return rc
+end
+
+local function place(pSlot)
+	local s = turtle.getSelectedSlot()
+	turtle.select(pSlot)
+	turtle.place()
+	turtle.select(s)
+	growingCount = growingCount + 1
+end
+
+local function digDrop()
+	local s = turtle.getSelectedSlot()
+	local u = getEmpty()
+	turtle.select(u)
+	turtle.dig()
+	turtle.dropDown()
+	turtle.select(s)
+	growingCount = growingCount - 1
+end
+
+local grow = {
+	['grow'] = true,
+	['grown'] = false,
+	['action'] = place
+}
+
+local grown = {
+	['grow'] = false,
+	['grown'] = true,
+	['action'] = digDrop
+}
+
+local items = {
+	['minecraft:log'] 		= grow,
+	['minecraft:logs'] 		= grow,
+	['minecraft:oak_log']	= grow,
+	['minecraft:stone'] 	= grow,
+	['botania:livingwood'] 	= grown,
+	['botania:livingrock'] 	= grown
+}
+
+local function tidyUp()
+	for i = 1, 16 do
+		if turtle.getItemCount(i) > 0 then
+			local iData = turtle.getItemDetail(i)
+			if type(items[iData.name]) == 'table' then
+				if not items[iData.name].grow then
+					turtle.dropDown()
+				end
+			else
+				turtle.dropDown()
+			end
+		end
+	end
+end
+
+local function getItem()
+	for i = 1, 16 do
+		if turtle.getItemCount(i) > 0 then
+			local iData = turtle.getItemDetail(i)
+			if type(items[iData.name]) == 'table' then
+				if items[iData.name].grow then
+					items[iData.name].action(i)
+					return true
+				else
+					turtle.dropDown()
+				end
+			else
+				turtle.dropDown()
+			end
+		end
+	end
+	return false
+end
+
+--START MAIN
+
+tidyUp()
+
+while true do
+	for m = 1, 4 do
+		turtle.turnRight()
+		local rc, tData = turtle.inspect()
+		if tData.name ~= nil then
+			--There is a block
+			if type(items[tData.name]) == 'table' then
+				if items[tData.name].grown then
+					items[tData.name].action()
+					turtle.suckUp(1)
+					getItem()
+				elseif items[tData.name].grow then
+					-- do nothing, wait
+				else
+					--Unknown block, mine it
+					digDrop()
+				end
+			else
+				--Unknown block, mine it
+				digDrop()
+			end
+
+		else
+			--no block, Look for an eligible item in inventory
+			if not getItem() then
+				tidyUp()
+				turtle.suckUp(1)
+				getItem()
+			end
+		end
+	end
+	if growingCount == 4 then
+		os.sleep(growingSpeed)
+	else
+		os.sleep(2)
+		growingCount = 0
+	end
+end
