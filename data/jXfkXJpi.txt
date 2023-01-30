@@ -1,0 +1,50 @@
+# yamapi.js
+
+import findInFiles from 'find-in-files';
+import fetch from 'node-fetch';
+import osLib from 'os';
+const yandexPath = "C:/Users/" + osLib.userInfo().username + "/AppData/Local/Packages/A025C540.Yandex.Music_vfvw9svesycw6/LocalCache/Logs",
+    // Да, да, этот путь у всех статичный.
+    apiLink = "https://api.music.yandex.net/tracks/";
+
+exports.getSong = async() => {
+    return new Promise(resolve => {
+        findInFiles.find("PlayTrackInternalAsync", yandexPath, /log.*\.txt/)
+            .then(rows => {
+                let lastRow = rows[Object.keys(rows)[0]];
+                let regexMetaMusic = /(\d+)\: (.*) ~ (.*)/gm;
+                let metaMusicFromApp = JSON.parse(lastRow.line[lastRow.count - 1]).Track;
+                let metaMusic = regexMetaMusic.exec(metaMusicFromApp);
+                let song = {
+                    id: metaMusic[1],
+                    author: metaMusic[2],
+                    name: metaMusic[3]
+                };
+                fetch(apiLink + song.id)
+                    .then(response => response.json())
+                    .then(response => {
+                        song.img = "https://" + response.result[0].coverUri.replaceAll("%%", "200x200")
+                        resolve(song);
+                    });
+            });
+    });
+};
+
+# example.js 
+import { getSong } from './yamapi.js';
+
+getSong().then((obj) => {
+    console.log(obj);
+})
+
+node example.js
+
+import { getSong } from './yamapi.js';
+         ^^^^^^^
+SyntaxError: The requested module './yamapi.js' does not provide an export named 'getSong'
+    at ModuleJob._instantiate (node:internal/modules/esm/module_job:128:21)
+    at async ModuleJob.run (node:internal/modules/esm/module_job:194:5)
+    at async Promise.all (index 0)
+    at async ESMLoader.import (node:internal/modules/esm/loader:385:24)
+    at async loadESM (node:internal/process/esm_loader:88:5)
+    at async handleMainPromise (node:internal/modules/run_main:61:12)
