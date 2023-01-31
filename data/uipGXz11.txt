@@ -1,0 +1,110 @@
+--- made by jiwonz
+--- not finished yet, this module may have bugs and gonna be open sourced in roblox devforum after finishing this
+local PhysicsSpeaker = {}
+PhysicsSpeaker.__index = PhysicsSpeaker
+
+type PhysicsSpeaker = {
+	Instance:Part;
+	Material:string;
+	MinHeight:number;
+	IsSloping:boolean;
+	IsFlying:boolean;
+	IsColliding:boolean;
+	CollideSounds:{Sound};
+	ScrapeSounds:{Sound};
+	CanCollide:()->boolean;
+}
+
+local speakers = {}
+
+local rayparam = RaycastParams.new()
+rayparam.IgnoreWater = true
+rayparam.FilterType = Enum.RaycastFilterType.Blacklist
+rayparam.FilterDescendantsInstances = {workspace.Terrain}
+
+function PhysicsSpeaker:Destroy()
+	speakers[self] = nil
+	self = nil
+end
+
+function PhysicsSpeaker.Active(self:PhysicsSpeaker)
+	for _,v:Instance in ipairs(script[self.Material]:GetChildren()) do
+		if v:IsA("Sound") then
+			v = v:Clone()
+			v.Parent = self.Instance
+			table.insert(self.CollideSounds,v)
+		elseif v:IsA("Folder") and v.Name == "scrape" then
+			for _,sfx:Sound in ipairs(v:GetChildren()) do
+				sfx = sfx:Clone()
+				sfx.Looped = true
+				sfx.Parent = self.Instance
+				table.insert(self.ScrapeSounds,sfx)
+			end
+		end
+	end
+	speakers[self] = true
+	local blacklist = (self.Instance.Parent and self.Instance.Parent:IsA("Model") and not self.Instance.Parent:IsA("Workspace")) and self.Instance.Parent or self.Instance
+	self.Instance.Touched:Connect(function(hit)
+		if not self.Instance then
+			self:Destroy()
+			return
+		end
+		if hit and not hit:IsDescendantOf(blacklist) then
+			if self.CanCollide and not self:CanCollide() then
+				return
+			end
+			local velocity = self.Instance.AssemblyLinearVelocity.Magnitude
+			if self.IsFlying and not self.IsColliding and velocity > 0.5 then
+				self.CurrentHit = hit
+				self.IsFlying = false
+				self.IsColliding = true
+				local sfx = self.CollideSounds[math.random(1,#self.CollideSounds)]:Play()
+			end
+			if self.IsSloping and velocity > 5 then
+				if self.CurrentScrapeSound then
+					self.CurrentScrapeSound.Playing = false
+				end
+				self.CurrentScrapeSound = self.ScrapeSounds[math.random(1,#self.ScrapeSounds)]
+				self.CurrentScrapeSound.Playing = true
+			end
+		end
+	end)
+	self.Instance.Destroying:Connect(function()
+		PhysicsSpeaker:Destroy()
+	end)
+end
+
+function PhysicsSpeaker.step()
+	for self,_ in pairs(speakers) do
+		if self.CurrentScrapeSound and self.Instance.AssemblyLinearVelocity.magnitude < 5 then
+			self.CurrentScrapeSound.Playing = false
+		end
+		local raycast = workspace:Raycast(self.Instance.Position,Vector3.new(0,-1,0)*self.MinHeight,rayparam)
+		if raycast then
+			self.IsSloping = true
+		else
+			self.IsSloping = false
+			self.IsFlying = true
+			self.IsColliding = false
+		end
+	end
+end
+
+function PhysicsSpeaker.new(part:Part,material_name:string,min_height:number,cond:()->boolean):PhysicsSpeaker
+	local self:PhysicsSpeaker = {
+		Instance = part;
+		Material = material_name;
+		MinHeight = min_height or 5;
+		IsSloping = false;
+		IsFlying = false;
+		IsColliding = false;
+		CollideSounds = {};
+		ScrapeSounds = {};
+		CanCollide = cond;
+	}
+	setmetatable(self,PhysicsSpeaker)
+	self:Active()
+	return self
+end
+
+return PhysicsSpeaker
