@@ -1,0 +1,144 @@
+--sends inventory information to other computers
+
+wantedItems = {
+---Format:
+---channel_ReceiverComputerID = {"mcitemname", "ItemNumberToKeepStocked"},
+
+channel_1 = {"minecraft:cobblestone", 128},
+channel_2 = {"minecraft:stone_stairs", 128},
+channel_3 = {"minecraft:oak_log", 100},
+channel_4 = {"minecraft:polished_blackstone_brick_stairs", 40},
+
+
+
+}
+inventory = peripheral.wrap("left")
+rednet.open("top")
+readCount = false
+
+
+
+function scanInventory(var)
+items = { }
+	for k, v in pairs(inventory.list()) do
+		for a, b in pairs(v) do
+		-- print("k:", k, "v", v, "a:", a, ", b:", b)
+			if a == "name" then
+				for x, y in pairs(var) do
+					-- print(b, x, y)
+						for op, lp in pairs(y) do
+						-- print(lp)
+						-- end
+						--------see if item in inventory is in monitoring list
+						if lp == b then
+							readCount = true
+							-- print(x)
+							itemName = lp
+							-- print(wantedItems[itemName])
+							-- print(itemName)
+						end
+						end
+				end
+			end
+			
+			-----add itemcount to table
+			if a == "count" and readCount == true then
+				readCount = false
+				-- print(itemName)
+				if items[itemName] == nil then
+					items[itemName] = 0
+				end
+				items[itemName] = items[itemName] + b
+			end
+		end
+	end
+end
+
+function compareTablesInfo()
+term.clear()
+term.setCursorPos(1, 1)
+countWanted = false
+	for name, count in pairs(items) do
+		newName = shortenName(name)
+		finalName = table.concat(result, " ")
+		for k, v in pairs(wantedItems) do
+			for i, o in pairs(v) do
+				if i == 1 and o == name then
+					countWanted = true
+				end
+				if i == 2 and countWanted == true then
+					wantedCount = o
+					countWanted = false
+				end
+			end
+		end
+		print(finalName.. ": ".. items[name] .. "/".. wantedCount.. ".")
+	end
+end
+
+function notifyComputer()
+term.clear()
+term.setCursorPos(1, 1)
+	for name, count in pairs(items) do
+		for k, v in pairs(wantedItems) do
+		-- print(k,v)
+			for i, o in pairs(v) do
+				if i == 1 and o == name then
+					countWanted = true
+
+				end
+				if i == 2 and countWanted == true then
+					wantedCount = o
+					countWanted = false	
+					channel = string.match(k, "_(.*)")
+					-- print(channel, name)
+					
+					-- compareTablesInfo()
+					
+					currentCount = items[name]
+					percent = tonumber(100* (currentCount/wantedCount))	
+					if percent < 100 then
+						-- print(channel,name, percent)
+						msg = table.concat({"fill", percent}, " ")
+						rednet.send(tonumber(channel), msg)
+						else
+						msg = table.concat({"wait", percent}, " ")
+						rednet.send(tonumber(channel), msg)
+					end
+					
+					
+					
+				end
+			end
+		end
+	end
+end		
+
+function showTable(var)
+	for k, v in pairs(var) do
+		print(k.. ": ".. v)
+	end
+end
+
+function shortenName(itemname)
+	itemname = string.match(itemname, ":(.*)")
+	split(itemname, "_")
+	return itemname
+end
+
+function split(s, delimiter)
+    result = {};
+    for match in (s..delimiter):gmatch("(.-)"..delimiter) do
+        table.insert(result, match);
+    end
+    return result;
+end
+
+while true do
+scanInventory(wantedItems)
+-- showTable(items)
+-- compareTablesInfo()
+notifyComputer()
+sleep(1)
+-- items = nil
+end
