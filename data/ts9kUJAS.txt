@@ -1,0 +1,67 @@
+/*
+* Load part of articles according to filters when scrolling through most of the loaded articles.
+* */
+function loadPartOfArticleTitles() {
+    var skip = 0
+    var limit = 50
+    var isDone = false
+    var pending = false
+    var downloadedHeight = 0
+
+    /*
+    * When loading the first part of the articles, select the current or the first article.
+    * */
+    function handleFirstArticles() {
+        if (isArticleInArticleList(sessionStorage.getItem('currentArticleId'))) {
+            selectCurrentArticleInList()
+            if (!isElementInVisibleArea('.list-group-item#' + sessionStorage.getItem('currentArticleId'))) {
+                scrollArticleListToCurrentArticle()
+            }
+            loadAndShowArticle(sessionStorage.getItem('currentArticleId'))
+        } else {
+            loadAndShowFirstArticleInList()
+        }
+    }
+
+    /*
+    * Sends an ajax request to give articles according to filters.
+    * On success result the article list.
+    * */
+    function getArticlesTitles() {
+        $.get('/articles', {...filterFormToFilterObject(), skip, limit})
+            .done(function (response, status, xhr) {
+                if (xhr.status === 204) {
+                    isDone = true
+                }
+                addArticlesToList(response)
+                if (skip === 0) {
+                    handleFirstArticles()
+                }
+            })
+            .always(function () {
+                pending = false
+                skip += limit
+            })
+    }
+    getArticlesTitles()
+
+    /*
+    * Sets the given html fragment with article list to the page and adds listeners to the list.
+    * The height of the added fragment is saved in a downloadedHeight variable.
+    * */
+    function addArticlesToList(articleListHtmlFragment) {
+        let articlesList = $('#new-list')
+        let prevHeight = articlesList[0].scrollHeight
+        articlesList.append(articleListHtmlFragment)
+        downloadedHeight = downloadedHeight === 0 ? articlesList[0].scrollHeight : articlesList[0].scrollHeight - prevHeight
+        loadArticleOnArticleListItemClick()
+    }
+
+    $('#new-list').off('scroll').on('scroll', function () {
+        if (!pending && !isDone && $(this).scrollTop() &&
+            ($(this).scrollTop() + $(this).innerHeight() >= ($(this)[0].scrollHeight - downloadedHeight / 2))) {
+            pending = true
+            getArticlesTitles()
+        }
+    })
+}
