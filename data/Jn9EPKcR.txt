@@ -1,0 +1,84 @@
+local inventory = peripheral.wrap("right")
+local monitor = peripheral.wrap("top")
+local inventoryTable = nil
+local a, b = monitor.getSize()
+local y = 3
+local sleepTime = 0.3
+local quit = false
+
+-- Set the background color to black and the text color to white
+monitor.setBackgroundColor(colors.black)
+monitor.clear()
+function writeTitle()
+	monitor.setCursorPos(1, 1)
+	monitor.setTextColor(colors.lime)
+	monitor.write("Incoming/Outgoing items:")
+	monitor.setCursorPos(1, 2)
+	monitor.write("------------------------")
+	monitor.setTextColor(colors.white)
+end
+writeTitle()
+
+function doall()
+  while true do
+    local newInventoryTable = {}
+    for slot, item in pairs(inventory.list()) do
+      -- Replace the "_" characters with spaces
+      local itemName = string.gsub(item.name, "_", " ")
+      -- Remove everything before the ":" character
+      itemName = string.match(itemName, ": *(.*)") or itemName
+      newInventoryTable[slot] = {name = itemName, count = item.count}
+    end
+
+    -- Compare the new table to the previous table if both are not nil
+    if inventoryTable then
+      for slot, item in pairs(newInventoryTable) do
+        local prevItem = inventoryTable[slot] or {name = "", count = 0}
+        if prevItem.name ~= item.name or prevItem.count ~= item.count then
+          -- The item has changed, write it to the monitor
+          local change = item.count - prevItem.count
+          monitor.setCursorPos(1, y)
+		  monitor.setTextColor(colors.green)
+          monitor.write(item.name .. ": +" ..change)
+          y = y + 1
+        end
+      end
+      -- Check for items that were removed
+      for slot, prevItem in pairs(inventoryTable) do
+        if not newInventoryTable[slot] then
+          -- The item was removed, write it to the monitor
+          monitor.setCursorPos(1, y)
+		  monitor.setTextColor(colors.orange)
+          monitor.write(prevItem.name .. ": " .. -prevItem.count)
+          y = y + 1
+        end
+      end
+    end
+
+    -- Update the previous table
+    inventoryTable = newInventoryTable
+    
+    if y >= b then
+      y = 3
+      monitor.clear()
+	  writeTitle()
+    end
+    os.sleep(sleepTime)
+
+  end
+
+end
+
+function getMonitorTouch()
+	local event, side, x, y = os.pullEvent("monitor_touch")
+	if event then
+		quit = true
+	end
+end
+
+while true do
+	if quit == true then
+		break
+	end
+	parallel.waitForAny(doall, getMonitorTouch)
+end
