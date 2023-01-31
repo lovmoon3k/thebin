@@ -1,0 +1,998 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\ContentType;
+use Illuminate\Http\Request;
+use CloudinaryLabs\CloudinaryLaravel\Facades\Cloudinary;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Arr;
+
+use Auth;
+
+
+use App\Models\Course;
+use App\Models\Question;
+use App\Models\Section;
+use App\Models\Content;
+use App\Models\CourseAttend;
+use App\Models\ContentComplete;
+use App\Models\QuestionAnswer;
+use App\Models\User;
+use App\Models\Rating;
+
+class CoursesController extends Controller
+{
+    /**
+     * Display a listing of the resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function index()
+    {
+        $activeCourses = Course::where("user_JMBG", auth()->user()->JMBG)->where('active', 1)->get();
+        $inactiveCourses = Course::where("user_JMBG", auth()->user()->JMBG)->where('active', 0)->get();
+        return view('teacher.courses.index', compact('activeCourses', 'inactiveCourses'));
+    }
+
+    /**
+     * Show the form for creating a new resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function create()
+    {
+        return view('teacher.courses.create');
+    }
+
+    /**
+     * Store a newly created resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Response
+     */
+    public function store(Request $request)
+    {
+        $request->validate([
+            'title' => 'required|min:5',
+            'description' => 'required|min:30',
+            'imageURI' => 'required',
+        ]);
+
+        $imageURI = $request->imageURI;
+        $image_uploaded = Cloudinary::upload($imageURI)->getSecurePath();
+
+        $course = new Course();
+        $stringJMBG = (string)auth()->user()->JMBG;
+        while (strlen($stringJMBG) < 13) {
+            $stringJMBG = '0' . $stringJMBG;
+        }
+        $course->user_JMBG = $stringJMBG;
+        $course->title = $request->title;
+        $course->description = $request->description;
+        $course->image = $image_uploaded;
+        $course->active = 1;
+        $course->save();
+
+        return redirect()->route('courses.show', $course->id);
+    }
+
+    /**
+     * Display the specified resource.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function show($id)
+    {
+        $course = Course::findOrFail($id);
+        if ((!$course->active && Auth::check() && !Auth::user()->ownsCourse($course)) || (!$course->active && !Auth::check())) abort(404);
+        $userRating = null;
+        if (Auth::check())
+            $userRating = Rating::where('course_id', $id)->where('user_JMBG', auth()->user()->JMBG)->first();
+        return view('teacher.courses.show', compact('course', 'userRating'));
+    }
+
+    public function showCheckQuestion(Request $request, $courseId, $contentId)
+    {
+        $course = Course::findOrFail($courseId);
+        $sections = $course->sections()->get();
+
+        // find course which section_id is equal to one of the sections of the course and content_id is equal to the contentId
+        $content = Content::whereHas('section', function ($query) use ($sections) {
+            $query->whereIn('id', $sections->pluck('id'));
+        })->where('id', $contentId)->first();
+
+        if (!Auth::check() || !Auth::user()->attendsCourse($course) || !$content) {
+            return redirect()->back();
+        }
+
+        $question = Question::where('content_id', $contentId)->where('type', 'check')->first();
+        $question->answers = $question->answers->shuffle();
+
+        return view('teacher.courses.showCheckQuestion', compact('course', 'content', 'question'));
+    }
+
+    /**
+     * Show the form for editing the specified resource.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function edit($id)
+    {
+        $course = Course::findOrFail($id);
+        if (Auth::check() && Auth::user()->ownsCourse($course) && $course->completed == 0)
+            return view('teacher.courses.edit', compact('course'));
+        return redirect()->back();
+    }
+
+    /**
+     * Update the specified resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function update(Request $request, $id)
+    {
+        if (!Auth::check() || !Auth::user()->ownsCourse(Course::find($id)))
+            return redirect()->back();
+
+        $request->validate([
+            'title' => 'required|min:5',
+            'description' => 'required|min:30',
+        ]);
+
+        $course = Course::find($id);
+        $course->title = $request->title;
+        $course->description = $request->description;
+        if ($request->imageURI) {
+            $imageURI = $request->imageURI;
+            $image_uploaded = Cloudinary::upload($imageURI)->getSecurePath();
+            $course->image = $image_uploaded;
+        }
+        $course->save();
+
+        return redirect()->route('courses.show', $id)->with('success', 'Course updated successfully');
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function destroy($id)
+    {
+        $course = Course::find($id);
+        if (!Auth::check() || (!Auth::user()->ownsCourse($course) && !Auth::user()->isAdmin()))
+            return redirect()->back();
+        $course->delete();
+        if (Auth::user()->isAdmin())
+            return redirect()->route('index');
+        return redirect()->route('teacher.courses.index');
+    }
+
+    public function toggleActive($id)
+    {
+        $course = Course::find($id);
+        $course->active = !$course->active;
+        $course->save();
+        return redirect()->route('teacher.courses.index');
+    }
+
+    public function addSection(Request $request, $courseId)
+    {
+        return view('teacher.courses.addSection', compact('courseId'));
+    }
+
+    public function storeSection(Request $request, $courseId)
+    {
+        $request->validate([
+            'title' => 'required',
+        ]);
+
+        $course = Course::find($courseId);
+        if (!Auth::check() || !Auth::user()->ownsCourse($course))
+            return redirect()->back();
+
+        $course->sections()->create([
+            'title' => $request->title,
+        ]);
+
+        return redirect()->route('courses.show', $courseId)->with('success', 'Section added successfully');
+    }
+
+    public function editSection(Request $request, $courseId, $sectionId)
+    {
+        $course = Course::findOrFail($courseId);
+        $section = $course->sections()->findOrFail($sectionId);
+
+        if (!Auth::check() ||  !Auth::user()->ownsCourse($course))
+            return redirect()->back();
+
+        return view('teacher.courses.editSection', ['course' => $course, 'section' => $section]);
+    }
+
+    public function updateSection(Request $request, $courseId, $sectionId)
+    {
+        $request->validate([
+            'title' => 'required',
+        ]);
+
+        $course = Course::findOrFail($courseId);
+        $section = $course->sections()->findOrFail($sectionId);
+
+        if (!Auth::check() ||  !Auth::user()->ownsCourse($course))
+            return redirect()->back();
+
+        $section->title = $request->title;
+        $section->save();
+
+        return redirect()->route('courses.show', $courseId)->with('success', 'Section updated successfully');
+    }
+
+    public function deleteSection(Request $request, $courseId, $sectionId)
+    {
+        $course = Course::findOrFail($courseId);
+        $section = $course->sections()->findOrFail($sectionId);
+
+        if (!Auth::check() || (!Auth::user()->ownsCourse($course) && !Auth::user()->isAdmin()))
+            return redirect()->back();
+
+        $section->delete();
+
+        return redirect()->route('courses.show', $courseId)->with('success', 'Section deleted successfully');
+    }
+
+    public function addContent(Request $request, $courseId)
+    {
+        $course = Course::findOrFail($courseId);
+
+        if (!Auth::check() || !Auth::user()->ownsCourse($course))
+            return redirect()->back();
+
+        return view('teacher.courses.addContent', ['course' => $course]);
+    }
+
+    public function storeContent(Request $request,  $courseId)
+    {
+        $request->validate([
+            'title' => 'required',
+            'section' => 'required',
+            'checkQuestion' => "required",
+            'checkQuestionAnswers' => "required",
+            'easyQuestion' => "required",
+            'easyQuestionAnswers' => "required",
+            'mediumQuestion' => "required",
+            'mediumQuestionAnswers' => "required",
+            'hardQuestion' => "required",
+            'hardQuestionAnswers' => "required",
+        ]);
+
+
+        if ($request->onlyLink) {
+            $request->validate([
+                'link' => 'required',
+            ]);
+        } else {
+            $request->validate([
+                'content' => 'required',
+            ]);
+        }
+
+        $course = Course::find($courseId);
+        if (!Auth::user()->ownsCourse($course))
+            return redirect()->back();
+
+        $contentSource = null;
+        if ($request->onlyLink) {
+            $contentSource = $request->link;
+        } else {
+            $file = $request->file('content');
+            $destinationPath = 'uploads';
+            $filename = $file->getClientOriginalName();
+            $file->move($destinationPath, $filename);
+
+            $filePath = $destinationPath . '/' . $filename;
+
+            $contentSource = Cloudinary::upload($filePath, [
+                'resource_type' => 'auto',
+            ])->getSecurePath();
+
+            unlink($filePath);
+        }
+
+        $contentType = ContentType::where('name', $request->contentType)->first();
+
+        $addedContent = $course->sections()->find($request->section)->contents()->create([
+            'title' => $request->title,
+            'source' => $contentSource,
+            'content_type_id' => $contentType->id,
+        ]);
+
+
+        $checkQuestion = new Question();
+        $checkQuestion->content_id = $addedContent->id;
+        $checkQuestion->text = $request->checkQuestion;
+        $checkQuestion->type = 'check';
+        $checkQuestion->save();
+
+
+        $correctCheckAnswer = $request->checkQuestionAnswers[0];
+        $i = 0;
+        foreach ($request->checkQuestionAnswers as $answer) {
+            $checkQuestion->answers()->create([
+                'text' => $answer,
+                'is_correct' => $i == 0 && $answer == $correctCheckAnswer,
+            ]);
+        }
+
+
+        $easyQuestion = new Question();
+        $easyQuestion->content_id = $addedContent->id;
+        $easyQuestion->text = $request->easyQuestion;
+        $easyQuestion->type = 'test';
+        $easyQuestion->level = 'easy';
+        $easyQuestion->save();
+
+        $correctEasyAnswer = $request->easyQuestionAnswers[0];
+        $i = 0;
+        foreach ($request->easyQuestionAnswers as $answer) {
+            $easyQuestion->answers()->create([
+                'text' => $answer,
+                'is_correct' => $i == 0 && $answer == $correctEasyAnswer,
+            ]);
+        }
+
+
+        $mediumQuestion = new Question();
+        $mediumQuestion->content_id = $addedContent->id;
+        $mediumQuestion->text = $request->mediumQuestion;
+        $mediumQuestion->type = 'test';
+        $mediumQuestion->level = 'medium';
+        $mediumQuestion->save();
+
+        $correctMediumAnswer = $request->mediumQuestionAnswers[0];
+        $i = 0;
+        foreach ($request->mediumQuestionAnswers as $answer) {
+            $mediumQuestion->answers()->create([
+                'text' => $answer,
+                'is_correct' => $i == 0 && $answer == $correctMediumAnswer,
+            ]);
+        }
+
+
+        $hardQuestion = new Question();
+        $hardQuestion->content_id = $addedContent->id;
+        $hardQuestion->text = $request->hardQuestion;
+        $hardQuestion->type = 'test';
+        $hardQuestion->level = 'hard';
+        $hardQuestion->save();
+
+        $correctHardAnswer = $request->hardQuestionAnswers[0];
+        $i = 0;
+        foreach ($request->hardQuestionAnswers as $answer) {
+            $hardQuestion->answers()->create([
+                'text' => $answer,
+                'is_correct' =>  $i == 0 && $answer == $correctHardAnswer,
+            ]);
+        }
+
+        return redirect()->route('courses.show', $courseId)->with('success', 'Content added successfully');
+    }
+
+    public function editContent(Request $request, $courseId, $contentId)
+    {
+        $course = Course::findOrFail($courseId);
+        $sections = $course->sections()->get();
+
+        // find course which section_id is equal to one of the sections of the course and content_id is equal to the contentId
+        $content = Content::whereHas('section', function ($query) use ($sections) {
+            $query->whereIn('id', $sections->pluck('id'));
+        })->where('id', $contentId)->first();
+
+        $checkQuestion = $content->questions()->where('type', 'check')->first();
+
+        $easyQuestion = $content->questions()->where('type', 'test')->where('level', 'easy')->first();
+        $mediumQuestion = $content->questions()->where('type', 'test')->where('level', 'medium')->first();
+        $hardQuestion = $content->questions()->where('type', 'test')->where('level', 'hard')->first();
+
+
+
+        if (!Auth::check() || !Auth::user()->ownsCourse($course) || !$content)
+            return redirect()->back();
+
+        return view(
+            'teacher.courses.editContent',
+            [
+                'course' => $course, 'content' => $content,
+                'checkQuestion' => $checkQuestion,
+                'easyQuestion' => $easyQuestion,
+                'mediumQuestion' => $mediumQuestion,
+                'hardQuestion' => $hardQuestion
+            ]
+        );
+    }
+
+    public function updateContent(Request $request, $courseId, $contentId)
+    {
+        $request->validate([
+            'title' => 'required',
+            'section' => 'required',
+            'checkQuestion' => "required",
+            'checkQuestionAnswers' => "required",
+            'easyQuestion' => "required",
+            'easyQuestionAnswers' => "required",
+            'mediumQuestion' => "required",
+            'mediumQuestionAnswers' => "required",
+            'hardQuestion' => "required",
+            'hardQuestionAnswers' => "required",
+        ]);
+
+
+        $course = Course::findOrFail($courseId);
+        $sections = $course->sections()->get();
+
+        // find course which section_id is equal to one of the sections of the course and content_id is equal to the contentId
+        $content = Content::whereHas('section', function ($query) use ($sections) {
+            $query->whereIn('id', $sections->pluck('id'));
+        })->where('id', $contentId)->first();
+
+        if ($request->content) {
+            $file = $request->file('content');
+            $destinationPath = 'uploads';
+            $filename = $file->getClientOriginalName();
+            $file->move($destinationPath, $filename);
+
+            $filePath = $destinationPath . '/' . $filename;
+
+            $contentSource = Cloudinary::upload($filePath, [
+                'resource_type' => 'auto',
+            ])->getSecurePath();
+        } else if ($request->link) {
+            $contentSource = $request->link;
+        } else {
+            $contentSource = $content->source;
+        }
+
+        if (!Auth::user()->ownsCourse($course) || !$content) {
+            return redirect()->back();
+        }
+
+        $contentType = ContentType::where('name', $request->contentType)->first();
+
+        $content->title = $request->title;
+        $content->section_id = $request->section;
+        $content->source = $contentSource;
+        if ($contentType)
+            $content->content_type_id = $contentType->id;
+        $content->save();
+
+        $checkQuestion = $content->questions()->where('type', 'check')->first();
+        $checkQuestion->text = $request->checkQuestion;
+        $checkQuestion->save();
+
+        $checkQuestionAnswers = $checkQuestion->answers()->get();
+        $correctCheckAnswer = $request->checkQuestionAnswers[0];
+        for ($i = 0; $i < count($checkQuestionAnswers); $i++) {
+            $checkQuestionAnswers[$i]->text = $request->checkQuestionAnswers[$i];
+            $checkQuestionAnswers[$i]->is_correct = $request->checkQuestionAnswers[$i] == $correctCheckAnswer && $i == 0;
+            $checkQuestionAnswers[$i]->save();
+        }
+
+        $easyQuestion = $content->questions()->where('type', 'test')->where('level', 'easy')->first();
+        $easyQuestion->text = $request->easyQuestion;
+        $easyQuestion->save();
+
+        $easyQuestionAnswers = $easyQuestion->answers()->get();
+        $correctEasyAnswer = $request->easyQuestionAnswers[0];
+        for ($i = 0; $i < count($easyQuestionAnswers); $i++) {
+            $easyQuestionAnswers[$i]->text = $request->easyQuestionAnswers[$i];
+            $easyQuestionAnswers[$i]->is_correct = $request->easyQuestionAnswers[$i] == $correctEasyAnswer && $i == 0;
+            $easyQuestionAnswers[$i]->save();
+        }
+
+        $mediumQuestion = $content->questions()->where('type', 'test')->where('level', 'medium')->first();
+        $mediumQuestion->text = $request->mediumQuestion;
+        $mediumQuestion->save();
+
+        $mediumQuestionAnswers = $mediumQuestion->answers()->get();
+        $correctMediumAnswer = $request->mediumQuestionAnswers[0];
+        for ($i = 0; $i < count($mediumQuestionAnswers); $i++) {
+            $mediumQuestionAnswers[$i]->text = $request->mediumQuestionAnswers[$i];
+            $mediumQuestionAnswers[$i]->is_correct = $request->mediumQuestionAnswers[$i] == $correctMediumAnswer && $i == 0;
+            $mediumQuestionAnswers[$i]->save();
+        }
+
+        $hardQuestion = $content->questions()->where('type', 'test')->where('level', 'hard')->first();
+        $hardQuestion->text = $request->hardQuestion;
+        $hardQuestion->save();
+
+        $hardQuestionAnswers = $hardQuestion->answers()->get();
+        $correctHardAnswer = $request->hardQuestionAnswers[0];
+        for ($i = 0; $i < count($hardQuestionAnswers); $i++) {
+            $hardQuestionAnswers[$i]->text = $request->hardQuestionAnswers[$i];
+            $hardQuestionAnswers[$i]->is_correct = $request->hardQuestionAnswers[$i] == $correctHardAnswer && $i == 0;
+            $hardQuestionAnswers[$i]->save();
+        }
+
+        return redirect()->route('courses.show', $courseId)->with('success', 'Content updated successfully');
+    }
+
+    public function deleteContent(Request $request, $courseId, $contentId)
+    {
+        $course = Course::findOrFail($courseId);
+        $sections = $course->sections()->get();
+
+        // find course which section_id is equal to one of the sections of the course and content_id is equal to the contentId
+        $content = Content::whereHas('section', function ($query) use ($sections) {
+            $query->whereIn('id', $sections->pluck('id'));
+        })->where('id', $contentId)->first();
+
+        if (!Auth::check() || !$content || (!Auth::user()->ownsCourse($course) && !Auth::user()->isAdmin())) {
+            return redirect()->back();
+        }
+
+        $content->delete();
+
+        return redirect()->route('courses.show', $courseId)->with('success', 'Content deleted successfully');
+    }
+
+    public function enroll(Request $request, $courseId)
+    {
+        if (auth()->guest()) {
+            return redirect()->route('login');
+        }
+        $course = Course::findOrFail($courseId);
+        if ($course->active == 0) {
+            return redirect()->back()->with('error', 'You can not enroll in this course. Course is not active at the moment');
+        }
+
+        $stringId = (string)auth()->user()->JMBG;
+        while (strlen($stringId) < 13) {
+            $stringId = '0' . $stringId;
+        }
+        CourseAttend::create([
+            'user_JMBG' => $stringId,
+            'course_id' => $course->id,
+        ]);
+
+        return redirect()->back()->with('success', 'You have successfully enrolled in this course');
+    }
+
+    public function unenroll(Request $request, $courseId)
+    {
+        if (auth()->guest()) {
+            return redirect()->route('login');
+        }
+        $course = Course::findOrFail($courseId);
+        $stringId = (string)auth()->user()->JMBG;
+        while (strlen($stringId) < 13) {
+            $stringId = '0' . $stringId;
+        }
+        $courseAttend = CourseAttend::where('user_JMBG', $stringId)->where('course_id', $course->id)->first();
+        if ($courseAttend) {
+            $courseAttend->delete();
+        }
+
+        return redirect()->back()->with('success', 'You have successfully unenrolled from this course');
+    }
+
+    public function complete(Request $request, $courseId)
+    {
+        $course = Course::findOrFail($courseId);
+        if (!Auth::check() || !Auth::user()->ownsCourse($course)) {
+            return redirect()->back();
+        }
+
+        $course->completed = true;
+        $course->save();
+
+        return redirect()->back()->with('success', 'You have marked this course as completed. Now, your students can do tests for this course.');
+    }
+
+    public function incomplete(Request $request, $courseId)
+    {
+        $course = Course::findOrFail($courseId);
+        if (!Auth::user()->ownsCourse($course)) {
+            return redirect()->back();
+        }
+
+        $course->completed = false;
+        $course->save();
+
+        return redirect()->back()->with('success', 'You have marked this course as incomplete. Now, your students can not do tests for this course.');
+    }
+
+    public function completeContent(Request $request, $courseId, $contentId)
+    {
+        $course = Course::findOrFail($courseId);
+        $sections = $course->sections()->get();
+
+        // find course which section_id is equal to one of the sections of the course and content_id is equal to the contentId
+        $content = Content::whereHas('section', function ($query) use ($sections) {
+            $query->whereIn('id', $sections->pluck('id'));
+        })->where('id', $contentId)->first();
+        if (!Auth::check() || !Auth::user()->attendsCourse($course) || !$content) {
+            return redirect()->back();
+        }
+
+        $contentComplete = ContentComplete::where('user_JMBG', auth()->user()->JMBG)->where('content_id', $content->id)->first();
+        if ($contentComplete) {
+            return redirect()->back();
+        } else {
+            ContentComplete::create([
+                'user_JMBG' => auth()->user()->JMBG,
+                'content_id' => $content->id,
+            ]);
+        }
+
+        return redirect()->back();
+    }
+
+    public function showTest($courseId)
+    {
+        $course = Course::findOrFail($courseId);
+        if (!Auth::check() || !Auth::user()->attendsCourse($course) || Auth::user()->doneTest($course)) {
+            return redirect()->back();
+        }
+
+        if ($course->completed == false) {
+            return redirect()->back()->with('error', 'You can not do test for this course because it is not completed yet.');
+        }
+
+        $sections = $course->sections()->get();
+        $contents = Content::whereHas('section', function ($query) use ($sections) {
+            $query->whereIn('id', $sections->pluck('id'));
+        })->get();
+
+        $checkQuestions = Question::whereHas('content', function ($query) use ($contents) {
+            $query->whereIn('id', $contents->pluck('id'));
+        })->where('type', 'check')->get();
+
+        $answerIds = [];
+        foreach ($checkQuestions as $checkQuestion) {
+            $answerIds = array_merge($answerIds, $checkQuestion->answers->pluck('id')->toArray());
+        }
+
+        $userAnswers = Auth::user()->answers()->get();
+        $userAnswers = $userAnswers->whereIn('answer_id', $answerIds);
+
+        if ($userAnswers->count() != $checkQuestions->count()) {
+            return redirect()->back()->with('error', 'You have not completed all the contents of this course.');
+        }
+
+        $correctAnswers = 0;
+        foreach ($userAnswers as $userAnswer)
+            if ($userAnswer->answer->is_correct)
+                $correctAnswers++;
+
+        $percentage = $correctAnswers / $checkQuestions->count() * 100;
+
+        $easyQuestions = [];
+        $mediumQuestions = [];
+        $hardQuestions = [];
+        foreach ($contents as $content) {
+            array_push($easyQuestions, $content->questions()->where('level', 'easy')->get());
+            array_push($mediumQuestions, $content->questions()->where('level', 'medium')->get());
+            array_push($hardQuestions, $content->questions()->where('level', 'hard')->get());
+        }
+
+
+        $questions = null;
+        if ($percentage >= 0 && $percentage < 50) {
+            $questions = $easyQuestions;
+        } else if ($percentage >= 50 && $percentage < 80) {
+            $questions = $mediumQuestions;
+        } else if ($percentage >= 80 && $percentage <= 100) {
+            $questions = $hardQuestions;
+        }
+
+        $questions = collect($questions)->flatten();
+        foreach ($questions as $question) {
+            $question->answers = $question->answers->shuffle();
+        }
+
+        return view('teacher.courses.test', compact('course', 'questions'));
+    }
+
+    public function questionHelp(Request $request, $questionId)
+    {
+        // get question answers, and return the correct one and second one return the wrong one
+        $question = Question::findOrFail($questionId);
+        $answers = $question->answers()->get();
+        $answers = $answers->shuffle();
+        $correctAnswer = $answers->where('is_correct', true)->first();
+        $incorrectAnswer = $answers->where('is_correct', false)->first();
+
+        $answers = [
+            'correct' => $correctAnswer,
+            'incorrect' => $incorrectAnswer,
+        ];
+
+        return response()->json($answers);
+    }
+
+    public function answerQuestion(Request $request, $courseId, $contentId)
+    {
+        if (!Auth::check()) {
+            return redirect()->back();
+        }
+        $course = Course::findOrFail($courseId);
+        $sections = $course->sections()->get();
+
+        // find course which section_id is equal to one of the sections of the course and content_id is equal to the contentId
+        $content = Content::whereHas('section', function ($query) use ($sections) {
+            $query->whereIn('id', $sections->pluck('id'));
+        })->where('id', $contentId)->first();
+
+        if (!Auth::user()->attendsCourse($course) || !$content) {
+            return redirect()->back();
+        }
+
+        $question = Question::where('content_id', $contentId)->where('type', 'check')->first();
+        $answerId = $request->answer;
+
+        if ($question->answers->pluck('id')->contains($answerId)) {
+            $questionAnswer = new QuestionAnswer();
+            $questionAnswer->user_JMBG = auth()->user()->JMBG;
+            $questionAnswer->answer_id = $answerId;
+            $questionAnswer->save();
+
+            $contentComplete = new ContentComplete();
+            $contentComplete->user_JMBG = auth()->user()->JMBG;
+            $contentComplete->content_id = $contentId;
+            $contentComplete->save();
+        }
+
+        return redirect()->route('courses.show', $courseId);
+    }
+
+    public function endTest(Request $request, $courseId)
+    {
+        if (!Auth::check()) {
+            return redirect()->back();
+        }
+        $course = Course::findOrFail($courseId);
+        if (!Auth::user()->attendsCourse($course)) {
+            return redirect()->back();
+        }
+
+        $userAnswers = $request->only(array_filter($request->keys(), function ($key) {
+            return strpos($key, 'question') === 0;
+        }));
+
+        foreach ($userAnswers as $questionId => $answerId) {
+            $questionId = intval(str_replace('question', '', $questionId));
+            $answerId = intval($answerId);
+            $questionAnswer = new QuestionAnswer();
+            $questionAnswer->user_JMBG = auth()->user()->JMBG;
+            $questionAnswer->answer_id = $answerId;
+            if ($request['help' . $questionId] == 1)
+                $questionAnswer->help_used = true;
+            $questionAnswer->save();
+        }
+
+        return redirect()->route('courses.test.results', $courseId);
+    }
+
+    public function testResults(Request $request, $courseId)
+    {
+        $course = Course::findOrFail($courseId);
+        if (!Auth::check() || !Auth::user()->attendsCourse($course) || !Auth::user()->doneTest($course)) {
+            return redirect()->back();
+        }
+        $questions = collect($course->questions())->where('type', 'test');
+        $questionsIds = $questions->pluck('id');
+
+        $rawAnswers = Auth::user()->answers;
+        $allAnswers = [];
+        foreach ($rawAnswers as $answer) {
+            if ($answer->answer->question->type == "test")
+                array_push($allAnswers, $answer->answer);
+        }
+        $allAnswers = Arr::flatten($allAnswers);
+        $allAnswers = collect($allAnswers);
+        $userAnswers = $allAnswers->whereIn('question_id', $questionsIds);
+        $level = $userAnswers->first()->question->level;
+
+        $questions = $questions->where('level', $level);
+        $user = Auth::user();
+
+        $points = 0;
+        foreach ($questions as $question) {
+            if (in_array($question->getCorrectAnswer()->id, $userAnswers->pluck('id')->toArray()))
+                if ($question->getCorrectAnswer()->userUsedHelp($user->JMBG))
+                    $points += 0.5;
+                else
+                    $points += 1;
+        }
+
+        return view('teacher.courses.testResults', compact('course', 'questions', 'userAnswers', 'user', 'points'));
+    }
+
+    public function userTestResults(Request $request, $courseId, $userJMBG)
+    {
+        $course = Course::findOrFail($courseId);
+        $user = User::where('JMBG', $userJMBG)->first();
+        if (!Auth::check() || !$user->attendsCourse($course) || !$user->doneTest($course)) {
+            return redirect()->back();
+        }
+        $questions = collect($course->questions())->where('type', 'test');
+        $questionsIds = $questions->pluck('id');
+
+        $rawAnswers = $user->answers;
+        $allAnswers = [];
+        foreach ($rawAnswers as $answer) {
+            if ($answer->answer->question->type == "test")
+                array_push($allAnswers, $answer->answer);
+        }
+        $allAnswers = Arr::flatten($allAnswers);
+        $allAnswers = collect($allAnswers);
+        $userAnswers = $allAnswers->whereIn('question_id', $questionsIds);
+        $level = $userAnswers->first()->question->level;
+
+        $questions = $questions->where('level', $level);
+
+        $points = 0;
+        foreach ($questions as $question) {
+            if (in_array($question->getCorrectAnswer()->id, $userAnswers->pluck('id')->toArray()))
+                if ($question->getCorrectAnswer()->userUsedHelp($user->JMBG))
+                    $points += 0.5;
+                else
+                    $points += 1;
+        }
+
+        return view('teacher.courses.testResults', compact('course', 'questions', 'userAnswers', 'user', 'points'));
+    }
+
+    public function showAttendants(Request $request, $courseId)
+    {
+        $course = Course::findOrFail($courseId);
+        if (!Auth::check() || !Auth::user()->ownsCourse($course)) {
+            return redirect()->back();
+        }
+
+        $attendants = $course->attends()->get();
+        $averagePoints = 0;
+        $usersDoneTest = 0;
+
+        foreach ($attendants as $attendant) {
+            $questions = collect($course->questions())->where('type', 'test');
+            $questionsIds = $questions->pluck('id');
+
+            $rawAnswers = $attendant->user->answers;
+            $allAnswers = [];
+            foreach ($rawAnswers as $answer) {
+                if ($answer->answer->question->type == "test")
+                    array_push($allAnswers, $answer->answer);
+            }
+            $allAnswers = Arr::flatten($allAnswers);
+            $allAnswers = collect($allAnswers);
+            $userAnswers = $allAnswers->whereIn('question_id', $questionsIds);
+            if ($userAnswers->count() == 0)
+                continue;
+
+            $usersDoneTest++;
+            $level = $userAnswers->first()->question->level;
+
+            $questions = $questions->where('level', $level);
+
+            $points = 0;
+            foreach ($questions as $question) {
+                if (in_array($question->getCorrectAnswer()->id, $userAnswers->pluck('id')->toArray()))
+                    if ($question->getCorrectAnswer()->userUsedHelp($attendant->user->JMBG))
+                        $points += 0.5;
+                    else
+                        $points += 1;
+            }
+            $averagePoints += $points;
+        }
+
+        if ($usersDoneTest > 0)
+            $averagePoints /= $usersDoneTest;
+
+        return view('teacher.courses.attendants', compact('course', 'attendants', 'averagePoints'));
+    }
+
+    public function testStatistics(Request $request, $courseId)
+    {
+        $course = Course::findOrFail($courseId);
+        if (!Auth::check() || !Auth::user()->ownsCourse($course)) {
+            return redirect()->back();
+        }
+
+        $attendants = $course->attends()->get();
+        $averagePoints = 0;
+        $usersDoneTest = 0;
+
+        foreach ($attendants as $attendant) {
+            $questions = collect($course->questions())->where('type', 'test')->where('level', $request->input('level'));
+            $questionsIds = $questions->pluck('id');
+
+            $rawAnswers = $attendant->user->answers;
+            $allAnswers = [];
+            foreach ($rawAnswers as $answer) {
+                if ($answer->answer->question->type == "test")
+                    array_push($allAnswers, $answer->answer);
+            }
+            $allAnswers = Arr::flatten($allAnswers);
+            $allAnswers = collect($allAnswers);
+            $userAnswers = $allAnswers->whereIn('question_id', $questionsIds);
+            if ($userAnswers->count() == 0)
+                continue;
+
+            $usersDoneTest++;
+            $level = $userAnswers->first()->question->level;
+
+            $questions = $questions->where('level', $level);
+
+            $points = 0;
+            foreach ($questions as $question) {
+                if (in_array($question->getCorrectAnswer()->id, $userAnswers->pluck('id')->toArray()))
+                    if ($question->getCorrectAnswer()->userUsedHelp($attendant->user->JMBG))
+                        $points += 0.5;
+                    else
+                        $points += 1;
+            }
+            $averagePoints += $points;
+        }
+
+        if ($usersDoneTest > 0)
+            $averagePoints /= $usersDoneTest;
+
+
+        $questions = collect($course->questions())->where('type', 'test')->where('level', $request->input('level'));
+        foreach ($questions as $question) {
+            $usersWithCorrectAnswer = 0;
+            foreach ($attendants as $attendant) {
+                $rawAnswers = $attendant->user->answers;
+                $allAnswers = [];
+                foreach ($rawAnswers as $answer) {
+                    if ($answer->answer->question->type == "test")
+                        array_push($allAnswers, $answer->answer);
+                }
+                $allAnswers = Arr::flatten($allAnswers);
+                $allAnswers = collect($allAnswers);
+                $userAnswer = $allAnswers->where('question_id', $question->id)->first();
+                if ($userAnswer == null)
+                    continue;
+
+                if ($userAnswer->id == $question->getCorrectAnswer()->id)
+                    $usersWithCorrectAnswer++;
+            }
+            $question->usersWithCorrectAnswer = $usersWithCorrectAnswer;
+        }
+
+        $questions = $questions->sortBy('usersWithCorrectAnswer');
+
+        return view('teacher.courses.testStatistics', compact('course', 'questions', 'averagePoints', 'usersDoneTest'));
+    }
+
+    public function rate(Request $request, $courseId)
+    {
+        $request->validate([
+            'rating' => 'required|numeric|min:1|max:5'
+        ]);
+        $course = Course::findOrFail($courseId);
+        if (!Auth::check() || !Auth::user()->attendsCourse($course))
+            return redirect()->back();
+
+        $existingRating = Rating::where('user_JMBG', Auth::user()->JMBG)->where('course_id', $courseId)->first();
+        if ($existingRating) {
+            $existingRating->rating = $request->rating;
+            $existingRating->save();
+            return redirect()->back();
+        }
+        $rating = new Rating();
+        $rating->user_JMBG = Auth::user()->JMBG;
+        $rating->course_id = $courseId;
+        $rating->rating = $request->rating;
+        $rating->save();
+
+        return redirect()->back();
+    }
+}
