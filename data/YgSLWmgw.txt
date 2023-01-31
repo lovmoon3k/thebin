@@ -1,0 +1,73 @@
+// ==UserScript==
+// @name         Mentioner - MAL
+// @namespace    MALMentioner
+// @version      14
+// @description  Adds a button to copy the @user name on all users who have commented on any topics on MAL. The script also adds a search user name box near the box were the reply is written, so that you can search for any user that commented on that topic and click on the displayed @UserName to auto paste the @UserName into the reply box.
+// @author       hacker09
+// @match        https://myanimelist.net/forum/?topicid=*
+// @match        https://myanimelist.net/clubs.php?cid=*
+// @icon         https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://myanimelist.net&size=64
+// @run-at       document-end
+// @grant        none
+// ==/UserScript==
+var MouseOverExecuted = 0; //Create a new variable with the value null
+var Executed = 0; //Create a new variable with the value 0
+(function() {
+    'use strict';
+    var MALUserParsedList = []; //Creates a array to later add all non-dup mal usernames on the page
+    const ScriptUsername = document.querySelector("a.header-profile-link").innerText; //Gets the script username
+
+    document.querySelectorAll('.username > a,div[style*="margin-bottom: 6px;"] > a').forEach(function(UserName) { //Execute this function for each username on the topic/club page
+        if (!MALUserParsedList.includes(UserName.innerText) && UserName.innerText !== ScriptUsername && UserName.innerText !== 'removed-user') { //If the username isn't already on the array and if isn't the Script Username or the removed-user
+            MALUserParsedList.push(UserName.innerText); //Add the username on the array
+
+            window.jQuery('.username > a:contains("' + UserName.innerText + '")').parent().append('<a title="Copy @' + UserName.innerText + '" onclick=navigator.clipboard.writeText("@' + UserName.innerText + '") style="cursor: pointer; margin-left: 9px; height: 10px; width: 10px; background-size: cover; display: inline-block; transform: scale(1.5); vertical-align: top; margin-top: 2px; background-image: url(https://i.imgur.com/vU0m0ye.png);"></a>'); //Add the copy @UserName button to every username that replied on the topic
+            window.jQuery('div[style*="margin-bottom: 6px;"] > a:contains("' + UserName.innerText + '")').after('<a title="Copy @' + UserName.innerText + '" onclick=navigator.clipboard.writeText("@' + UserName.innerText + '") style="cursor: pointer; margin-left: 9px; height: 10px; width: 10px; background-size: cover; display: inline-block; transform: scale(1.5); vertical-align: top; margin-top: 2px; background-image: url(https://i.imgur.com/vU0m0ye.png);"></a>'); //Add the copy @UserName button to every username that replied on the comments
+
+        } //Finishes the if condition
+
+        MALUserParsedList = MALUserParsedList.filter(v => v !== ScriptUsername); //Remove the script user username of the array if the script user also commented on the topic
+        MALUserParsedList = MALUserParsedList.filter(v => v !== 'removed-user'); //Remove the 'removed-user' username of the array (if existent on the topic page)
+
+    }); //Finishes the async function
+
+    document.onmouseover = function(e) { //When everything is mouse overed
+        if (e.target.className == "topic-reply-box" || e.target.className == "mal-btn primary js-topic-reply-start pressed" || e.target.className == "textarea") { //When the new reply button is pressed or club textarea is mouse overed
+            MouseOverExecuted += 1; //Sum the total amount of times that the new reply pressed or club textarea was mouse overed
+            if (MouseOverExecuted === 1) //If it's the first time that the new reply pressed or club textarea was mouse overed
+            { //Starts the if condition
+                if (e.target.className == "topic-reply-box" || e.target.className == "mal-btn primary js-topic-reply-start pressed") //When on a topic page
+                { //Starts the if condition
+                    [...document.querySelectorAll(".js-topic-top")].pop().scrollIntoView() // Scroll to bottom of topic "Back to top" button
+                    document.querySelector(".js-topic-reply-start").remove(); //Remove top new reply button
+                    document.querySelector(".topic-reply-box").remove(); //Remove top reply box
+                    if (!document.querySelector(".js-topic-reply-start").classList.contains("pressed")) // If new reply button has not been clicked
+                    { //Starts the if condition
+                        document.querySelector(".js-topic-reply-start").click() // Click bottom New reply button
+                    } //Finishes the if condition
+                } //Finishes the if condition
+
+                document.querySelector(".topic-reply-box,.form-club-user-comment").insertAdjacentHTML("afterend", `<br><textarea id="autocomplete-input" placeholder="Find User" style="resize: none; margin-left: 270px; margin-top: -27px;" cols="10" rows="1"></textarea> <div id="autocomplete-list" style="margin-left: 270px; margin-top: -5px; cursor: pointer; width: 150px; height: 145px; overflow-y: scroll; display: none;"></div>`); //Add a new div and text area to the page display: none; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; grid-gap: 5px
+            } //Finishes the if condition
+
+            const UserNameList = document.querySelector("#autocomplete-list"); //Add the script div to a variable
+
+            document.querySelector("#autocomplete-input").onclick = function() //When the script txt box is clicked
+            { //Starts the onclick condition
+                Executed += 1; //Sum the total amount of times that the script txt box was clicked
+                if (Executed === 1) //If it's the first time that the script txt box is clicked
+                { //Starts the if condition
+                    UserNameList.style.display = ''; //Display the list containing the User Names
+                    MALUserParsedList.forEach(UserName => UserNameList.innerHTML += `<div  title="Click to paste @${UserName} on the text box" onmouseout='this.style.color = "black"' onmouseover='this.style.color = "#6386d5"' onclick='document.querySelector("textarea").value === "" ? document.querySelector("textarea").value += "@${UserName}\\n\\n" : document.querySelector("textarea").value += "@${UserName} "'>\n@${UserName}</div>`); //Add the @UserNames to the script div
+                } //Finishes the if condition
+            }; //Finishes the onclick condition
+
+            document.querySelector("#autocomplete-input").oninput = function(e) { //When any letter is written on the script txt box
+                const matcher = new RegExp(`^${this.value}`, 'gi'); //Get the letters written on the script txt box and create a regex with that user input
+                const matches = MALUserParsedList.filter(MALUserParsedList => MALUserParsedList.match(matcher)); //Find the user input in the arrays
+                UserNameList.innerHTML = ''; //Remove the previously displayed UserNames
+                matches.forEach(UserName => UserNameList.innerHTML += `<div  title="Click to paste @${UserName} on the text box" onmouseout='this.style.color = "black"' onmouseover='this.style.color = "#6386d5"' onclick='document.querySelector("textarea").value === "" ? document.querySelector("textarea").value += "@${UserName}\\n\\n" : document.querySelector("textarea").value += "@${UserName} "'>\n@${UserName}</div>`); //Display the users found
+            }; //Finishes the oninput event listener
+        } //Finishes the if condition
+    }; //Finishes the onmouseover event listener
+})();
