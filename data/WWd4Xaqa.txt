@@ -1,0 +1,316 @@
+// XYZ en Poussoirs a 3 Vitesses et FDCs 31-01-2023 
+// Programme pour Fraiseuse DIY 3 axes ( X,Y,Z )
+// Utilisation de Boutons Poussoirs, 2 par axe , 3 Vitesses differentes D + G .
+// Arduino ATMega2560
+// Moteurs pas à pas STEPPERONLINE NEMA23 3.0 Nm ( 2X -> X + Y ) 1600 Pas/Rev.
+// Drivers X et Y STEPPERONLINE DM542T .
+// Moteur pas à pas STEPPERONLINE NEMA34 12.0 Nm ( 1X -> Z ) 1600 Pas/Rev.
+// Driver Z HBS86H.
+// Alimentations 2 X 36 V CC 16.5 Amperes.
+// Fins de Course NPN LJ12A3-4-Z-BX ( 6 Pieces )
+// Projet réalisé par Dominique Husson avec colaboration de François Declercq, que je remercie pour tout ses bons conseils,
+// sa patience et son aide precieuse.
+//
+//
+// 0 -> RX 0
+// 1 -> TX 1
+// D2 a D13 PWM ( Idéal FDC's )
+// D14 a D19 3X RX-TX 
+// D20 -> SDA ( I2C )
+// D21 -> SCL ( I2C )
+#include <Stepper.h>
+
+Stepper mon_moteurX(1600,24,25);
+Stepper mon_moteurX2(1600,24,25);
+Stepper mon_moteurX3(1600,24,25);
+Stepper mon_moteurY(1600,22,23);
+Stepper mon_moteurY2(1600,22,23);
+Stepper mon_moteurY3(1600,22,23);
+Stepper mon_moteurZ(1600,26,27);
+Stepper mon_moteurZ2(1600,26,27);
+Stepper mon_moteurZ3(1600,26,27);
+int valueMotorXSpeed = 1000; // Vitesse Full.
+int valueMotorX2Speed = 3; //  1 Impulsion Bouton Poussoir -> Precision 0.005mm sur DRO.
+int valueMotorX3Speed = 70; // Vitesse Intermediaire mid.
+int valueMotorYSpeed = 1000; // Vitesse Full.
+int valueMotorY2Speed = 3; //  1 Impulsion Bouton Poussoir -> Precision 0.005mm sur DRO.
+int valueMotorY3Speed = 70; // Vitesse Intermediaire mid.
+int valueMotorZSpeed = 1000; // Vitesse Full.
+int valueMotorZ2Speed = 3; //  1 Impulsion Bouton Poussoir -> Precision 0.005mm sur DRO.
+int valueMotorZ3Speed = 70; // Vitesse Intermediaire mid.
+int sensorValue1 = (2); // FDC X1 ( Fin de Course NPN LJ12A3-4-Z-BX.
+int sensorValue2 = (3); // FDC X2 ( Fin de Course NPN LJ12A3-4-Z-BX.
+int sensorValue3 = (4); // FDC Y1 ( Fin de Course NPN LJ12A3-4-Z-BX.
+int sensorValue4 = (5); // FDC Y2 ( Fin de Course NPN LJ12A3-4-Z-BX.
+int sensorValue5 = (6); // FDC Z1 ( Fin de Course NPN LJ12A3-4-Z-BX.
+int sensorValue6 = (7); // FDC Z2 ( Fin de Course NPN LJ12A3-4-Z-BX.
+int dirPinY   = 22;
+int stepPinY  = 23;
+int dirPinX   = 24;
+int stepPinX  = 25;
+int dirPinZ   = 26;
+int stepPinZ  = 27; 
+int bouton1X  = 28;
+int bouton2X  = 29;
+int bouton1Y  = 30;
+int bouton2Y  = 31;
+int bouton1Z  = 32;
+int bouton2Z  = 33;
+int boutonXYZlow = 34;
+int boutonXYZmid = 35;
+int boutonXYZhigh = 36;
+
+void setup()
+{
+  Serial.begin(9600);
+  
+   bouton1X = digitalRead(28);
+   bouton2X = digitalRead(29);  
+   bouton1Y = digitalRead(30);
+   bouton2Y = digitalRead(31);  
+   bouton1Z = digitalRead(32);
+   bouton2Z = digitalRead(33);
+   boutonXYZlow = digitalRead(34);
+   boutonXYZmid = digitalRead(35);
+   boutonXYZhigh = digitalRead(36);
+
+
+  sensorValue1 = digitalRead(2);
+  sensorValue2 = digitalRead(3);
+  sensorValue3 = digitalRead(4);
+  sensorValue4 = digitalRead(5);
+  sensorValue5 = digitalRead(6);
+  sensorValue6 = digitalRead(7);
+  boutonXYZlow = digitalRead(34);
+  boutonXYZmid = digitalRead(35);
+  boutonXYZhigh = digitalRead(36);
+  
+  mon_moteurX.setSpeed(1000); 
+  mon_moteurX2.setSpeed(3);
+  mon_moteurX3.setSpeed(70); 
+  mon_moteurY.setSpeed(1000); 
+  mon_moteurY2.setSpeed(3);
+  mon_moteurY3.setSpeed(70); 
+  mon_moteurZ.setSpeed(1000);
+  mon_moteurZ2.setSpeed(3);
+  mon_moteurZ3.setSpeed(70); 
+   
+  pinMode(2, INPUT_PULLUP ); // FDC X1 ( Fin de Course NPN LJ12A3-4-Z-BX )
+  pinMode(3, INPUT_PULLUP ); // FDC X2 ( Fin de Course NPN LJ12A3-4-Z-BX )
+  pinMode(4, INPUT_PULLUP ); // FDC Y1 ( Fin de Course NPN LJ12A3-4-Z-BX )
+  pinMode(5, INPUT_PULLUP ); // FDC Y2 ( Fin de Course NPN LJ12A3-4-Z-BX )
+  pinMode(6, INPUT_PULLUP ); // FDC Z1 ( Fin de Course NPN LJ12A3-4-Z-BX )
+  pinMode(7, INPUT_PULLUP ); // FDC Z2 ( Fin de Course NPN LJ12A3-4-Z-BX )
+  pinMode(28,INPUT_PULLUP); // 28 = Bouton1X
+  pinMode(29,INPUT_PULLUP); // 29 = Bouton2X
+  pinMode(30,INPUT_PULLUP); // 30 = Bouton1Y
+  pinMode(31,INPUT_PULLUP); // 31 = Bouton2Y
+  pinMode(32,INPUT_PULLUP); // 32 = Bouton1Z
+  pinMode(33,INPUT_PULLUP); // 33 = Bouton2Z
+  pinMode(34,INPUT_PULLUP); // 34 = boutonXYZlow
+  pinMode(35,INPUT_PULLUP); // 35 = boutonXYZmid
+  pinMode(36,INPUT_PULLUP); // 36 = boutonXYZhigh
+  pinMode(22,OUTPUT);       // 22 = DIR Y
+  pinMode(23,OUTPUT);       // 23 = STEP Y
+  pinMode(24,OUTPUT);       // 24 = DIR X
+  pinMode(25,OUTPUT);       // 25 = STEP X
+  pinMode(26,OUTPUT);       // 26 = DIR Z
+  pinMode(27,OUTPUT);       // 27 = STEP Z
+  digitalWrite(22, LOW);
+  digitalWrite(23, LOW);
+  digitalWrite(24, LOW);
+  digitalWrite(25, LOW);
+  digitalWrite(26, LOW);
+  digitalWrite(27, LOW); 
+  
+
+}
+ 
+void loop()
+{ 
+  sensorValue1 = digitalRead(2);
+  sensorValue2 = digitalRead(3);
+  sensorValue3 = digitalRead(4);
+  sensorValue4 = digitalRead(5);
+  sensorValue5 = digitalRead(6);
+  sensorValue6 = digitalRead(7);
+  boutonXYZlow = digitalRead(34);
+  boutonXYZmid = digitalRead(35);
+  boutonXYZhigh = digitalRead(36);
+  bouton1X = digitalRead(28);
+  bouton2X = digitalRead(29); 
+  bouton1Y = digitalRead(30);
+  bouton2Y = digitalRead(31);  
+  bouton1Z = digitalRead(32);
+  bouton2Z = digitalRead(33);
+  
+  if ((digitalRead(28) == LOW) & (digitalRead(2) == LOW) & (digitalRead(34) == LOW)) {
+       digitalWrite(dirPinX, LOW);
+       mon_moteurX2.step(1);
+  }
+  else if ((digitalRead(28) == LOW) & (digitalRead(2) == HIGH) & (digitalRead(34) == LOW)) {
+            X2Stop();  
+  }
+  if ((digitalRead(29) == LOW) & (digitalRead(3) == LOW) & (digitalRead(34) == LOW)) {
+       digitalWrite(dirPinX, HIGH);
+       mon_moteurX2.step(-1);
+  }
+  else if ((digitalRead(29) == LOW) & (digitalRead(3) == HIGH)& (digitalRead(34) == LOW)) {
+            X2Stop();   
+  }
+  if ((digitalRead(28) == LOW) & (digitalRead(2) == LOW) & (digitalRead(35) == LOW)) {
+       digitalWrite(dirPinX, LOW);
+       mon_moteurX3.step(10);
+  }
+  else if ((digitalRead(28) == LOW) & (digitalRead(2) == HIGH) & (digitalRead(35) == LOW)) {
+            X3Stop();  
+  }
+
+  if ((digitalRead(29) == LOW) & (digitalRead(3) == LOW) & (digitalRead(35) == LOW)) {
+       digitalWrite(dirPinX, HIGH);
+       mon_moteurX3.step(-10);
+  }
+  else if ((digitalRead(29) == LOW) & (digitalRead(3) == HIGH)& (digitalRead(35) == LOW)) {
+            X3Stop();   
+  }
+  if ((digitalRead(28) == LOW) & (digitalRead(2) == LOW) & (digitalRead(36) == LOW)) {
+       digitalWrite(dirPinX, LOW);
+       mon_moteurX.step(250);
+  }
+  else if ((digitalRead(28) == LOW) & (digitalRead(2) == HIGH) & (digitalRead(36) == LOW)) {
+            XStop();  
+  }
+
+  if ((digitalRead(29) == LOW) & (digitalRead(3) == LOW) & (digitalRead(36) == LOW)) {
+       digitalWrite(dirPinX, HIGH);
+       mon_moteurX.step(-250);
+  }
+  else if ((digitalRead(29) == LOW) & (digitalRead(3) == HIGH)& (digitalRead(36) == LOW)) {
+            XStop();   
+  }
+
+  if ((digitalRead(30) == LOW) & (digitalRead(4) == LOW) & (digitalRead(34) == LOW)) {
+       digitalWrite(dirPinY, LOW);
+       mon_moteurY2.step(1);
+  }
+  else if ((digitalRead(30) == LOW) & (digitalRead(4) == HIGH) & (digitalRead(34) == LOW)) {
+            Y2Stop();  
+  }
+
+  if ((digitalRead(31) == LOW) & (digitalRead(5) == LOW) & (digitalRead(34) == LOW)) {
+       digitalWrite(dirPinY, HIGH);
+       mon_moteurY2.step(-1);
+  }
+  else if ((digitalRead(31) == LOW) & (digitalRead(5) == HIGH) & (digitalRead(34) == LOW)) {
+            Y2Stop();   
+  }
+
+  if ((digitalRead(30) == LOW) & (digitalRead(4) == LOW) & (digitalRead(35) == LOW)) {
+       digitalWrite(dirPinY, LOW);
+       mon_moteurY3.step(10);
+  }
+  else if ((digitalRead(30) == LOW) & (digitalRead(4) == HIGH) & (digitalRead(35) == LOW)) {
+            Y3Stop();  
+  }
+
+  if ((digitalRead(31) == LOW) & (digitalRead(5) == LOW) & (digitalRead(35) == LOW)) {
+       digitalWrite(dirPinY, HIGH);
+       mon_moteurY3.step(-10);
+  }
+  else if ((digitalRead(31) == LOW) & (digitalRead(5) == HIGH) & (digitalRead(35) == LOW)) {
+            Y3Stop();   
+  }
+
+  if ((digitalRead(30) == LOW) & (digitalRead(4) == LOW) & (digitalRead(36) == LOW)) {
+       digitalWrite(dirPinY, LOW);
+       mon_moteurY.step(250);
+  }
+  else if ((digitalRead(30) == LOW) & (digitalRead(4) == HIGH) & (digitalRead(36) == LOW)) {
+            YStop();  
+  }
+
+  if ((digitalRead(31) == LOW) & (digitalRead(5) == LOW) & (digitalRead(36) == LOW)) {
+       digitalWrite(dirPinY, HIGH);
+       mon_moteurY.step(-250);
+  }
+  else if ((digitalRead(31) == LOW) & (digitalRead(5) == HIGH) & (digitalRead(36) == LOW)) {
+            YStop();   
+  }
+
+  if ((digitalRead(32) == LOW) & (digitalRead(6) == LOW) & (digitalRead(34) == LOW)) {
+       digitalWrite(dirPinZ, LOW);
+       mon_moteurZ2.step(1);
+  }
+  else if ((digitalRead(32) == LOW) & (digitalRead(6) == HIGH) & (digitalRead(34) == LOW)) {
+            Z2Stop();  
+  }
+
+  if ((digitalRead(33) == LOW) & (digitalRead(7) == LOW) & (digitalRead(34) == LOW)) {
+       digitalWrite(dirPinZ, HIGH);
+       mon_moteurZ2.step(-1);
+  }
+  else if ((digitalRead(33) == LOW) & (digitalRead(7) == HIGH) & (digitalRead(34) == LOW)) {
+            Z2Stop();   
+  }
+
+  if ((digitalRead(32) == LOW) & (digitalRead(6) == LOW) & (digitalRead(35) == LOW)) {
+       digitalWrite(dirPinZ, LOW);
+       mon_moteurZ3.step(10);
+  }
+  else if ((digitalRead(32) == LOW) & (digitalRead(6) == HIGH) & (digitalRead(35) == LOW)) {
+            Z3Stop();  
+  }
+
+  if ((digitalRead(33) == LOW) & (digitalRead(7) == LOW) & (digitalRead(35) == LOW)) {
+       digitalWrite(dirPinZ, HIGH);
+       mon_moteurZ3.step(-10);
+  }
+  else if ((digitalRead(33) == LOW) & (digitalRead(7) == HIGH) & (digitalRead(35) == LOW)) {
+            Z3Stop();   
+  }
+
+  if ((digitalRead(32) == LOW) & (digitalRead(6) == LOW) & (digitalRead(36) == LOW)) {
+       digitalWrite(dirPinZ, LOW);
+       mon_moteurZ.step(250);
+  }
+  else if ((digitalRead(32) == LOW) & (digitalRead(6) == HIGH) & (digitalRead(36) == LOW)) {
+            ZStop();  
+  }
+
+  if ((digitalRead(33) == LOW) & (digitalRead(7) == LOW) & (digitalRead(36) == LOW)) {
+       digitalWrite(dirPinZ, HIGH);
+       mon_moteurZ.step(-250);
+  }
+  else if ((digitalRead(33) == LOW) & (digitalRead(7) == HIGH) & (digitalRead(36) == LOW)) {
+            ZStop();   
+  }
+  }
+  
+   void XStop (void)
+  {  
+  }
+   void X2Stop (void)
+  {  
+  }
+   void X3Stop (void)
+  {  
+  }
+
+   void YStop (void)
+ {  
+ }
+   void Y2Stop (void)
+ {  
+ }
+   void Y3Stop (void)
+ {  
+ }
+   void ZStop (void)
+ {  
+ }
+   void Z2Stop (void)
+ {  
+ }
+   void Z3Stop (void)
+ {  
+ }
