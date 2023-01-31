@@ -1,0 +1,105 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <queue>
+ 
+using namespace std;
+ 
+const int INF = 1e9;
+ 
+// DSU
+vector<int> parent;
+int root(int i) {
+    return parent[i] < 0 ? i : (parent[i] = root(parent[i]));
+}
+void unite(int i, int j) {
+    i = root(i), j = root(j);
+    if (i == j) return;
+    if (parent[i] > parent[j]) swap(i, j);
+    parent[i] += parent[j];
+    parent[j] = i;
+}
+inline bool isPath(int i, int j) {
+    return root(i) == root(j);
+}
+ 
+int main() {
+    ios_base::sync_with_stdio(0); cin.tie(0); cout.tie(0);
+    int n, m; cin >> n >> m;
+    vector<vector<pair<int, int>>> g(1+n);
+    for (int i = 1; i <= m; ++i) {
+        int a, b, w;
+        cin >> a >> b >> w;
+        g[a].emplace_back(b, w);
+        g[b].emplace_back(a, w);
+    }
+    int k; cin >> k;
+    vector<bool> npp(1+n);
+    for (int i = 1; i <= k; ++i) {
+        int x; cin >> x;
+        npp[x] = true;
+    }
+ 
+    vector<int> distToNPP(1+n, INF);
+    priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> pq;
+    vector<bool> seen(1+n);
+    for (int i = 1; i <= n; ++i) {
+        if (npp[i]) distToNPP[i] = 0, pq.emplace(0, i);
+    }
+    while (!pq.empty()) {
+        auto [d, v] = pq.top();
+        pq.pop();
+ 
+        if (seen[v]) continue;
+        seen[v] = true;
+ 
+        for (auto [u, e] : g[v]) {
+            int newD = d + e;
+            if (newD < distToNPP[u]) {
+                distToNPP[u] = newD;
+                pq.emplace(newD, u);
+            }
+        }
+    }
+ 
+    vector<pair<int, int>> nodesByDist;
+    for (int i = 1; i <= n; ++i) nodesByDist.emplace_back(distToNPP[i], i);
+    sort(nodesByDist.rbegin(), nodesByDist.rend()); // order by decreasing distance
+    vector<int> orderedPosition(1+n);
+    for (int i = 0; i < n; ++i) orderedPosition[nodesByDist[i].second] = i;
+ 
+ 
+    // Parallel Binary Search on queries with DSU
+    int q; cin >> q;
+    vector<int> a(q), b(q), left(q, 0), right(q, n-1); // nodes up to which index (when ordered by distToNPP)
+    for (int i = 0; i < q; ++i) cin >> a[i] >> b[i];
+    while (true) {
+        vector<pair<int, int>> currentQ; // mid, i
+        for (int i = 0; i < q; ++i) {
+            if (left[i]+1 < right[i]) currentQ.emplace_back((left[i] + right[i]) / 2, i);
+        }
+        if (currentQ.empty()) break;
+        sort(currentQ.begin(), currentQ.end());
+        
+        parent = vector<int>(1+n, -1);
+        for (int i = 0, nextQ = 0; i < n; ++i) {
+            // add edges with both ends on or before ith node in list (nodesByDist)
+            int v = nodesByDist[i].second;
+            for (auto [u, e] : g[v]) {
+                if (orderedPosition[u] <= i) unite(v, u);
+            }
+ 
+            // answer queries
+            while (nextQ < (int)currentQ.size() && currentQ[nextQ].first == i) {
+                auto [mid, qIndex] = currentQ[nextQ];
+                bool reachable = isPath(a[qIndex], b[qIndex]);
+                if (reachable) right[qIndex] = mid;
+                else left[qIndex] = mid;
+                ++nextQ;
+            }
+        }
+    }
+ 
+    for (int i = 0; i < q; ++i) cout << nodesByDist[right[i]].first << '\n';
+    return 0;
+}
