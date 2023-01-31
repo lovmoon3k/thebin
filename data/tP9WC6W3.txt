@@ -1,0 +1,203 @@
+using Castle.DynamicProxy;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
+
+namespace InterfaceCache
+{
+    public class Cached
+    {
+        private static readonly ProxyGenerator generator = new();
+
+        private static Dictionary<MethodInfo, CacheAttribute> CreateDictionary(Type type)
+        {
+            static IEnumerable<(MethodInfo MemberInfo, CacheAttribute Attribute)> SelectRealMethods((MemberInfo MemberInfo, CacheAttribute Attribute) value)
+            {
+                if (value.MemberInfo is PropertyInfo propertyInfo)
+                {
+                    yield return (propertyInfo.GetGetMethod(), value.Attribute);
+                }
+                else if (value.MemberInfo is MethodInfo methodInfo)
+                {
+                    yield return (methodInfo, value.Attribute);
+                }
+                else
+                {
+                    throw new ApplicationException($"MemberInfo is not PropertyInfo or MethodInfo, was {value.MemberInfo?.GetType()?.FullName ?? "NULL"}");
+                }
+            }
+
+            IEnumerable<MemberInfo> FindMembers()
+            {
+                var memberList = type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(m =>
+                    {
+                        var method = m as MethodBase;
+                        return method == null || !method.IsSpecialName;
+                    });
+
+                return memberList;
+            }
+
+            var data = FindMembers().Select<MemberInfo, (MemberInfo MemberInfo, CacheAttribute Attribute)?>(m =>
+            {
+                var attr = m.GetCustomAttribute<CacheAttribute>(inherit: false);
+
+                if (attr is null)
+                {
+                    return null;
+                }
+
+                return (m, attr);
+            }).Where(d => d.HasValue).Select(d => d!.Value).SelectMany(SelectRealMethods);
+
+            return data.ToDictionary(d => d.MemberInfo, d => d.Attribute, MethodInfoEqualityComparer.Instance);
+        }
+
+        public static TInterface Create<TInterface>(TInterface instance)
+            where TInterface : class
+        {
+            var membersToCache = CreateDictionary(typeof(TInterface));
+
+            var interceptor = new CacheInterceptor(membersToCache).ToInterceptor();
+            TInterface proxy = generator.CreateInterfaceProxyWithTargetInterface(instance, interceptor);
+
+            return proxy;
+        }
+
+        public static TInterface CreateWithServiceProvider<TInterface, TImplementation>(IServiceProvider serviceProvider)
+            where TImplementation : TInterface
+            where TInterface : class
+        {
+            var instance = ActivatorUtilities.CreateInstance<TImplementation>(serviceProvider);
+
+            return Create<TInterface>(instance);
+        }
+
+        public static TInterface CreateWithServiceProvider<TInterface, TImplementation>(IServiceProvider serviceProvider, object[] parameters)
+            where TImplementation : TInterface
+            where TInterface : class
+        {
+            var instance = ActivatorUtilities.CreateInstance<TImplementation>(serviceProvider, parameters);
+
+            return Create<TInterface>(instance);
+        }
+
+        class CacheInterceptor : AsyncInterceptorBase
+        {
+            private static readonly IMemoryCache cache = new MemoryCache(Options.Create(new MemoryCacheOptions
+            {
+                SizeLimit = 128
+            }));
+
+            private readonly Dictionary<MethodInfo, CacheAttribute> membersToCache;
+
+            public CacheInterceptor(Dictionary<MethodInfo, CacheAttribute> membersToCache)
+            {
+                this.membersToCache = membersToCache;
+            }
+
+            private static MemoryCacheEntryOptions CreateOptions(CacheAttribute cacheAttribute)
+            {
+                var options = new MemoryCacheEntryOptions
+                {
+                    Size = 1,
+                    Priority = cacheAttribute.Priority
+                };
+
+                if (cacheAttribute.AbsoluteExpirationRelativeToNowSeconds != double.MinValue)
+                {
+                    options.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(cacheAttribute.AbsoluteExpirationRelativeToNowSeconds);
+                }
+                else if (cacheAttribute.AbsoluteExpirationRelativeToNowHours != double.MinValue)
+                {
+                    options.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(cacheAttribute.AbsoluteExpirationRelativeToNowHours);
+                }
+                else if (cacheAttribute.AbsoluteExpirationRelativeToNowDays != double.MinValue)
+                {
+                    options.AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(cacheAttribute.AbsoluteExpirationRelativeToNowDays);
+                }
+
+                if (cacheAttribute.SlidingExpirationSeconds != double.MinValue)
+                {
+                    options.SlidingExpiration = TimeSpan.FromSeconds(cacheAttribute.SlidingExpirationSeconds);
+                }
+                else if (cacheAttribute.SlidingExpirationHours != double.MinValue)
+                {
+                    options.SlidingExpiration = TimeSpan.FromHours(cacheAttribute.SlidingExpirationHours);
+                }
+                else if (cacheAttribute.SlidingExpirationDays != double.MinValue)
+                {
+                    options.SlidingExpiration = TimeSpan.FromDays(cacheAttribute.SlidingExpirationDays);
+                }
+
+                return options;
+            }
+
+            protected override async Task InterceptAsync(IInvocation invocation, IInvocationProceedInfo proceedInfo, Func<IInvocation, IInvocationProceedInfo, Task> proceed)
+            {
+                await proceed(invocation, proceedInfo).ConfigureAwait(false);
+            }
+
+            protected override async Task<TResult> InterceptAsync<TResult>(IInvocation invocation, IInvocationProceedInfo proceedInfo, Func<IInvocation, IInvocationProceedInfo, Task<TResult>> proceed)
+            {
+                string CreateCacheKey()
+                {
+                    var name = $"{invocation.Method.DeclaringType}_{invocation.Method.Name}";
+                    var args = string.Join(", ", invocation.Arguments.Select(a => (a ?? "[NULL]").ToString()));
+                    var cacheKey = $"{name}({args})";
+
+                    return cacheKey;
+                }
+
+                TResult? returnValue;
+                string? cacheKey;
+
+                //Check if method has CacheAttribute
+                if (membersToCache.TryGetValue(invocation.Method, out var cacheAttribute))
+                {
+                    //Existed in cache, return it
+                    if (cache.TryGetValue(cacheKey = CreateCacheKey(), out returnValue))
+                    {
+                        invocation.ReturnValue = returnValue!;
+                    }
+
+                    //Did not exist in cache, create value
+                    else
+                    {
+                        returnValue = await proceed(invocation, proceedInfo).ConfigureAwait(false);
+
+                        var options = CreateOptions(cacheAttribute);
+                        cache.Set(cacheKey, returnValue, options);
+                    }
+                }
+                else
+                {
+                    returnValue = await proceed(invocation, proceedInfo).ConfigureAwait(false);
+                }
+
+                return returnValue!;
+            }
+        }
+
+        class MethodInfoEqualityComparer : IEqualityComparer<MethodInfo>
+        {
+            public static MethodInfoEqualityComparer Instance = new();
+
+            public bool Equals(MethodInfo x, MethodInfo y)
+            {
+                return x.MethodHandle.Value == y.MethodHandle.Value;
+            }
+
+            public int GetHashCode(MethodInfo obj)
+            {
+                return obj.MethodHandle.Value.GetHashCode();
+            }
+        }
+    }
+}
