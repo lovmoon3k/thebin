@@ -1,0 +1,316 @@
+local reactor = peripheral.wrap("back")
+local mon = peripheral.wrap("monitor_0")
+local burnRate = 0.1
+local burnStep0 = 0.1
+local burnStep1 = 1
+local burnStep2 = 10
+
+local maxDamage = 0.0
+local minFuel = 1000
+local maxWaste = 50.0
+local minCoolant = 1.0
+
+local tempYellow = 600
+local tempOrange = 1000
+local tempRed = 1200
+
+local messageX = 1
+local messageY = 19
+
+local barLength = 10
+
+function kvPairs(per)
+    for k, v in pairs(per) do
+    print(k, v)
+    read()
+    end
+end
+
+--kvPairs(mon)
+
+function writeMessage(message)
+    clearMessage()
+    mon.setCursorPos(messageX, messageY)
+    mon.setBackgroundColour(colours.grey)
+    mon.setTextColour(colors.black)
+    mon.write(message)
+end
+
+function clearMessage()
+    mon.setCursorPos(messageX, messageY)
+    mon.setBackgroundColour(colors.white)
+    mon.setTextColour(colors.black)
+    mon.write("                                                  ")
+end
+
+function activate()
+    writeMessage("Reactor activated")
+    reactor.activate()
+end
+
+function scram(additionalMessage)
+    writeMessage(additionalMessage.."Scram Initiated, reactor shutting down")
+    reactor.scram()
+end
+
+function drawLine(x,y,length, color)
+    local oldBgColor = term.getBackgroundColor()
+    for i = x, (length + x) do 
+        mon.setCursorPos(i,y) 
+        mon.setBackgroundColor(color)
+        mon.write(" ")
+    end
+    mon.setBackgroundColor(oldBgColor)
+end
+
+function drawBar(x, y, length, fill, bgColour, fillColour)
+    drawLine(x, y, length, bgColour)
+    drawLine(x, y, fill, fillColour)
+end
+
+function getCoolant()
+    return string.format("%3.0f", reactor.getCoolantFilledPercentage() * 100)
+end
+
+function getDamage()
+    return string.format("%3.0f", reactor.getDamagePercent()*100)
+end
+
+function getFuel()
+    return string.format("%3.0f", reactor.getFuelFilledPercentage()*100)
+end
+
+function getTemp() 
+    return string.format("%4.2f", reactor.getTemperature())
+end
+
+function getWaste()
+    return string.format("%3.0f", reactor.getWasteFilledPercentage()*100)
+end 
+
+function getActualBurnRate()
+    return string.format(reactor.getActualBurnRate()).." mB/t"
+end
+
+function getBurnRate()
+    return string.format(reactor.getBurnRate()).." mb/t"
+end
+
+function startup()
+    setBurnRate(burnRate)
+    activate()
+end
+
+function healthcheck() 
+    CheckTemperature()
+    CheckDamage()
+end
+
+function checkDamage()
+    local damage = reactor.getDamagePercent()
+    if(damage > 0)
+       scram("Critical! Reactor taking damage: ") 
+    end
+end
+
+function CheckTemperature()
+    if temp <= tempYellow then
+        clearMessage()        
+    elseif temp <= tempOrange then
+        setMessage("Warning! Temperature rising")        
+    elseif temp <= tempRed then
+        setMessage("Warning! Reaching dangerous tempatures")        
+    else    
+        scram("Critical! Excessive tempratures: ")
+    end
+end
+
+function display() 
+    mon.setBackgroundColour(colours.white) 
+    displayTemp()
+    displayFuel()
+    displayCoolant()
+    displayDamage()
+    displayWaste()
+    displayStatus()
+    displayBurnRate()
+    mon.setBackgroundColour(colours.white)
+end
+
+function displayBurnRate()
+    mon.setCursorPos(27, 6)
+    mon.setBackgroundColour(colors.white)
+    mon.setTextColour(colors.black)
+    mon.write("Burn Rate: "..getActualBurnRate().."              ")
+    
+    mon.setCursorPos(27, 8)
+    mon.setBackgroundColour(colors.blue)
+    mon.setTextColour(colors.white)
+    mon.write(" - ")
+    mon.setCursorPos(27, 9)
+    mon.write(" - ")
+    mon.setCursorPos(27, 10)
+    mon.write(" - ")
+    
+    mon.setCursorPos(32, 8)
+    mon.setBackgroundColour(colors.green)
+    mon.setTextColour(colors.black)
+    mon.write(" + ") 
+    mon.setCursorPos(32, 9)
+    mon.write(" + ")
+    mon.setCursorPos(32, 10)
+    mon.write(" + ")
+    
+    mon.setCursorPos(37, 8)
+    mon.setBackgroundColour(colors.white)
+    mon.setTextColour(colors.black)
+    mon.write("-/+ 0.1 mB/t")
+    mon.setCursorPos(37, 9)
+    mon.write("-/+ 1 mB/t")
+    mon.setCursorPos(37, 10)
+    mon.write("-/+ 10 mB/t")
+    
+end
+
+function displayStatus()
+    mon.setCursorPos(1, 17)
+    mon.setBackgroundColour(colors.white)
+    mon.setTextColour(colors.black)
+    mon.write("      Power: ")
+    if(reactor.getStatus()) then
+        drawLine(14, 17, 4, colors.green)
+    else
+        drawLine(14, 17, 4, colours.red)
+    end
+end
+
+function displayWaste()
+    mon.setCursorPos(1, 4)
+    mon.setBackgroundColour(colours.white)
+    mon.setTextColour(colors.black)
+    mon.write("      Waste: ")
+    local waste = reactor.getWasteFilledPercentage()
+    if(waste <= 50) then 
+        drawBar(14, 4, barLength, waste/barLength, colours.grey, colours.green)
+    else
+        drawBar(14, 4, barLength, waste/barLength, colours.grey, colours.red)    
+    end
+end
+
+function displayDamage()
+    mon.setCursorPos(30, 4)
+    mon.setBackgroundColour(colors.white)
+    mon.setTextColour(colors.black)
+    mon.write("Damage: ")
+    local damage = reactor.getDamagePercent()
+    if(damage <= 0) then
+        drawBar(38, 4, barLength, damage/barLength, colours.grey, colours.green)
+    else
+        drawBar(38, 4, barLength, damage/barLength, colours.grey, colours.red)    
+    end
+end
+
+function displayFuel()
+    mon.setCursorPos(30, 2)
+    mon.setBackgroundColour(colors.white)
+    mon.setTextColour(colors.black)
+    mon.write("  Fuel: ")
+    drawBar(38, 2, barLength, getFuel()/barLength, colors.gray, colors.green)
+end
+
+function displayCoolant()
+    mon.setCursorPos(1, 2)
+    mon.setBackgroundColour(colors.white)
+    mon.setTextColour(colors.black)
+    mon.write("    Coolant: ")
+    drawBar(14, 2, barLength, getCoolant()/barLength, colours.grey, colours.green)                   
+end
+
+function displayTemp()
+    mon.setCursorPos(1, 6)
+    mon.setBackgroundColour(colors.white)
+    mon.setTextColour(colors.black)
+    mon.write("Temperature: ")
+    local temp = reactor.getTemperature()
+    if temp <= tempYellow then
+        mon.setBackgroundColour(colors.white)
+        mon.setTextColour(colors.black)
+    elseif temp <= tempOrange then
+        mon.setBackgroundColour(colors.yellow)
+        mon.setTextColour(colors.black)
+    elseif temp <= tempRed then
+        mon.setBackgroundColour(colors.orange)
+        mon.setTextColour(colors.black)
+    else
+        mon.setBackgroundColour(colors.red)
+        mon.setTextColour(colors.white)
+    end
+    mon.setCursorPos(14 , 6 )
+        mon.write(getTemp().." K   ")
+    
+end
+
+function checkTouch()
+    event, side, xPos, yPos = os.pullEvent("monitor_touch")
+    writeMessage("Side: "..side..",xPos: "..xPos..",yPos: "..yPos)    
+    if(xPos >=14 and xPos <=17 and yPos == 17) then
+        toggleActive()
+    end
+    
+    if(xPos <= 29 and xPos >= 27 and yPos == 8) then
+        decreaseBurnRate(0.1)
+    elseif(xPos<=29 and xPos>=27 and yPos == 9) then
+        decreaseBurnRate(1)
+    elseif(xPos<=29 and xPos >=27 and yPos == 10) then
+        decreaseBurnRate(10)
+    end
+    
+    if(xPos <= 34 and xPos >= 32 and yPos == 8) then
+        increaseBurnRate(0.1)
+    elseif(xPos<=34 and xPos >=32 and yPos == 9) then
+        increaseBurnRate(1)
+    elseif(xPos <=34 and xPos >=32 and yPos == 10) then
+        increaseBurnRate(10)
+    end
+    
+    
+end
+
+function decreaseBurnRate(val)
+    local rate = reactor.getActualBurnRate()
+    rate = rate - val
+    if(rate > 0) then        
+        reactor.setBurnRate(rate)
+    else
+        reactor.setBurnRate(0)
+    end    
+end
+
+function increaseBurnRate(val)
+    local rate = reactor.getActualBurnRate()
+    local max = reactor.getMaxBurnRate()
+    rate = rate + val
+    if(rate <= max) then
+       reactor.setBurnRate(rate)
+    else
+     reactor.setBurnRate(max)
+    end
+    
+end
+
+function toggleActive()
+    if(reactor.getStatus()) then
+        scram()
+    else
+        activate()
+    end
+end
+
+mon.clear()
+while true do
+    healthcheck()
+    display()   
+    checkTouch()     
+end
+
+
