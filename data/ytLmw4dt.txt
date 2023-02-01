@@ -1,0 +1,175 @@
+def link_match_multi():
+    import json
+    testbed_file = 'cleaned_master.json' 
+    with open(testbed_file, "r") as f:                
+        testbed = json.load(f)  
+          
+
+    sites = set()
+    backhauls = set()
+    links = {}
+    for System_Name1, sysval1 in testbed.items():
+        for Network_Name1, netval1 in sysval1.items():
+            for Site_name1, siteval1 in netval1.items():                
+                sites.add(f'{System_Name1}-{Network_Name1}-{Site_name1}')  
+                for Site_Items1, item1 in siteval1.items():
+                    for Items_Check, check1 in item1.items():
+                        if Items_Check == 'Device_Type':
+                            if check1 == 'Backhaul': 
+                                # backhauls.add(Site_Items)
+
+                                for System_Name2, sysval2 in testbed.items():
+                                    for Network_Name2, netval2 in sysval2.items():
+                                        for Site_name2, siteval2 in netval2.items():   
+
+                                            if Network_Name1 == Network_Name2:
+                                                if Site_name1 != Site_name2:
+                                                    
+                                                    for Site_items2, item2 in siteval2.items():
+                                                        for Items_Check2, check2 in item2.items():
+                                                            if check2 == 'Backhaul':                                                                
+                                                                if Site_name1 in Site_items2 and Site_name2 in Site_Items1:                                                                    
+                                                                    
+                                                                    if System_Name1 not in links:
+                                                                        links[System_Name1] = {}
+                                                                    if Network_Name1 not in links[System_Name1]:
+                                                                        links[System_Name1][Network_Name1] = {}
+                                                                    if Site_name1 not in links[System_Name1][Network_Name1]:
+                                                                        links[System_Name1][Network_Name1][Site_name1] = {}
+                                                                    if 'links' not in links[System_Name1][Network_Name1][Site_name1]:
+                                                                        links[System_Name1][Network_Name1][Site_name1]['links'] = []
+
+                                                                    if Site_name2 not in links[System_Name1][Network_Name1][Site_name1]['links']:
+                                                                        links[System_Name1][Network_Name1][Site_name1]['links'].append(Site_name2)                                                                    
+
+    with open('goole_files/site_links.json', 'w') as f:
+        json.dump(links, f, indent=4)
+    return sites, backhauls, links
+                                  
+# sites, backhauls, links = site_extract()
+
+# sites, backhauls, links = link_match_multi()
+# print(f'Tower Sites')
+# print(len(sites))
+# print(len(backhauls))
+# print(len(links))
+
+above is single core working version
+################################################################
+below is trying to extract information for quicker checks... iterating is an issue :(
+
+import json
+from pprint import pprint
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+testbed_file = 'cleaned_master.json' 
+with open(testbed_file, "r") as f:                
+    testbed = json.load(f)  
+backhauls = set()
+links = {}
+
+def get_first_target(testbed_file):        
+    target = {}      
+    for System_Name1, sysval1 in testbed.items():
+        for Network_Name1, netval1 in sysval1.items():
+            for Site_name1, siteval1 in netval1.items(): 
+                target = {'System_Name': System_Name1,
+                        'Network_Name': Network_Name1,
+                        'Site_name': Site_name1,
+                        'backhauls': []} 
+                for Site_Items1, item1 in siteval1.items():                    
+                    for Items_Check, check1 in item1.items():
+                        if Items_Check == 'Device_Type':                            
+                            if check1 == 'Backhaul':
+                                backhauls.add(Site_Items1)                                                                                
+                                target['backhauls'].append(Site_Items1)
+                                        
+                if System_Name1 not in links:
+                    return target
+                else:
+                    get_first_target(target)
+                if Network_Name1 not in links[System_Name1]:
+                    return target
+                else:
+                    get_first_target(target)
+                if Site_name1 not in links[System_Name1][Network_Name1]: 
+                    return target
+                else:
+                    get_first_target(target)
+              
+                                                   
+def get_second_target(target):
+    System_Name1 = target['System_Name']    
+    Network_Name1 = target['Network_Name']
+    Site_name1 = target['Site_name']
+    Site_Items1 = target['backhauls']
+
+    for System_Name2, sysval2 in testbed.items():
+        if System_Name2 == System_Name1:
+            for Network_Name2, netval2 in sysval2.items():
+                for Site_name2, siteval2 in netval2.items():
+
+                    if Network_Name1 == Network_Name2:
+                        if Site_name1 != Site_name2:
+                            destination = {'System_Name': System_Name2,
+                                                            'Network_Name': Network_Name2,
+                                                            'Site_name': Site_name2,
+                                                            'backhauls': []
+                                                            }
+
+                            for Site_items2, item2 in siteval2.items():
+                                for Items_Check2, check2 in item2.items():
+                                    if check2 == 'Backhaul':  
+                                        for item in Site_Items1: 
+                                            if Site_name1 in Site_items2 and Site_name2 in Site_Items1:                                                 
+                                                destination['backhauls'].append(Site_items2)
+                                return destination
+    
+     
+def check_links(run_check):
+    target, destination = run_check
+    System_Name1 = target['System_Name']    
+    Network_Name1 = target['Network_Name']
+    Site_name1 = target['Site_name']
+    Site_Items1 = target['backhauls']
+
+    System_Name2 = destination['System_Name']    
+    Network_Name2 = destination['Network_Name']
+    Site_name2 = destination['Site_name']
+    Site_Items2 = destination['backhauls']
+
+    if System_Name1 not in links:
+        links[System_Name1] = {}
+    if Network_Name1 not in links[System_Name1]:
+        links[System_Name1][Network_Name1] = {}
+    if Site_name1 not in links[System_Name1][Network_Name1]:
+        links[System_Name1][Network_Name1][Site_name1] = {}
+    if 'links' not in links[System_Name1][Network_Name1][Site_name1]:
+        links[System_Name1][Network_Name1][Site_name1]['links'] = []
+
+    if Site_name2 not in links[System_Name1][Network_Name1][Site_name1]['links']:
+        links[System_Name1][Network_Name1][Site_name1]['links'].append(Site_name2) 
+
+    pprint(links)
+
+    
+      
+def worker(run_check):
+    target, destination =  run_check
+    target = get_first_target(testbed_file)
+    destination = get_second_target(target)
+    links = check_links(links, target, destination)
+
+
+max_workers = 14
+
+target = get_first_target(testbed)
+destination = get_second_target(target)
+run_check = target, destination
+for key in testbed:
+    with ThreadPoolExecutor(max_workers) as executor: 
+        output = executor.submit(check_links, run_check)
+
+pprint(links)
+# with open('goole_files/site_links2.json', 'a') as f:
+#     json.dump(links, f, indent=4)
+
