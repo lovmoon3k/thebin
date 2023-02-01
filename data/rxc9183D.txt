@@ -1,0 +1,73 @@
+#include <iostream>
+#include <bits/stdc++.h>
+using namespace std;
+int main()
+{
+    int k = 0;
+    string a, c;
+    char b;
+    cin >> a >> b >> c;
+    for(int i = 0; i < a.size(); i++)
+    {
+        if(a[i] == '0')
+        {
+            k++;
+        }
+    }
+    for(int i = 0; i < c.size(); i++)
+    {
+        if(c[i] == '0')
+        {
+            k++;
+        }
+    }
+    if(b == '*')
+    {
+        cout << 1;
+        for(int i = 0; i < k; i++)
+        {
+            cout << 0;
+        }
+        cout << endl;
+    }
+    else
+    {
+        if(a.size() > c.size())
+        {
+            cout << 1;
+            for(int i = 0; i < a.size() - c.size() - 1; i++)
+            {
+                cout << 0;
+            }
+            cout << 1;
+            for(int i = 0; i < c.size() - 1; i++)
+            {
+                cout << 0;
+            }
+        }
+        else if(a.size() < c.size())
+        {
+            cout << 1;
+            for(int i = 0; i < c.size() - a.size() - 1; i++)
+            {
+                cout << 0;
+            }
+            cout << 1;
+            for(int i = 0; i < a.size() - 1; i++)
+            {
+                cout << 0;
+            }
+        }
+        else
+        {
+            cout << 2;
+            for(int i = 0; i < a.size() - 1; i++)
+            {
+                cout << 0;
+            }
+            cout << endl;
+        }
+    }
+    cout << endl;
+    return 0;
+}
