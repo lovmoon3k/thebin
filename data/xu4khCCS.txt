@@ -1,0 +1,58 @@
+# версия установщика
+function msi_info ($msi_path) {
+  $msifile = $msi_path
+  $WindowsInstaller = New-Object -ComObject WindowsInstaller.Installer
+  $MSIDatabase = $WindowsInstaller.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $Null, $WindowsInstaller, @($msifile, 0))
+  $Query = 'SELECT * FROM Property'
+  $View = $MSIDatabase.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $MSIDatabase, ($Query))
+  $View.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $View, $null)
+  $hash = @{}
+  $MSIResult = while ($Record = $View.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $View, $null)) {
+    $name = $Record.GetType().InvokeMember('StringData', 'GetProperty', $null, $Record, 1)
+    $value = $hashMSIValue = $Record.GetType().InvokeMember('StringData', 'GetProperty', $null, $Record, 2)
+    $hash.Add($name,$value)
+  }
+  $msiProperties = [pscustomobject]$hash
+  return $msiProperties
+}
+
+function zabbix_install ($zabbix_installer, $zabbix_server, $localhost) {
+  $zabbix_setup = Start-Process -FilePath "$env:systemroot\system32\msiexec.exe" -Wait -Verb Runas -PassThru `
+    -ArgumentList "/i $zabbix_installer SERVER=$zabbix_server SERVERACTIVE=$zabbix_server HOSTNAME=$localhost /norestart /quiet"
+  if ($zabbix_setup.ExitCode -eq 0) {
+    write-host 'zabbix: setup successfully completed' -ForegroundColor Green
+    Set-Service -Name 'Zabbix Agent' -StartupType Automatic
+    & sc.exe failure 'Zabbix Agent' reset= 30 actions= restart/5000
+    Get-Service -Name 'Zabbix Agent' | Restart-Service -Force
+  } else {
+    write-host "zabbix: setup completed with exitcode $($zabbix_setup.ExitCode)" -ForegroundColor red
+  }
+}
+
+
+# install zabbix
+if ($zabbix -eq $true) {
+  $installed_version = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | Where DisplayName -match "Zabbix Agent"
+  if ($installed_version) {
+    $compare_result = compare_ProductVersion $installed_version.DisplayVersion $zabbix_msi_info.ProductVersion
+    if ($compare_result -eq 'lt') {
+      write-host 'zabbix: upgrade' -ForegroundColor Yellow
+      if ($ad_site_current -eq 'KUR') {
+        zabbix_install "$env:SystemDrive\System\zabbix_agent.msi" $zabbix_server_kur $localhost
+      } elseif ($ad_site_current -eq 'KOR') {
+        zabbix_install "$env:SystemDrive\System\zabbix_agent.msi" $zabbix_server_kor $localhost
+      }
+    } elseif ($compare_result -eq 'gt') {
+      write-host 'zabbix: newer version installed' -ForegroundColor Green
+    } else {
+      write-host 'zabbix: current version already installed' -ForegroundColor Green
+    }
+  } else {
+    write-host "zabbix: install" -ForegroundColor Yellow
+    if ($ad_site_current -eq 'KUR') {
+      zabbix_install "$env:SystemDrive\System\zabbix_agent.msi" $zabbix_server_kur $localhost
+    } elseif ($ad_site_current -eq 'KOR') {
+      zabbix_install "$env:SystemDrive\System\zabbix_agent.msi" $zabbix_server_kor $localhost
+    }
+  }
+}
