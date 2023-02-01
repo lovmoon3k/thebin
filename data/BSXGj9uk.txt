@@ -1,0 +1,84 @@
+
+std::variant<LWString, uint64_t, bool> EntrySearch::getComparableV2(std::string_view key, const LWSearchResult& e)
+{
+  if (key == "title") {
+    return m_index_handler.getTitle(e);
+  }
+  else if (key == "name") {
+    return m_index_handler.getFilename(e);
+  }
+  else if (key == "updated") {
+    return (size_t)time_t(e.snaptime);
+  }
+  else if (key == "time") {
+    return (size_t)m_index_handler.getTimestamp(e).to_timet();
+  }
+  else if (key == "folder") {
+    return m_index_handler.isFile(e);
+  }
+  else if (key == "audio") {
+    return !m_index_handler.isAudio(e);
+  }
+  else if (key == "video") {
+    return !m_index_handler.isVideo(e);
+  }
+  else if (key == "image") {
+    return !m_index_handler.isImage(e); 
+  }
+  else if (key == "message") {
+    return !m_index_handler.isMessage(e);
+  }
+  else if (key == "document") {
+    return !m_index_handler.isDocument(e);
+  }
+  // reverse sort on error makes no sense
+  else if (key == "error") {
+    return e.error();
+  }
+  else if (key == "size") {
+    return string2AnyInt<size_t>(m_index_handler.getMeta(e, k_size, k_zero).toString());
+  }
+  //
+  // Meta data sorting
+  //
+  else {
+    return m_index_handler.getMeta(e, LWString(key));
+  }  
+} 
+
+bool PartialSortSideEffect::LWSRComparator::operator()(const LWSearchResult& r1, 
+                                                       const LWSearchResult& r2) const
+{
+  size_t sort_term_index{};
+  bool res{};
+  for (auto& term : m_config.sort_terms) {
+    if (sort_term_index >= LWSearchResult::k_max_sort_terms) {
+      break;
+    }
+
+    const bool reverse = term[0] == '-';
+    auto key = std::string_view{term}.substr(reverse ? 1 : 0);
+
+    res = std::visit([reverse](auto&& e1, auto&& e2) -> bool {
+      using T1 = std::remove_reference_t<decltype(e1)>;
+      using T2 = std::remove_reference_t<decltype(e2)>;
+      if constexpr (std::is_same_v<T1, T2>) {
+        if (reverse) {
+          return e2 < e1;
+        }
+        return e1 < e2;
+      }
+      else {
+        return false;
+      }
+    }, 
+    m_get_comparable(key, r1), //getComparableV2
+    m_get_comparable(key, r2)); //getComparableV2
+
+    if (res) return res;
+
+    sort_term_index++;
+  }
+
+  return res;
+}
