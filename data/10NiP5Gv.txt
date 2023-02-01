@@ -1,0 +1,120 @@
+//Слава Україні, Героям слава
+
+#include <bits/stdc++.h>
+
+using namespace std;
+
+using vll = __int128_t;
+
+const int N = 5e4 + 7, Q = 1e5 + 7;
+
+map<pair<vll, vll>, vll> mp;
+
+struct line {
+    vll b, m;
+    long long ind;
+};
+
+int nh, pos;
+line hull[N + Q];
+
+bool check(line s, line t, line u) {
+    return (s.b - t.b) * (u.m - s.m) < (s.b - u.b) * (t.m - s.m);
+}
+
+void update(line s) {
+    while(nh >= 2 and !check(hull[nh - 2], hull[nh - 1], s)) {
+        nh--;
+    }
+    if(nh >= 1 and hull[nh - 1].b <= s.b) {
+        nh--;
+    }
+    while(nh >= 1 and hull[nh - 1].m == s.m and hull[nh - 1].b == s.b and hull[nh - 1].ind < s.ind) {
+        nh--;
+    }
+    hull[nh++] = s;
+}
+
+vll eval(int id, vll x) {
+    return hull[id].b + hull[id].m * x;
+}
+
+pair<long long, vll> find(vll x) {
+    while(pos + 1 < nh and eval(pos, x) < eval(pos + 1, x)) {
+        pos++;
+    }
+    long long ans = hull[pos].ind;
+    return {ans, -eval(pos, x)};
+}
+
+int main() {
+    ios_base::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, query;
+    cin >> n >> query;
+    vector<line> u;
+    vector<long long> v(n + 1);
+    vector<vector<long long>> q(query, vector<long long>(3)), modif(n + 1, vector<long long>(3, -1));
+    //in modif -> 0 = speed, 1 = time, 2 = lpos
+    //in query -> 0 = participant, 1 = time, 2 = delta velocity
+    for(int i = 1; i <= n; i++) {
+        cin >> v[i];
+        u.push_back({0, -v[i], i});
+    }
+    for(int i = 0; i < query; i++) {
+        cin >> q[i][0] >> q[i][1] >> q[i][2];
+        if(modif[q[i][0]][0] == -1) {
+            vll cur = 1;
+            cur *= v[q[i][0]] * q[i][1];
+            vll vel = v[q[i][0]] - q[i][2];
+            u.push_back({-cur + vel * q[i][1], -vel, q[i][0]});
+            //cout << "inserting " << (long long)(-cur) + (long long)vel * q[i][1] << " " << (long long)(-vel) << " " << q[i][0] << "\n";
+            modif[q[i][0]][0] = vel;
+            modif[q[i][0]][1] = q[i][1];
+            modif[q[i][0]][2] = cur;
+        } else {
+            vll vel = modif[q[i][0]][0] - q[i][2];
+            vll cur = modif[q[i][0]][2];
+            cur += modif[q[i][0]][0] * (q[i][1] - modif[q[i][0]][1]);
+            //cout << "inserting " << (long long)(-cur) + (long long)vel * q[i][1] << " " << (long long)(-vel) << " " << q[i][0] << "\n";
+            u.push_back({ -cur + vel * q[i][1], -vel, q[i][0] });
+            modif[q[i][0]][0] = vel;
+            modif[q[i][0]][1] = q[i][1];
+            modif[q[i][0]][2] = cur;
+        }
+    }
+    sort(u.begin(), u.end(), [](line s, line t) {
+        return (s.m == t.m) ? (s.b < t.b) : (s.m < t.m);
+    });
+    for(auto e : u) { 
+        //cout << (long long)(-e.m) << " " << (long long)(-e.b) << " " << e.ind << "\n";
+        update(e);
+    }
+    for(int i = 2; i < nh; i++) {
+        assert(hull[i].m != hull[i - 1].m);
+        vll r = (hull[i].b - hull[i - 1].b) * (hull[i - 2].m - hull[i - 1].m);
+        vll l = (hull[i - 2].b - hull[i - 1].b) * (hull[i].m - hull[i - 1].m);
+        assert(l < r);
+    }
+    for(int i = 1; i < u.size(); i++) {
+        // mx + b = zx + c
+        // x = (c - b) / (m - z)
+        if((u[i].m - u[i - 1].m) != 0 and (u[i].b - u[i - 1].b) % (u[i].m - u[i - 1].m) == 0) {
+            //cout << "intersection between " << i - 1 << " and " << i << "\n";
+            vll x = (u[i].b - u[i - 1].b) / (u[i].m - u[i - 1].m);
+            vll y = u[i].b + u[i].m * x;
+            //cout << "the values are " << (long long)x << " " << (long long)y << "\n";
+            mp[{-x, -y}] = max({mp[{-x, -y}], (vll)u[i].ind, (vll)u[i - 1].ind});
+        }
+    }
+    //for(int i = 0; i < nh; i++) {
+        //cout << (long long)(-hull[i].m) << " " << (long long)(-hull[i].b) << " " << hull[i].ind << "\n";
+    //}
+    for(int i = 0; i < query; i++) {
+        auto ans = find(q[i][1]);
+        ans.first = max(ans.first, (long long)mp[{q[i][1], ans.second}]);
+        //cout << q[i][1] << " " << ans.second << " " << mp[{q[i][1], ans.second}] << "\n";
+        cout << ans.first << " " << (unsigned long long)ans.second << "\n";
+    }
+    return 0;
+}
