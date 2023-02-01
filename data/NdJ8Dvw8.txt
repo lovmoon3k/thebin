@@ -1,0 +1,353 @@
+--  services
+
+local Players   = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService    = game:GetService("RunService")
+local HttpService   = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ProximityPromptService    = game:GetService("ProximityPromptService")
+
+--  variables
+
+local Player    = Players.LocalPlayer
+local Library = loadstring(game:GetObjects("rbxassetid://7657867786")[1].Source)()
+local ourWindow = Library:CreateWindow({
+    Name    = "Scapter's Doors UI",
+})
+local ourTab    = ourWindow:CreateTab({
+    Name    = "Configurations"
+})
+local myTabs     ={}
+local success, ourSettings   = pcall(function() return HttpService:JSONDecode(readfile("ScapDoors.json")) end)
+if not success then
+    ourSettings = {
+        Player  = {
+            Glow    = false,
+            ["Instant Use"] = false,
+            WalkSpeed   = 16,
+            ["Monster Alerts"]  = false,
+        },
+
+        ESP = {
+            Doors   = false,
+            ["Keys/Levers"] = false,
+            Items   = false,
+            Books   = false,
+            Entities    = false,
+            Lockers = false,
+        },
+
+        Monsters    = {
+            Screech = false,
+            Seeker  = false,
+            A90 = false,
+        },
+
+        Misc    = {
+            ["No Gates"]    = false,
+            ["No Paintings"]    = false,
+            ["No Skeleton Doors"]    = false,
+            ["Parse Library Code"]  = false,
+        },
+    }
+end
+local myESPs     = {
+    Doors   = {},
+    ["Keys/Levers"] = {},
+    Items   = {},
+    Books   = {},
+    Entities    = {},
+    Lockers = {},
+}
+local Rooms = Workspace:WaitForChild("CurrentRooms")
+local ourEntities = {"RushMoving", "AmbushMoving", "Snare", "A60", "A120"}
+local entityInfo    = ReplicatedStorage:WaitForChild("EntityInfo")
+local alertSound    = Instance.new("Sound")
+alertSound.SoundId  = "rbxassetid://6897623656"
+alertSound.Volume   = 1
+alertSound.Parent   = Player
+local gotCode   = false
+local testPrompt    = game:GetObjects("rbxassetid://12343688455")[1]
+testPrompt.Size = UDim2.new(testPrompt.Size.X.Scale*2, 0, testPrompt.Size.Y.Scale*2, 0)
+testPrompt.Enabled  = false
+
+--  functions
+
+local function buildCharacter(character)
+    if not character then repeat task.wait(0) character = Player.Character until character end
+
+    local ourRoot   = character:WaitForChild("HumanoidRootPart")
+    local newLight  = Instance.new("PointLight")
+    newLight.Name   = "Glow"
+    newLight.Brightness = 1.5
+    newLight.Range  = 1000
+    newLight.Enabled    = ourSettings.Player.Glow
+    newLight.Shadows    = false
+    newLight.Parent = ourRoot
+end
+
+local function buildESP(item, color, flag, name)
+    local newESP  = Instance.new("Highlight")
+    newESP.FillColor    = color
+    newESP.OutlineColor = color
+    newESP.FillTransparency = 0.5
+    newESP.Enabled  = ourSettings.ESP[flag]
+    newESP.Adornee  = item
+    newESP.Parent   = item
+
+    local labelESP  = testPrompt:Clone()
+    labelESP.Item.TextColor3    = color
+    labelESP.Item.Text  = name
+    labelESP.Item.Dot.BackgroundColor3  = color
+    labelESP.Enabled    = newESP.Enabled
+    labelESP.Adornee    = item
+    labelESP.Parent = item
+
+    newESP:GetPropertyChangedSignal("Enabled"):Connect(function()
+        labelESP.Enabled    = newESP.Enabled
+    end)
+
+    myESPs[flag][item]  = newESP
+end
+
+local function refreshESP(tab)
+    for _,v in pairs(myESPs[tab]) do
+        v.Enabled   = ourSettings.ESP[tab]
+    end
+end
+
+local function doToggle(setting, toggle)
+    local gotBreak  = false
+
+    for i,v in pairs(ourSettings) do
+        for q,c in pairs(v) do
+            if q == setting then
+                gotBreak    = true
+                ourSettings[i][q]   = toggle
+
+                break
+            end
+        end
+
+        if gotBreak then break end
+    end
+
+    writefile("ScapDoors.json", HttpService:JSONEncode(ourSettings))
+end
+
+local function makeToggle(tab, setting, value)
+    tab:AddToggle({
+        Name = setting,
+        Value   = value,
+
+        Callback    = function(new)
+            doToggle(setting, new)
+
+            if ourSettings.ESP[setting] ~= nil then
+                refreshESP(setting, new)
+            end
+        end,
+    })
+end
+
+local function makeSlider(tab, setting, value)
+    tab:AddSlider({
+        Name = setting,
+        Value   = value,
+        Min = 16,
+        Max = 22,
+
+        Callback    = function(new, old)
+           doToggle(setting, new)
+        end,
+    })
+end
+
+local function buildRoom(room)
+    local ourDoor   = room:WaitForChild("Door"):WaitForChild("Door")
+    if ourDoor then
+        buildESP(ourDoor, Color3.fromRGB(255, 255, 127), "Doors", "Door")
+    end
+
+    local ourLever  = room:WaitForChild("Assets"):FindFirstChild("LeverForGate", true)
+    if ourLever then
+        buildESP(ourLever, Color3.fromRGB(85, 255, 127), "Keys/Levers", "Lever")
+    end
+
+    local ourKey  = room.Assets:FindFirstChild("KeyObtain", true)
+    if ourKey then
+        buildESP(ourKey, Color3.fromRGB(85, 255, 127), "Keys/Levers", "Key")
+    end
+
+    local ourSeeker = room:FindFirstChild("TriggerEventCollision", true)
+    if ourSeeker then
+        ourSeeker:Destroy()
+    end
+
+    local skipRooms = room:FindFirstChild("EnterPrompt", true)
+    if skipRooms then
+        skipRooms.Enabled   = true
+    end
+
+    local ourFigure = room:FindFirstChild("FigureRagdoll", true)
+    if ourFigure then
+        buildESP(ourFigure, Color3.fromRGB(255, 0, 0), "Entities", "Figure")
+    end
+
+    for _,v in pairs(room.Assets:GetDescendants()) do
+        if v:IsA("Model") and (v:GetAttribute("Pickup") or v:GetAttribute("PropType")) then
+            buildESP(v, Color3.fromRGB(255, 170, 127), "Items", v.Name)
+        elseif v:IsA("Model") and (v.Name == "LiveHintBook" or v.Name == "LiveBreakerPolePickup") then
+            buildESP(v, Color3.fromRGB(170, 255, 255), "Books", "Book")
+        elseif v:IsA("Model") and (v.Name == "Wardrobe" or v.Name == "Rooms_Locker" or v.Name == "Rooms_Locker_Fridge") then
+            buildESP(v, Color3.fromRGB(170, 170, 255), "Lockers", "Locker")
+        elseif v:IsA("Model") and v:GetAttribute("GoldValue") then
+            buildESP(v, Color3.fromRGB(255, 170, 255), "Items", "Gold")
+        end
+    end
+
+    for _,v in pairs(room:GetDescendants()) do
+        if (v.Name == "Gate" and ourSettings.Misc["No Gates"] or v.Name == "MovingDoor" and ourSettings.Misc["No Paintings"] or v.Name == "Wax_Door" and ourSettings.Misc["No Skeleton Doors"]) then
+            v:Destroy()
+        elseif v:IsA("Model") and (v.Name == "ChestBox" or v.Name == "ChestBoxLocked") then
+            buildESP(v, Color3.fromRGB(255, 170, 255), "Items", v.Name)
+        end
+    end
+
+    room.Assets.DescendantAdded:Connect(function(v)
+        if v:IsA("Model") and (v.Name == "LiveHintBook" or v.Name == "LiveBreakerPolePickup") then
+            buildESP(v, Color3.fromRGB(170, 255, 255), "Books", "Book")
+        end
+    end)
+end
+
+for i,v in pairs(ourSettings) do
+    myTabs[i]   = ourTab:CreateSection({
+        Name    = i
+    })
+
+    for q, c in pairs(v) do
+        if type(c) == "boolean" then
+            makeToggle(myTabs[i], q, c)
+        elseif type(c) == "number" then
+            makeSlider(myTabs[i], q, c)
+        end
+    end
+end
+
+ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt)
+    if ourSettings.Player["Instant Use"] then
+        fireproximityprompt(prompt)
+    end
+end)
+
+for _,v in pairs(Rooms:GetChildren()) do
+   buildRoom(v)
+end
+Rooms.ChildAdded:Connect(function(room)
+    buildRoom(room)
+end)
+
+Workspace.ChildAdded:Connect(function(child)
+    if table.find(ourEntities, child.Name) then
+        task.wait(1)
+        if child.Parent ~= Workspace then return end
+        
+        for _,c in pairs(child:GetChildren()) do
+            if c:IsA("BasePart") then
+                c.Transparency  = 0
+            end
+        end
+        buildESP(child, Color3.fromRGB(255, 0, 0), "Entities", child.Name:gsub("Moving", ""))
+        
+        if ourSettings.Player["Monster Alerts"] then
+            alertSound:Play()
+
+            local hint  = Instance.new("Hint")
+            hint.Text = child.Name:gsub("Moving", "").." has spawned, HIDE!"
+            hint.Parent = Workspace
+
+            task.wait(3)
+            hint:Destroy()
+        end
+    end
+end)
+
+Workspace.CurrentCamera.ChildAdded:Connect(function(child)
+    if child.Name == "Screech" and ourSettings.Monsters.Screech then
+        while task.wait(0) and child:IsDescendantOf(Workspace.CurrentCamera) do
+            entityInfo.Screech:FireServer(true)
+        end
+    end
+end)
+
+buildCharacter(Player.Character)
+Player.CharacterAdded:Connect(function(character)
+    buildCharacter(character)
+end)
+
+RunService.RenderStepped:Connect(function()
+    local ourHumanoid   = Player.Character:FindFirstChild("Humanoid", true)
+    if ourHumanoid and ourHumanoid:GetAttribute("SpeedBoost") then
+        ourHumanoid:SetAttribute("SpeedBoost", ourSettings.Player.WalkSpeed-16)
+    end
+
+    local ourGlow   = Player.Character:FindFirstChild("Glow", true)
+    if ourGlow then
+        ourGlow.Enabled = ourSettings.Player.Glow
+    end
+
+    local ourFace   = Player.PlayerGui:FindFirstChild("Jumpscare_A90", true)
+    if ourFace and ourFace.Face.Visible and ourSeeker.Entities["A90"] then
+        entityInfo["A90"]:FireServer(false)
+    end
+
+    local ourRoom   = Player:GetAttribute("CurrentRoom")
+    for _,v in pairs(Rooms:GetChildren()) do
+        if tonumber(v.Name) < ourRoom then
+            for _,c in pairs(myESPs) do
+                for _,q in pairs(c) do
+                    if q:IsDescendantOf(v) then
+                        if q.Parent:FindFirstChild("Lonk") then q.Parent.Lonk:Destroy() end
+
+                        q:Destroy()
+                    end
+                end
+            end
+        end
+    end
+
+    if (ourRoom == 49 or ourRoom == 50) and not gotCode then
+        local myNumbers = {"_", "_", "_", "_", "_"}
+        local Hints = Player.PlayerGui.PermUI.Hints
+        local mySheet   = Player.Backpack:FindFirstChild("LibraryHintPaper") or Player.Character:FindFirstChild("LibraryHintPaper")
+        
+        if mySheet then
+            for _,v in pairs(mySheet.UI:GetChildren()) do
+                local ourCount  = tonumber(v.Name)
+
+                if ourCount and v:IsA("ImageLabel") then
+                    for _,c in pairs(Hints:GetChildren()) do
+                        if c.Name == "Icon" and v.ImageRectOffset == c.ImageRectOffset then
+                            myNumbers[ourCount] = c.TextLabel.Text
+
+                            break
+                        end
+
+                        if myNumbers[ourCount] ~= "_" then break end
+                    end
+                end
+            end
+
+            if not table.find(myNumbers, "_") then
+                gotCode = true
+                local hint  = Instance.new("Hint")
+                hint.Text   = "Library Code Is: "..table.concat(myNumbers)
+                hint.Parent = Workspace
+
+                repeat task.wait(0) until Player:GetAttribute("CurrentRoom") >= 51
+                hint:Destroy()
+            end
+        end
+    end
+end)
