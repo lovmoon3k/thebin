@@ -1,0 +1,834 @@
+// ==UserScript==
+// @name         Unlimited MAL Ignore list
+// @namespace    http://tampermonkey.net/
+// @version      0.81
+// @description  Ignore an unlimited amount of users. Comes with custom settings: delete the entire post, replace the content of the message with a custom message, replace or delete the avatar, keep or delete the signature.
+// @author       Only_Brad
+// @match        https://myanimelist.net/*
+// @run-at document-end
+// ==/UserScript==
+
+(function() {
+    const POSTS_URL = "forum/?topicid";
+    const TOPICS_URL = "forum/?board";
+    const TOPICS_SEARCH_URL = "forum/search?";
+    const CLUB_TOPICS_URL_1 = "clubs.php";
+    const CLUB_TOPICS_URL_2 = "forum/?clubid";
+    const PROFILE_URL = "/profile";
+    const COMTOCOM_URL = "comtocom.php";
+    const COMMENTS_URL = "comments.php";
+    const BLACKLIST_URL = "https://myanimelist.net/blacklist";
+
+    const BLACKLIST_KEY = "ignore-list";
+    const SETTINGS_KEY = "ignore-list-settings";
+
+    const YOU_SELECTOR = ".header-profile-link";
+    const POST_USERS_SELECTOR = ".profile";
+    const TOPIC_USERS_SELECTOR = ".forum_postusername a";
+    const MESSAGE_SELECTOR = ".content [id^=message]";
+    const AVATAR_SELECTOR = ".forum-icon";
+    const USER_PROFILE_SELECTOR = "[href^='/profile']";
+    const USER_INFO_SELECTOR = "[id^=messageuser]";
+    const SIGNATURE_SELECTOR = ".sig";
+    const FORUM_MESSAGE_SELECTOR = "[id^=msg]";
+    const FORUM_MSG_NAME_SELECTOR = ".username a";
+    const FORUM_ACTION_BAR_SELECTOR = "[id^=postEditButtons]";
+    const PROFILE_MSG_SELECTOR = "[id^=comBox]";
+    const PROFILE_MSG_NAME_SELECTOR = ".text a.fw-b";
+    const PROFILE_MSG_AVATAR_SELECTOR = ".image";
+    const PROFILE_MSG_TEXT_SELECTOR = ".text .comment-text";
+    const PROFILE_MSG_ACTION_BAR_SELECTOR = ".text > div.pb8 > a";
+    const COMTOCOM_SELECTOR = "[id^=comBox]";
+    const COMTOCOM_NAME_SELECTOR = ".dark_text a";
+    const COMTOCOM_AVATAR_SELECTOR = ".picSurround a";
+    const COMTOCOM_TEXT_SELECTOR = "[id^=comtext]";
+    const COMTOCOM_ACTION_BAR_SELECTOR = ".dark_text a"
+
+    const IGNORE = 0;
+    const REPLACE = 1;
+    const DO_NOTHING = 2;
+
+    let blacklist;
+    let settings;
+
+    //routing
+    if (window.location.href.includes(POSTS_URL)) {
+        handlePosts();
+    } else if (
+        window.location.href.includes(TOPICS_URL) ||
+        window.location.href.includes(TOPICS_SEARCH_URL) ||
+        window.location.href.includes(CLUB_TOPICS_URL_1) ||
+        window.location.href.includes(CLUB_TOPICS_URL_2)
+    ) {
+        handleTopics();
+    } else if (window.location.href.includes(PROFILE_URL)) {
+        handleProfileMsgs();
+    } else if (window.location.href.includes(COMTOCOM_URL)) {
+        handleComToCom();
+    } else if (window.location.href.includes(COMMENTS_URL)) {
+        handleComToCom();
+    } else if (window.location.href === BLACKLIST_URL) {
+        handleBlacklist();
+    }
+
+    //GM_addStyle equivalent that works on firefox
+    function addStyle(css) {
+        const style = document.getElementById("addStyleBy8626") || (function() {
+            const style = document.createElement('style');
+            style.type = 'text/css';
+            style.id = "addStyleBy8626";
+            document.head.appendChild(style);
+            return style;
+        })();
+        style.innerHTML += css;
+    }
+
+    //helper functions to load from localStorage
+    function loadBlackList() {
+        blacklist = JSON.parse(localStorage.getItem(BLACKLIST_KEY)) || [];
+    }
+
+    function saveBlackList() {
+        localStorage.setItem(BLACKLIST_KEY, JSON.stringify(blacklist));
+    }
+
+    function loadSettings() {
+        settings = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {
+            replaceAvatar: false,
+            replaceProfileAvatar: false,
+            removeSignatures: true,
+            postMode: IGNORE,
+            profileMsgMode: IGNORE,
+            removeTopics: true,
+            customPost: "",
+            customAvatar: "",
+            customProfileMsg: "",
+            customProfileAvatar: "",
+            specificCustomPost: {},
+            specificCustomProfileMsg: {}
+        };
+        if (!settings.specificCustomPost) settings.specificCustomPost = {};
+        if (!settings.specificCustomProfileMsg) settings.specificCustomProfileMsg = {};
+    }
+
+    function saveSetting(key, value) {
+        if (typeof key === "object") {
+            settings[key.key][key.subkey] = value;
+        } else {
+            settings[key] = value;
+        }
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    }
+
+    //functions called by the routers
+    function handlePosts() {
+        loadBlackList();
+        loadSettings();
+        addPostsBlackListButtons();
+
+        switch (settings.postMode) {
+            case IGNORE:
+                ignorePosts();
+                return;
+            case REPLACE:
+                replacePosts();
+                break;
+            case DO_NOTHING:
+                break;
+            default:
+                saveSetting("postMode", IGNORE);
+                ignorePosts();
+                break;
+        }
+
+        if (settings.replaceAvatar) replaceAvatar();
+        if (settings.removeSignatures) removeSignatures();
+    }
+
+    function handleTopics() {
+        loadBlackList();
+        loadSettings();
+        if (settings.removeTopics) {
+            ignoreTopics();
+        }
+    }
+
+    function handleProfileMsgs() {
+        loadBlackList();
+        loadSettings();
+        addProfileMsgBlackListButtons();
+
+        switch (settings.profileMsgMode) {
+            case IGNORE:
+                ignoreProfileMsgs();
+                return;
+            case REPLACE:
+                replaceProfileMsg();
+                break;
+            case DO_NOTHING:
+                break;
+            default:
+                saveSetting("profileMsgMode", IGNORE);
+                ignoreProfileMsgs();
+                break;
+        }
+
+        if (settings.replaceProfileAvatar) replaceProfileAvatar();
+    }
+
+    function handleComToCom() {
+        loadBlackList();
+        loadSettings();
+        addComToComBlackListButtons();
+
+        switch (settings.profileMsgMode) {
+            case IGNORE:
+                ignoreComToCom();
+                return;
+            case REPLACE:
+                replaceComToCom();
+                break;
+            case DO_NOTHING:
+                break;
+            default:
+                saveSetting("profileMsgMode", IGNORE);
+                ignoreComToCom();
+                break;
+        }
+
+        if (settings.replaceProfileAvatar) replaceComToComAvatar();
+    }
+
+    function handleBlacklist() {
+        loadBlackList();
+        loadSettings();
+
+        document.title = "Blacklist - MyAnimeList.net";
+
+        //remove the 404 stuff
+        document.querySelector("h1").textContent = "Ignore List";
+        document.querySelector(".error404").remove();
+
+        //CSS
+        addStyle(".flex{display:flex;gap:20px;margin-top:10px;}.user{display:flex;margin:10px}.name{margin-right:20px}.name{border-bottom:solid #000 1px}.name[contenteditable]{min-width:100px;border-bottom:solid #000 1px}.name[contenteditable]:focus{border:none;outline:solid red 5px}.page-common #content{display:flex;justify-content:center;}.settings{display:flex;gap:25px;}.settings>*{padding: 25px;}.customPost{width:100% !important;}.select-users{font-size:1rem;padding:10px;font-weight:bold;}");
+
+        //HTML for the blacklist
+        document.getElementById("content").innerHTML =
+            `<div data-blacklist class="black-list"></div>
+        <div data-add-user class="add-user">
+            <div data-user class="user">
+                <div data-name class="name" contenteditable="true" onclick="this.focus()"></div>
+                <button data-add class="add">Add</div>
+            </div>
+        </div>`
+
+        //HTML for the settings
+        const settings = document.createElement("div");
+        settings.innerHTML = `
+            <h2>Settings</h2>
+            <form>
+                <div class="settings">
+                    <div class="posts">
+                        <h3>Posts</h3>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="posts" id="doNothingPosts" data-clickable-setting="doNothingPosts">
+                            <label class="form-check-label" for="doNothingPosts">
+                                Do nothing
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="posts" id="hidePosts" data-clickable-setting="hidePosts">
+                            <label class="form-check-label" for="hidePosts">
+                                Hide posts
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="posts" id="replacePosts" data-clickable-setting="replacePosts">
+                            <label class="form-check-label" for="replacePosts">
+                                Replace posts with a custom message
+                            </label>
+                        </div>
+                        <textarea class="form-control customPost" name="customPost" id="customPost" data-text-setting="customPost"></textarea>
+                    </div>
+                    <div class="posts-extra">
+                        <h3>Posts extra options</h3>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="replaceAvatar" id="replaceAvatar" data-clickable-setting="replaceAvatar">
+                            <label class="form-check-label" for="replaceAvatar">
+                                Replace avatars with a custom avatar
+                            </label>
+                            <input class="form-control" type="text" name="customAvatar" id="customAvatar" data-text-setting="customAvatar">
+                            <br>
+                            <small>Leave it empty to remove the avatar</small>
+                        </div>
+                        <div class="form-check" style="margin-top: 10px;">
+                            <input class="form-check-input" type="checkbox" name="removeSignatures" id="removeSignatures" data-clickable-setting="removeSignatures">
+                            <label class="form-check-label" for="removeSignatures">
+                                Hide the signature
+                            </label>
+                        </div>
+                        <small style="margin-top: 20px; display: block;"><strong>These settings have no effect if the Posts setting is set to "Hide Posts"</strong></small>
+                    </div>
+                    <div class="topics">
+                        <h3>Topics</h3>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="removeTopics" id="removeTopics" data-clickable-setting="removeTopics">
+                            <label class="form-check-label" for="removeTopics">
+                                Hide topics
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings">
+                    <div class="profile-messages">
+                        <h3>Profile messages</h3>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="profileMsgs" id="doNothingProfileMsgs" data-clickable-setting="doNothingProfileMsgs">
+                            <label class="form-check-label" for="doNothingProfileMsgs">
+                                Do nothing
+                            </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="profileMsgs" id="hideProfileMsgs" data-clickable-setting="hideProfileMsgs">
+                        <label class="form-check-label" for="hideProfileMsgs">
+                            Hide profile messages
+                        </label>
+                    </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="profileMsgs" id="replaceProfileMsgs" data-clickable-setting="replaceProfileMsgs">
+                            <label class="form-check-label" for="replaceProfileMsgs">
+                                Replace profile messages with a custom message
+                            </label>
+                        </div>
+                        <textarea class="form-control customPost" name="customProfileMsg" id="customProfileMsg" data-text-setting="customProfileMsg"></textarea>
+                    </div>
+                    <div class="profile-messages-extra">
+                        <h3>Profile messages extra options</h3>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="replaceProfileAvatar" id="replaceProfileAvatar" data-clickable-setting="replaceProfileAvatar">
+                            <label class="form-check-label" for="replaceProfileAvatar">
+                                Replace profile message avatar with a custom avatar
+                            </label>
+                            <input class="form-control" type="text" name="customProfileAvatar" id="customProfileAvatar" data-text-setting="customProfileAvatar">
+                            <br>
+                            <small>Leave it empty to remove the avatar</small>
+                        </div>
+                        <small style="margin-top: 20px; display: block;"><strong>These settings have no effect if the Profile Messages setting setting is set to "Hide profile messages"</strong></small>
+                    </div>
+                </div>
+                <select name="users" class="select-users" data-select-users></select>
+                <div class="flex">
+                    <div class="form-check">
+                        <label class="form-check-label" for="specificCustomPost">
+                            Replace this user's posts with a specific custom message
+                        </label>
+                        <textarea class="form-control customPost" name="specificCustomPost" id="specificCustomPost" data-text-setting="specificCustomPost"></textarea>
+                    </div>
+                    <div class="form-check">
+                        <label class="form-check-label" for="specificCustomProfileMsg">
+                            Replace this user's profile messages with a custom message
+                        </label>
+                        <textarea class="form-control customPost" name="specificCustomProfileMsg" id="specificCustomProfileMsg" data-text-setting="specificCustomProfileMsg"></textarea>
+                    </div>
+                </div>
+            </form>`;
+
+        document.getElementById("content").insertAdjacentElement("afterend", settings);
+
+        startEventListeners();
+        loadSettingsIntoInputs();
+    }
+
+    function clickedSetting(e) {
+        const input = e.target;
+        switch (input.dataset.clickableSetting) {
+            case "doNothingPosts":
+                saveSetting("postMode", DO_NOTHING);
+                break;
+            case "hidePosts":
+                saveSetting("postMode", IGNORE);
+                break;
+            case "replacePosts":
+                saveSetting("postMode", REPLACE);
+                break;
+            case "replaceAvatar":
+                saveSetting("replaceAvatar", input.checked);
+                break;
+            case "removeTopics":
+                saveSetting("removeTopics", input.checked);
+                break;
+            case "removeSignatures":
+                saveSetting("removeSignatures", input.checked);
+                break;
+            case "doNothingProfileMsgs":
+                saveSetting("profileMsgMode", DO_NOTHING);
+                break;
+            case "hideProfileMsgs":
+                saveSetting("profileMsgMode", IGNORE);
+                break;
+            case "replaceProfileMsgs":
+                saveSetting("profileMsgMode", REPLACE);
+                break;
+            case "replaceProfileAvatar":
+                saveSetting("replaceProfileAvatar", input.checked);
+                break;
+            default:
+                return;
+        }
+    }
+
+    function textSetting(e) {
+        const input = e.target;
+        switch (input.dataset.textSetting) {
+            case "customPost":
+                saveSetting("customPost", input.value);
+                break;
+            case "customAvatar":
+                saveSetting("customAvatar", input.value);
+                break;
+            case "customProfileMsg":
+                saveSetting("customProfileMsg", input.value);
+                break;
+            case "customProfileAvatar":
+                saveSetting("customProfileAvatar", input.value);
+                break;
+            case "specificCustomProfileMsg":
+                {
+                    const selectedUser = document.querySelector("[data-select-users]").value;
+                    saveSetting({ key: "specificCustomProfileMsg", subkey: selectedUser }, input.value);
+                    break;
+                }
+            case "specificCustomPost":
+                {
+                    const selectedUser = document.querySelector("[data-select-users]").value;
+                    saveSetting({ key: "specificCustomPost", subkey: selectedUser }, input.value);
+                    break;
+                }
+            default:
+                return;
+        }
+    }
+
+    function startEventListeners() {
+        document.querySelector("[data-add]").addEventListener("click", addNode);
+        document.querySelectorAll("[data-clickable-setting]").forEach(clickable => {
+            clickable.addEventListener("click", clickedSetting);
+        });
+        document.querySelectorAll("[data-text-setting]").forEach(text => {
+            text.addEventListener("input", textSetting);
+        });
+        document.querySelector("[data-select-users]").addEventListener("change", loadSpecificMessages)
+        blacklist.forEach(createNode);
+        blacklist.forEach(addUserToSelect);
+    }
+
+    function loadSettingsIntoInputs() {
+        switch (settings.postMode) {
+            case DO_NOTHING:
+                document.getElementById("doNothingPosts").checked = true;
+                break;
+            case IGNORE:
+                document.getElementById("hidePosts").checked = true;
+                break;
+            case REPLACE:
+                document.getElementById("replacePosts").checked = true;
+                break;
+            default:
+                document.getElementById("hidePosts").checked = true;
+                saveSetting("postMode", IGNORE);
+                break;
+        }
+
+        switch (settings.profileMsgMode) {
+            case DO_NOTHING:
+                document.getElementById("doNothingProfileMsgs").checked = true;
+                break;
+            case IGNORE:
+                document.getElementById("hideProfileMsgs").checked = true;
+                break;
+            case REPLACE:
+                document.getElementById("replaceProfileMsgs").checked = true;
+                break;
+            default:
+                document.getElementById("hideProfileMsgs").checked = true;
+                saveSetting("profileMsgMode", IGNORE);
+                break;
+        }
+
+        if (settings.removeTopics) {
+            document.getElementById("removeTopics").checked = true;
+        }
+        if (settings.removeSignatures) {
+            document.getElementById("removeSignatures").checked = true;
+        }
+        if (settings.replaceAvatar) {
+            document.getElementById("replaceAvatar").checked = true;
+        }
+        if (settings.replaceProfileAvatar) {
+            document.getElementById("replaceProfileAvatar").checked = true;
+        }
+
+        document.getElementById("customPost").value = settings.customPost || "";
+        document.getElementById("customAvatar").value = settings.customAvatar || "";
+        document.getElementById("customProfileMsg").value = settings.customProfileMsg || "";
+        document.getElementById("customProfileAvatar").value = settings.customProfileAvatar || "";
+
+        document.querySelector("[data-select-users]").dispatchEvent(new Event("change"));
+    }
+
+    function alterPosts(action) {
+        document.querySelectorAll(POST_USERS_SELECTOR).forEach(user => {
+            console.log("user = " + user.querySelector(FORUM_MSG_NAME_SELECTOR).textContent);
+            if (!blacklist.includes(user.querySelector(FORUM_MSG_NAME_SELECTOR).textContent)) return;
+            let post = user.parentNode;
+            //for (let i = 0; i < 4; i++) {
+                post = post.parentNode;
+            //}
+            action(post, user);
+        });
+    }
+
+    function alterProfileMessages(action) {
+        document.querySelectorAll(PROFILE_MSG_SELECTOR).forEach(profileMessage => {
+            const username = profileMessage.querySelector(PROFILE_MSG_NAME_SELECTOR).textContent;
+            if (!blacklist.includes(username)) return;
+            action(profileMessage, username);
+        });
+    }
+
+    function alterComToCom(action) {
+        document.querySelectorAll(COMTOCOM_SELECTOR).forEach(comMessage => {
+            const username = comMessage.querySelector(COMTOCOM_NAME_SELECTOR).textContent;
+            if (!blacklist.includes(username)) return;
+            action(comMessage, username);
+        });
+    }
+
+    function ignorePosts() {
+        alterPosts(post => {
+            post.style.display = "none";
+            post.previousElementSibling.style.display = "none";
+        });
+    }
+
+    function replacePosts() {
+        alterPosts((post, user) => {
+            const username = user.querySelector(FORUM_MSG_NAME_SELECTOR).textContent;
+            const specificCustomPost = settings.specificCustomPost[username];
+            console.log("post = " + post + "user = " + user + " usename = " + username + " msg = " + MESSAGE_SELECTOR + " specific = " + specificCustomPost);
+            post.querySelector(MESSAGE_SELECTOR).innerHTML = specificCustomPost ? specificCustomPost : settings.customPost;
+        });
+    }
+
+    function replaceProfileMsg() {
+        alterProfileMessages((profileMessage, username) => {
+            const specificCustomProfileMsg = settings.specificCustomProfileMsg[username];
+            profileMessage.querySelector(PROFILE_MSG_TEXT_SELECTOR).innerHTML = specificCustomProfileMsg ? specificCustomProfileMsg : settings.customProfileMsg;
+        });
+    }
+
+    function replaceComToCom() {
+        alterComToCom((comMessage, username) => {
+            const specificCustomProfileMsg = settings.specificCustomProfileMsg[username];
+            comMessage.querySelector(COMTOCOM_TEXT_SELECTOR).innerHTML = specificCustomProfileMsg ? specificCustomProfileMsg : settings.customProfileMsg;
+        });
+    }
+
+    function ignoreTopics() {
+        document.querySelectorAll(TOPIC_USERS_SELECTOR).forEach(user => {
+            if (!blacklist.includes(user.textContent)) return;
+            user.closest("tr").style.display = "none";
+        });
+    }
+
+    function ignoreProfileMsgs() {
+        alterProfileMessages(profileMessage => {
+            profileMessage.style.display = "none";
+        });
+    }
+
+    function ignoreComToCom() {
+        alterComToCom(comMessage => {
+            comMessage.style.display = "none";
+        });
+    }
+
+    function replaceAvatar() {
+        alterPosts((post, user) => {
+            const avatar = user.querySelector(AVATAR_SELECTOR);
+
+            if (!avatar) {
+                if (settings.customAvatar === "") return;
+
+                const avatar = document.createElement("a");
+                avatar.href = user.querySelector(USER_PROFILE_SELECTOR).href;
+                avatar.className = "forum-icon";
+                avatar.innerHTML = `
+                    <img class=" lazyloaded" data-src="${settings.customAvatar}" vspace="2" border="0" src="${settings.customAvatar}" width="100" height="125">`;
+                user.querySelector(USER_INFO_SELECTOR).insertAdjacentElement('afterend', avatar);
+            } else {
+                if (settings.customAvatar === "") {
+                    avatar.style.display = "none";
+                    return;
+                }
+
+                const img = avatar.querySelector("img");
+                img.src = settings.customAvatar;
+                img.setAttribute("data-src", settings.customAvatar);
+                img.setAttribute("width", 100);
+                img.setAttribute("height", 125);
+            }
+        });
+    }
+
+    function replaceProfileAvatar() {
+        alterProfileMessages(profileMessage => {
+            const avatar = profileMessage.querySelector(PROFILE_MSG_AVATAR_SELECTOR);
+
+            if (settings.customProfileAvatar === "") {
+                avatar.style.display = "none";
+                return;
+            }
+
+            const img = avatar.querySelector("img");
+            img.src = settings.customProfileAvatar;
+            img.setAttribute("data-src", settings.customProfileAvatar);
+        });
+    }
+
+    function replaceComToComAvatar() {
+        alterComToCom(comMessage => {
+            const avatar = comMessage.querySelector(COMTOCOM_AVATAR_SELECTOR);
+
+            if (settings.customProfileAvatar === "") {
+                avatar.style.display = "none";
+                return;
+            }
+
+            const img = avatar.querySelector("img");
+            img.src = settings.customProfileAvatar;
+            img.setAttribute("data-src", settings.customProfileAvatar);
+        });
+    }
+
+    function removeSignatures() {
+        alterPosts(post => {
+            const signature = post.querySelector(SIGNATURE_SELECTOR);
+            if (!signature) return;
+            signature.style.display = "none";
+        });
+    }
+
+    function addPostsBlackListButtons() {
+        document.querySelectorAll(FORUM_MESSAGE_SELECTOR).forEach(forumMessage => {
+            const actionBar = forumMessage.querySelector(FORUM_ACTION_BAR_SELECTOR);
+            const username = forumMessage.querySelector(FORUM_MSG_NAME_SELECTOR).textContent;
+            if (!blacklist.includes(username)) {
+                addBlackListButton(actionBar, username);
+            } else {
+                addUnBlackListButton(actionBar, username);
+            }
+        });
+    }
+
+    function addProfileMsgBlackListButtons() {
+        document.querySelectorAll(PROFILE_MSG_SELECTOR).forEach(profileMessage => {
+            let actionBar = profileMessage.querySelector(PROFILE_MSG_ACTION_BAR_SELECTOR);
+            const username = profileMessage.querySelector(PROFILE_MSG_NAME_SELECTOR).textContent;
+
+            //this happens when you are looking at someone elses profile, create the actionBar.
+            if (!actionBar) {
+                actionBar = document.createElement("div");
+                actionBar.className = "postActions ar mt4";
+                profileMessage.querySelector(PROFILE_MSG_TEXT_SELECTOR).insertAdjacentElement("afterend", actionBar);
+            }
+
+            if (!blacklist.includes(username)) {
+                addBlackListLink(actionBar, username, " | ");
+            } else {
+                addUnBlackListLink(actionBar, username, " | ");
+            }
+        });
+    }
+
+    function addComToComBlackListButtons() {
+        document.querySelectorAll(COMTOCOM_SELECTOR).forEach(comMessage => {
+            let actionBar = comMessage.querySelector(COMTOCOM_ACTION_BAR_SELECTOR);
+            const username = comMessage.querySelector(COMTOCOM_NAME_SELECTOR).textContent;
+
+            //this happens when you manually enter the url of com-to-com between 2 users other than you.
+            if (!actionBar) {
+                const actionBarContainer = document.createElement("div");
+                actionBarContainer.style.marginTop = "10px";
+                actionBar = document.createElement("small");
+                actionBarContainer.appendChild(actionBar);
+                comMessage.querySelector(COMTOCOM_TEXT_SELECTOR).insertAdjacentElement("afterend", actionBarContainer);
+            }
+
+            if (!blacklist.includes(username)) {
+                addBlackListLink(actionBar, username, " | ");
+            } else {
+                addUnBlackListLink(actionBar, username, " | ");
+            }
+        });
+    }
+
+    function addBlackListLink(actionBar, username, separator) {
+        const you = document.querySelector(YOU_SELECTOR).textContent;
+        if (username == you) return
+        const a = document.createElement("a");
+        a.href = "javascript:void(0)";
+        a.textContent = "Blacklist User";
+        a.dataset.username = username;
+        a.onclick = blacklistUser;
+
+        actionBar.after(a);
+
+        if (separator) {
+            actionBar.after(document.createTextNode(separator));
+        }
+    }
+
+    function addUnBlackListLink(actionBar, username, separator) {
+        const a = document.createElement("a");
+        a.href = "javascript:void(0)";
+        a.textContent = "UnBlacklist User";
+        a.dataset.username = username;
+        a.onclick = blacklistUser;
+
+        actionBar.after(a);
+
+        if (separator) {
+            actionBar.after(document.createTextNode(separator));
+        }
+    }
+
+    function addBlackListButton(actionBar, username, separator) {
+        const you = document.querySelector(YOU_SELECTOR).textContent;
+        if (username == you) return
+        const a = document.createElement("button");
+        a.href = "javascript:void(0)";
+        a.textContent = "Blacklist User";
+        a.classList.add("mal-btn");
+        a.dataset.username = username;
+        a.onclick = blacklistUser;
+
+        if (actionBar.childElementCount > 0 && separator) {
+            actionBar.prepend(document.createTextNode(separator));
+        }
+        actionBar.prepend(a);
+    }
+
+    function addUnBlackListButton(actionBar, username, separator) {
+        const a = document.createElement("button");
+        a.href = "javascript:void(0)";
+        a.textContent = "UnBlacklist User";
+        a.classList.add("mal-btn");
+        a.dataset.username = username;
+        a.onclick = blacklistUser;
+
+        if (actionBar.childElementCount > 0 && separator) {
+            actionBar.prepend(document.createTextNode(separator));
+        }
+        actionBar.prepend(a);
+    }
+
+    function blacklistUser(e) {
+        const username = e.target.dataset.username;
+
+        if (blacklist.includes(username)) {
+        removeUser(username);
+        window.location.reload();
+        } else {
+        addUser(username);
+        window.location.reload();
+        }
+    }
+
+    //Add a user to the blacklist
+    function addUser(username) {
+        blacklist.push(username);
+        saveBlackList();
+    }
+
+    //Remove a user from the blacklist if it's there
+    function removeUser(userName) {
+        blacklist = blacklist.filter(name => userName !== name);
+        saveBlackList();
+    }
+
+    //remove the user node from the html code and then update the localStorage
+    function removeNode(e) {
+        const row = e.target.parentNode;
+        const name = row.querySelector("[data-name]").textContent;
+        row.remove();
+        removeUser(name);
+        removeUserFromSelect(name);
+    }
+
+    //modify the user node from the html code and then update the localStorage
+    function saveNode(e) {
+        const newName = e.target.textContent;
+        const previousName = e.target.dataset.previousName;
+
+        previousName && removeUser(previousName);
+
+        if (newName !== "") {
+            addUser(newName);
+            e.target.dataset.previousName = newName;
+        } else {
+            e.target.parentNode.remove();
+        }
+    }
+
+    //add a new user node to the html code and then update the localStorage
+    function addNode(e) {
+        const node = e.target.parentNode;
+        const usernameNode = node.querySelector("[data-name]");
+        const username = usernameNode.textContent;
+        usernameNode.textContent = "";
+
+        if (!blacklist.includes(username)) {
+            createNode(username);
+            addUser(username);
+            addUserToSelect(username);
+        }
+    }
+
+    //create the user node then add it the html code
+    function createNode(username) {
+        const newUser = document.createElement("div");
+        newUser.setAttribute("data-user", "");
+        newUser.className = "user";
+        newUser.innerHTML = `<div data-name class="name" contenteditable="true" onclick="this.focus()" data-previous-name="${username}">${username}</div>
+        <button data-remove class="remove">Remove</button>`;
+        newUser.querySelector("[data-name]").addEventListener("focusout", saveNode);
+        newUser.querySelector("[data-remove]").addEventListener("click", removeNode);
+        document.querySelector("[data-blacklist]").append(newUser);
+    }
+
+    //add the users inside the the user select element
+    function addUserToSelect(username) {
+        const selectUser = document.querySelector("[data-select-users]");
+        const option = document.createElement("option");
+        option.value = option.textContent = username;
+        selectUser.appendChild(option);
+    }
+
+    //remove the user from the select list
+    function removeUserFromSelect(username) {
+        const userOption = document.querySelector(`[data-select-users] [value="${username}"]`);
+        if (userOption) userOption.remove();
+    }
+
+    //load a custom post and custom profile message of a specific blacklisted user into the 2 text areas designated for these inputs
+    function loadSpecificMessages(e) {
+        const userCustomPost = settings.specificCustomPost[e.target.value];
+        const userCustomProfileMsg = settings.specificCustomProfileMsg[e.target.value];
+        const customPost = document.getElementById("specificCustomPost");
+        const customProfileMsg = document.getElementById("specificCustomProfileMsg");
+
+        customPost.value = userCustomPost ? userCustomPost : "";
+        customProfileMsg.value = userCustomProfileMsg ? userCustomProfileMsg : "";
+    }
+})();
