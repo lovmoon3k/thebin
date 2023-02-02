@@ -1,0 +1,39 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+string stackToString(stack<char> &s){
+    string res = "";
+
+    while (!s.empty()) {
+        res.push_back(s.top());
+        s.pop();
+    }
+    reverse(res.begin(), res.end());
+    return res; 
+}
+
+string solve(string str, int k, int n){
+    stack<char> s;
+    for(int i = 0; i<n; i++){
+        int cnt = n - 1 - i;  
+        while((!s.empty()) && (cnt + s.size() >= k) && (s.top() > str[i]))s.pop(); 
+        if(s.size() < k)s.push(str[i]); 
+    }
+    return stackToString(s); 
+}
+
+
+int main() {
+    
+    
+    string s; 
+    cin>>s; 
+    int k; 
+    cin>>k;
+    int n = s.length();
+    
+    cout<<solve(s, k, n); 
+    
+    
+	return 0;
+}
