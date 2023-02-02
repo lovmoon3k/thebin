@@ -1,0 +1,111 @@
+local function connect(internet, path, data, tupe)
+  local result, response = pcall(internet.request, path)
+  printCmd('Подключение ...')
+  if not result then
+    printCmd('Ошибка запроса данных из URL')
+    printCmd(reason)
+    return false
+  end
+  printCmd('Запрос информации ...')
+  local connected, status = false
+  local timeout = 100
+  for i = 1, timeout do
+    connected, status = response.finishConnect()
+    os.sleep(.1)
+    if connected or connected == nil then
+      if connected == nil then
+        printCmd('Ошибка нет подключения к серверу')
+        printCmd(status)
+        return false
+      end
+    end
+  end
+  printCmd('Подключение ...')
+  if tupe == 'ALL' then
+    local status, message, header = response.response()
+    if status == 200 then
+      printCmd('Статус подключения '.. status .. " " .. message)
+      if header and header["Content-Length"] and header["Content-Length"][1] then
+        return response, tonumber(header["Content-Length"][1])
+      end
+    else
+      printCmd('Статус подключения '.. status .. " " .. message)
+      return false
+    end
+  else
+    printCmd('Переподключение завершено')
+    return response
+  end
+end
+
+function writeTape(path,tupe)
+  local file, msg, _, y
+  local block = math.ceil(computer.totalMemory()/2) --How much to read at a time
+  printCmd('Блок буферизации '..math.ceil(block/1024) ..' кб')
+  local bytery = 0 --For the progress indicator
+  local filesize = tape.getSize()
+  printCmd('Размер кассеты '..math.ceil(filesize/1024) ..' кб')
+  if string.match(path, "https?://.+") then
+    if not component.isAvailable("internet") then
+      printCmd('ОШИБКА нет интернет карты')
+      return false
+    end
+    local internet = component.internet
+    printCmd('Настройка подключения интернет')
+    local response, filesize = connect(internet, path, {}, 'ALL') --{Range = ("bytes %d-"):format(#data)}
+    if not filesize then
+      os.exit()
+    end
+    settingSize(filesize, tupe)
+    local err = 0
+    repeat
+      bytes = response.read()
+      tape.write(bytes)
+      bytery = bytery + #bytes
+      tapeLevel(filesize)
+      if bytes == nil or bytes == "" then
+        err = err+1
+        if err > 30 then
+          printCmd('Время запроса файла истекло')
+          response = connect(internet, path, {Range = ("bytes %d-"):format(bytery)})
+          err = 0
+        end
+      else
+        err = 0
+      end
+      os.sleep(0)
+    until not bytes or bytery > filesize
+    
+  else --если записывать файл
+    local path = shell.resolve(path)
+    filesize = fs.size(path)
+    printCmd('Открытие '..path)
+    file = io.open(path, "rb")
+    if not file then
+      printCmd('ОШИБКА нет файла '..path)
+      return
+    end
+    printCmd('Файл открыт. Размер '..math.ceil(filesize/1024) ..' кб')
+    settingSize(filesize, tupe)
+    repeat
+      bytes = file:read(block)
+      if bytes and #bytes > 0 then
+        bytery = bytery + #bytes
+        tape.write(bytes)
+        tapeLevel(filesize)
+      end
+    until not bytes or bytery > filesize
+    file:close()
+  end
+
+  tape.stop()
+  tape.seek(-tape.getSize())
+  tape.stop() --Just making sure
+  printCmd('Запись завершена')
+  printCmd('Укажите название кассеты')
+  term.setCursor(2,9)
+  tape.setLabel('§1'..tupe..' §4'..tostring(io.read()))
+  printCmd('Кассета записана')
+  os.sleep(5)
+  term.clear()
+end
