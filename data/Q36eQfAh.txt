@@ -1,0 +1,399 @@
+import pandas as pd
+import openpyxl
+from openpyxl.utils.dataframe import dataframe_to_rows
+import time
+from openpyxl.chart.label import DataLabelList
+from openpyxl.chart import BarChart, Reference, PieChart, PieChart3D, Series
+
+
+def count_multiple_answers(x):
+    """
+    Функция для того чтобы подсчитать количество выполняемых задач
+    """
+    # создаем список сплитя строку
+    temp_lst = x.split(',')
+    # Перебираем значения
+    for task in temp_lst:
+        if task in temp_dict:
+            temp_dict[task] += 1
+        else:
+            temp_dict[task] = 1
+
+
+
+
+# Считываем результат
+df = pd.read_excel('data/survey IT.xlsx')
+
+df.shape
+
+# Удаляем лишние колонки
+df.drop(columns=['ID','Время создания','Время изменения'],inplace=True)
+
+# Создаем 2 специализированных датафрейма для айти специалистов, учителей информатики и для прочих 
+it_df = df[(df != 'Я не являюсь IT-специалистом или преподавателем информатики (информационных технологий)').all(axis=1)]
+other_df = df[(df == 'Я не являюсь IT-специалистом или преподавателем информатики (информационных технологий)').any(axis=1)]
+
+
+
+
+
+
+# Создаем список листов c одновариантными вопросами
+lst_single_answer_sheets =['Возраст','Причина','Количество человек','Количество оборудования','Состояние оборудования',
+                  'Сетевая инфраструктура','Компьютерная грамотность','Текущая зарплата','Знание UNIX',
+                  'Желаемая зарплата','Свободный график','Поддержка проектов','Свободное время',
+                  'Профессиональный рост','Идеи','Усталость','Неожиданные задачи','Частота благодарности','Предпочтения в работе',
+                  'Ценность работы','Что для вас заработк','Инициатива','Поиск работы','Руководство'] 
+# Создаем список кортежей, где нулевой элемент это название листа, а первый элемент это вопрос по которому нужно отфильтровать колонки
+lst_multi_answer_sheets = [('Задачи','В чем заключается ваша работа?'),('Умения сисадмина','Что из перечисленного вы знаете и используете в своей работе как системный администратор?'),
+                           ('Языки программирования','Какие языки программирования вы знаете?')]
+
+
+
+# Создаем документ openpyxl
+wb = openpyxl.Workbook()
+# Создаем листы для односложных вопросов
+for idx,name_sheet in enumerate(lst_single_answer_sheets):
+    wb.create_sheet(title=name_sheet,index=idx+2)
+    
+# Создаем листы для вопросов с несколькими вариантами
+for idx,name_sheet in enumerate(lst_multi_answer_sheets):
+    wb.create_sheet(title=name_sheet[0],index=idx)
+
+
+
+# Обрабатываем общий датафрейм
+# Создаем датафрейм с простыми вопросами, удаляя все колонки с /
+simple_df = df.drop(columns=[column for column in df.columns if '/' in column])
+# Создаем датафрейм с сложными вопросами удаляя все колонки где нет /
+multi_df = df.drop(columns=[column for column in df.columns if '/' not in column])
+# Метка датафрейма
+mark = 'Общие результаты'
+
+# Заполняем листы с множественными ответами
+for idx,value_tuple in enumerate(lst_multi_answer_sheets):
+    # распаковываем кортеж
+    name_sheet = value_tuple[0]
+    answer = value_tuple[1]
+    # очищаем датафрейм от лишнего
+    temp_df = multi_df.drop(columns=[column for column in multi_df.columns if answer not in column])
+   
+    # Транспонируем
+    temp_df =temp_df.transpose()
+     # Копируем датафрейм чтобы потом вычислить значения с нулем ответов
+    zero_mul_answers_df = temp_df.copy()
+    # Извлекаем индекс
+    zero_mul_answers_df = zero_mul_answers_df.reset_index()
+    
+    # получаем полный список
+    all_option_lst = zero_mul_answers_df['index'].apply(lambda x:x.split(' / ')[1]).to_list()   
+
+    temp_df.fillna('temp',inplace=True)
+
+    # Добавляем запятую только для задач
+    temp_df = temp_df.applymap(lambda x:x+',' if 'temp' not in x else x)
+
+    temp_out_df = temp_df.sum(axis=0).to_frame()
+
+    # Удаляем лишнее
+    temp_out_df[0] = temp_out_df[0].apply(lambda x:x.replace('temp',''))
+    #очищаем от последней запятой
+    temp_out_df[0] = temp_out_df[0].apply(lambda x: x[:-1])
+    # Создаем словарь для подсчета встречаемых задач
+    temp_dict = dict()
+    #Считаем
+    temp_out_df[0].apply(count_multiple_answers)
+
+
+    # Сортируем по значению
+    sorted_tuple = sorted(temp_dict.items(),key=lambda x:x[1],reverse=True)
+    # обратно в словарь
+    sorted_temp_dict = dict(sorted_tuple)
+
+    itog_df=pd.DataFrame(data=sorted_temp_dict.items(),columns=['Значение','Количество'])
+        # Добавляем нулевые варианты
+    current_answers_lst = itog_df['Значение'].to_list()
+    # Получаем разницу 2 списков
+    empty_answers = list(set(all_option_lst).symmetric_difference(set(current_answers_lst)))
+    # Создаем датафрейм
+    zero_df = pd.DataFrame(data=empty_answers,columns=['Значение'])
+    zero_df['Количество'] = 0
+    
+    # Добавляем к основному
+    itog_df = pd.concat([itog_df,zero_df],axis=0)
+
+    #Добавляем долю в процентах
+    itog_df['Доля в %'] = (((itog_df['Количество'] / df.shape[0])*100).round(0)).astype(int)
+
+        #Делаем заголовок
+   
+    wb[name_sheet]['A1'] = name_sheet
+    for row in dataframe_to_rows(itog_df, index=False, header=True):
+        wb[name_sheet].append(row)
+    wb[name_sheet].column_dimensions['A'].width = 40
+    wb[name_sheet].column_dimensions['B'].width = 15
+    
+#Заполняем листы с одиночными ответами
+for idx,name_sheet in enumerate(lst_single_answer_sheets):
+    temp_df = simple_df.iloc[:,idx].value_counts().to_frame().reset_index()
+    
+    temp_df.columns = ['Вариант ответа','Количество']
+    #Высчитываем долю
+    temp_df['Доля в %'] = ((temp_df['Количество'] / temp_df['Количество'].sum()).round(2) * 100)
+    
+    #Делаем заголовок
+    wb[name_sheet]['A1'] = simple_df.columns[idx]
+    for row in dataframe_to_rows(temp_df, index=False, header=True):
+        wb[name_sheet].append(row)
+    
+      # Рисуем диаграмму
+    #выбираем значения
+    labels = Reference(wb[name_sheet],min_col=1,min_row=3,max_row=temp_df.shape[0]+2)
+    values = Reference(wb[name_sheet],min_col=2,min_row=2,max_row=temp_df.shape[0]+2)
+    data_val = Reference(wb[name_sheet],min_col=1,min_row=3,max_row=temp_df.shape[0]+2)
+    # Создаем объект диаграммы
+    pie_chart = PieChart()
+    pie_chart.add_data(values,titles_from_data=True)
+    pie_chart.set_categories(labels)
+    
+    # Делаем отображение числовых данных на диаграмме
+    series = Series(data_val, title='Series 1')
+    pie_chart.append(series)
+    s1 = pie_chart.series[0]
+
+    s1.dLbls = DataLabelList()
+    s1.dLbls.showVal = True
+    
+    
+    pie_chart.title = f"{mark} {name_sheet}"
+    #Привязываем диаграмму к ячейке А15
+    wb[name_sheet].add_chart(pie_chart,'A15')
+    # Определяем размеры диаграммы
+
+    pie_chart.width =20
+    pie_chart.height = 5
+    
+    wb[name_sheet].column_dimensions['A'].width = 40
+    wb[name_sheet].column_dimensions['B'].width = 15
+    
+#Удаялем лишний лист
+del wb['Sheet']
+current_time = time.strftime('%H_%M_%S')
+wb.save(f'Общие Итоги опроса  от {current_time}.xlsx')    
+
+
+ 
+    
+Обрабатываем результаты IT специалистов и преподавателей информатики
+
+# Создаем документ openpyxl
+it_wb = openpyxl.Workbook()
+# Создаем листы для односложных вопросов
+for idx,name_sheet in enumerate(lst_single_answer_sheets):
+    it_wb.create_sheet(title=name_sheet,index=idx+2)
+    
+# Создаем листы для вопросов с несколькими вариантами
+for idx,name_sheet in enumerate(lst_multi_answer_sheets):
+    it_wb.create_sheet(title=name_sheet[0],index=idx)
+
+# Метка датафрейма
+mark = 'Результаты IT'
+
+# Обрабатываем датафрейм с IT специалистами и преподавателями информатики
+# Создаем датафрейм с простыми вопросами, удаляя все колонки с /
+simple_df = it_df.drop(columns=[column for column in it_df.columns if '/' in column])
+# Создаем датафрейм с сложными вопросами удаляя все колонки где нет /
+multi_df = it_df.drop(columns=[column for column in it_df.columns if '/' not in column])
+
+# Заполняем листы с множественными ответами
+for idx,value_tuple in enumerate(lst_multi_answer_sheets):
+    # распаковываем кортеж
+    name_sheet = value_tuple[0]
+    answer = value_tuple[1]
+    # очищаем датафрейм от лишнего
+    temp_df = multi_df.drop(columns=[column for column in multi_df.columns if answer not in column])
+   
+    # Транспонируем
+    temp_df =temp_df.transpose()
+     # Копируем датафрейм чтобы потом вычислить значения с нулем ответов
+    zero_mul_answers_df = temp_df.copy()
+    # Извлекаем индекс
+    zero_mul_answers_df = zero_mul_answers_df.reset_index()
+    
+    # получаем полный список
+    all_option_lst = zero_mul_answers_df['index'].apply(lambda x:x.split(' / ')[1]).to_list()   
+
+    temp_df.fillna('temp',inplace=True)
+
+    # Добавляем запятую только для задач
+    temp_df = temp_df.applymap(lambda x:x+',' if 'temp' not in x else x)
+
+    temp_out_df = temp_df.sum(axis=0).to_frame()
+
+    # Удаляем лишнее
+    temp_out_df[0] = temp_out_df[0].apply(lambda x:x.replace('temp',''))
+    #очищаем от последней запятой
+    temp_out_df[0] = temp_out_df[0].apply(lambda x: x[:-1])
+    # Создаем словарь для подсчета встречаемых задач
+    temp_dict = dict()
+    #Считаем
+    temp_out_df[0].apply(count_multiple_answers)
+
+
+    # Сортируем по значению
+    sorted_tuple = sorted(temp_dict.items(),key=lambda x:x[1],reverse=True)
+    # обратно в словарь
+    sorted_temp_dict = dict(sorted_tuple)
+
+    itog_df=pd.DataFrame(data=sorted_temp_dict.items(),columns=['Значение','Количество'])
+        # Добавляем нулевые варианты
+    current_answers_lst = itog_df['Значение'].to_list()
+    # Получаем разницу 2 списков
+    empty_answers = list(set(all_option_lst).symmetric_difference(set(current_answers_lst)))
+    # Создаем датафрейм
+    zero_df = pd.DataFrame(data=empty_answers,columns=['Значение'])
+    zero_df['Количество'] = 0
+    
+    # Добавляем к основному
+    itog_df = pd.concat([itog_df,zero_df],axis=0)
+
+    #Добавляем долю в процентах
+    itog_df['Доля в %'] = (((itog_df['Количество'] / df.shape[0])*100).round(0)).astype(int)
+
+        #Делаем заголовок
+   
+    it_wb[name_sheet]['A1'] = name_sheet
+    for row in dataframe_to_rows(itog_df, index=False, header=True):
+        it_wb[name_sheet].append(row)
+    it_wb[name_sheet].column_dimensions['A'].width = 40
+    it_wb[name_sheet].column_dimensions['B'].width = 15
+    
+#Заполняем листы с одиночными ответами
+for idx,name_sheet in enumerate(lst_single_answer_sheets):
+    temp_df = simple_df.iloc[:,idx].value_counts().to_frame().reset_index()
+    
+    temp_df.columns = ['Вариант ответа','Количество']
+    #Высчитываем долю
+    temp_df['Доля в %'] = ((temp_df['Количество'] / temp_df['Количество'].sum()).round(2) * 100)
+    
+    #Делаем заголовок
+    it_wb[name_sheet]['A1'] = simple_df.columns[idx]
+    for row in dataframe_to_rows(temp_df, index=False, header=True):
+        it_wb[name_sheet].append(row)
+    
+      # Рисуем диаграмму
+    #выбираем значения
+    labels = Reference(it_wb[name_sheet],min_col=1,min_row=3,max_row=temp_df.shape[0]+2)
+    values = Reference(it_wb[name_sheet],min_col=2,min_row=2,max_row=temp_df.shape[0]+2)
+    data_val = Reference(it_wb[name_sheet],min_col=1,min_row=3,max_row=temp_df.shape[0]+2)
+    # Создаем объект диаграммы
+    pie_chart = PieChart()
+    pie_chart.add_data(values,titles_from_data=True)
+    pie_chart.set_categories(labels)
+    
+    # Делаем отображение числовых данных на диаграмме
+    series = Series(data_val, title='Series 1')
+    pie_chart.append(series)
+    s1 = pie_chart.series[0]
+
+    s1.dLbls = DataLabelList()
+    s1.dLbls.showVal = True
+    
+    
+    pie_chart.title = f"{mark} {name_sheet}"
+    #Привязываем диаграмму к ячейке А15
+    it_wb[name_sheet].add_chart(pie_chart,'A15')
+    # Определяем размеры диаграммы
+
+    pie_chart.width =20
+    pie_chart.height = 5
+    
+    it_wb[name_sheet].column_dimensions['A'].width = 40
+    it_wb[name_sheet].column_dimensions['B'].width = 15
+    
+#Удаялем лишний лист
+del it_wb['Sheet']
+current_time = time.strftime('%H_%M_%S')
+it_wb.save(f'Итоги опроса IT специалистов и преподавателей информатики от {current_time}.xlsx')    
+
+
+
+
+
+
+
+Обрабатываем результаты остальных участников сессии
+
+# Создаем документ openpyxl
+other_wb = openpyxl.Workbook()
+# Создаем листы для односложных вопросов
+for idx,name_sheet in enumerate(lst_single_answer_sheets):
+    other_wb.create_sheet(title=name_sheet,index=idx+2)
+    
+# Создаем листы для вопросов с несколькими вариантами
+for idx,name_sheet in enumerate(lst_multi_answer_sheets):
+    other_wb.create_sheet(title=name_sheet[0],index=idx)
+
+# Метка датафрейма
+mark = 'Иные участники'
+
+# Обрабатываем датафрейм с IT специалистами и преподавателями информатики
+# Создаем датафрейм с простыми вопросами, удаляя все колонки с /
+simple_df = other_df.drop(columns=[column for column in other_df.columns if '/' in column])
+# Создаем датафрейм с сложными вопросами удаляя все колонки где нет /
+multi_df = other_df.drop(columns=[column for column in other_df.columns if '/' not in column])
+
+    
+#Заполняем листы с одиночными ответами
+for idx,name_sheet in enumerate(lst_single_answer_sheets):
+    temp_df = simple_df.iloc[:,idx].value_counts().to_frame().reset_index()
+    
+    temp_df.columns = ['Вариант ответа','Количество']
+    #Высчитываем долю
+    temp_df['Доля в %'] = ((temp_df['Количество'] / temp_df['Количество'].sum()).round(2) * 100)
+    
+    #Делаем заголовок
+    other_wb[name_sheet]['A1'] = simple_df.columns[idx]
+    for row in dataframe_to_rows(temp_df, index=False, header=True):
+        other_wb[name_sheet].append(row)
+    
+      # Рисуем диаграмму
+    #выбираем значения
+    labels = Reference(other_wb[name_sheet],min_col=1,min_row=3,max_row=temp_df.shape[0]+2)
+    values = Reference(other_wb[name_sheet],min_col=2,min_row=2,max_row=temp_df.shape[0]+2)
+    data_val = Reference(other_wb[name_sheet],min_col=1,min_row=3,max_row=temp_df.shape[0]+2)
+    # Создаем объект диаграммы
+    pie_chart = PieChart()
+    pie_chart.add_data(values,titles_from_data=True)
+    pie_chart.set_categories(labels)
+    
+    # Делаем отображение числовых данных на диаграмме
+    series = Series(data_val, title='Series 1')
+    pie_chart.append(series)
+    s1 = pie_chart.series[0]
+
+    s1.dLbls = DataLabelList()
+    s1.dLbls.showVal = True
+    
+    
+    pie_chart.title = f"{mark} {name_sheet}"
+    #Привязываем диаграмму к ячейке А15
+    other_wb[name_sheet].add_chart(pie_chart,'A15')
+    # Определяем размеры диаграммы
+
+    pie_chart.width =20
+    pie_chart.height = 5
+    
+    other_wb[name_sheet].column_dimensions['A'].width = 40
+    other_wb[name_sheet].column_dimensions['B'].width = 15
+    
+#Удаялем лишний лист
+del other_wb['Sheet']
+current_time = time.strftime('%H_%M_%S')
+other_wb.save(f'Итоги опроса иных участников сессии от {current_time}.xlsx')    
+
+
+
+
+
