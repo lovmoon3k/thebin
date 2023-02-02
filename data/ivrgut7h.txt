@@ -1,0 +1,104 @@
+wantedItems = dofile("wantedItems.lua")
+inventory = peripheral.wrap("left")
+monitorside = "right"
+rednet.open("top")
+minStockedPercent = 100 -- at which percentage to start moving items
+readCount = false
+local scroll = 1
+term.clear()
+term.setCursorPos(1,1)
+print("Use addItem to add more items.")
+
+function showItems()
+    local monitor = peripheral.wrap(monitorside)
+    monitor.setTextScale(0.5)
+    local items = {}
+    for channel, itemsData in pairs(wantedItems) do
+        for _, itemData in pairs(itemsData) do
+            local item = string.match(itemData[1], ":(.*)")
+            if item then
+                table.insert(items, item .. ": " .. itemData[2])
+            end
+        end
+    end
+
+    local _, maxLines = monitor.getSize()
+    while true do
+        monitor.clear()
+        monitor.setCursorPos(1,1)
+        monitor.setTextColor(colors.yellow)
+        monitor.write("Items to keep in stock:\n")
+        monitor.setTextColor(colors.lightGray)
+        for i = scroll, scroll + maxLines - 2 do
+            monitor.setCursorPos(1, i - scroll + 2)
+            monitor.write(items[i] or "")
+        end
+        local event, side, x, y = os.pullEvent("monitor_touch")
+        if y >= maxLines/2 then
+            scroll = math.min(scroll + 1, #items - maxLines + 2)
+        else
+            scroll = math.max(scroll - 1, 1)
+        end
+    end
+end
+
+
+
+ 
+function scanInventory(var)
+items = { }
+    for k, v in pairs(inventory.list()) do
+        for prop, value in pairs(v) do
+            if prop == "name" then
+                for channel, itemsData in pairs(var) do
+                    for _, itemData in pairs(itemsData) do
+                        if itemData[1] == value then
+                            readCount = true
+                            itemName = value
+                        end
+                    end
+                end
+            end
+            -----add itemcount to table
+            if prop == "count" and readCount == true then
+                readCount = false
+                if items[itemName] == nil then
+                    items[itemName] = 0
+                end
+                items[itemName] = items[itemName] + value
+            end
+        end
+    end
+end
+ 
+function notifyComputer()
+    for channel, itemsData in pairs(wantedItems) do
+        for _, itemData in pairs(itemsData) do
+            local item = itemData[1]
+            local wantedCount = itemData[2]
+
+            local currentCount = items[item] or 0
+            local restockCount = 0
+            if wantedCount > currentCount then
+                restockCount = wantedCount - currentCount
+            end                    
+            local percent = 100 * (currentCount/wantedCount) 
+            if percent < minStockedPercent then
+                msg = table.concat({item, restockCount}, " ")
+                rednet.send(channel, msg)
+                sleep(0.5)
+            end
+        end
+    end
+end
+
+
+function dostuff()
+scanInventory(wantedItems)
+notifyComputer()
+sleep(5)
+end
+
+while true do
+parallel.waitForAny(dostuff, showItems)
+end
