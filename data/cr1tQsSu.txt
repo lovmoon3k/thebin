@@ -1,0 +1,265 @@
+# Design for individual letters.
+# For each letter can be effected in different ways.
+# Effects like wave, fading, spinning, shooting away, and what ever else you can think of.
+
+import string
+
+from pygame import Color, Rect, Vector2, SRCALPHA
+from pygame.font import Font
+from pygame.sprite import Group, Sprite
+
+# My Typewriter effect. Use with pygame.time.Timer
+class WriterText:
+    def __init__(self, pen, text, rpos, xspace=0):
+        self.pen = pen
+        self.rpos = rpos
+        self.text = text
+        self.xspace = 0
+        self.length = 0
+        self.letters = pen.render_letters(text, rpos, xspace, True)
+
+    def is_done(self):
+        return self.length == len(self.letters)
+
+    def draw(self, surface):
+        for i in range(self.length):
+            self.letters[i].draw(surface)
+
+    def render(self):
+        size = self.pen.get_rect(self.text[:self.length], self.xspace).size
+        surface = pygame.Surface(size, SRCALPHA)
+        for letter in self.letters[:self.length]:
+            pos = letter.rect.x - left, letter.rect.y - top
+            surface.blit(letter, pos)
+
+        return surface
+
+    def reset(self):
+        self.length = 0
+
+    def update(self, timer):
+        if self.length < len(self.letters):
+            self.length += 1
+
+class PenText:
+    def __init__(self, pen, text, rpos, xspace=0):
+        self.pen = pen
+        self.rpos = rpos
+        self.text = text
+        self.xspace = 0
+        self.letters = pen.render_letters(text, rpos, xspace)
+
+    def draw(self, surface):
+        self.letters.draw(surface)
+
+    def render(self):
+        size = self.pen.get_rect(self.text, self.xspace).size
+        surface = pygame.Surface(size, SRCALPHA)
+        for letter in self.letters:
+            pos = letter.rect.x - left, letter.rect.y - top
+            surface.blit(letter, pos)
+
+        return surface
+
+    def set_text(self, text):
+        self.text = text
+        self.letters = self.pen.write(text, self.rpos)
+
+class LetterSprite(Sprite):
+    def __init__(self, pos, letter, rect):
+        super().__init__()
+        self.center = Vector2(rect.center)
+        self.origin = rect.center
+        self.image = letter
+        self.rect = rect
+        self.pos = pos
+
+    def draw(self, surface):
+        surface.blit(self.image, self.rect)
+
+    # move(x, y) or tuple, list, vector.
+    def move(self, *args):
+        if len(args) == 1:
+            self.center += args[0]
+        else:
+            self.center += args
+
+        self.rect.center = self.center
+
+    def origin_move(self, *args):
+        self.center = Vector2(self.origin)
+        self.move(*args)
+
+class Pen:
+    def __init__(self, fontname, size, color, bcolor=None, allow_letters=False):
+        self.font = Font(fontname, size)
+        self.color = color
+        self.bcolor = bcolor
+        self.allow_letters = allow_letters
+        if allow_letters:
+            self._create_letters(color, bcolor)
+
+    def _create_letters(self, color, bcolor):
+        self._letters = {}
+        for l in string.printable:
+            if l != ' ':
+                self._letters[l] = self.font.render(l, 1, color, bcolor)
+
+    def create_letters(self):
+        self._create_letters(self.color, self.bcolor)
+
+    def get_rect(self, text, xspace):
+        rect = Rect((0, 0), self.font.size(text))
+        rect.w += xspace * (len(text) - 1)
+        return rect
+
+    def render(self, text, color=None, bcolor=None):
+        if not color:
+            color = self.color
+
+        if not bcolor:
+            bcolor = self.bcolor
+
+        return self.font.render(text, 1, color, bcolor)
+
+    def render_letters(self, text, rposition, xspace=0, use_list=False):
+        if not self.allow_letters:
+            return None
+
+        if not use_list:
+            letters = Group()
+        else:
+            letters = []
+
+        rect = self.get_rect(text, xspace)
+        rposition.apply(rect)
+        x, y = rect.topleft
+        xoffset = 0
+        offset = 0
+
+        for i, letter in enumerate(text):
+            if letter != ' ':
+                image = self._letters[letter]
+                rect = image.get_rect(topleft=(x, y))
+                sprite = LetterSprite(i, image, rect)
+                if not use_list:
+                    letters.add(sprite)
+                else:
+                    letters.append(sprite)
+
+            xoffset += xspace
+            spacing = self.font.size(text[:i + 1])[0] + xoffset
+            x += spacing - offset
+            offset = spacing
+
+        return letters
+
+    # xspace is just to increase spacing between letters.
+    def render_text(self, text, rpos, xspace=0):
+        if not self.allow_letters:
+            return None
+
+        return PenText(self, text, rpos, xspace)
+
+    # xspace is just to increase spacing between letters.
+    def render_writer(self, text, rpos, xspace=0):
+        if not self.allow_letters:
+            return None
+
+        return WriterText(self, text, rpos, xspace)
+
+    # Use to change prerender letters color.
+    # Will change all text that uses this pen prerender letters.
+    def set_color(self, color):
+        self.color = color
+        if self.allow_letters:
+            color = Color(color)
+            letters = self._letters
+            for key in letters:
+                sx, sy = letters[key].get_size()
+                for x in range(sx):
+                    for y in range(sy):
+                        ocolor = letters[key].get_at((x, y))
+                        color.a = ocolor.a
+                        letters[key].set_at((x, y), color)
+
+# Just for setting position by rect.
+class RectPosition:
+    # Creation
+    @classmethod
+    def from_rect(cls, rect, rect_anchor='center', anchor='center'):
+        return cls(getattr(rect, rect_anchor), anchor)
+
+    def __init__(self, position, anchor='topleft'):
+        self.position = position
+        self.anchor = anchor
+
+    # Methods
+    def apply(self, rect):
+        setattr(rect, self.anchor, self.position)
+
+    def reposition(self, position, rect):
+        x, y = self.position
+        self.position = position[0] + x, position[1] + y
+        self.apply(rect)
+
+# Example
+import pygame
+from math import sin, radians
+
+WAVE = pygame.event.custom_type()
+
+class Wave:
+    def __init__(self, pen_text, flux, height, offset=0):
+        self.pen_text = pen_text
+        self.flux = flux / (len(pen_text.text) - 1)
+        self.height = height
+
+    def __call__(self, offset=0):
+        for letter in self.pen_text.letters:
+            y = int(sin(radians((letter.pos + offset) * self.flux)) * self.height)
+            letter.origin_move(0, y)
+
+def main():
+    pygame.init()
+    pygame.display.set_caption("Example")
+    surface = pygame.display.set_mode((500, 500))
+    rect = surface.get_rect()
+    clock = pygame.time.Clock()
+    fps = 60
+
+    # Example Variables
+    pen = Pen(None, 30, 'snow', allow_letters=True)
+    word = 'Hello, Hello World'
+    pen_text = pen.render_text(word, RectPosition(rect.center, 'center'))
+    # flux: -180, 180, -360, 360 . Just common degrees
+    wave_effect = Wave(pen_text, 360, 40)
+    colors = 'white', 'firebrick', 'darkgreen', 'dodgerblue', 'purple'
+    color_n = 0
+
+    pygame.time.set_timer(WAVE, 120)
+    offset = 0
+    wave_effect(offset)
+
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == WAVE:
+                offset = (offset + 1) % len(pen_text.text)
+                wave_effect(offset)
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    color_n = (color_n + 1) % len(colors)
+                    color = colors[color_n]
+                    pen.set_color(color)
+            elif event.type == pygame.QUIT:
+                running = False
+
+        surface.fill('black')
+        pen_text.draw(surface)
+        pygame.display.flip()
+        clock.tick(fps)
+
+    pygame.quit()
+
+main()
