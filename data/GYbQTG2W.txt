@@ -1,0 +1,80 @@
+#include <mpi.h>
+#include <stdio.h>
+#include <string>
+
+int main(int argc, char** argv) {
+    // Initialize the MPI environment
+    MPI_Init(&argc, &argv);
+
+    // Get the number of processes
+    int world_size;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+    // Get the rank of the process
+    int world_rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+    const int ITERATION_NUMBER = 1000;
+
+    switch (world_rank) {
+    case 0: {
+        double time = MPI_Wtime();
+
+        // Send
+        for (int i = 0; i < ITERATION_NUMBER; i++)
+            MPI_Send(&i, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);
+        time = MPI_Wtime() - time;
+        printf("Send: %.10f\n", time / ITERATION_NUMBER * 1E6);
+
+        // Bsend
+        int buffer_attached_size = ITERATION_NUMBER * (MPI_BSEND_OVERHEAD + sizeof(int));
+        char* buffer_attached = (char*)malloc(buffer_attached_size);
+        MPI_Buffer_attach(buffer_attached, buffer_attached_size);
+        time = MPI_Wtime();
+        for (int i = 0; i < ITERATION_NUMBER; i++)
+            MPI_Bsend(&i, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);
+        time = MPI_Wtime() - time;
+        printf("Bsend: %.10f\n", time / ITERATION_NUMBER * 1E6);
+        MPI_Buffer_detach(buffer_attached, &buffer_attached_size);
+        free(buffer_attached);
+
+
+        // Isend
+        MPI_Request requests[ITERATION_NUMBER];
+        MPI_Status statuses[ITERATION_NUMBER];
+        time = MPI_Wtime();
+        for (int i = 0; i < ITERATION_NUMBER; i++)
+            MPI_Isend(&i, 1, MPI_INT, 1, 0, MPI_COMM_WORLD, &requests[i]);
+        MPI_Waitall(ITERATION_NUMBER, requests, statuses);
+        time = MPI_Wtime() - time;
+        printf("Isend: %.10f\n", time / ITERATION_NUMBER * 1E6);
+
+        break;
+    }
+    case 1: {
+        MPI_Status status;
+        MPI_Request requests[ITERATION_NUMBER];
+        MPI_Status statuses[ITERATION_NUMBER];
+        int rec[ITERATION_NUMBER];
+        for (int i = 0; i < ITERATION_NUMBER; i++) {
+            MPI_Recv(&rec[i], 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
+        }
+        for (int i = 0; i < ITERATION_NUMBER; i++) {
+            MPI_Recv(&rec[i], 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
+        }
+        
+        for (int i = 0; i < ITERATION_NUMBER; i++) {
+            MPI_Irecv(&rec[i], 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &requests[i]);
+            
+        }
+        MPI_Waitall(ITERATION_NUMBER, requests, statuses);
+        break;
+    }
+    default: {
+        break;
+    }
+    }
+
+    // Finalize the MPI environment.
+    MPI_Finalize();
+}
