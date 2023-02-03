@@ -1,0 +1,48 @@
+// ==UserScript==
+// @name     DeepL - Auto VN Translation Extension Helper
+// @version  1.1
+// @grant    GM.setClipboard
+// @match        https://www.deepl.com/translator
+// @description  Watch for target language element class change, copy new value of textarea to clipboard each time change has been detected.
+// @author       Zero_G
+// @icon     https://www.deepl.com/img/logo/deepl-logo-blue.svg
+// ==/UserScript==
+(function() {
+    'use strict';
+    // Filters to apply to translated text
+    const filters = {
+      '' : /\"+|\'\'+/g,        // Remove " or ''
+      '...' : /\.\.\.\.+/g      // Change multiple dots (wheren there are mother than 3 to ... only
+    }
+
+    const mutationObserver = new MutationObserver(callback)
+
+    // Observe the text div that contain the translation
+    // But as the translated text appears in a <p> in a ::before css we need to watch
+    // for added nodes
+    mutationObserver.observe(
+        document.getElementsByClassName('lmt__target_textarea')[0].lastChild, {
+            childList: true
+        }
+    )
+
+    function callback(mutationsList) {
+        mutationsList.forEach(mutation => {
+            if (mutation.type === 'childList' && // Irrelevant as we are already watching for childList only but meh
+                mutation.addedNodes.length !== 0 && // Looking for a mutation with an added node
+                mutation.removedNodes.length !== 0 && // This condition is to prevent a repeat
+                !mutation.addedNodes[0].innerHTML.includes('<br')) { // Filter out garbage while translating
+                // Get text from <p> (get as value doesn't work)
+                let text = mutation.addedNodes[0].innerHTML;
+                
+                // Apply filters
+                for (const [key, value] of Object.entries(filters)) {
+                  text = text.replace(value, key);
+                }
+              
+                // Copy to memory with GreaseMonkey special function (needs @grant)
+                GM.setClipboard(text);
+            }
+        })
+    }
+})();
