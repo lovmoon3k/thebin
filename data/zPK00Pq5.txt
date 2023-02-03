@@ -1,0 +1,83 @@
+-- Tutorial here: https://www.youtube.com/watch?v=vw7o00xvnLQ
+-- For the Floppy Disk setup:
+-- Insert the floppy into the disk drive adjacent to the computer
+-- Go into the computer and type: edit disk/.security/key
+-- Type inside the edit program: lemmein
+-- do not include quotes
+-- Save and exit, then reboot your computer.
+-- It should open the door and eject the floppy disk.
+-- If it doesn't follow the tutorial again.
+
+
+-- feel free to change the following variables
+
+-- password. THIS CANNOT CONTAIN SPACES
+local PASSWORD = "lemmein"
+
+-- which side of the computer a redstone signal should be sent
+local RS_SIDE = "bottom"
+
+-- default redstone power state
+local RS_POWER = true
+
+-- (optional) which side of the computer the disk drive is on
+local DISK_SIDE = nil
+
+
+
+-- auto-locate disk drive
+if not DISK_SIDE then
+    local peripheralSides = peripheral.getNames()
+    for k,v in pairs(peripheral.getNames()) do
+        if peripheral.getType(v) == "drive" then
+            DISK_SIDE = v
+            break
+        end
+    end
+end
+
+if not DISK_SIDE then
+    print("Please attach a disk drive")
+    return
+end
+
+-- initialize display
+rs.setOutput(RS_SIDE, true)
+os.pullEvent = os.pullEventRaw
+term.clear()
+term.setCursorPos(1,1)
+term.write("Door Lock Program")
+term.setTextColor(colors.lightGray)
+term.setCursorPos(1,2)
+term.write("Please insert floppy disk")
+
+-- main event loop
+local timer = -1
+while true do
+    local e = {os.pullEvent()}
+    if e[1] == "disk" and e[2] == DISK_SIDE then
+        -- get the mount path in case of multiple disks already inserted
+        local mountPath = disk.getMountPath(DISK_SIDE)
+        if mountPath then
+            local keyPath = mountPath .. "/.security/key"
+            if fs.exists(keyPath) then
+                local file = fs.open(keyPath, "r")
+                -- remove whitespace characters from password read from floppy disk
+                local inputPassword = file.readAll():gsub("%s+", "")
+                file.close()
+                disk.eject(DISK_SIDE)
+                if inputPassword == PASSWORD then
+                    disk.eject(DISK_SIDE)
+                    rs.setOutput(RS_SIDE, not RS_POWER)
+                    timer = os.startTimer(3)
+                end
+            else
+                disk.eject(DISK_SIDE)
+            end
+        else
+            disk.eject(DISK_SIDE)
+        end
+    elseif e[1] == "timer" and e[2] == timer then
+        rs.setOutput(RS_SIDE, RS_POWER)
+    end
+end
