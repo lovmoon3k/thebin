@@ -1,0 +1,58 @@
+all: asan  # что запускать при вызове `make` без параметров
+
+CXX_FLAGS = -Wall -Wextra -std=c++20
+BUILD = clang++ -o $@ $< $(CXX_FLAGS)
+DEBUG_MODE = -fno-omit-frame-pointer -g
+
+TASK_CPP = $(filter-out main.cpp, $(wildcard *.cpp))
+
+test: $(TASK_CPP) main.cpp
+	clang++ -o $@ $^ -fsanitize=address $(DEBUG_MODE) $(CXX_FLAGS)
+
+# Запускается каждый раз, потому что такого выходного файла не создаётся
+# $(basename $<) — это $(basename multiplication.cpp) — это multiplication
+tidy: $(TASK_CPP)
+	cd ../../build && ../run_linter.sh $(basename $<)
+
+run: test
+	./test
+
+#  $@: цель сборки
+#  $<: первая зависимость сборки
+#  $^: все зависимости сборки
+
+# -fsanitize=... — диагностика
+# -Osize -O0 -O1 -O2 -O3 — уровень оптимизации
+# -fno-omit-frame-pointer — сохранять указатели на функции для диагностики
+# -g — отладочная информация
+
+code.i: code.cpp
+	clang++ -E $< > $@
+
+o0: code.cpp
+	$(BUILD) -O0
+
+o1: code.cpp
+	$(BUILD) -O1
+
+o2: code.cpp
+	$(BUILD) -O2
+
+o3: code.cpp
+	$(BUILD) -O3
+
+asan: code.cpp Makefile
+	$(BUILD) $(DEBUG_MODE) -fsanitize=address
+
+msan: code.cpp
+	$(BUILD) $(DEBUG_MODE) -fsanitize=memory -fsanitize-memory-param-retval
+
+ubsan: code.cpp
+	$(BUILD) $(DEBUG_MODE) -fsanitize=undefined
+
+lsan: code.cpp
+	$(BUILD) $(DEBUG_MODE) -fsanitize=leak
+
+# make aaa выполнит этот сценарий, если есть файл aaa.cpp
+%: %.cpp
+	$(BUILD) $(DEBUG_MODE) -fsanitize=address
