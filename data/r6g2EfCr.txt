@@ -1,0 +1,1917 @@
+' Elvis - Stern 2004
+' MOD of VPX 1.0.2 by JPSalas July 2017
+
+Option Explicit
+Randomize
+
+On Error Resume Next
+ExecuteGlobal GetTextFile("controller.vbs")
+If Err Then MsgBox "You need the controller.vbs in order to run this table, available in the vp10 package"
+On Error Goto 0
+
+Const BallSize = 50
+Const BallMass = 1.7
+Const BounceMin = 4	
+Const BounceMax = 7
+
+' Language Roms
+Const cGameName = "elvis" 'English
+
+Dim VarHidden, UseVPMColoredDMD
+If Table1.ShowDT = true then
+    UseVPMColoredDMD = true
+    VarHidden = 1
+else
+    UseVPMColoredDMD = False
+    VarHidden = 0
+    TextBox1.Visible = 0
+    lrail.Visible = 0
+    rrail.Visible = 0
+end if
+
+LoadVPM "01560000", "SEGA.VBS", 3.26
+
+'********************
+'Standard definitions
+'********************
+
+Const UseSolenoids = 2
+Const UseLamps = 0
+Const UseGI = 0
+Const UseSync = 0
+Const HandleMech = 0
+
+' Standard Sounds
+Const SSolenoidOn = "fx_Solenoid"
+Const SSolenoidOff = ""
+Const SCoin = "fx_Coin"
+
+Dim bsTrough, mMag, mCenter, dtBankL, bsLock, bsUpper, bsJail, plungerIM, mElvis, x, i
+
+'************
+' Table init.
+'************
+
+Sub Table1_Init
+    vpmInit Me
+    With Controller
+        .GameName = cGameName
+        .Games(cGameName).Settings.Value("sound") = 1 'enable the rom sound
+        .SplashInfoLine = "Elvis - Stern 2004" & vbNewLine & "VPX table by JPSalas v.1.0.2"
+        .ShowTitle = 0
+        .ShowDMDOnly = 1
+        .ShowFrame = 0
+        .HandleMechanics = 0
+        .HandleKeyboard = 0
+        .Hidden = VarHidden
+        .Games(cGameName).Settings.Value("rol") = 0
+        On Error Resume Next
+        .Run GetPlayerHWnd
+        If Err Then MsgBox Err.Description
+
+        On Error Goto 0
+    End With
+
+    ' Main Timer init
+    PinMAMETimer.Interval = PinMAMEInterval
+    PinMAMETimer.Enabled = 1
+
+    vpmNudge.TiltSwitch = 56
+    vpmNudge.Sensitivity = 1
+    vpmNudge.TiltObj = Array(Bumper1, Bumper2, Bumper3, LeftSlingshot, RightSlingshot)
+
+    ' Trough
+    Set bsTrough = New cvpmBallStack
+    With bsTrough
+        .InitSw 0, 14, 13, 12, 11, 0, 0, 0
+        .InitKick BallRelease, 90, 4
+        .InitExitSnd SoundFX("fx_ballrel", DOFContactors), SoundFX("fx_Solenoid", DOFContactors)
+        .Balls = 4
+    End With
+
+    ' Magnet
+    Set mMag = New cvpmMagnet
+    With mMag
+        .InitMagnet Magnet, 60
+        .Solenoid = 5
+        .GrabCenter = 1
+        .CreateEvents "mMag"
+    End With
+
+    ' Droptargets
+    set dtBankL = new cvpmdroptarget
+    With dtBankL
+        .initdrop array(sw17, sw18, sw19, sw20, sw21), array(17, 18, 19, 20, 21)
+        .initsnd SoundFX("fx_droptarget", DOFContactors), SoundFX("fx_resetdrop", DOFContactors)
+    End With
+
+    ' Hotel Lock
+    Set bsLock = New cvpmBallStack
+    With bsLock
+        .InitSw 0, 48, 0, 0, 0, 0, 0, 0
+        .InitKick HLock, 180, 8
+        .InitExitSnd SoundFX("fx_kicker", DOFContactors), SoundFX("fx_Solenoid", DOFContactors)
+    End With
+
+    ' Jail Lock
+    Set bsJail = new cvpmBallStack
+    With bsJail
+        .InitSaucer sw34, 34, 186, 23
+        .InitExitSnd SoundFX("fx_kicker", DOFContactors), SoundFX("fx_Solenoid", DOFContactors)
+        .KickAngleVar = 1
+        .KickForceVar = 1
+    End With
+
+    ' Upper Lock
+    Set bsUpper = new cvpmBallStack
+    With bsUpper
+        .InitSaucer sw32, 32, 90, 15
+        .InitExitSnd SoundFX("fx_kicker", DOFContactors), SoundFX("fx_Solenoid", DOFContactors)
+        .KickAngleVar = 3
+        .KickForceVar = 3
+    End With
+
+    ' Impulse Plunger
+    Const IMPowerSetting = 60 ' Plunger Power
+    Const IMTime = 0.6        ' Time in seconds for Full Plunge
+    Set plungerIM = New cvpmImpulseP
+    With plungerIM
+        .InitImpulseP swplunger, IMPowerSetting, IMTime
+        .Random 0.3
+        .switch 16
+        .InitExitSnd SoundFX("fx_autoplunger", DOFContactors), SoundFX("fx_autoplunger", DOFContactors)
+        .CreateEvents "plungerIM"
+    End With
+
+    ' Elvis movement
+    Set mElvis = New cvpmMech
+    With mElvis
+        .MType = vpmMechOneSol + vpmMechReverse + vpmMechLinear
+        .Sol1 = 25
+        .Length = 150
+        .Steps = 150
+        .AddSw 33, 0, 0
+        .Callback = GetRef("UpdateElvis")
+        .Start
+    End With
+    ' Initialize Elvis arms and legs
+    ElvisArms 0
+    ElvisLegs 0
+End Sub
+
+Sub Table1_Paused:Controller.Pause = 1:End Sub
+Sub Table1_unPaused:Controller.Pause = 0:End Sub
+Sub Table1_Exit:Controller.Stop:End Sub
+
+'****
+'Keys
+'****
+
+Sub Table1_KeyDown(ByVal keycode)
+    If keycode = LeftTiltKey Then Nudge 90, 5:PlaySound SoundFX("fx_nudge", 0), 0, 1, -0.1, 0.25
+    If keycode = RightTiltKey Then Nudge 270, 5:PlaySound SoundFX("fx_nudge", 0), 0, 1, 0.1, 0.25
+    If keycode = CenterTiltKey Then Nudge 0, 6:PlaySound SoundFX("fx_nudge", 0), 0, 1, 0, 0.25
+    If keycode = PlungerKey Then PlaySound "fx_PlungerPull", 0, 1, 0.1, 0.25:Plunger.Pullback
+    If KeyDownHandler(KeyCode) Then Exit Sub
+    If keyUpperLeft Then Controller.Switch(55) = 1
+    If keycode = KeyRules Then Rules
+End Sub
+
+Sub Table1_KeyUp(ByVal keycode)
+    If KeyUpHandler(KeyCode) Then Exit Sub
+    If keycode = PlungerKey Then PlaySound "fx_plunger", 0, 1, 0.1, 0.25:Plunger.Fire
+    If keyUpperLeft Then Controller.Switch(55) = 0
+End Sub
+
+'**********************
+'Elvis movement up/down
+'**********************
+
+Sub UpdateElvis(aNewPos, aSpeed, aLastPos)
+    pStand.x = 518+aNewPos/3
+    pLarm.x = 479+aNewPos/3
+    pLegs.x = 515+aNewPos/3
+    pRarm.x = 539+aNewPos/3
+    pBody.x = 505+aNewPos/3
+    pStand.y = 482+aNewPos
+    pLarm.y = 502+aNewPos
+    pLegs.y = 500+aNewPos
+    pRarm.y = 487+aNewPos
+    pBody.y = 471+aNewPos
+End Sub
+
+'********************
+'     Flippers
+'********************
+
+SolCallback(sLRFlipper) = "SolRFlipper"
+SolCallback(sLLFlipper) = "SolLFlipper"
+
+Sub SolLFlipper(Enabled)
+    If Enabled Then
+        PlaySound SoundFX("fx_flipper1", DOFFlippers), 0, 1, -0.1, 0.25
+        LeftFlipper.RotateToEnd
+        LeftFlipper1.RotateToEnd
+    Else
+        PlaySound SoundFX("fx_flipperdown", DOFFlippers), 0, 1, -0.1, 0.25
+        LeftFlipper.RotateToStart
+        LeftFlipper1.RotateToStart
+    End If
+End Sub
+
+Sub SolRFlipper(Enabled)
+    If Enabled Then
+        PlaySound SoundFX("fx_flipper2", DOFFlippers), 0, 1, 0.1, 0.25
+        RightFlipper.RotateToEnd
+        RightFlipper1.RotateToEnd
+    Else
+        PlaySound SoundFX("fx_flipperdown", DOFFlippers), 0, 1, 0.1, 0.25
+        RightFlipper.RotateToStart
+        RightFlipper1.RotateToStart
+    End If
+End Sub
+
+Sub LeftFlipper_Collide(parm)
+    PlaySound "fx_rubber_flipper", 0, parm / 10, -0.1, 0.25
+End Sub
+
+Sub RightFlipper_Collide(parm)
+    PlaySound "fx_rubber_flipper", 0, parm / 10, 0.1, 0.25
+End Sub
+
+Sub LeftFlipper1_Collide(parm)
+    PlaySound "fx_rubber_flipper", 0, parm / 10, -0.1, 0.25
+End Sub
+
+Sub RightFlipper1_Collide(parm)
+    PlaySound "fx_rubber_flipper", 0, parm / 10, 0.1, 0.25
+End Sub
+
+
+'*********** BALL SHADOW *********************************
+Dim BallShadow
+BallShadow = Array (BallShadow1, BallShadow2, BallShadow3, BallShadow4, BallShadow5)
+
+Sub BallShadowUpdate_timer()
+    Dim BOT, b
+    BOT = GetBalls
+    ' hide shadow of deleted balls
+    If UBound(BOT)<(tnob-1) Then
+        For b = (UBound(BOT) + 1) to (tnob-1)
+            BallShadow(b).visible = 0
+        Next
+    End If
+    ' exit the Sub if no balls on the table
+    If UBound(BOT) = -1 Then Exit Sub
+    ' render the shadow for each ball
+    For b = 0 to UBound(BOT)
+        If BOT(b).X < Table1.Width/2 Then
+            BallShadow(b).X = ((BOT(b).X) - (Ballsize/6) + ((BOT(b).X - (Table1.Width/2))/7)) + 10
+        Else
+            BallShadow(b).X = ((BOT(b).X) + (Ballsize/6) + ((BOT(b).X - (Table1.Width/2))/7)) - 10
+        End If
+        ballShadow(b).Y = BOT(b).Y + 20
+        If BOT(b).Z > 20 Then
+            BallShadow(b).visible = 1
+        Else
+            BallShadow(b).visible = 0
+        End If
+    Next
+End Sub
+
+
+
+'Flupper1's flippers
+
+TimerFlipper.interval = 10
+TimerFlipper.Enabled = 1
+Sub TimerFlipper_Timer()
+	batleft.objrotz = LeftFlipper.CurrentAngle + 1
+	batleftshadow.objrotz = batleft.objrotz
+    batleft1.objrotz = LeftFlipper1.CurrentAngle + 1
+	batleftshadow.objrotz = batleft.objrotz
+	batright.objrotz = RightFlipper.CurrentAngle + 1
+	batrightshadow.objrotz = batright.objrotz
+	batright1.objrotz = RightFlipper1.CurrentAngle + 1
+	batrightshadow.objrotz = batright.objrotz
+End sub
+
+'*********
+'Solenoids
+'*********
+
+SolCallBack(1) = "SolTrough"
+SolCallBack(2) = "Auto_Plunger"
+SolCallBack(3) = "dtBankL.SolDropUp"
+SolCallBack(6) = "bsJail.SolOut"
+SolCallBack(7) = "bsLock.SolOut"
+SolCallBack(8) = "CGate.Open ="
+SolCallBack(12) = "bsUpper.SolOut"
+SolCallBack(19) = "SolHotelDoor"
+SolCallBack(24) = "vpmsolsound SoundFX(""fx_knocker"",DOFKnocker),"
+
+Sub SolTrough(Enabled)
+    If Enabled Then
+        bsTrough.ExitSol_On
+        vpmTimer.PulseSw 15
+    End If
+End Sub
+
+Sub Auto_Plunger(Enabled)
+    If Enabled Then
+        PlungerIM.AutoFire
+    End If
+End Sub
+
+Sub SolHotelDoor(Enabled)
+    If Enabled Then
+        fDoor.RotatetoEnd
+        doorwall.IsDropped = 1
+    Else
+        fDoor.RotatetoStart
+        doorwall.IsDropped = 0
+    End If
+End Sub
+
+'*********
+' Flashers
+'*********
+'SolCallBack(20) = "SetLamp 100,"
+'SolCallback(21) = "SetLamp 101,"
+'SolCallBack(22) = "SetLamp 102,"
+'SolCallBack(23) = "SetLamp 103,"
+'SolCallBack(32) = "SetLamp 104,"
+'SolCallBack(31) = "SetLamp 105,"
+
+'****************
+' Elvis animation
+'****************
+
+SolCallBack(29) = "ElvisLegs"
+SolCallBack(30) = "ElvisArms"
+
+Sub ElvisLegs(Enabled)
+	Playsound "Elvis_legs"
+    If Enabled Then
+        fLegs.RotatetoStart
+    Else
+        fLegs.RotatetoEnd
+    End If
+End Sub
+
+Sub ElvisArms(Enabled)
+	Playsound "Elvis_arms"
+    If Enabled Then
+        fArms.RotatetoStart
+    Else
+        fArms.RotatetoEnd
+    End If
+End Sub
+
+' ************************************
+' Switches, bumpers, lanes and targets
+' ************************************
+
+Sub Drain_Hit:Playsound "fx_drain":bsTrough.AddBall Me:End Sub
+'Sub Drain_Hit:Me.destroyball:End Sub 'debug
+
+Sub sw9_Hit:vpmTimer.PulseSw 9:PlaySound SoundFX("fx_target", DOFTargets), 0, 1, pan(ActiveBall):End Sub
+
+Sub sw10_Hit:Controller.Switch(10) = 1:End Sub
+Sub sw10_unHit:Controller.Switch(10) = 0:End Sub
+Sub sw17_Hit:dtBankL.Hit 1:End Sub
+Sub sw18_Hit:dtBankL.Hit 2:End Sub
+Sub sw19_Hit:dtBankL.Hit 3:End Sub
+Sub sw20_Hit:dtBankL.Hit 4:End Sub
+Sub sw21_Hit:dtBankL.Hit 5:End Sub
+Sub sw22_Hit:vpmTimer.PulseSw 22:PlaySound SoundFX("fx_target", DOFTargets), 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw23_Hit:vpmTimer.PulseSw 23:PlaySound SoundFX("fx_target", DOFTargets), 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw24_Hit:vpmTimer.PulseSw 24:PlaySound SoundFX("fx_target", DOFTargets), 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw25_Spin:PlaySound "fx_spinner", 0, 1, -0.01:vpmTimer.PulseSw 25:End Sub
+
+Sub sw26_Hit:Controller.Switch(26) = 1:End Sub
+Sub sw26_unHit:Controller.Switch(26) = 0:End Sub
+Sub sw27_Hit:Controller.Switch(27) = 1:End Sub
+Sub sw27_unHit:Controller.Switch(27) = 0:End Sub
+Sub sw28_Hit:Controller.Switch(28) = 1:PlaySound "fx_metalrolling",0, 1, 0.15, 0.35:End Sub
+Sub sw28_unHit:Controller.Switch(28) = 0:End Sub
+Sub sw30_Hit:Controller.Switch(30) = 1:End Sub
+Sub sw30_unHit:Controller.Switch(30) = 0:End Sub
+Sub sw31_Hit:Controller.Switch(31) = 1:PlaySound "fx_metalrolling",0, 1, 0.15, 0.35:End Sub
+Sub sw31_unHit:Controller.Switch(31) = 0:End Sub
+Sub sw32_Hit:playsound "Kicker_Hit":bsUpper.AddBall 0:End Sub
+Sub sw34_Hit:playsound "fx_magnet_catch":bsJail.AddBall 0:End Sub
+Sub sw36_Hit:vpmTimer.PulseSw 36:PlaySound SoundFX("fx_target", DOFTargets), 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw37_Hit:vpmTimer.PulseSw 37:PlaySound SoundFX("fx_target", DOFTargets), 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw38_Hit:vpmTimer.PulseSw 38:PlaySound SoundFX("fx_target", DOFTargets), 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw39_Hit:vpmTimer.PulseSw 39:PlaySound SoundFX("fx_target", DOFTargets), 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw40_Hit:vpmTimer.PulseSw 40:PlaySound SoundFX("fx_target", DOFTargets), 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw41_Hit:Controller.Switch(41) = 1:PlaySound "fx_sensor", 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw41_UnHit:Controller.Switch(41) = 0:End Sub
+Sub sw42_Hit:Controller.Switch(42) = 1:PlaySound "fx_sensor", 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw42_UnHit:Controller.Switch(42) = 0:End Sub
+Sub sw43_Hit:Controller.Switch(43) = 1:PlaySound "fx_sensor", 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw43_UnHit:Controller.Switch(43) = 0:End Sub
+Sub sw45_Hit:Controller.Switch(45) = 1:End Sub
+Sub sw45_unHit:Controller.Switch(45) = 0:End Sub
+Sub sw46_Hit:Controller.Switch(46) = 1:End Sub
+Sub sw46_unHit:Controller.Switch(46) = 0:End Sub
+Sub sw47_Hit:Controller.Switch(47) = 1:End Sub
+Sub sw47_unHit:Controller.Switch(47) = 0:End Sub
+Sub HLock_Hit:playsound "fx_kicker_enter":bsLock.AddBall Me:End Sub
+Sub sw48_Hit:Controller.Switch(48) = 1:End Sub
+Sub sw48_unHit:Controller.Switch(48) = 0:End Sub
+
+'Bumpers
+Sub Bumper1_Hit:vpmTimer.PulseSw 49:PlaySound SoundFX("fx_bumper1", DOFContactors), 0, 1, 0, 0:End Sub
+Sub Bumper2_Hit:vpmTimer.PulseSw 50:PlaySound SoundFX("fx_bumper2", DOFContactors), 0, 1, 0, 0:End Sub
+Sub Bumper3_Hit:vpmTimer.PulseSw 51:PlaySound SoundFX("fx_bumper3", DOFContactors), 0, 1, 0, 0:End Sub
+
+Sub sw52_Hit:vpmTimer.PulseSw 52:PlaySound SoundFX("fx_target", DOFTargets), 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw53_Hit:vpmTimer.PulseSw 53:PlaySound SoundFX("fx_target", DOFTargets), 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw57_Hit::Controller.Switch(57) = 1:PlaySound "fx_sensor", 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw57_UnHit:Controller.Switch(57) = 0:End Sub
+Sub sw58_Hit:Controller.Switch(58) = 1:PlaySound "fx_sensor", 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw58_UnHit:Controller.Switch(58) = 0:End Sub
+Sub sw60_Hit:Controller.Switch(60) = 1:PlaySound "fx_sensor", 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw60_UnHit:Controller.Switch(60) = 0:End Sub
+Sub sw61_Hit:Controller.Switch(61) = 1:PlaySound "fx_sensor", 0, 1, pan(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub sw61_UnHit:Controller.Switch(61) = 0:End Sub
+
+'Metal ramps sounds
+
+Sub LRampEnter_Hit
+	if Activeball.Vely < 0 then
+		PlaySound "metal_ramp_hits",0, 1, 0.15, 0.35
+	end if
+End Sub
+
+Sub RRampEnter_Hit
+	if Activeball.Vely < 0 then
+		PlaySound "metal_ramp_hits",0, 1, 0.15, 0.35
+	end if
+End Sub
+
+Sub TriggerMetal1_Hit():PlaySound "metal_slide1": End Sub
+Sub TriggerMetal3_Hit():PlaySound "metal_slide1": End Sub
+Sub TriggerLRampStop_Hit():PlaySound "WireRamp_Stop": End Sub
+Sub TriggerRRampStop_Hit():PlaySound "WireRamp_Stop1": End Sub
+Sub LRhit_Hit():PlaySound "WireRamp_Hit": End Sub
+Sub RRhit_Hit():PlaySound "WireRamp_Hit": End Sub
+Sub HotelEnter_Hit():PlaySound "hotel_enter": End Sub
+
+Dim LStep, RStep
+
+Sub LeftSlingShot_Slingshot
+    PlaySound SoundFX("LeftSlingShot", DOFContactors), 0, 1, -0.05, 0.05
+    LeftSling4.Visible = 1
+    Lemk.RotX = 26
+    LStep = 0
+    vpmTimer.PulseSw 59
+    LeftSlingShot.TimerEnabled = 1
+End Sub
+
+Sub LeftSlingShot_Timer
+    Select Case LStep
+        Case 1:LeftSLing4.Visible = 0:LeftSLing3.Visible = 1:Lemk.RotX = 14
+        Case 2:LeftSLing3.Visible = 0:LeftSLing2.Visible = 1:Lemk.RotX = 2
+        Case 3:LeftSLing2.Visible = 0:Lemk.RotX = -10:LeftSlingShot.TimerEnabled = 0
+    End Select
+
+    LStep = LStep + 1
+End Sub
+
+Sub RightSlingShot_Slingshot
+    PlaySound SoundFX("RightSlingShot", DOFContactors), 0, 1, 0.05, 0.05
+    RightSling4.Visible = 1
+    Remk.RotX = 26
+    RStep = 0
+    vpmTimer.PulseSw 62
+    RightSlingShot.TimerEnabled = 1
+End Sub
+
+Sub RightSlingShot_Timer
+    Select Case RStep
+        Case 1:RightSLing4.Visible = 0:RightSLing3.Visible = 1:Remk.RotX = 14
+        Case 2:RightSLing3.Visible = 0:RightSLing2.Visible = 1:Remk.RotX = 2
+        Case 3:RightSLing2.Visible = 0:Remk.RotX = -10:RightSlingShot.TimerEnabled = 0
+    End Select
+
+    RStep = RStep + 1
+End Sub
+
+Sub sw63_Hit:Controller.Switch(63) = 1:End Sub
+Sub sw63_UnHit:Controller.Switch(63) = 0:PlaySound"fx_balldrop1",0,1,0.1:End Sub
+
+Sub sw64_Hit
+    vpmTimer.PulseSw 64
+    str = INT(ABS(ActiveBall.Vely) ^3)
+    debug.print str
+    DogDir = 5 'upwards
+    HoundDogTimer.Enabled = 1
+    PlaySound SoundFX("fx_target1", DOFTargets), 0, 1, pan(ActiveBall)
+End Sub
+
+' Animate Hound Dog
+Dim str 'strength of the hit
+Dim DogStep, DogDir
+DogStep = 0
+DogDir = 0
+
+Sub HoundDogTimer_Timer()
+    DogStep = DogStep + DogDir
+    HoundDog.TransZ = DogStep
+    If DogStep> 100 Then DogDir = -5
+    If DogStep> str Then DogDir = -5
+    If DogStep <5 Then HoundDogTimer.Enabled = 0
+End Sub
+
+'' Ramp Soundss & Help triggers
+'Sub REnd1_Hit()
+'    StopSound "fx_metalrolling"
+'    PlaySound "fx_ballrampdrop", 0, 1, pan(ActiveBall)
+'End Sub
+'
+'Sub REnd2_Hit()
+'    StopSound "fx_metalrolling"
+'    PlaySound "fx_ballrampdrop", 0, 1, pan(ActiveBall)
+'End Sub
+
+'***************************************************
+'       JP's VP10 Fading Lamps & Flashers
+'       Based on PD's Fading Light System
+' SetLamp 0 is Off
+' SetLamp 1 is On
+' fading for non opacity objects is 4 steps
+'***************************************************
+
+Dim LampState(200), FadingLevel(200)
+Dim FlashSpeedUp(200), FlashSpeedDown(200), FlashMin(200), FlashMax(200), FlashLevel(200), FlashRepeat(200)
+
+'InitLamps()             ' turn off the lights and flashers and reset them to the default parameters
+'LampTimer.Interval = 10 'lamp fading speed
+'LampTimer.Enabled = 1
+
+' Lamp & Flasher Timers
+
+'Sub LampTimer_Timer()
+'    Dim chgLamp, num, chg, ii
+'    chgLamp = Controller.ChangedLamps
+'    If Not IsEmpty(chgLamp) Then
+'        For ii = 0 To UBound(chgLamp)
+'            LampState(chgLamp(ii, 0) ) = chgLamp(ii, 1)       'keep the real state in an array
+'            FadingLevel(chgLamp(ii, 0) ) = chgLamp(ii, 1) + 4 'actual fading step
+'        Next
+'    End If
+'
+'    UpdateLamps
+'End Sub
+'
+'Sub UpdateLamps
+'    NFadeL 1, l1
+'    NFadeLm 2, l2
+'    Flash 2, f2
+'    NFadeLm 3, l3
+'    Flash 3, f3
+'    NFadeLm 4, l4
+'    Flash 4, f4
+'    NFadeLm 5, l5
+'    Flash 5, f5
+'	NFadeLm 6, l6
+'    Flash 6, f6
+'    NFadeLm 7, l7
+'    Flash 7, f7
+'    NFadeLm 8, l8
+'    Flash 8, f8
+'    NFadeL 9, l9
+'    NFadeL 10, l10
+'    NFadeL 11, l11
+'    NFadeL 12, l12
+'    NFadeL 13, l13
+'    NFadeL 14, l14
+'    NFadeL 15, l15
+'    NFadeL 16, l16
+'    NFadeL 17, l17
+'    NFadeL 18, l18
+'    NFadeL 19, l19
+'    NFadeL 20, l20
+'    NFadeL 21, l21
+'    NFadeLm 22, l22
+'    Flash 22, f22
+'    NFadeL 23, l23
+'    NFadeL 24, l24
+'    NFadeL 25, l25
+'    NFadeL 26, l26
+'    NFadeL 27, l27
+'    NFadeL 28, l28
+'    NFadeL 29, l29
+'    NFadeLm 30, l30
+'    Flash 30, f30
+'    NFadeL 31, l31
+'	NFadeL 32, l32
+'    NFadeLm 33, l33
+'    Flash 33, f33
+'    NFadeLm 34, l34
+'    Flash 34, f34
+'    NFadeLm 35, l35
+'    Flash 35, f35
+'    NFadeLm 36, l36
+'    Flash 36, f36
+'    NFadeLm 37, l37
+'    Flash 37, f37
+'	NFadeLm 38, l38
+'    Flash 38, f38
+'    NFadeL 39, l39
+'	NFadeL 40, l40
+'    NFadeLm 41, l41
+'    Flash 41, f41
+'    NFadeL 42, l42
+'    NFadeL 43, l43
+'    NFadeL 44, l44
+'    NFadeLm 45, l45
+'    Flash 45, f45
+'    NFadeLm 46, l46
+'    Flash 46, f46
+'    NFadeLm 47, l47
+'    Flash 47, f47
+'    NFadeLm 48, l48
+'    Flash 48, f48
+'    NFadeLm 49, l49
+'    Flash 49, f49
+'    NFadeL 50, l50
+'    NFadeL 51, l51
+'    NFadeL 52, l52
+'    NFadeL 53, l53
+'	NFadeLm 54, l54
+'    Flash 54, f54
+'    NFadeL 55, l55
+'    NFadeL 56, l56
+'    NFadeLm 57, l57
+'    Flash 57, l57a
+'    NFadeLm 58, l58
+'    Flash 58, l58a
+'    NFadeLm 59, l59
+'    Flash 59, l59a
+'    Flash 60, l60
+'    Flash 61, l61
+'    Flash 62, l62
+'    NFadeLm 63, l63
+'    Flash 63, f63
+'    NFadeLm 64, l64
+'    Flash 64, f64
+'	NFadeLm 65, l65a
+'    Flash 65, l65
+'    NFadeLm 66, l66a
+'    Flash 66, l66
+'    NFadeLm 67, l67a
+'    Flash 67, l67
+'    NFadeLm 68, l68a
+'    Flash 68, l68
+'    NFadeLm 69, l69a
+'    Flash 69, l69
+'
+'
+'	'NFadeLm 22, l22
+'	'NFadeLm 22, L22a
+'	'Flash 22, Flasher3
+'
+'	NFadeLm 70, l70blue
+'    Flashm 70, l70a
+'    Flash 70, l70
+'    NFadeLm 71, l71red
+'	Flashm 71, l71a
+'    Flash 71, l71
+'    NFadeLm 72, l72yellow
+'	Flashm 72, l72a
+'    Flash 72, l72
+'    Flash 73, l73
+'    Flash 74, l74
+'    Flash 75, l75
+'    Flash 76, l76
+'    Flash 77, l77
+'    Flash 78, l78
+'    
+''flashers
+'    Flashm 100, f20a
+'    Flashm 100, f20b
+'    Flashm 100, f20c
+'    Flashm 100, f20
+'	FlupperFlashm 100, Flasherflash666, FlasherLit6, FlasherBase6, FlasherLight6
+'	FlupperFlash 100, Flasherflash444, FlasherLit4, FlasherBase4, FlasherLight4
+'	Flashm 101, f21
+'	FlupperFlash 101, FlasherFlash555, FlasherLit5, FlasherBase5, FlasherLight5
+'	
+'NFadeLm 102, Flasherlight3b
+'  Flashm 102, Flasherflash333b
+'	FlupperFlash 102, FlasherFlash333, FlasherLit3, FlasherBase3, FlasherLight3
+'
+'
+'    NFadeLm 103, f23a
+'    NFadeL 103, f23
+'    NFadeLm 104, FlasherLight2b
+'	NFadeLm 104, FlasherLight1b
+'Flashm 104, Flasherflash222b
+'	FlupperFlashm 104, FlasherFlash111, FlasherLit1, FlasherBase1, FlasherLight1
+'
+'	FlupperFlash 104, FlasherFlash222, FlasherLit2, FlasherBase2, FlasherLight2
+'
+'
+'	'FlupperFlash 104, FlasherFlash222, FlasherLit2, FlasherBase2,FlasherLight2t
+'	Flashm 105, f31a
+'    Flash 105, f31
+'	'Flash 102, f22
+'    'Flashm 104, f32a
+'    'Flashm 104, f32b
+'    'Flashm 104, f32c
+'   ' Flash 104, f32  
+'End Sub
+'
+'' div lamp subs
+'Sub InitLamps()
+'    Dim x
+'    For x = 0 to 200
+'        LampState(x) = 0        ' current light state, independent of the fading level. 0 is off and 1 is on
+'        FadingLevel(x) = 4      ' used to track the fading state
+'        FlashSpeedUp(x) = 0.1   ' faster speed when turning on the flasher
+'        FlashSpeedDown(x) = 0.07 ' slower speed when turning off the flasher
+'        FlashMax(x) = 1         ' the maximum value when on, usually 1
+'        FlashMin(x) = 0         ' the minimum value when off, usually 0
+'        FlashLevel(x) = 0       ' the intensity of the flashers, usually from 0 to 1
+'        FlashRepeat(x) = 20     ' how many times the flash repeats
+'    Next
+'End Sub
+'
+Sub AllLampsOff
+    Dim x
+    For x = 0 to 200
+        SetLamp x, 0
+    Next
+End Sub
+'
+'Sub SetLamp(nr, value)
+'    If value <> LampState(nr) Then
+'        LampState(nr) = abs(value)
+'        FadingLevel(nr) = abs(value) + 4
+'    End If
+'End Sub
+'
+'' Lights: used for VP10 standard lights, the fading is handled by VP itself
+'
+'Sub NFadeL(nr, object)
+'    Select Case FadingLevel(nr)
+'        Case 4:object.state = 0:FadingLevel(nr) = 0
+'        Case 5:object.state = 1:FadingLevel(nr) = 1
+'    End Select
+'End Sub
+'
+'Sub NFadeLm(nr, object) ' used for multiple lights
+'    Select Case FadingLevel(nr)
+'        Case 4:object.state = 0
+'        Case 5:object.state = 1
+'    End Select
+'End Sub
+'
+''Lights, Ramps & Primitives used as 4 step fading lights
+''a,b,c,d are the images used from on to off
+'
+'Sub FadeObj(nr, object, a, b, c, d)
+'    Select Case FadingLevel(nr)
+'        Case 4:object.image = b:FadingLevel(nr) = 6                   'fading to off...
+'        Case 5:object.image = a:FadingLevel(nr) = 1                   'ON
+'        Case 6, 7, 8:FadingLevel(nr) = FadingLevel(nr) + 1            'wait
+'        Case 9:object.image = c:FadingLevel(nr) = FadingLevel(nr) + 1 'fading...
+'        Case 10, 11, 12:FadingLevel(nr) = FadingLevel(nr) + 1         'wait
+'        Case 13:object.image = d:FadingLevel(nr) = 0                  'Off
+'    End Select
+'End Sub
+'
+'Sub FadeObjm(nr, object, a, b, c, d)
+'    Select Case FadingLevel(nr)
+'        Case 4:object.image = b
+'        Case 5:object.image = a
+'        Case 9:object.image = c
+'        Case 13:object.image = d
+'    End Select
+'End Sub
+'
+'Sub NFadeObj(nr, object, a, b)
+'    Select Case FadingLevel(nr)
+'        Case 4:object.image = b:FadingLevel(nr) = 0 'off
+'        Case 5:object.image = a:FadingLevel(nr) = 1 'on
+'    End Select
+'End Sub
+'
+'Sub NFadeObjm(nr, object, a, b)
+'    Select Case FadingLevel(nr)
+'        Case 4:object.image = b
+'        Case 5:object.image = a
+'    End Select
+'End Sub
+
+
+'******************************************************
+'****  LAMPZ by nFozzy
+'******************************************************
+' 
+' Lampz is a utility designed to manage and fade the lights and light-related objects on a table that is being driven by a ROM.
+' To set up Lampz, one must populate the Lampz.MassAssign array with VPX Light objects, where the index of the MassAssign array
+' corrisponds to the ROM index of the associated light. More that one Light object can be associated with a single MassAssign index (not shown in this example)
+' Optionally, callbacks can be assigned for each index using the Lampz.Callback array. This is very useful for allowing 3D Insert primitives
+' to be controlled by the ROM. Note, the aLvl parameter (i.e. the fading level that ranges between 0 and 1) is appended to the callback call.
+'
+' NOTE: The below timer is for flashing the inserts as a demonstration of Lampz. Should be replaced by actual lamp states.
+'       In other words, delete this sub (InsertFlicker_timer) and associated timer if you are going to use Lampz with a ROM.
+'dim flickerX, FlickerState : FlickerState = 0
+
+Dim NullFader : set NullFader = new NullFadingObject
+Dim Lampz : Set Lampz = New LampFader
+InitLampsNF              	' Setup lamp assignments
+LampTimer.Interval = -1		' Using fixed value so the fading speed is same for every fps
+
+LampTimer.Enabled = 1
+
+Sub LampTimer_Timer()
+	dim x, chglamp
+	chglamp = Controller.ChangedLamps
+	If Not IsEmpty(chglamp) Then
+		For x = 0 To UBound(chglamp) 			'nmbr = chglamp(x, 0), state = chglamp(x, 1)
+			Lampz.state(chglamp(x, 0)) = chglamp(x, 1)
+		next
+	End If
+	Lampz.Update2	'update (fading logic only)
+End Sub
+
+
+Sub DisableLighting(pri, DLintensity, ByVal aLvl)	'cp's script  DLintensity = disabled lighting intesity
+	if Lampz.UseFunction then aLvl = Lampz.FilterOut(aLvl)	'Callbacks don't get this filter automatically
+	pri.blenddisablelighting = aLvl * DLintensity
+End Sub
+
+Sub SetModLamp(id, val)
+	Lampz.state(id) = val
+	if id=118 then debug.print "SetModLamp " & val
+End Sub
+
+
+Sub InitLampsNF()
+
+	'Filtering (comment out to disable)
+	Lampz.Filter = "LampFilter"	'Puts all lamp intensityscale output (no callbacks) through this function before updating
+
+	'Adjust fading speeds (max level / full MS fading time). The Modulate property must be set to 1 / max level if lamp is modulated.
+	dim x : for x = 0 to 150 : Lampz.FadeSpeedUp(x) = 1/40 : Lampz.FadeSpeedDown(x) = 1/120 : next
+	'Flasher related
+	for x = 117 to 124 : Lampz.FadeSpeedUp(x) = 255/30 : Lampz.FadeSpeedDown(x) = 255/90 :  Lampz.Modulate(x) = 1/255 :next
+
+	'Lampz Assignments
+	'  In a ROM based table, the lamp ID is used to set the state of the Lampz objects
+
+	'MassAssign is an optional way to do assignments. It'll create arrays automatically / append objects to existing arrays
+
+	
+	Lampz.MassAssign(1)= L1
+	Lampz.MassAssign(1)= L1a
+	Lampz.Callback(1) = "DisableLighting p1on, 100,"
+
+	Lampz.MassAssign(2)= L2
+	Lampz.MassAssign(2)= L2a
+	Lampz.MassAssign(2)= F2
+	Lampz.Callback(2) = "DisableLighting p2on, 100,"
+	
+	Lampz.MassAssign(3)= L3
+	Lampz.MassAssign(3)= L3a
+	Lampz.Callback(3) = "DisableLighting p3on, 100,"
+
+	
+	Lampz.MassAssign(4)= L4
+	Lampz.MassAssign(4)= L4a
+	Lampz.Callback(4) = "DisableLighting p4on, 100,"
+
+	Lampz.MassAssign(5)= L5
+	Lampz.MassAssign(5)= L5a
+	Lampz.MassAssign(5)= F5
+	Lampz.Callback(5) = "DisableLighting p5on, 100,"
+
+	Lampz.MassAssign(6)= L6
+	Lampz.MassAssign(6)= L6a
+	Lampz.MassAssign(6)= F6
+	Lampz.Callback(6) = "DisableLighting p6on, 100,"
+
+	Lampz.MassAssign(7)= L7
+	Lampz.MassAssign(7)= L7a
+	Lampz.MassAssign(7)= F7
+	Lampz.Callback(7) = "DisableLighting p7on, 100,"
+
+	Lampz.MassAssign(8)= L8
+	Lampz.MassAssign(8)= L8a
+	Lampz.Callback(8) = "DisableLighting p8on, 100,"
+
+	Lampz.MassAssign(9)= L9
+	Lampz.MassAssign(9)= L9a
+	Lampz.Callback(9) = "DisableLighting p9on, 100,"
+
+	Lampz.MassAssign(10)= L10
+	Lampz.MassAssign(10)= L10a
+	Lampz.Callback(10) = "DisableLighting p10on, 100,"
+
+	Lampz.MassAssign(11)= L11
+	Lampz.MassAssign(11)= L11a
+	Lampz.Callback(11) = "DisableLighting p11on, 100,"
+
+	Lampz.MassAssign(12)= L12
+	Lampz.MassAssign(12)= L12a
+	Lampz.Callback(12) = "DisableLighting p12on, 100,"
+
+	Lampz.MassAssign(13)= L13
+	Lampz.MassAssign(13)= L13a
+	Lampz.Callback(13) = "DisableLighting p13on, 100,"
+
+	Lampz.MassAssign(14)= L14
+	Lampz.MassAssign(14)= L14a
+	Lampz.Callback(14) = "DisableLighting p14on, 100,"
+
+	Lampz.MassAssign(15)= L15
+	Lampz.MassAssign(15)= L15a
+	Lampz.Callback(15) = "DisableLighting p15on, 100,"
+
+	Lampz.MassAssign(16)= L16
+	Lampz.MassAssign(16)= L16a
+	Lampz.Callback(16) = "DisableLighting p16on, 100,"
+
+	Lampz.MassAssign(17)= L17
+	Lampz.MassAssign(17)= L17a
+	Lampz.Callback(17) = "DisableLighting p17on, 100,"
+
+	Lampz.MassAssign(18)= L18
+	Lampz.MassAssign(18)= L18a
+	Lampz.Callback(18) = "DisableLighting p18on, 100,"
+
+	Lampz.MassAssign(19)= L19
+	Lampz.MassAssign(19)= L19a
+	Lampz.Callback(19) = "DisableLighting p19on, 100,"
+
+	Lampz.MassAssign(20)= L20
+	Lampz.MassAssign(20)= L20a
+	Lampz.Callback(20) = "DisableLighting p20on, 100,"
+
+	Lampz.MassAssign(21)= L21
+	Lampz.MassAssign(21)= L21a
+	Lampz.Callback(21) = "DisableLighting p21on, 100,"
+
+	Lampz.MassAssign(22)= L22
+	Lampz.MassAssign(22)= L22a
+	Lampz.Callback(22) = "DisableLighting p22on, 100,"
+
+	Lampz.MassAssign(23)= L23
+	Lampz.MassAssign(23)= L23a
+	Lampz.Callback(23) = "DisableLighting p23on, 100,"
+
+	Lampz.MassAssign(24)= L24
+	Lampz.MassAssign(24)= L24a
+	Lampz.Callback(24) = "DisableLighting p24on, 100,"
+
+	Lampz.MassAssign(25)= L25
+	Lampz.MassAssign(25)= L25a
+	Lampz.Callback(25) = "DisableLighting p25on, 100,"
+
+	Lampz.MassAssign(26)= L26
+	Lampz.MassAssign(26)= L26a
+	Lampz.Callback(26) = "DisableLighting p26on, 100,"
+
+	Lampz.MassAssign(27)= L27
+	Lampz.MassAssign(27)= L27a
+	Lampz.Callback(27) = "DisableLighting p27on, 100,"
+
+	Lampz.MassAssign(28)= L28
+	Lampz.MassAssign(28)= L28a
+	Lampz.Callback(28) = "DisableLighting p28on, 100,"
+
+	Lampz.MassAssign(29)= L29
+	Lampz.MassAssign(29)= L29a
+	Lampz.Callback(29) = "DisableLighting p29on, 100,"
+
+	Lampz.MassAssign(30)= L30
+	Lampz.MassAssign(30)= L30a
+	Lampz.Callback(30) = "DisableLighting p30on, 100,"
+
+	Lampz.MassAssign(31)= L31
+	Lampz.MassAssign(31)= L31a
+	Lampz.Callback(31) = "DisableLighting p31on, 100,"
+
+
+	Lampz.MassAssign(32)= L32
+	Lampz.MassAssign(32)= L32a
+	Lampz.Callback(32) = "DisableLighting p32on, 100,"
+
+	Lampz.MassAssign(33)= L33
+	Lampz.MassAssign(33)= L33a
+	Lampz.MassAssign(33)= F33
+	Lampz.Callback(33) = "DisableLighting p33on, 100,"
+
+	Lampz.MassAssign(34)= L34
+	Lampz.MassAssign(34)= L34a
+	Lampz.MassAssign(34)= F34
+	Lampz.Callback(34) = "DisableLighting p34on, 100,"
+
+	Lampz.MassAssign(35)= L35
+	Lampz.MassAssign(35)= L35a
+	Lampz.MassAssign(35)= F35
+	Lampz.Callback(35) = "DisableLighting p35on, 100,"
+
+	Lampz.MassAssign(36)= L36
+	Lampz.MassAssign(36)= L36a
+	Lampz.MassAssign(36)= F36
+	Lampz.Callback(36) = "DisableLighting p36on, 100,"
+
+	Lampz.MassAssign(37)= L37
+	Lampz.MassAssign(37)= L37a
+	Lampz.MassAssign(37)= F37
+	Lampz.Callback(37) = "DisableLighting p37on, 100,"
+
+	Lampz.MassAssign(38)= L38
+	Lampz.MassAssign(38)= L38a
+	Lampz.Callback(38) = "DisableLighting p38on, 100,"
+
+	Lampz.MassAssign(39)= L39
+	Lampz.MassAssign(39)= L39a
+	Lampz.Callback(39) = "DisableLighting p39on, 100,"
+
+	Lampz.MassAssign(40)= L40
+	Lampz.MassAssign(40)= L40a
+	Lampz.Callback(40) = "DisableLighting p40on, 100,"
+
+	Lampz.MassAssign(41)= L41
+	Lampz.MassAssign(41)= L41a
+	Lampz.Callback(41) = "DisableLighting p41on, 100,"
+
+	Lampz.MassAssign(42)= L42
+	Lampz.MassAssign(42)= L42a
+	Lampz.Callback(42) = "DisableLighting p42on, 100,"
+
+	Lampz.MassAssign(43)= L43
+	Lampz.MassAssign(43)= L43a
+	Lampz.Callback(43) = "DisableLighting p43on, 100,"
+
+	Lampz.MassAssign(44)= L44
+	Lampz.MassAssign(44)= L44a
+	Lampz.Callback(44) = "DisableLighting p44on, 100,"
+
+	Lampz.MassAssign(45)= L45
+	Lampz.MassAssign(45)= L45a
+	Lampz.MassAssign(45)= F45
+	Lampz.Callback(45) = "DisableLighting p45on, 100,"
+
+	Lampz.MassAssign(46)= L46
+	Lampz.MassAssign(46)= L46a
+	Lampz.MassAssign(46)= F46
+	Lampz.Callback(46) = "DisableLighting p46on, 100,"
+
+	Lampz.MassAssign(47)= L47
+	Lampz.MassAssign(47)= L47a
+	Lampz.MassAssign(47)= F47
+	Lampz.Callback(47) = "DisableLighting p47on, 100,"
+
+	Lampz.MassAssign(48)= L48
+	Lampz.MassAssign(48)= L48a
+	Lampz.MassAssign(48)= F48
+	Lampz.Callback(48) = "DisableLighting p48on, 100,"
+
+	Lampz.MassAssign(49)= L49
+	Lampz.MassAssign(49)= L49a
+	Lampz.MassAssign(49)= F49
+	Lampz.Callback(49) = "DisableLighting p49on, 100,"
+
+	Lampz.MassAssign(50)= L50
+	Lampz.MassAssign(50)= L50a
+	Lampz.Callback(50) = "DisableLighting p50on, 100,"
+
+	Lampz.MassAssign(51)= L51
+	Lampz.MassAssign(51)= L51a
+	Lampz.Callback(51) = "DisableLighting p51on, 100,"
+
+	Lampz.MassAssign(52)= L52
+	Lampz.MassAssign(52)= L52a
+	Lampz.Callback(52) = "DisableLighting p52on, 100,"
+
+	Lampz.MassAssign(53)= L53
+	Lampz.MassAssign(53)= L53a
+	Lampz.Callback(53) = "DisableLighting p53on, 100,"
+
+	Lampz.MassAssign(54)= L54
+	Lampz.MassAssign(54)= L54a
+	Lampz.MassAssign(54)= F54
+	Lampz.Callback(54) = "DisableLighting p54on, 100,"
+
+	Lampz.MassAssign(55)= L55
+	Lampz.MassAssign(55)= L55a
+	Lampz.Callback(55) = "DisableLighting p55on, 100,"
+
+	Lampz.MassAssign(56)= L56
+	Lampz.MassAssign(56)= L56a
+	Lampz.Callback(56) = "DisableLighting p56on, 100,"
+
+	Lampz.MassAssign(57)= L57
+	Lampz.MassAssign(57)= L57a
+	Lampz.MassAssign(57)= L57b
+	Lampz.Callback(57) = "DisableLighting p57on, 100,"
+
+	Lampz.MassAssign(58)= L58
+	Lampz.MassAssign(58)= L58a
+	Lampz.MassAssign(58)= L58b
+	Lampz.Callback(58) = "DisableLighting p58on, 100,"
+
+	Lampz.MassAssign(59)= L59
+	Lampz.MassAssign(59)= L59a
+	Lampz.MassAssign(59)= L59b
+	Lampz.Callback(59) = "DisableLighting p59on, 100,"
+
+	Lampz.MassAssign(63)= L63
+	Lampz.MassAssign(63)= L63a
+	Lampz.Callback(63) = "DisableLighting p63on, 100,"
+
+	Lampz.MassAssign(64)= L64
+	Lampz.MassAssign(64)= L64a
+	Lampz.Callback(64) = "DisableLighting p64on, 100,"
+
+	Lampz.MassAssign(65)= L65
+	Lampz.MassAssign(65)= L65a
+	Lampz.MassAssign(65)= L65b
+	Lampz.Callback(65) = "DisableLighting p65, .05,"
+	Lampz.Callback(65) = "DisableLighting p65a, 50,"
+
+	Lampz.MassAssign(66)= L66
+	Lampz.MassAssign(66)= L66a
+	Lampz.MassAssign(66)= L66b
+	Lampz.Callback(66) = "DisableLighting p66, .05,"
+	Lampz.Callback(66) = "DisableLighting p66a, 50,"
+
+	Lampz.MassAssign(67)= L67
+	Lampz.MassAssign(67)= L67a
+	Lampz.MassAssign(67)= L67b
+	Lampz.Callback(67) = "DisableLighting p67, .05,"
+	Lampz.Callback(67) = "DisableLighting p67a, 50,"
+
+	Lampz.MassAssign(68)= L68
+	Lampz.MassAssign(68)= L68a
+	Lampz.MassAssign(68)= L68b
+	Lampz.Callback(68) = "DisableLighting p68, .05,"
+	Lampz.Callback(68) = "DisableLighting p68a, 50,"
+
+	Lampz.MassAssign(69)= L69
+	Lampz.MassAssign(69)= L69a
+	Lampz.MassAssign(69)= L69b
+	Lampz.Callback(69) = "DisableLighting p69, .05,"
+	Lampz.Callback(69) = "DisableLighting p69a, 50,"
+
+	Lampz.MassAssign(70)= L70
+	Lampz.MassAssign(70)= L70a
+	Lampz.MassAssign(70)= L70b
+'	Lampz.MassAssign(70)= l70c
+	Lampz.Callback(70) = "DisableLighting p70, .05,"
+	Lampz.Callback(70) = "DisableLighting p70a, 50,"
+
+	Lampz.MassAssign(71)= L71
+	Lampz.MassAssign(71)= L71a
+	Lampz.MassAssign(71)= L71b
+'	Lampz.MassAssign(71)= L71c
+	Lampz.Callback(71) = "DisableLighting p71, .05,"
+	Lampz.Callback(71) = "DisableLighting p71a, 50,"
+
+	Lampz.MassAssign(72)= L72
+	Lampz.MassAssign(72)= L72a
+	Lampz.MassAssign(72)= L72b
+'	Lampz.MassAssign(72)= L72c
+	Lampz.Callback(72) = "DisableLighting p72, .05,"
+	Lampz.Callback(72) = "DisableLighting p72a, 50,"
+
+
+	
+
+
+
+	Lampz.MassAssign(120)= Lbulb1
+	Lampz.Callback(120) = "DisableLighting bulb_wall1, 100,"
+	Lampz.Callback(120) = "DisableLighting bulb_wall1a, 100,"
+	
+
+
+
+
+	Lampz.MassAssign(61)= L61
+
+	Lampz.MassAssign(62)= L62
+
+	Lampz.MassAssign(23)= L23
+
+	Lampz.MassAssign(24)= L24
+
+	Lampz.MassAssign(25)= L25
+
+	Lampz.MassAssign(26)= L26
+
+	Lampz.MassAssign(27)= L27
+
+	Lampz.MassAssign(28)= L28
+
+	Lampz.MassAssign(29)= L29
+
+	Lampz.MassAssign(30)= L30
+
+	Lampz.MassAssign(31)= L31
+
+	Lampz.MassAssign(32)= L32
+
+
+	Lampz.MassAssign(73)= L74
+	
+	Lampz.MassAssign(74)= L74		
+	
+	Lampz.MassAssign(75)= L75
+
+	Lampz.MassAssign(76)= L76
+
+	Lampz.MassAssign(77)= L77
+
+	Lampz.MassAssign(78)= L78
+	
+	
+
+
+
+
+	'Turn off all lamps on startup
+	Lampz.Init	'This just turns state of any lamps to 1
+
+	'Immediate update to turn on GI, turn off lamps
+	Lampz.Update
+
+
+End Sub
+
+'====================
+'Class jungle nf
+'====================
+
+'No-op object instead of adding more conditionals to the main loop
+'It also prevents errors if empty lamp numbers are called, and it's only one object
+'should be g2g?
+
+Class NullFadingObject : Public Property Let IntensityScale(input) : : End Property : End Class
+
+'version 0.11 - Mass Assign, Changed modulate style
+'version 0.12 - Update2 (single -1 timer update) update method for core.vbs
+'Version 0.12a - Filter can now be accessed via 'FilterOut'
+'Version 0.12b - Changed MassAssign from a sub to an indexed property (new syntax: lampfader.MassAssign(15) = Light1 )
+'Version 0.13 - No longer requires setlocale. Callback() can be assigned multiple times per index
+' Note: if using multiple 'LampFader' objects, set the 'name' variable to avoid conflicts with callbacks
+'Version 0.14 - Updated to support modulated signals - Niwak
+
+Class LampFader
+	Public FadeSpeedDown(150), FadeSpeedUp(150)
+	Private Lock(150), Loaded(150), OnOff(150)
+	Public UseFunction
+	Private cFilter
+	Public UseCallback(150), cCallback(150)
+	Public Lvl(150), Obj(150)
+	Private Mult(150)
+	Public FrameTime
+	Private InitFrame
+	Public Name
+
+	Sub Class_Initialize()
+		InitFrame = 0
+		dim x : for x = 0 to uBound(OnOff) 	'Set up fade speeds
+			FadeSpeedDown(x) = 1/100	'fade speed down
+			FadeSpeedUp(x) = 1/80		'Fade speed up
+			UseFunction = False
+			lvl(x) = 0
+			OnOff(x) = 0
+			Lock(x) = True : Loaded(x) = False
+			Mult(x) = 1
+		Next
+		Name = "LampFaderNF" 'NEEDS TO BE CHANGED IF THERE'S MULTIPLE OF THESE OBJECTS, OTHERWISE CALLBACKS WILL INTERFERE WITH EACH OTHER!!
+		for x = 0 to uBound(OnOff) 		'clear out empty obj
+			if IsEmpty(obj(x) ) then Set Obj(x) = NullFader' : Loaded(x) = True
+		Next
+	End Sub
+
+	Public Property Get Locked(idx) : Locked = Lock(idx) : End Property		''debug.print Lampz.Locked(100)	'debug
+	Public Property Get state(idx) : state = OnOff(idx) : end Property
+	Public Property Let Filter(String) : Set cFilter = GetRef(String) : UseFunction = True : End Property
+	Public Function FilterOut(aInput) : if UseFunction Then FilterOut = cFilter(aInput) Else FilterOut = aInput End If : End Function
+	'Public Property Let Callback(idx, String) : cCallback(idx) = String : UseCallBack(idx) = True : End Property
+	Public Property Let Callback(idx, String)
+		UseCallBack(idx) = True
+		'cCallback(idx) = String 'old execute method
+		'New method: build wrapper subs using ExecuteGlobal, then call them
+		cCallback(idx) = cCallback(idx) & "___" & String	'multiple strings dilineated by 3x _
+
+		dim tmp : tmp = Split(cCallback(idx), "___")
+
+		dim str, x : for x = 0 to uBound(tmp)	'build proc contents
+			'If Not tmp(x)="" then str = str & "	" & tmp(x) & " aLVL" & "	'" & x & vbnewline	'more verbose
+			If Not tmp(x)="" then str = str & tmp(x) & " aLVL:"
+		Next
+		'msgbox "Sub " & name & idx & "(aLvl):" & str & "End Sub"
+		dim out : out = "Sub " & name & idx & "(aLvl):" & str & "End Sub"
+		ExecuteGlobal Out
+
+	End Property
+
+	Public Property Let state(ByVal idx, input) 'Major update path
+		if TypeName(input) <> "Double" and typename(input) <> "Integer"  and typename(input) <> "Long" then
+			If input Then
+				input = 1
+			Else
+				input = 0
+			End If
+		End If
+		if Input <> OnOff(idx) then  'discard redundant updates
+			OnOff(idx) = input
+			Lock(idx) = False
+			Loaded(idx) = False
+		End If
+	End Property
+
+	'Mass assign, Builds arrays where necessary
+	'Sub MassAssign(aIdx, aInput)
+	Public Property Let MassAssign(aIdx, aInput)
+		If typename(obj(aIdx)) = "NullFadingObject" Then 'if empty, use Set
+			if IsArray(aInput) then
+				obj(aIdx) = aInput
+			Else
+				Set obj(aIdx) = aInput
+			end if
+		Else
+			Obj(aIdx) = AppendArray(obj(aIdx), aInput)
+		end if
+	end Property
+
+	Sub SetLamp(aIdx, aOn) : state(aIdx) = aOn : End Sub	'Solenoid Handler
+
+	Public Sub TurnOnStates()	'If obj contains any light objects, set their states to 1 (Fading is our job!)
+		dim debugstr
+		dim idx : for idx = 0 to uBound(obj)
+			if IsArray(obj(idx)) then
+				'debugstr = debugstr & "array found at " & idx & "..."
+				dim x, tmp : tmp = obj(idx) 'set tmp to array in order to access it
+				for x = 0 to uBound(tmp)
+					if typename(tmp(x)) = "Light" then DisableState tmp(x)' : debugstr = debugstr & tmp(x).name & " state'd" & vbnewline
+					tmp(x).intensityscale = 0.001 ' this can prevent init stuttering
+				Next
+			Else
+				if typename(obj(idx)) = "Light" then DisableState obj(idx)' : debugstr = debugstr & obj(idx).name & " state'd (not array)" & vbnewline
+				obj(idx).intensityscale = 0.001 ' this can prevent init stuttering
+			end if
+		Next
+		''debug.print debugstr
+	End Sub
+	Private Sub DisableState(ByRef aObj) : aObj.FadeSpeedUp = 1000 : aObj.State = 1 : End Sub	'turn state to 1
+
+	Public Sub Init()	'Just runs TurnOnStates right now
+		TurnOnStates
+	End Sub
+
+	Public Property Let Modulate(aIdx, aCoef) : Mult(aIdx) = aCoef : Lock(aIdx) = False : Loaded(aIdx) = False: End Property
+	Public Property Get Modulate(aIdx) : Modulate = Mult(aIdx) : End Property
+
+	Public Sub Update1()	 'Handle all boolean numeric fading. If done fading, Lock(x) = True. Update on a '1' interval Timer!
+		dim x : for x = 0 to uBound(OnOff)
+			if not Lock(x) then 'and not Loaded(x) then
+				if OnOff(x) > 0 then 'Fade Up
+					Lvl(x) = Lvl(x) + FadeSpeedUp(x)
+					if Lvl(x) >= OnOff(x) then Lvl(x) = OnOff(x) : Lock(x) = True
+				else 'fade down
+					Lvl(x) = Lvl(x) - FadeSpeedDown(x)
+					if Lvl(x) <= 0 then Lvl(x) = 0 : Lock(x) = True
+				end if
+			end if
+		Next
+	End Sub
+
+	Public Sub Update2()	 'Both updates on -1 timer (Lowest latency, but less accurate fading at 60fps vsync)
+		FrameTime = gametime - InitFrame : InitFrame = GameTime	'Calculate frametime
+		dim x : for x = 0 to uBound(OnOff)
+			if not Lock(x) then 'and not Loaded(x) then
+				if OnOff(x) > 0 then 'Fade Up
+					Lvl(x) = Lvl(x) + FadeSpeedUp(x) * FrameTime
+					if Lvl(x) >= OnOff(x) then Lvl(x) = OnOff(x) : Lock(x) = True
+				else 'fade down
+					Lvl(x) = Lvl(x) - FadeSpeedDown(x) * FrameTime
+					if Lvl(x) <= 0 then Lvl(x) = 0 : Lock(x) = True
+				end if
+			end if
+		Next
+		Update
+	End Sub
+
+	Public Sub Update()	'Handle object updates. Update on a -1 Timer! If done fading, loaded(x) = True
+		dim x,xx, aLvl : for x = 0 to uBound(OnOff)
+			if not Loaded(x) then
+				aLvl = Lvl(x)*Mult(x)
+				if IsArray(obj(x) ) Then	'if array
+					If UseFunction then
+						for each xx in obj(x) : xx.IntensityScale = cFilter(aLvl) : Next
+					Else
+						for each xx in obj(x) : xx.IntensityScale = aLvl : Next
+					End If
+				else						'if single lamp or flasher
+					If UseFunction then
+						obj(x).Intensityscale = cFilter(aLvl)
+					Else
+						obj(x).Intensityscale = aLvl
+					End If
+				end if
+				'if TypeName(lvl(x)) <> "Double" and typename(lvl(x)) <> "Integer" and typename(lvl(x)) <> "Long" then msgbox "uhh " & 2 & " = " & lvl(x)
+				'If UseCallBack(x) then execute cCallback(x) & " " & (Lvl(x))	'Callback
+				If UseCallBack(x) then Proc name & x,aLvl	'Proc
+				If Lock(x) Then
+					if Lvl(x) = OnOff(x) or Lvl(x) = 0 then Loaded(x) = True	'finished fading
+				end if
+			end if
+		Next
+	End Sub
+End Class
+
+
+'Lamp Filter
+Function LampFilter(aLvl)
+	LampFilter = aLvl^1.6	'exponential curve?
+End Function
+
+
+'Helper functions
+Sub Proc(string, Callback)	'proc using a string and one argument
+	'On Error Resume Next
+	dim p : Set P = GetRef(String)
+	P Callback
+	If err.number = 13 then  msgbox "Proc error! No such procedure: " & vbnewline & string
+	if err.number = 424 then msgbox "Proc error! No such Object"
+End Sub
+
+Function AppendArray(ByVal aArray, aInput)	'append one value, object, or Array onto the end of a 1 dimensional array
+	if IsArray(aInput) then 'Input is an array...
+		dim tmp : tmp = aArray
+		If not IsArray(aArray) Then	'if not array, create an array
+			tmp = aInput
+		Else						'Append existing array with aInput array
+			Redim Preserve tmp(uBound(aArray) + uBound(aInput)+1)	'If existing array, increase bounds by uBound of incoming array
+			dim x : for x = 0 to uBound(aInput)
+				if isObject(aInput(x)) then
+					Set tmp(x+uBound(aArray)+1 ) = aInput(x)
+				Else
+					tmp(x+uBound(aArray)+1 ) = aInput(x)
+				End If
+			Next
+			AppendArray = tmp	 'return new array
+		End If
+	Else 'Input is NOT an array...
+		If not IsArray(aArray) Then	'if not array, create an array
+			aArray = Array(aArray, aInput)
+		Else
+			Redim Preserve aArray(uBound(aArray)+1)	'If array, increase bounds by 1
+			if isObject(aInput) then
+				Set aArray(uBound(aArray)) = aInput
+			Else
+				aArray(uBound(aArray)) = aInput
+			End If
+		End If
+		AppendArray = aArray 'return new array
+	End If
+End Function
+
+
+'******************************************************
+'****  END LAMPZ
+'******************************************************
+
+
+
+
+
+'******************************************************
+'*****   3D INSERTS
+'******************************************************
+'
+'
+' Before you get started adding the inserts to your playfield in VPX, there are a few things you need to have done to prepare:
+' 	1. Cut out all the inserts on the playfield image so there is alpha transparency where they should be.
+'      Make sure the playfield material has Opacity Active checkbox checked.
+'	2. All the  insert text and/or images that lie over the insert plastic needs to be in its own file with 
+'	   alpha transparency. Many playfields may require finding the original font and remaking the insert text.
+' 
+' To add the inserts:
+'	1. Import all the textures (images) and materials from this file that start with the word "Insert" into your Table
+'   2. Copy and past the two primitves that make up the insert you want to use. One primitive is for the on state, the other for the off state.
+'   3. Align the primitives with the associated insert light. Name the on and off primitives correctly.
+'   4. Update the Lampz object array. Follow the example in this file.
+'   5. You will need to manually tweak the disable lighting value and material parameters to achielve the effect you want.
+'
+'
+' Quick Reference:  Laying the Inserts ( Tutorial From Iaakki)
+' - Each insert consists of two primitives. On and Off primitive. Suggested naming convention is to use lamp number in the name. For example 
+'   is lamp number is 57, the On primitive is "p57" and the Off primitive is "p57off". This makes it easier to work on script side.
+' - When starting from a new table, I'd first select to make few inserts that look quite similar. Lets say there is total of 6 small triangle 
+'   inserts, 4 yellow and 2 blue ones.
+' - Import the insert on/off images from the image manager and the vpx materials used from the sample project first, and those should appear 
+'   selected properly in the primitive settings when you paste your actual insert trays in your target table . Then open up your target project 
+'   at same time as the sample project and use copy&paste to copy desired inserts to target project. 
+' - There are quite many parameters in primitive that affect a lot how they will look. I wouldn't mess too much with them. Use Size options to 
+'   scale the insert properly into PF hole. Some insert primitives may have incorrect pivot point, which means that changing the depth, you may 
+'   also need to alter the Z-position too.
+' - Once you have the first insert in place, wire it up in the script (detailed in part 3 below). Then set the light bulb's intensity to zero, 
+'   so it won't harass the adjustment.
+' - Start up the game with F6 and visually see if the On-primitive blinks properly. If it is too dim, hit D and open editor. Write: 
+' - p57.BlendDisableLighting = 300 and hit enter
+' - -> The insert should appear differently. Find good looking brightness level. Not too bright as the light bulb is still missing. Just generic good light.
+'     - If you cannot find proper light color or "mood", you can also fiddle with primitive material values. Provided material should be 
+'       quite ok for most of the cases.
+'     - Now when you have found proper DL value (165), but that into script:
+'     - Lampz.Callback(57) = " DisableLighting p57, 165,"
+' - That one insert is now adjusted and you should be able to copy&paste rest of the triangle inserts in place and name them correctly. And add them 
+'   into script. And fine tune their brightness and color.
+'
+' Light bulbs and ball reflection:
+' 
+' - This kind of lighted primitives are not giving you ball reflections. Also some more glow vould be needed to make the insert to bloom correctly.
+' - Take the original lamp (l57), set the bulb mode enabled, set Halo Height to -3 (something that is inside the 2 insert primitives). I'd start with 
+'   falloff 100, falloff Power 2-2.5, Intensity 10, scale mesh 10, Transmit 5.
+' - Start the game with F6, throw a ball on it and move the ball near the blinking insert. Visually see how the reflection looks.
+' - Hit D once the reflection is the highest. Open light editor and start fine tuning the bulb values to achieve realistic look for the reflection.
+' - Falloff Power value is the one that will affect reflection creatly. The higher the power value is, the brighter the reflection on the ball is. 
+'   This is the reason why falloff is rather large and falloff power is quite low. Change scale mesh if reflection is too small or large.
+' - Transmit value can bring nice bloom for the insert, but it may also affect to other primitives nearby. Sometimes one need to set transmit to 
+'   zero to avoid affecting surrounding plastics. If you really need to have higher transmit value, you may set Disable Lighting From Below to 1 
+'   in surrounding primitive. This may remove the problem, but can make the primitive look worse too.
+
+
+
+'******************************************************
+'*****   END 3D INSERTS
+'******************************************************
+
+' Flasher objects
+
+Sub Flash(nr, object)
+	flashm nr, Object
+	FadeEmpty nr
+End Sub
+
+Sub Flashm(nr, object) 'multiple flashers, it doesn't change anything, it just follows the main flasher
+    Select Case FadingLevel(nr)
+        Case 4, 5
+            Object.IntensityScale = FlashLevel(nr)
+    End Select
+End Sub
+
+
+Sub FlupperFlash(nr, FlashObject, LitObject, BaseObject, LightObject)
+	FlupperFlashm nr, FlashObject, LitObject, BaseObject, LightObject
+	FadeEmpty nr
+End Sub
+
+Sub FlupperFlashm(nr, FlashObject, LitObject, BaseObject, LightObject)
+	'exit sub
+	dim flashx3
+	Select Case FadingLevel(nr)
+        Case 4, 5
+			' This section adapted from Flupper's script
+			flashx3 = FlashLevel(nr) * FlashLevel(nr) * FlashLevel(nr)
+            FlashObject.IntensityScale = flashx3
+			LitObject.BlendDisableLighting = 10 * flashx3
+			BaseObject.BlendDisableLighting = flashx3
+			LightObject.IntensityScale = flashx3 
+			LitObject.material = "domelit" & Round(9 * FlashLevel(nr))
+			LitObject.visible = 1
+			FlashObject.visible = 1	
+		case 3:
+			LitObject.visible = 0
+			FlashObject.visible = 0
+	end select
+End Sub
+
+Sub FadeEmpty(nr)	'Fade a lamp number, no object updates
+    Select Case FadingLevel(nr)
+		Case 3
+			FadingLevel(nr) = 0
+        Case 4 'off
+            FlashLevel(nr) = FlashLevel(nr) - FlashSpeedDown(nr)
+            If FlashLevel(nr) < FlashMin(nr) Then
+                FlashLevel(nr) = FlashMin(nr)
+               FadingLevel(nr) = 3 'completely off
+            End if
+            'Object.IntensityScale = FlashLevel(nr)
+        Case 5 ' on
+            FlashLevel(nr) = FlashLevel(nr) + FlashSpeedUp(nr)
+            If FlashLevel(nr) > FlashMax(nr) Then
+                FlashLevel(nr) = FlashMax(nr)
+                FadingLevel(nr) = 6 'completely on
+            End if
+            'Object.IntensityScale = FlashLevel(nr)
+		Case 6
+			FadingLevel(nr) = 1
+    End Select
+End Sub
+
+Sub FlashBlink(nr, object)
+    Select Case FadingLevel(nr)
+        Case 4 'off
+            FlashLevel(nr) = FlashLevel(nr) - FlashSpeedDown(nr)
+            If FlashLevel(nr) <FlashMin(nr) Then
+                FlashLevel(nr) = FlashMin(nr)
+                FadingLevel(nr) = 0 'completely off
+            End if
+            Object.IntensityScale = FlashLevel(nr)
+            If FadingLevel(nr) = 0 AND FlashRepeat(nr) Then 'repeat the flash
+                FlashRepeat(nr) = FlashRepeat(nr) -1
+                If FlashRepeat(nr) Then FadingLevel(nr) = 5
+            End If
+        Case 5 ' on
+            FlashLevel(nr) = FlashLevel(nr) + FlashSpeedUp(nr)
+            If FlashLevel(nr)> FlashMax(nr) Then
+                FlashLevel(nr) = FlashMax(nr)
+                FadingLevel(nr) = 1 'completely on
+            End if
+            Object.IntensityScale = FlashLevel(nr)
+            If FadingLevel(nr) = 1 AND FlashRepeat(nr) Then FadingLevel(nr) = 4
+    End Select
+End Sub
+
+' Desktop Objects: Reels & texts (you may also use lights on the desktop)
+
+' Reels
+
+Sub FadeR(nr, object)
+    Select Case FadingLevel(nr)
+        Case 4:object.SetValue 1:FadingLevel(nr) = 6                   'fading to off...
+        Case 5:object.SetValue 0:FadingLevel(nr) = 1                   'ON
+        Case 6, 7, 8:FadingLevel(nr) = FadingLevel(nr) + 1             'wait
+        Case 9:object.SetValue 2:FadingLevel(nr) = FadingLevel(nr) + 1 'fading...
+        Case 10, 11, 12:FadingLevel(nr) = FadingLevel(nr) + 1          'wait
+        Case 13:object.SetValue 3:FadingLevel(nr) = 0                  'Off
+    End Select
+End Sub
+
+Sub FadeRm(nr, object)
+    Select Case FadingLevel(nr)
+        Case 4:object.SetValue 1
+        Case 5:object.SetValue 0
+        Case 9:object.SetValue 2
+        Case 3:object.SetValue 3
+    End Select
+End Sub
+
+'Texts
+
+Sub NFadeT(nr, object, message)
+    Select Case FadingLevel(nr)
+        Case 4:object.Text = "":FadingLevel(nr) = 0
+        Case 5:object.Text = message:FadingLevel(nr) = 1
+    End Select
+End Sub
+
+Sub NFadeTm(nr, object, b)
+    Select Case FadingLevel(nr)
+        Case 4:object.Text = ""
+        Case 5:object.Text = message
+    End Select
+End Sub
+
+'******************************
+' Diverse Collection Hit Sounds
+'******************************
+
+Sub aMetals_Hit(idx):PlaySound "fx_MetalHit", 0, 5*Vol(ActiveBall), pan(ActiveBall), 0, Pitch(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub aMetal_Hit(idx):PlaySound "fx_MetalHit", 0, Vol(ActiveBall), pan(ActiveBall), 0, Pitch(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub aRubber_Bands_Hit(idx):PlaySound "fx_rubber_band", 0, Vol(ActiveBall), pan(ActiveBall), 0, Pitch(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub aRubber_Posts_Hit(idx):PlaySound "fx_rubber", 0, Vol(ActiveBall), pan(ActiveBall), 0, Pitch(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub aRubber_Pins_Hit(idx):PlaySound "fx_postrubber", 0, Vol(ActiveBall), pan(ActiveBall), 0, Pitch(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub aRubber_Thin_Posts_Hit(idx):PlaySound "fx_postrubber", 0, Vol(ActiveBall), pan(ActiveBall), 0, Pitch(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub aPosts_Hit(idx):PlaySound "fx_postrubber", 0,  Vol(ActiveBall), pan(ActiveBall), 0, Pitch(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub aGates_Hit(idx):PlaySound "fx_Gate", 0, Vol(ActiveBall), pan(ActiveBall), 0, Pitch(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+Sub aWoods_Hit(idx):PlaySound "fx_Woodhit", 0, Vol(ActiveBall), pan(ActiveBall), 0, Pitch(ActiveBall), 0, 0, AudioFade(ActiveBall):End Sub
+
+Sub sw_Hit:PlaySound "fx_metalrolling", 0, 1, 0.15, 0.25:End Sub
+
+' Ramp Soundss & Help triggers
+Sub REnd1_Hit()
+    StopSound "fx_metalrolling"
+    PlaySoundAtBall "fx_balldrop"
+End Sub
+
+Sub REnd2_Hit()
+    StopSound "fx_metalrolling"
+    PlaySoundAtBall "fx_balldrop"
+End Sub
+
+' *********************************************************************
+'                      Supporting Ball & Sound Functions
+' *********************************************************************
+
+Function Vol(ball) ' Calculates the Volume of the sound based on the ball speed
+    Vol = Csng(BallVel(ball) ^2 / 500)
+End Function
+
+Function Pan(ball) ' Calculates the pan for a ball based on the X position on the table. "table1" is the name of the table
+    Dim tmp
+    tmp = ball.x * 2 / table1.width-1
+    If tmp> 0 Then
+        Pan = Csng(tmp ^10)
+    Else
+        Pan = Csng(-((- tmp) ^10) )
+    End If
+End Function
+
+Function AudioFade(tableobj) ' Fades between front and back of the table (for surround systems or 2x2 speakers, etc), depending on the Y position on the table. "table1" is the name of the table
+	Dim tmp
+    tmp = tableobj.y * 2 / table1.height-1
+    If tmp > 0 Then
+		AudioFade = Csng(tmp ^10)
+    Else
+        AudioFade = Csng(-((- tmp) ^10) )
+    End If
+End Function
+
+Function Pitch(ball) ' Calculates the pitch of the sound based on the ball speed
+    Pitch = BallVel(ball) * 20
+End Function
+
+Function BallVel(ball) 'Calculates the ball speed
+    BallVel = INT(SQR((ball.VelX ^2) + (ball.VelY ^2) ) )
+End Function
+
+Sub PlaySoundAt(soundname, tableobj)
+    PlaySound soundname, 1, 1, Pan(tableobj), 0,0,0, 1, AudioFade(tableobj)
+End Sub
+
+Sub PlaySoundAtBall(soundname)
+    PlaySoundAt soundname, ActiveBall
+End Sub
+
+
+'*****************************************
+'      JP's VP10 Rolling Sounds
+'*****************************************
+
+Const tnob = 5 ' total number of balls in this table is 4, but always use a higher number here because of the timing
+ReDim rolling(tnob)
+InitRolling
+
+Sub InitRolling
+    Dim i
+    For i = 0 to tnob
+        rolling(i) = False
+    Next
+End Sub
+
+Sub RollingUpdate()
+    Dim BOT, b, ballpitch
+    BOT = GetBalls
+
+    ' stop the sound of deleted balls
+    For b = UBound(BOT) + 1 to tnob
+        rolling(b) = False
+        StopSound("fx_ballrolling" & b)
+    Next
+
+    ' exit the sub if no balls on the table
+    If UBound(BOT) = -1 Then Exit Sub
+
+    ' play the rolling sound for each ball
+    For b = 0 to UBound(BOT)
+        If BallVel(BOT(b) ) > 1 Then
+            If BOT(b).z < 30 Then
+                ballpitch = Pitch(BOT(b) )
+            Else
+                ballpitch = Pitch(BOT(b) ) * 100
+            End If
+            rolling(b) = True
+            PlaySound("fx_ballrolling" & b), -1, Vol(BOT(b) ), Pan(BOT(b) ), 0, ballpitch, 1, 0, AudioFade(BOT(b))
+        Else
+            If rolling(b) = True Then
+                StopSound("fx_ballrolling" & b)
+                rolling(b) = False
+            End If
+        End If
+    Next
+End Sub
+
+'**********************
+' Ball Collision Sound
+'**********************
+
+Sub OnBallBallCollision(ball1, ball2, velocity)
+    PlaySound("fx_collide"), 0, Csng(velocity) ^2 / 2000, Pan(ball1), 0, Pitch(ball1), 0, 0, AudioFade(ball1)
+End Sub
+
+'******************
+' RealTime Updates
+'******************
+
+Set MotorCallback = GetRef("RealTimeUpdates")
+
+Sub RealTimeUpdates
+    RollingUpdate
+    door.RotX = fdoor.CurrentAngle
+    pRarm.Roty = fArms.CurrentAngle + 20
+    pLarm.Roty = fArms.CurrentAngle
+    pLegs.Rotx = fLegs.CurrentAngle
+End Sub
+
+'*************************
+' GI - needs new vpinmame
+'*************************
+
+Sub PFGI(Enabled)
+    If Enabled Then
+        dim xx
+        For each xx in GI:xx.State = 0: Next
+        flasher1.visible=1
+  Else
+        For each xx in GI:xx.State = 1: Next
+        flasher1.visible=0
+    End If
+End Sub
+
+
+Sub Break_hit
+Dim Bounce
+
+	If ActiveBall.VelY > 10 Then
+		PlaySound "metal_ramp_end1",0, 1, 0.15, 0.35:
+		Bounce = Int((( BounceMax-BounceMin+1)*Rnd) + BounceMin) 'Random bounce force
+		Debug.Print "VelY = " & ActiveBall.Vely & ", Bounce Force = " & Bounce
+		ActiveBall.VelY = -Bounce
+		ActiveBall.VelX = 0
+
+        Break.Enabled = False	'disable trigger
+		Break.TimerInterval = 2000 'msec
+		Break.TimerEnabled = True
+	Else
+		PlaySound "metal_ramp_end",0, 1, 0.15, 0.35:
+		Debug.Print "VelY = " & ActiveBall.Vely & ", No bounce back"
+		ActiveBall.VelY = 0
+		ActiveBall.VelX = 0
+	End If
+End Sub
+
+Sub Break_Timer
+	Break.Enabled = True			'enable trigger
+	Break.TimerEnabled = False
+End Sub
+
+
+
+' Sub Break_hit
+''	msgbox activeball.vely
+'
+''	If activeball.vely < -15 then	'check speed
+'PlaySound "metal_ramp_end",0, 1, 0.15, 0.35: 
+'		ActiveBall.VelY = -5
+'		ActiveBall.VelX = 0
+'
+'		Break.Enabled = False	'disable trigger
+'		Break.TimerInterval = 5000 'msec
+'		Break.TimerEnabled = True
+''	End if
+'End sub
+'
+'Sub Break_Timer
+'	Break.Enabled = True			'enable trigger
+'	Break.TimerEnabled = False
+'End Sub
+
+
+
+'******
+' Rules
+'******
+Dim Msg(20)
+Sub Rules()
+    Msg(0) = "Elvis - Stern 2004" &Chr(10) &Chr(10)
+    Msg(1) = ""
+    Msg(2) = "OBJECTIVE:Get to Graceland by lighting the following:"
+    Msg(3) = "*FEATURED HITS COMPLETED (start all 5 song modes)"
+    Msg(4) = "   Hound Dog (Shoot HOUND DOG Target)"
+    Msg(5) = "   Blue Suede Shoes (Shoot CENTER LOOP with Upper Right Flipper)"
+    Msg(6) = "   Heartbreak Hotel (Shoot balls into HEARTBREAK HOTEL on Upper Playfield)"
+    Msg(7) = "   Jailhouse Rock (Shoot balls into the JAILHOUSE EJECT HOLE)"
+    Msg(8) = "   All Shook Up (Shoot ALL-SHOOK shots)"
+    Msg(9) = "*GIFTS FROM ELVIS COMPLETED ~ Shoot E-L-V-I-S Drop Targets to light GIFT"
+    Msg(10) = " FROM ELVIS on the TOP EJECT HOLE"
+    Msg(11) = "*TOP TEN COUNTDOWN COMPLETED ~ Shoot lit'music lights's to advance TOP"
+    Msg(12) = " 10 COUNTDOWN."
+    Msg(13) = "SKILL SHOT: Plunge ball in the WLVS Top Lanes or E-L-V-I-S Drop Targets"
+    Msg(14) = "MYSTERY:Ball in the Pop Bumpers will change channels until all 3 TVs match."
+    Msg(15) = "EXTRA BALL: Shoot Right Ramp ro light Extra Ball."
+    Msg(16) = "TCB: Complete T-C-B to double all scoring."
+    Msg(17) = "ENCORE: Spell E-N-C-O-R-E (letters lit in Back Panel) to earn"
+    Msg(18) = "an Extra Multiball after the game."
+    Msg(19) = ""
+    Msg(20) = ""
+    For X = 1 To 20
+        Msg(0) = Msg(0) + Msg(X) &Chr(13)
+    Next
+
+    MsgBox Msg(0), , "         Instructions and Rule Card"
+End Sub
