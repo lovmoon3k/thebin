@@ -1,0 +1,162 @@
+using System;
+using System.Collections.Generic;
+using UIFlow.Components;
+using UIFlow.Localization;
+using UnityEngine;
+using UnityEngine.Events;
+
+namespace UIFlow
+{
+    public class UIFlowController : MonoBehaviour, IWindowsController
+    {
+        [SerializeField] private LocalizationData localization = null;
+        [SerializeField] private Camera uiCamera = null;
+        [SerializeField] private Flow data = null;
+
+        private Dictionary<int, WindowBase> created;
+        private Dictionary<int, WindowBase> shown;
+        private Dictionary<int, WindowBase> hidden;
+
+        private int currentOrder;
+
+        [SerializeField] private UnityEvent onShowRootWindow = null;
+
+        [SerializeField] private bool initializeInAwake = true;
+
+        private ObjectsCreator objectsCreator = null;
+
+        void Awake()
+        {
+            if (initializeInAwake)
+            {
+                Initialize();
+            }
+        }
+
+        public virtual void Initialize(Action onShownRoot = null)
+        {
+            created = new Dictionary<int, WindowBase>(data.WindowsCount);
+            shown = new Dictionary<int, WindowBase>(data.WindowsCount);
+            hidden = new Dictionary<int, WindowBase>(data.WindowsCount);
+
+            if (localization != null)
+                LocalizationController.Initialize(localization.GetAsDictionary(), localization.StartLanguage);
+
+            if (objectsCreator == null)
+            {
+                objectsCreator = CreateObjectsCreator();
+            }
+
+            ShowRootWindow(onShownRoot);
+        }
+
+        protected virtual ObjectsCreator CreateObjectsCreator()
+        {
+            return new InstantiateObjects();
+        }
+
+        private void ShowRootWindow(Action onShownRoot = null)
+        {
+            ShowWindow(data.GetRootWindow(), true, true, () =>
+            {
+                OnShownRootWindow();
+                onShownRoot?.Invoke();
+            });
+        }
+
+        private void OnShownRootWindow()
+        {
+            ShowStaticWindows();
+            onShowRootWindow?.Invoke();
+        }
+
+        private void ShowStaticWindows()
+        {
+            var windows = data.GetStaticWindows();
+            foreach (Window window in windows)
+                ShowWindow(window, true, true, null);
+        }
+
+        public void TransitionWindows<TFrom, TTo>(Action after, bool abovePrevious) where TFrom : WindowBase where TTo : WindowBase
+        {
+            HideWindow<TFrom>(()=>
+            {
+                ShowWindow<TTo>(after, abovePrevious);
+            });
+        }
+
+        public void ShowWindow<T>(Action after, bool abovePrevious) where T : WindowBase
+        {
+            var wind = data.GetWindowAtType<T>();
+            ShowWindow(wind, wind.ShowImmediately, wind.ImmediatelyChilds, after, abovePrevious);
+        }
+
+        private void ShowWindow(Window window, bool immediately, bool immediatelyChilds, Action after, bool abovePrevious = true)
+        {
+            if (!created.ContainsKey(window.Id))
+                CreateWindow(window);
+
+            var windowBase = created[window.Id];
+            shown.Add(window.Id, windowBase);
+            if (hidden.ContainsKey(window.Id))
+                hidden.Remove(window.Id);
+            windowBase.Show(after, immediately, immediatelyChilds);
+            windowBase.SetOrder(currentOrder);
+            foreach (WindowBase shownWindow in shown.Values)
+                shownWindow.WasOpenedOtherWindow(currentOrder);
+            if (abovePrevious)
+                currentOrder++;
+        }
+
+        public void HideWindow<T>(Action after) where T : WindowBase
+        {
+            var wind = data.GetWindowAtType<T>();
+            HideWindow(wind, wind.HideImmediately, after);
+        }
+
+        private void HideWindow(Window window, bool immediately, Action after)
+        {
+            if (!created.ContainsKey(window.Id) || !shown.ContainsKey(window.Id))
+            {
+                after?.Invoke();
+                return;
+            }
+
+            var windowBase = created[window.Id];
+            shown.Remove(window.Id);
+            hidden.Add(window.Id, windowBase);
+            windowBase.Hide(after, immediately);
+        }
+
+        private WindowBase CreateWindow(Window windowData)
+        {
+            WindowBase instance = CreateSource(windowData.Source);
+            created.Add(windowData.Id, instance);
+            instance.SetCamera(uiCamera);
+            instance.SetUpCanvas(windowData.CanvasParameters != null ? windowData.CanvasParameters : data.CanvasParameters);
+            instance.SetUpScaler(data.ScalerParameters);
+            instance.SetAboveOrder(windowData.AboveOrder);
+            instance.SetWaitHideAnimatedChilds(windowData.WaitHideAnimatedChilds);
+            instance.SetController(this);
+            instance.Initialize(null);
+            return instance;
+        }
+
+        private WindowBase CreateSource(WindowBase source)
+        {
+            var result = objectsCreator.Instantiate(source, Vector3.zero, Quaternion.identity);
+            result.transform.SetParent(transform);
+            result.name = source.name;
+            result.transform.localPosition = Vector3.zero;
+            result.transform.localScale = Vector3.one;
+            return result;
+        }
+
+#if UNITY_EDITOR
+        public void SetFlow(Flow flow)
+        {
+            data = flow;
+        }
+#endif
+    }
+}
