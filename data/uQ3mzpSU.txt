@@ -1,0 +1,190 @@
+import pytest
+import asyncio
+
+from grpclib.exceptions import GRPCError
+from datetime import datetime, timedelta
+from decimal import Decimal
+
+from tr_market.const import MarketItemRarity, BetStatus
+from tr_currencies import Currency
+from ..auth_backends import server_auth_backend
+from tr_auth import CREDENTIAL_KEYS
+from tr_trading import GLOBAL_DOMAIN, TransactionCategory
+from tr_trading.tables import transactions_table
+
+from ..conf import settings
+from ..remotes import auth_client, auction_client, trading_client, feeds_client
+from ..utils import db_data_exists, tryer
+
+
+is_outhold, is_outbid = False, False
+
+
+async def subscribe_feeds(auth):
+
+    global is_outbid
+    global is_outhold
+    async for message in feeds_client.subscribe_streem(
+            owner_id=settings.TEST_FIREBASE_USER_ID,
+            subscriptions=[
+                'MARKET',
+            ],
+            token=auth.token,
+            credential_key=CREDENTIAL_KEYS.USER
+    ):
+        if message.bet.bet.owner_id == settings.TEST_FIREBASE_USER_ID:
+            if message.bet.event == BetStatus.OUTBID:
+                is_outbid = True
+            elif message.bet.event == BetStatus.OUTHOLD:
+                is_outhold = True
+
+        if is_outbid and is_outhold:
+            break
+
+
+@pytest.mark.asyncio
+@pytest.mark.first_order
+async def test_auction_bidding(
+        db, trading_data, redis, create_market_item, create_market_active_item
+):
+    market_item = await create_market_item(
+        title='Test item',
+        price=Decimal('25_000'),
+        rarity=MarketItemRarity.RARE,
+
+    )
+
+    now = datetime.now()
+    shift = timedelta(days=5)
+
+    lot_price = "50000.00000000"
+    active_item = await create_market_active_item(
+        item_id=market_item['id'],
+        active_from=now - shift,
+        active_to=now + shift,
+        price=Decimal(lot_price),
+        is_auction=True
+    )
+
+    auth_1 = await auth_client.login(settings.TEST_FIREBASE_USER_TOKEN)
+    auth_2 = await auth_client.login(settings.TEST_FIREBASE_USER_2_TOKEN)
+
+    asyncio.ensure_future(subscribe_feeds(auth_1))
+
+    # receive active lots
+    r = await auction_client.list(
+        owner_id=settings.TEST_FIREBASE_USER_ID,
+        token=auth_1.token, credential_key=CREDENTIAL_KEYS.USER
+    )
+    auctions_list = list(r.items)
+
+    assert len(auctions_list) == 1
+    auction_item = auctions_list[0]
+
+    # receive lot detail info
+    r = await auction_client.receive(
+        owner_id=settings.TEST_FIREBASE_USER_ID,
+        lot_id=auction_item.id,
+        token=auth_1.token, credential_key=CREDENTIAL_KEYS.USER
+    )
+
+    lot_detail = r.item
+    assert lot_detail.current_price == lot_price
+
+    # make a bet on the lot. Not enough balance
+    with pytest.raises(GRPCError):
+        await auction_client.bet(
+            owner_id=settings.TEST_FIREBASE_USER_ID,
+            lot_id=auction_item.id,
+            price=str(Decimal(lot_price) + 1000),
+            token=auth_1.token, credential_key=CREDENTIAL_KEYS.USER
+        )
+
+    # increase users` balance
+    enough_balance = Decimal('100_000')
+    await trading_client.set_balance(
+        owner_id=settings.TEST_FIREBASE_USER_ID,
+        currency=Currency.USD,
+        balance=enough_balance,
+        domain=GLOBAL_DOMAIN,
+        token=await server_auth_backend.create_token(),
+        credential_key=CREDENTIAL_KEYS.SERVER
+    )
+    await trading_client.set_balance(
+        owner_id=settings.TEST_FIREBASE_USER_2_ID,
+        currency=Currency.USD,
+        balance=enough_balance,
+        domain=GLOBAL_DOMAIN,
+        token=await server_auth_backend.create_token(),
+        credential_key=CREDENTIAL_KEYS.SERVER
+    )
+    await asyncio.sleep(0.2)
+
+    # make a bet on the lot. Not enough balance
+    bet_1 = Decimal(lot_price) + 1000
+    r = await auction_client.bet(
+        owner_id=settings.TEST_FIREBASE_USER_ID,
+        lot_id=auction_item.id,
+        price=str(bet_1),
+        token=auth_1.token, credential_key=CREDENTIAL_KEYS.USER
+    )
+
+    assert Decimal(r.item.current_price) == bet_1
+
+    # check bid amount negative transaction exist
+    assert await tryer(lambda: db_data_exists(
+        transactions_table,
+        transactions_table.c.owner_id == settings.TEST_FIREBASE_USER_ID,
+        transactions_table.c.domain == GLOBAL_DOMAIN,
+        transactions_table.c.currency == Currency.USD.value,
+        transactions_table.c.category == TransactionCategory.AUCTION_BET.value,
+        transactions_table.c.amount == - bet_1
+    ))
+
+    # receive existing lot bids
+
+    r = await auction_client.bets_list(
+        owner_id=settings.TEST_FIREBASE_USER_2_ID,
+        lot_id=auction_item.id,
+        token=auth_2.token, credential_key=CREDENTIAL_KEYS.USER
+    )
+
+    assert Decimal(list(r.items)[0].amount) == bet_1
+
+    # user_2 makes bet
+    bet_2 = Decimal(lot_price) + 2000
+    r = await auction_client.bet(
+        owner_id=settings.TEST_FIREBASE_USER_2_ID,
+        lot_id=auction_item.id,
+        price=str(bet_2),
+        token=auth_1.token, credential_key=CREDENTIAL_KEYS.USER
+    )
+    await asyncio.sleep(1)
+    # second bet becomes current price of lot
+    assert Decimal(r.item.current_price) == bet_2
+
+    # check bet amount negative transaction exist
+    assert await tryer(lambda: db_data_exists(
+        transactions_table,
+        transactions_table.c.owner_id == settings.TEST_FIREBASE_USER_2_ID,
+        transactions_table.c.domain == GLOBAL_DOMAIN,
+        transactions_table.c.currency == Currency.USD.value,
+        transactions_table.c.category == TransactionCategory.AUCTION_BET.value,
+        transactions_table.c.amount == - bet_2
+    ))
+
+    # user_1 bet amount returns to balance
+    assert await tryer(lambda: db_data_exists(
+        transactions_table,
+        transactions_table.c.owner_id == settings.TEST_FIREBASE_USER_ID,
+        transactions_table.c.domain == GLOBAL_DOMAIN,
+        transactions_table.c.currency == Currency.USD.value,
+        transactions_table.c.category == TransactionCategory.AUCTION_RELEASE.value,
+        transactions_table.c.amount == bet_1
+    ))
+
+    global is_outhold
+    global is_outbid
+
+    assert is_outhold and is_outbid
+
