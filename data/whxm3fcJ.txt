@@ -1,0 +1,117 @@
+#include <TinyGPSPlus.h>
+#include <SoftwareSerial.h>
+
+#define GPSBAUD 9600
+#define SERIALBAUD 9600
+
+void parse_gps_data();
+void debug_info();
+
+static const int RXPin = 3, TXPin = 4; // define the RX and TX pins for SoftwareSerial
+
+double prev_lat, prev_lon; // previous lat and lon
+double curr_lat, curr_lon; // current lat and lon
+double speed_kmph; // speed in kmph
+double alt_meters; // altitude in meters
+
+uint16_t curr_year; // current year
+uint8_t curr_month; // current month
+uint8_t curr_day; // current day
+
+uint8_t curr_hour; // current hour
+uint8_t curr_minute; // current minute
+
+// The TinyGPSPlus object
+TinyGPSPlus gps;
+TinyGPSCustom fixStatus(gps, "GPGGA", 6);
+
+// The serial connection to the GPS device
+SoftwareSerial ss(RXPin, TXPin);
+
+void setup() {
+  Serial.begin(SERIALBAUD);
+  ss.begin(GPSBAUD);
+}
+
+void loop() {
+  while (ss.available() > 0)
+  {
+    if (gps.encode(ss.read()))
+    {
+      parse_gps_data();
+      debug_info();
+    }
+    // else {
+    //   Serial.println("ERROR! No data in the encode method.");
+    // }
+  }
+
+  if (millis() > 5000 && gps.charsProcessed() < 10)
+  {
+    Serial.println(F("ERROR! Characters processed less than 10!"));
+    while(true);
+  }
+}
+
+void parse_gps_data ()
+{
+  // Parse latitude and longitude
+  if (gps.location.isValid())
+  {
+    prev_lat = gps.location.lat();
+    prev_lon = gps.location.lng();
+  }
+
+  // Parse speed
+  if (gps.speed.isValid())
+  {
+    speed_kmph = gps.speed.kmph();
+  }
+
+  // Parse altitude
+  if (gps.altitude.isValid())
+  {
+    alt_meters = gps.altitude.meters();
+  }
+
+  // Parse time
+  if (gps.time.isValid())
+  {
+    curr_hour = gps.time.hour();
+    curr_minute = gps.time.minute();
+  }
+
+  // Parse date
+  if (gps.date.isValid())
+  {
+    curr_year = gps.date.year();
+    curr_month = gps.date.month();
+    curr_day = gps.date.day();
+  }
+
+  // Print out all the information
+  Serial.print("Fix status: "); Serial.println(fixStatus.value());
+  Serial.print("LAT: "); Serial.println(prev_lat, 6);
+  Serial.print("LON: "); Serial.println(prev_lon, 6);
+  Serial.print("ALT: "); Serial.print(alt_meters, 1); Serial.println(" meters");
+  Serial.print("SPD: "); Serial.print(speed_kmph, 1); Serial.println(" kmph");
+  Serial.print("DATE (dd/mm/yyyy): "); Serial.print(curr_day); Serial.print("/"); Serial.print(curr_month); Serial.print("/"); Serial.println(curr_year);
+  Serial.print("TIME (hh:mm): "); Serial.print(curr_hour); Serial.print(":"); Serial.println(curr_minute);
+  Serial.println();
+}
+
+void debug_info()
+{
+  // print debug info
+  Serial.print("Sentences with fix= ");
+  Serial.println(gps.sentencesWithFix());
+  Serial.print("Sentences that failed checksum= ");
+  Serial.println(gps.failedChecksum());
+  Serial.print("Sentences that passed checksum= ");
+  Serial.println(gps.passedChecksum());
+  // Testing overflow in SoftwareSerial is sometimes useful too.
+  Serial.print("Soft Serial device overflowed? ");
+  Serial.println(ss.overflow() ? "YES!" : "No");
+
+  Serial.println();
+}
