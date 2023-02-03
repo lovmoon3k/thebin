@@ -1,0 +1,99 @@
+#include <immintrin.h>
+#include <stdio.h>
+
+#include <iostream>
+#include <random>
+#include <chrono>
+
+#define MAT 40
+#define SUBMAT 4
+
+
+float mat_a[MAT][MAT][SUBMAT][SUBMAT];
+float mat_b[MAT][MAT][SUBMAT][SUBMAT];
+
+float mat_c2[MAT][MAT][SUBMAT][SUBMAT]; 
+float sub_c2[SUBMAT][SUBMAT];
+using namespace std;
+
+int main(){
+    using namespace chrono;
+    inicialize();
+
+    auto start = steady_clock::now();
+    manual_mul_mat();
+    auto time = duration_cast<milliseconds>(steady_clock::now() - start).count();
+    cout << "With AVX took me " << time << " milliseconds." << endl;
+
+}
+
+void set_zero_sub(){
+    
+}
+
+void inicialize(){
+    random_device device;
+    mt19937 generator{device()};
+    uniform_real_distribution<float> distribution(0.0, 1.0);
+
+    for(int i = 0; i<MAT; i++)
+        for(int j= 0; j<MAT; j++)
+            for(int ii = 0; i<SUBMAT; ii++)
+                for(int jj = 0; j<SUBMAT; jj++)
+                    mat_a[i][j][ii][jj] = distribution(generator);
+}
+
+void mul_fun(int lines, int collumn, int k){
+    
+    
+    __m128 vb0 = _mm_set_ps(mat_b[k][collumn][0][0], 
+                    mat_b[k][collumn][0][1],
+                    mat_b[k][collumn][0][2],
+                    mat_b[k][collumn][0][3]);
+    __m128 vb1 = _mm_set_ps(mat_b[k][collumn][1][0], 
+                    mat_b[k][collumn][1][1],
+                    mat_b[k][collumn][1][2],
+                    mat_b[k][collumn][1][3]);
+    __m128 vb2 = _mm_set_ps(mat_b[k][collumn][2][0], 
+                    mat_b[k][collumn][2][1],
+                    mat_b[k][collumn][2][2],
+                    mat_b[k][collumn][2][3]);
+    __m128 vb3 = _mm_set_ps(mat_b[k][collumn][3][0], 
+                    mat_b[k][collumn][3][1],
+                    mat_b[k][collumn][3][2],
+                    mat_b[k][collumn][3][3]);
+    
+    for(int l = 0; l < SUBMAT; l++){
+        __m128 va = _mm_set_ps(mat_a[lines][k][l][0], 
+                        mat_a[lines][k][l][1],
+                        mat_a[lines][k][l][2],
+                        mat_a[lines][k][l][3]);
+        __m128 c_line = _mm_setzero_ps(); 
+
+        c_line = _mm_add_ps(_mm_mul_ps(va, vb0), c_line); 
+        c_line = _mm_add_ps(_mm_mul_ps(va, vb1), c_line); 
+        c_line = _mm_add_ps(_mm_mul_ps(va, vb2), c_line); 
+        c_line = _mm_add_ps(_mm_mul_ps(va, vb3), c_line); 
+        _mm_storeu_ps(sub_c2[l], c_line); 
+    }
+}
+
+
+void sum_fun(int lines, int collumn){
+    for(int i = 0; i < SUBMAT; i++){
+        for(int j = 0; i<SUBMAT; j++){
+            mat_c2[lines][collumn][i][j] += sub_c2[i][j];
+        }
+    }
+}
+
+void manual_mul_mat(){
+    for(int i= 0; i<MAT; i++){
+        for(int  j=0; j<MAT; i++){
+            for(int k=0; k<MAT; k++){
+                mul_fun(i, j, k); 
+                sum_fun(i, j);
+            }
+        }
+    }
+}
