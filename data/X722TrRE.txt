@@ -1,0 +1,68 @@
+#---------Load hospitalization data from our world in data.---------
+pkg load io
+C=csv2cell('c:\current-covid-patients-hospital.csv');
+
+#---------Filter out data for a specific country.---------
+
+%I=find(strcmp({C{:,1}},"Canada")==1)
+#I=find(strcmp({C{:,1}},"United Kingdom")==1);
+I=find(strcmp(C(2:end,1),"United Kingdom")==1);
+C2=C(I,:);
+#---------Calculate cummulative hospitalizations---------
+C2(:,5)=num2cell(cumsum([C2{:,4}]));
+##---------hospitalizations with average removed---------
+#C2(:,6)=num2cell([C2{:,4}]./([C2{:,5}]./[size(C2,1)]));
+##---------cumulative hospitalizations with average removed---------
+#C2(:,7)=num2cell(cumsum([C2{:,6}]));
+##----------select data range for a specif peak 
+d1=datestr('2022-05-31');
+d2=datestr('2022-09-14');
+
+#---------Convert String date to date object------------
+C2(:,3)=cellfun(@(m) datestr(m),C2(:,3),'UniformOutput',false);
+#---------For Plotting we need the datenum format.
+C2(:,6)=cellfun(@(m) datenum(m),
+                C2(:,3),'UniformOutput',false);
+
+#---------Make function to filter date range------------
+function y=date_rng(x,a,b)
+  x2=datenum(x);
+  a2=datenum(a);
+  b2=datenum(b);
+  y=x2>a2 & x2<b2;
+end
+
+dp=datestr('2022-07-15');
+I_dp=find([cellfun(@(m) isequal(m,dp),
+          C2(:,3),'UniformOutput',false){:}]);
+
+#Maybe use is between function instead of date_rng https://www.mathworks.com/help/matlab/matlab_prog/compare-dates-and-time.html
+
+#----------Remove data outside of date range (e.g. a specific peak
+I2=find([cellfun(@(m) date_rng(m,d1,d2),
+         C2(:,3),'UniformOutput',false){:}]);
+C3=C2(I2,:);
+
+#---------Subtract the min value so cumulative changes are only for this peak.---------
+C3(:,7)=num2cell([C3{:,4}]-min([C3{:,4}]));
+#---------cumulative hospitalizations with average removed---------
+C3(:,8)=num2cell(cumsum([C3{:,4}]));
+#----------select data range for a specif peak 
+
+#Use scale factors to put hospitalization levles on the same graph as cumulative levels.
+m_dpd_max=max([C3{:,4}]); # hospitalization scale factor
+m_dpd_min=min([C3{:,4}]); # hospitalization scale factor
+m_dpd_detla=m_dpd_max-m_dpd_min;
+
+m_cd_max=max([C3{:,8}]);  # cumulative scale factor
+
+
+C3(:,8)=num2cell([C3{:,8}]*m_dpd_detla/m_cd_max+m_dpd_min);
+
+plot([C3{:,6}],[C3{:,8}]);
+hold on
+plot([C3{:,6}],[C3{:,4}]);
+datetick("x",'YYYY-mm-DD');
+hold off
+#datetick(gca)
+#https://octave.sourceforge.io/octave/function/datetick.html
