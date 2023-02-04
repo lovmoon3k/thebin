@@ -1,0 +1,287 @@
+
+Random random = new Random();
+int[] dice = new int[5];
+bool[] reroll_toggle = new bool[5];
+int max_rerolls = 2;
+int rerolls_left = max_rerolls;
+// dice[] store 1..6 and k input will be '1'..'6'
+// so to make it easier on my brain, i'll
+// index singles[] with 1..6 and ignore singles[0]
+int[] singles = new int[] { 0, -1, -1, -1, -1, -1, -1 };
+int kind3 = -1;
+int kind4 = -1;
+int full = -1;
+int small = -1;
+int large = -1;
+int kind5 = -1;
+int chance = -1;
+int extra_yahtzees = 0;
+while (true)
+{
+    Console.Clear();
+    score_card();
+    Console.Write("\npress a key to roll dice...");
+    if (!reroll_toggle.Contains(true))
+        Console.ReadKey(true);
+    Console.Write("\n\n");
+    roll_dice();
+    reroll_toggle = new bool[5];
+    for (int i = 0; i < 5; i++)
+        Console.Write("[" + dice[i] + "] ");
+    Console.Write("\n\n(" + rerolls_left + " rerolls left)");
+    Console.Write("\nchoose scoring");
+    if (rerolls_left > 0) Console.Write(" or press r to reroll");
+    Console.Write("...");
+    bool got_input = false;
+    bool scored = false;
+    while (!got_input)
+    {
+        char k = Console.ReadKey(true).KeyChar;
+        if ("12345678fsl90r".Contains(k))
+        {
+            if (k >= '1' && k <= '6')
+            {
+                int digit = k - '0';
+                if (singles[digit] == -1)
+                {
+                    singles[digit] = count_singles(digit);
+                    scored = true;
+                }
+            }
+            if (k == '7' && kind3 == -1)
+            {
+                if (is_kind3()) kind3 = add_all();
+                else kind3 = 0;
+                scored = true;
+            }
+            if (k == '8' && kind4 == -1)
+            {
+                if (is_kind4()) kind4 = add_all();
+                else kind4 = 0;
+                scored = true;
+            }
+            if (k == 'f' && full == -1)
+            {
+                if (is_full()) full = 25;
+                else full = 0;
+                scored = true;
+            }
+            if (k == 's' && small == -1)
+            {
+                if (is_small()) small = 30;
+                else small = 0;
+                scored = true;
+            }
+            if (k == 'l' && large == -1)
+            { 
+                if (is_large()) large = 40;
+                else large = 0;
+                scored = true;
+            }
+            if (k == '9' && kind5 != 0)
+            {
+                if (is_kind5())
+                {
+                    if (kind5 == -1) kind5 = 50;
+                    else extra_yahtzees += 100;
+                }
+                else kind5 = 0;
+                scored = true;
+            }
+            if (k == '0' && chance == -1)
+            {
+                chance = add_all();
+                scored = true;
+            }
+            if (k == 'r' && rerolls_left > 0)
+            {
+                Console.Write("\rnumber key to toggle, enter to finish\r");
+                Console.CursorTop -= 3;
+                select_reroll();
+                rerolls_left--;
+                got_input = true;
+            }
+            if (scored)
+            {
+                rerolls_left = max_rerolls;
+                got_input = true;
+            }
+        }
+    }
+    if (!reroll_toggle.Contains(true))
+    {
+        // redraw scorecard and wait
+        var old_pos = Console.GetCursorPosition();
+        Console.SetCursorPosition(0, 0);
+        score_card();
+        Console.SetCursorPosition(old_pos.Left, old_pos.Top);
+        if (singles[1] != -1 && singles[2] != -1 && singles[3] != -1 &&
+            singles[4] != -1 && singles[5] != -1 && singles[6] != -1 &&
+            kind3 != -1 && kind4 != -1 && full != -1 &&
+            small != -1 && large != -1 && kind5 != -1 && chance != -1)
+            break;
+        Console.Write("\n\npress a key...");
+        Console.ReadKey(true);
+    }
+}
+Console.Write("\n\ngame over!");
+int score = kind3 + kind4 + full + small + large + 
+    kind5 + chance + extra_yahtzees;
+for (int i = 1; i <= 6; i++)
+    score += singles[i];
+Console.Write("\ntotal score: " + score);
+while (true) ;
+
+void score_card()
+{
+    Console.Write(
+        "1) ones            (add only ones)    " + singles[1] + " \n" +
+        "2) twos            (add only twos)    " + singles[2] + " \n" +
+        "3) threes        (add only threes)    " + singles[3] + " \n" +
+        "4) fours          (add only fours)    " + singles[4] + " \n" +
+        "5) fives          (add only fives)    " + singles[5] + " \n" +
+        "6) sixes          (add only sixes)    " + singles[6] + " \n" +
+        "7) 3 of a kind      (add all dice)    " + kind3 + " \n" +
+        "8) 4 of a kind      (add all dice)    " + kind4 + " \n" +
+        "f) full house          (25 points)    " + full + " \n" +
+        "s) small straight 4    (30 points)    " + small + " \n" +
+        "l) large straight 5    (40 points)    " + large + " \n" +
+        "9) yahtzee (5kind)     (50 points)    " + kind5 + " \n" +
+        "0) chance           (add all dice)    " + chance + " \n" +
+        "   extra yahtzees     (100 points)    " + extra_yahtzees + " \n");
+}
+
+void roll_dice()
+{
+    if (reroll_toggle.Contains(true))
+    {
+        for (int i = 0; i < 5; i++)
+            if (reroll_toggle[i])
+                dice[i] = random.Next(6) + 1;
+    }
+    else
+    {
+        for (int i = 0; i < 5; i++)
+            dice[i] = random.Next(6) + 1;
+    }
+}
+
+int count_singles(int face)
+{
+    int total = 0;
+    for (int i = 0; i < 5; i++)
+        if (dice[i] == face) total += face;
+    return total;
+}
+
+bool is_kind3()
+{
+    List<int> list = dice.ToList();
+    list.Sort();
+    int first = 2; // last 3
+    if (list[0] == list[1]) first = 0; // first 3
+    else if (list[1] == list[2]) first = 1; // middle 3
+    int match = list[first];
+    bool fail = false;
+    for (int i = 0; i < 3; i++)
+        if (list[first + i] != match) fail = true;
+    return !fail;
+}
+
+bool is_kind4()
+{
+    List<int> list = dice.ToList();
+    list.Sort();
+    int first = 1; // last 4
+    if (list[0] == list[1]) first = 0; // first 4
+    int match = list[first];
+    bool fail = false;
+    for (int i = 0; i < 4; i++)
+        if (list[first + i] != match) fail = true;
+    return !fail;
+}
+
+bool is_kind5()
+{
+    int match = dice[0];
+    bool fail = false;
+    for (int i = 0; i < 5; i++)
+        if (dice[i] != match) fail = true;
+    return !fail;
+}
+
+bool is_full()
+{
+    List<int> list = dice.ToList();
+    list.Sort();
+    if (list[0] == list[1] && list[3] == list[4])
+        if (list[2] == list[0] || list[2] == list[4])
+            return true;
+    return false;
+}
+
+bool is_small()
+{
+    // 1234 run
+    bool fail = false;
+    for (int i = 1; i <= 4; i++)
+        if (!dice.Contains(i)) fail = true;
+    if (!fail) return true;
+    // 2345 run
+    fail = false;
+    for (int i = 2; i <= 5; i++)
+        if (!dice.Contains(i)) fail = true;
+    if (!fail) return true;
+    // 3456 run
+    fail = false;
+    for (int i = 3; i <= 6; i++)
+        if (!dice.Contains(i)) fail = true;
+    if (!fail) return true;
+    return false;
+}
+
+bool is_large()
+{
+    // 12345 run
+    bool fail = false;
+    for (int i = 1; i <= 5; i++)
+        if (!dice.Contains(i)) fail = true;
+    if (!fail) return true;
+    // 23456 run
+    fail = false;
+    for (int i = 2; i <= 6; i++)
+        if (!dice.Contains(i)) fail = true;
+    if (!fail) return true;
+    return false;
+}
+
+int add_all()
+{
+    int total = 0;
+    for (int i = 0; i < 5; i++)
+        total += dice[i];
+    return total;
+}
+
+void select_reroll()
+{
+    reroll_toggle = new bool[] { false, false, false, false, false };
+    while (true) // go until enter ('\r')
+    {
+        char k = ' ';
+        while(true)
+        {
+            k = Console.ReadKey(true).KeyChar;
+            if ("12345\r".Contains(k)) break; 
+        }
+        if (k == '\r') break;
+        int i = k - '0' - 1;
+        reroll_toggle[i] = !reroll_toggle[i];
+        Console.Write("\r");
+        for (i = 0; i < 5; i++)
+        {
+            if (reroll_toggle[i]) Console.Write("[*] ");
+            else Console.Write("[" + dice[i] + "] ");
+        }
+    }
+}
