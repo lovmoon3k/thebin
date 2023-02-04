@@ -1,0 +1,278 @@
+import React from "react";
+import Navbar from "@/components/Navbar";
+import {
+  FormContainer,
+  MainContainer,
+  FormHeader,
+  InsideContainer,
+  ConnectWalletButton,
+  SwapInput,
+  SelectButton,
+} from "../styles/Swap.style";
+import { toast } from 'react-toastify';
+import Footer from "@/components/Footer";
+import axios from "axios";
+import Image from "next/image";
+const { ethers } = require("ethers");
+
+export default function Swap() {
+  const [isLoggedIn, setIsloggedIn] = React.useState(null);
+  const [userDetail, setuserDetail] = React.useState(null);
+  const [isLoading, setIsloading] = React.useState(false);
+  const [fromCurrency, setfromCurrency] = React.useState('KIA');
+  const [toCurrency, settoCurrency] = React.useState('BNB');
+  const [isReverse, setIsreverse] = React.useState(false);
+  const [isPriceLoading, setisPriceLoading] = React.useState(null);
+  const [amount, setAmount] = React.useState(0);
+  const [tokenPrice, setTokenPrice] = React.useState(0);
+
+  React.useEffect(() => {
+    if (typeof window !== undefined) {
+      if (!window.localStorage.getItem('session')) {
+        setIsloggedIn(false)
+      } else {
+        setIsloggedIn(true)
+        setuserDetail(JSON.parse(window.localStorage.getItem('session')))
+      }
+    }
+  }, [])
+
+
+  const login = async () => {
+    if (!isTrustWalletInstalled() && !isMetaMaskInstalled()) {
+      return toast("Please browse from Trustwallet or Metamask dApp browser", {
+        type: 'error',
+        position: 'top-center'
+      })
+    }
+    var address = await getAddress();
+    if (address) {
+      setIsloading(true)
+      var resp = await axios.post('/api/create-user', {
+        connected_address: address[0]
+      })
+      if (resp.data.status) {
+        window.localStorage.setItem('session', JSON.stringify(resp.data.message))
+        setIsloggedIn(true);
+        setuserDetail(resp.data.message)
+        toast("Login Successful !", {
+          type: 'success',
+          position: 'top-center'
+        })
+      }
+      setIsloading(false)
+    }
+  }
+
+  const getTokenPrice = async (from = null, to = null, xamount = null) => {
+    if (from !== null) {
+      var fromCurrencyID = from;
+    } else {
+      var fromCurrencyID = fromCurrency;
+    }
+    if (to !== null) {
+      var toCurrencyID = to;
+    } else {
+      var toCurrencyID = toCurrency;
+    }
+    if (xamount !== null) {
+      var amountID = xamount;
+    } else {
+      var amountID = amount
+    }
+
+    if (isReverse === true) {
+      fromCurrencyID = toCurrency;
+      toCurrencyID = fromCurrency;
+    }
+    setTokenPrice('Wait..')
+    var resp = await axios.post('/api/get-price', {
+      from: fromCurrencyID,
+      to: toCurrencyID,
+      amount: amountID
+    })
+    setTokenPrice(resp.data.message)
+  }
+
+  const swaptkn = async () => {
+    var fromCurrencyID = fromCurrency;
+    var toCurrencyID = toCurrency;
+    if (isReverse === true) {
+      fromCurrencyID = toCurrency;
+      toCurrencyID = fromCurrency;
+    }
+    if (fromCurrencyID !== 'BNB') {
+      await tokenswap(fromCurrencyID, toCurrencyID);
+    } else {
+      await coinswap(fromCurrencyID, toCurrencyID);
+    }
+  }
+
+  async function coinswap(from, to) {
+    const payable_amount = amount;
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const signer = provider.getSigner();
+
+    try {
+      setIsloading(true)
+      console.log('Started Transaction')
+      var resp = await signer.sendTransaction({
+        to: process.env.NEXT_PUBLIC_RECEIVING_ADDRESS.toString(),
+        value: ethers.utils.parseEther(payable_amount).toString(),
+      })
+      console.log('Ended Transaction')
+      await axios.post('/api/transfer-token', {
+        amount: payable_amount,
+        appcode: userDetail,
+        hash: resp.hash,
+        fromCurrency: from,
+        toCurrency: to
+      })
+      toast('Swap Successful with Hash: ' + resp.hash)
+      setIsloading(false)
+    } catch (e) {
+      setIsloading(false)
+      toast('Do you have sufficient fund ?', {
+        type: 'error',
+        position: 'top-center'
+      })
+    }
+  }
+
+  async function tokenswap(from, to) {
+    const payable_amount = amount;
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const signer = provider.getSigner();
+
+    var contractAddress = process.env.NEXT_PUBLIC_USDT_CONTRACT;
+    if (from === 'KIA') {
+      var contractAddress = process.env.NEXT_PUBLIC_KIA_CONTRACT;
+    }
+    if (from === 'BUSD') {
+      var contractAddress = process.env.NEXT_PUBLIC_BUSD_CONTRACT;
+    }
+    var contractAbiFragment = [
+      {
+        "name": "transfer",
+        "type": "function",
+        "inputs": [
+          {
+            "name": "_to",
+            "type": "address"
+          },
+          {
+            "type": "uint256",
+            "name": "_tokens"
+          }
+        ],
+        "constant": false,
+        "outputs": [],
+        "payable": false
+      }
+    ];
+    var contract = new ethers.Contract(contractAddress, contractAbiFragment, signer);
+
+    try {
+      setIsloading(true)
+      console.log('Started Transaction')
+      var resp = await contract.transfer(process.env.NEXT_PUBLIC_RECEIVING_ADDRESS.toString(), payable_amount)
+      console.log('Ended Transaction')
+      console.log(resp)
+      await axios.post('/api/transfer-token', {
+        amount: payable_amount,
+        appcode: userDetail,
+        hash: resp.hash,
+        fromCurrency: from,
+        toCurrency: to
+      })
+      toast('Swap Successful with Hash: ' + resp.hash)
+      setIsloading(false)
+    } catch (e) {
+      setIsloading(false)
+      toast(e.message, {
+        type: 'error',
+        position: 'top-center'
+      })
+    }
+
+  }
+
+
+  function isMetaMaskInstalled() {
+    //Have to check the ethereum binding on the window object to see if it's installed
+    const { ethereum } = window;
+    return Boolean(ethereum && ethereum.isMetaMask);
+  }
+  function isTrustWalletInstalled() {
+    //Have to check the ethereum binding on the window object to see if it's installed
+    const { ethereum } = window;
+    return Boolean(ethereum && ethereum.isTrust);
+  }
+  async function getAddress() {
+    try {
+      const { ethereum } = window;
+      try {
+        await ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: '0x38' }],
+        })
+      } catch (e) {
+
+      }
+      var address = await ethereum.request({ method: "eth_requestAccounts" });
+      return address;
+    } catch (error) {
+      alert(error);
+      console.error(error);
+    }
+  }
+  const coinset1 = <select onChange={async (val) => { await setfromCurrency(val.target.value); getTokenPrice(val.target.value, null) }}><option value="KIA">KIA Coin</option></select>;
+  const coinset2 = <select onChange={async (val) => { await settoCurrency(val.target.value); getTokenPrice(null, val.target.value, null) }}><option value="BNB">BNB (BEP-20)</option><option value="BUSD">BUSD (BEP-20)</option><option value="USDT">USDT (BEP-20)</option></select>;
+
+  return (
+    <>
+      <Navbar />
+      <MainContainer>
+        <FormContainer>
+          <FormHeader>
+            <span>Swap Token</span>
+            <Image onClick={() => {
+              setIsreverse(isReverse ? false : true);
+              setTokenPrice(0)
+            }} style={{
+              width: 50,
+              height: 50
+            }} src={require('../public/swap.png')} />
+          </FormHeader>
+          <InsideContainer>
+            <SwapInput onChange={async (text) => {
+              await setAmount(text.target.value)
+              getTokenPrice(null, null, text.target.value)
+            }} placeholder={0}></SwapInput>
+            <SelectButton>
+              {isReverse ? coinset2 : coinset1}
+            </SelectButton>
+          </InsideContainer>
+          <InsideContainer>
+            <SwapInput disabled value={tokenPrice} defaultValue={0}></SwapInput>
+            <SelectButton>
+              {isReverse ? coinset1 : coinset2}
+            </SelectButton>
+          </InsideContainer>
+
+          {isLoading ? <ConnectWalletButton>Wait a Moment..</ConnectWalletButton> :
+            <>
+              {isLoggedIn && <ConnectWalletButton onClick={() => {
+                swaptkn()
+              }}>Swap Token</ConnectWalletButton>}
+              {!isLoggedIn && <ConnectWalletButton onClick={() => {
+                login()
+              }}>Connect Wallet</ConnectWalletButton>}
+            </>
+          }
+        </FormContainer>
+      </MainContainer>
+      <Footer />
+    </>
+  );
+}
