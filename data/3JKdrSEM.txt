@@ -1,0 +1,147 @@
+from queue import PriorityQueue
+import time
+import sys
+from tokenize import group
+import requests
+from selenium import webdriver
+from selenium.webdriver.firefox.options import Options
+from datetime import datetime as dt
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.proxy import Proxy, ProxyType
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.ui import Select
+import traceback
+import os
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from datetime import datetime
+import time
+
+class Broadcast:
+    def __init__(self, desired_dpi=4.0):
+        prox = Proxy()
+        prox.proxy_type = ProxyType.MANUAL
+        options = Options()
+        # options.add_argument('--headless')
+        firefox_profile = webdriver.FirefoxProfile()
+        firefox_profile.accept_untrusted_certs = True
+        # firefox_profile.set_preference("network.proxy.type", 2)
+        # firefox_profile.set_preference("network.proxy.autoconfig_url", "http://wpad.telkomsel.co.id/wpad.dat")
+        firefox_profile.set_preference("layout.css.devPixelsPerPx", str(desired_dpi))
+        self._driver = webdriver.Firefox(options=options)
+        # firefox_profile = webdriver.FirefoxProfile()
+        # firefox_profile.accept_untrusted_certs = True
+        # firefox_profile.set_preference("layout.css.devPixelsPerPx", str(desired_dpi))
+        # self._driver = webdriver.Firefox(options=options, firefox_profile=firefox_profile)
+
+    def keitaRequests(self, url, methods='get', data={}, headers={}):
+        try:
+            methods = methods.strip().lower()
+            req = False
+            if methods == 'get':
+                req = requests.get(url, verify=False, headers=headers)
+            elif methods == 'post':
+                req = requests.post(url, verify=False, data=data)
+            if req != False and req is not None:
+                result = req.json()
+            else:
+                result = False
+            return result
+        except:
+            print("Error while making request to {}".format(url))
+            return False
+
+    def keitaCapture(self):
+        secret_key = 'm5GbFsy4G0umsf4='
+        url_login = 'https://10.35.105.96/resources/api_keita/api_login.php'
+        methods = 'post'
+        parameters = {
+            'username': '22190825',
+            'password': 'M4h1ruch4n23'
+        }
+        login = self.keitaRequests(url_login, methods=methods, data=parameters, headers={
+            'secretkey': secret_key
+        })
+        if login != False:
+            token = login['token']
+            url_project_board = 'https://10.35.105.96/resources/api_keita/project_board.php'
+            methods = 'post'
+            parameters = {
+                'action': 'get',
+                'id_regional': 6,
+                'id_sub_dept': 1
+            }
+            project_board = self.keitaRequests(url_project_board, methods=methods, data=parameters, headers={
+                'token': token,
+                'secretkey': secret_key
+            })
+            if project_board != False:
+                data_project = []
+                current_month = datetime.datetime.now().month
+                for project in project_board:
+                    developers = []
+                    data_project.append({
+                        'pName': project['name'],
+                        'pID': project['id'],
+                        'pParent': 0,
+                        "pGroup": 1,
+                        "pRes": "",
+                        "pComp": None
+                    })
+                    url_gantt = 'https://10.35.105.96/resources/api_keita/gantt_chart_project.php'
+                    methods = 'post'
+                    headers = {
+                        'token': token,
+                        'secretkey': secret_key
+                    }
+                    parameters = {
+                        'id_project': project['id']
+                    }
+                    last_task_tms = 0
+                    last_task_month = 0
+                    gantt = self.keitaRequests(url_gantt, methods=methods, data=parameters, headers=headers)
+                    if gantt != False:
+                        # card_tmp = []
+                        now = datetime.now()
+                        # tms_now = now.timetuple()
+                        total_sub_task = 0
+                        sub_task_done = 0
+                        for sub_index, sub in enumerate(gantt['sub_activity']):
+                            t = time.mktime(datetime.datetime.strptime(sub['date'], '%Y-%m-%d').timetuple())
+                            # Get all developers in card
+                            if sub['developer'] not in developers:
+                                developers.append(sub['developer'])
+                            if t > last_task_tms:
+                                if sub['progress'] == 100:
+                                    sub_task_done += 1
+                                total_sub_task += 1
+                                last_task_tms = t
+                                last_task_month = datetime.datetime.strptime(sub['date'], '%Y-%m-%d').month
+                        if last_task_month >= current_month:
+                            completion_class = 'gtaskgreen' if sub_task_done == total_sub_task else 'gtaskred'
+                            status_completion = 'DONE' if sub_task_done == total_sub_task else 'DOING'
+                            data_project.append({
+                                'pName': sub['activity_name'],
+                                'pID': sub['id_activity'],
+                                'pParent': project['id'],
+                                "pGroup": 0,
+                                "pRes": ", ".join(developers),
+                                "pComp": (sub_task_done / total_sub_task) * 100,
+                                "pClass": completion_class,
+                                'pStart': project['start_date'],
+                                'pEnd': project['end_date'],
+                                'status': status_completion
+                            })   
+            print(data_project)
+            return True
+        print("Failed to make gantt chart")
+
+    def exit(self):
+        self._driver.close()
+        self._driver.quit()  
+
+brd = Broadcast()
+brd.keitaCapture()
+# brd.exit()
