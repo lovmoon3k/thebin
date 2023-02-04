@@ -1,0 +1,85 @@
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+
+def get_last_page(soup: BeautifulSoup) -> int:
+    """Return last page of hotels."""
+    try:
+        return int(soup.find('ol', class_='pagination').find_all('li')[-1].text.strip())
+    except TypeError:
+        raise TypeError('Could not find last page')
+    except AttributeError:
+        raise AttributeError('Could not find last page')
+
+# TODO: catch request or BS4 exceptions:
+def cook_soup(url: str) -> BeautifulSoup:
+    try:
+        page = requests.get(url)
+        return BeautifulSoup(page.content, 'html.parser')
+    except:
+        return None
+
+def parse_itemprop(soup: BeautifulSoup, item: str, tag: str='span') -> str:
+    """Extract text from fields with 'itemprop' attribute. The field might be missing!"""
+    try:
+        return soup.find(tag, itemprop=item).text
+    except AttributeError:
+        return None
+
+def extract_email(soup: BeautifulSoup) -> str:
+    """Emails are tricky: contains UTF8 non-printable characters, might be missing."""
+    try:
+        return (
+            soup
+            .find('div', class_='mobile-portrait-row mail')
+            .find('a')
+            .text
+            .encode('ascii', 'ignore')
+        )
+    except AttributeError:
+        return None
+
+def parse_hotel(url: str) -> dict:
+    
+    # Extracting important part of the page:
+    soup = cook_soup(url)
+    
+    # If there were any issue with fetching data:
+    if soup is None: return None
+    
+    # Extract header that contain hotel details:
+    media_body = soup.find('div', class_ = 'media-body')
+    
+    return dict(
+        name = media_body.find('div', itemprop='name').text,
+        streetAddress = parse_itemprop(media_body, 'streetAddress'),
+        postalCode = parse_itemprop(media_body, 'postalCode'),
+        addressLocality = parse_itemprop(media_body, 'addressLocality'),
+        telephone = parse_itemprop(media_body, 'telephone'),
+        faxNumber = parse_itemprop(media_body, 'faxNumber'),
+        url = parse_itemprop(media_body, 'url', 'a'),
+        email = extract_email(media_body),
+        source_url = url
+    )
+
+data_file = 'hotels.csv'
+base_url = 'https://www.firmenabc.at/firmen/at/hotels_CFW'
+last_page = get_last_page(cook_soup(base_url))
+print(f'Fetching hotels from {last_page} pages...')
+
+data = []
+# Looping through all pages:
+for page in range(1, last_page +1):
+    print(f'Processind data on page: {page}')
+
+    # Extract page data:
+    soup = cook_soup(f'{base_url}/{str(page)}')
+    
+    # Extract details for each hotel on the page (~40 hotel/page):
+    for hotel in soup.find_all('li', class_='card result'):
+        data.append(parse_hotel(hotel.find('a', itemprop='url').get('href')))
+
+df = pd.DataFrame(data)
+print(f'Information from {len(df)} hotels was retrieved.')
+print(f'Saving data as csv: {data_file}')
+df.to_csv(data_file, sep='\t', index=False)
