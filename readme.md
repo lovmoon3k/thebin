@@ -1,11 +1,5 @@
-[**VD06Chqy**](/data/VD06Chqy.txt) (04/02/23 - 15:38)- 810 bytes
+[**uAmp6w2t**](/data/uAmp6w2t.txt) (04/02/23 - 15:43)- 459033 bytes
 
-[**VD06Chqy**](/data/VD06Chqy.txt) (04/02/23 - 15:38)- 810 bytes
+**Total Datas**: 8228
 
-[**6JQ7SMLV**](/data/6JQ7SMLV.txt) (04/02/23 - 15:38)- 334 bytes
-
-[**6JQ7SMLV**](/data/6JQ7SMLV.txt) (04/02/23 - 15:38)- 334 bytes
-
-**Total Datas**: 8227
-
-**Total Size**: 54.95 MB / 54.9 MB
+**Total Size**: 55.39 MB / 55.4 MB
