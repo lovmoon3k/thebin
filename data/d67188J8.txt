@@ -1,0 +1,163 @@
+#include <iostream>
+#include <map>
+#include <string>
+#include <tuple>
+#include <vector>
+
+using namespace std;
+
+// Перечислимый тип для статуса задачи
+enum class TaskStatus {
+    NEW,          // новая
+    IN_PROGRESS,  // в разработке
+    TESTING,      // на тестировании
+    DONE          // завершена
+};
+
+// Объявляем тип-синоним для map<TaskStatus, int>,
+// позволяющего хранить количество задач каждого статуса
+using TasksInfo = map<TaskStatus, int>;
+
+class TeamTasks {
+private:
+    map<string, TasksInfo> tasks_;
+
+    void EraseEmptyEntriesByReference(TasksInfo& tasks_info, TaskStatus status) {
+        if (tasks_info.count(status) > 0 && tasks_info.at(status) == 0)
+            tasks_info.erase(status);
+    }
+public:
+    // Получить статистику по статусам задач конкретного разработчика
+    const TasksInfo& GetPersonTasksInfo(const string& person) const {
+        return tasks_.at(person);
+    }
+
+    // Добавить новую задачу (в статусе NEW) для конкретного разработчитка
+    void AddNewTask(const string& person) {
+        tasks_[person][TaskStatus::NEW]++;
+    }
+
+    // Обновить статусы по данному количеству задач конкретного разработчика,
+    // подробности см. ниже
+    tuple<TasksInfo, TasksInfo> PerformPersonTasks(const string& person, int task_count) {
+
+        TasksInfo updated_tasks_info;
+        TasksInfo untouched_tasks_info(tasks_[person]);
+        untouched_tasks_info[TaskStatus::DONE] = 0;
+
+        int undone_tasks = tasks_[person][TaskStatus::NEW] + tasks_[person][TaskStatus::IN_PROGRESS] + tasks_[person][TaskStatus::TESTING];
+
+        if (task_count > undone_tasks) task_count = undone_tasks;
+
+        int status_num = static_cast<int>(TaskStatus::NEW);
+        
+        while (task_count != 0 && status_num < static_cast<int>(TaskStatus::DONE)) {
+            TaskStatus current_status = static_cast<TaskStatus>(status_num);
+            TaskStatus next_status = static_cast<TaskStatus>(status_num + 1);
+        
+            if (task_count <= tasks_[person][current_status]) {
+                tasks_[person][current_status] -= task_count;
+                tasks_[person][next_status] += task_count;
+                updated_tasks_info[next_status] += task_count;
+                untouched_tasks_info[current_status] -= task_count;
+                break;
+            } else {
+                tasks_[person][next_status] += tasks_[person][current_status];
+                updated_tasks_info[next_status] += tasks_[person][current_status];
+                task_count -= tasks_[person][current_status];
+                tasks_[person][current_status] = 0;
+                untouched_tasks_info[current_status] = 0;
+            }
+            if (tasks_[person][current_status] == 0) {
+                status_num++;
+            }
+        }
+
+        EraseEmptyEntriesByReference(updated_tasks_info, TaskStatus::NEW);
+        EraseEmptyEntriesByReference(updated_tasks_info, TaskStatus::IN_PROGRESS);
+        EraseEmptyEntriesByReference(updated_tasks_info, TaskStatus::TESTING);
+        EraseEmptyEntriesByReference(updated_tasks_info, TaskStatus::DONE);
+
+        EraseEmptyEntriesByReference(untouched_tasks_info, TaskStatus::NEW);
+        EraseEmptyEntriesByReference(untouched_tasks_info, TaskStatus::IN_PROGRESS);
+        EraseEmptyEntriesByReference(untouched_tasks_info, TaskStatus::TESTING);
+        EraseEmptyEntriesByReference(untouched_tasks_info, TaskStatus::DONE);
+
+        return tuple(updated_tasks_info, untouched_tasks_info);
+    }
+};
+
+// Принимаем словарь по значению, чтобы иметь возможность
+// обращаться к отсутствующим ключам с помощью [] и получать 0,
+// не меняя при этом исходный словарь.
+void PrintTasksInfo(TasksInfo tasks_info) {
+    cout << tasks_info[TaskStatus::NEW] << " new tasks"s
+         << ", "s << tasks_info[TaskStatus::IN_PROGRESS] << " tasks in progress"s
+         << ", "s << tasks_info[TaskStatus::TESTING] << " tasks are being tested"s
+         << ", "s << tasks_info[TaskStatus::DONE] << " tasks are done"s << endl;
+}
+
+int main() {
+    TeamTasks tasks;
+    tasks.AddNewTask("Ilia"s);
+    for (int i = 0; i < 1200; ++i) {
+        tasks.AddNewTask("Ivan"s);
+    }
+    cout << "Ilia's tasks: "s;
+    PrintTasksInfo(tasks.GetPersonTasksInfo("Ilia"s));
+    cout << "Ivan's tasks: "s;
+    PrintTasksInfo(tasks.GetPersonTasksInfo("Ivan"s));
+
+    TasksInfo updated_tasks, untouched_tasks;
+
+    tie(updated_tasks, untouched_tasks) = tasks.PerformPersonTasks("Ivan"s, 2);
+    cout << "Updated Ivan's tasks: "s;
+    PrintTasksInfo(updated_tasks);
+    cout << "Untouched Ivan's tasks: "s;
+    PrintTasksInfo(untouched_tasks);
+
+    cout << "Ivan's tasks: "s;
+    PrintTasksInfo(tasks.GetPersonTasksInfo("Ivan"s));
+
+    tie(updated_tasks, untouched_tasks) = tasks.PerformPersonTasks("Ivan"s, 42);
+    cout << "Updated Ivan's tasks: "s;
+    PrintTasksInfo(updated_tasks);
+    cout << "Untouched Ivan's tasks: "s;
+    PrintTasksInfo(untouched_tasks);
+
+    cout << "Ivan's tasks: "s;
+    PrintTasksInfo(tasks.GetPersonTasksInfo("Ivan"s));
+
+    tie(updated_tasks, untouched_tasks) = tasks.PerformPersonTasks("Ivan"s, 200);
+    cout << "Updated Ivan's tasks: "s;
+    PrintTasksInfo(updated_tasks);
+    cout << "Untouched Ivan's tasks: "s;
+    PrintTasksInfo(untouched_tasks);
+
+    cout << "Ivan's tasks: "s;
+    PrintTasksInfo(tasks.GetPersonTasksInfo("Ivan"s));
+
+    tie(updated_tasks, untouched_tasks) = tasks.PerformPersonTasks("Ivan"s, 354);
+    cout << "Updated Ivan's tasks: "s;
+    PrintTasksInfo(updated_tasks);
+    cout << "Untouched Ivan's tasks: "s;
+    PrintTasksInfo(untouched_tasks);
+
+    cout << "Ivan's tasks: "s;
+    PrintTasksInfo(tasks.GetPersonTasksInfo("Ivan"s));
+
+    tie(updated_tasks, untouched_tasks) = tasks.PerformPersonTasks("Ivan"s, 124);
+    cout << "Updated Ivan's tasks: "s;
+    PrintTasksInfo(updated_tasks);
+    cout << "Untouched Ivan's tasks: "s;
+    PrintTasksInfo(untouched_tasks);
+
+    cout << "Ivan's tasks: "s;
+    PrintTasksInfo(tasks.GetPersonTasksInfo("Ivan"s));
+
+    tie(updated_tasks, untouched_tasks) = tasks.PerformPersonTasks("Ivan"s, 1000);
+    cout << "Updated Ivan's tasks: "s;
+    PrintTasksInfo(updated_tasks);
+    cout << "Untouched Ivan's tasks: "s;
+    PrintTasksInfo(untouched_tasks);
+}
