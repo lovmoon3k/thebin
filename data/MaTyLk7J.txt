@@ -1,0 +1,254 @@
+local plr = owner
+local char = plr.Character
+local root = char:FindFirstChild("HumanoidRootPart")
+
+--
+
+function sleep(n)
+	return task.wait(n or 0)
+end
+
+function wrap(f)
+	return coroutine.wrap(f)()
+end
+
+-- setup bricks
+
+local pfolder = Instance.new("Model")
+pfolder.Name = 'Visualizer'
+pfolder.Parent = script
+
+local loudness = 0
+
+local id = 0
+local volume = 1.5
+local speed = 1
+local timepos = 0
+
+local part_amount = 25
+
+local bricks = {}
+
+for i = 1,part_amount+1 do
+	local p = Instance.new("Part")
+	p.Color = Color3.new(0,0,0)
+	p.Material = Enum.Material.SmoothPlastic
+	p.CanCollide = false
+	p.Anchored = true
+	p.Parent = pfolder
+	
+	bricks[#bricks+1] = p
+	if i == part_amount+1 then
+		p.Name = 'main'
+		p.Size = Vector3.new(0,0,0)
+		p.Transparency = 1
+	end
+end
+
+local music = Instance.new("Sound")
+music.Name = 'vismusic'
+music.SoundId = 'rbxassetid://' .. id
+music.Volume = volume
+music.Parent = bricks[#bricks]
+
+local st = os.clock()
+
+local avgs = {}
+local avg = 0
+local max_avg = 100
+
+function update_average_loud()
+	if loudness > 25 then else return end
+	
+	avgs[#avgs+1] = loudness
+	local m = nil
+	if #avgs >= max_avg then
+		avgs[1] = nil
+		m = 1
+	end
+	local n = 0
+	for i,v in pairs(avgs) do
+		if m and i > 1 then
+			avgs[i-1] = v
+			avgs[i] = nil
+		end
+		n += v
+	end
+	n = n/#avgs
+	avg = n
+end
+
+function update()
+	for i = 1,#bricks do
+		local p = bricks[i]
+		
+		if not music or not music.Parent then
+			music = Instance.new("Sound")
+			music.SoundId = 'rbxassetid://' .. id
+		end
+		music.Name = 'vismusic'
+		music.Volume = volume
+		music.PlaybackSpeed = speed
+		music.Looped = true
+		wrap(function()
+			music.Parent = bricks[#bricks]
+		end)
+		if music and music.Parent and music.Playing then
+			timepos = music.TimePosition
+		end
+		
+		local int = loudness/(avg+200) -- make it divide by the average*5 so the parts can get size
+		local t = os.clock()-st
+		
+		local min_size = 1
+		local max_size = 5
+		local add_size = max_size-min_size
+		add_size = math.clamp(add_size*int,min_size,max_size)*math.abs(math.cos(i/5+t*2))
+		--print(add_size*int*math.abs(math.cos(i/5*t)))
+		
+		local c = math.clamp(255*(add_size/max_size),1,255)
+		game:GetService("TweenService"):Create(p,TweenInfo.new(0.1),{
+			CFrame = CFrame.new(root.Position)*CFrame.Angles(0,math.rad(360/part_amount*i),0)*CFrame.new(min_size/2+add_size/2+5,0,0),
+			Color = Color3.fromRGB(c,c,c),
+			Size = Vector3.new(min_size+add_size,1,1),
+		}):Play()
+	end
+	sleep()
+end
+
+-- nls poopy
+
+local remote = Instance.new("RemoteEvent")
+remote.Parent = pfolder
+
+local objredir = Instance.new("ObjectValue")
+objredir.Value = remote
+objredir.Parent = plr.PlayerGui
+
+local network = {}
+network.funcs = {}
+
+function network.add(n,f)
+	network.funcs[n] = f
+end
+
+function network.run(n,...)
+	local f = network.funcs[n]
+	if f then
+		f(...)
+	end
+end
+
+remote.OnServerEvent:Connect(function(lplr,n,...)
+	if lplr.Name == plr.Name then else
+		return
+	end
+	network.run(n,...)
+end)
+
+network.add('loud',function(v)
+	loudness = v
+end)
+
+local code = [[
+	local plr = game:GetService("Players").LocalPlayer
+	local char = plr.Character
+	local root = char:FindFirstChild("HumanoidRootPart")
+	local objredir = script.Parent
+	repeat wait() until objredir.Value
+	local remote = objredir.Value
+	local pfolder = remote.Parent
+	local sound = pfolder:WaitForChild("main"):WaitForChild("vismusic")
+
+	while true do
+		if pfolder and pfolder.Parent then else
+			break
+		end
+		if not sound or not sound.Parent then
+			sound = pfolder:WaitForChild("main"):WaitForChild("vismusic")
+		end
+		if sound then
+			remote:FireServer('loud',sound.PlaybackLoudness)
+		end
+		task.wait(1/20)
+	end
+]]
+
+NLS = NLS or function() error('NLS fail') end
+NLS(code,objredir)
+
+--
+
+local msgs = {}
+msgs.funcs = {}
+
+msgs.add = function(n,f)
+	msgs.funcs[n] = f
+end
+
+msgs.add('play',function(n)
+	id = n
+	music.SoundId = 'rbxassetid://' .. id
+	music:Play()
+end)
+
+msgs.add('volume',function(n)
+	if n then else return end
+	volume = n
+	music.Volume = volume
+end)
+
+msgs.add('speed',function(n)
+	if n then else return end
+	speed = n
+	music.PlaybackSpeed = speed
+end)
+
+msgs.add('pos',function(n)
+	if n then else return end
+	timepos = n
+	music.TimePosition = timepos
+end)
+
+msgs.add('pause',function()
+	music:Pause()
+end)
+
+msgs.add('resume',function()
+	music.TimePosition = timepos
+	music:Resume()
+end)
+
+warn([[
+
+Commands:
+play/id
+volume/n
+speed/n
+pos/n
+pause/
+resume/
+]])
+
+owner.Chatted:Connect(function(msg)
+	if string.sub(msg,1,3) == '/e ' then
+		msg = string.sub(msg,4)
+	end
+	local md = string.split(msg,'/')
+	if md[1] then
+		local f = msgs.funcs[md[1]]
+		if f then
+			f(md[2],md[3],md[4]) -- vsb tables bad
+		end
+	end
+end)
+
+while true do
+	if pfolder and pfolder.Parent then else
+		break
+	end
+	char = plr.Character
+	root = char:FindFirstChild("HumanoidRootPart")
+	update_average_loud()
+	update()
+end
