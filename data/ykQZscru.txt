@@ -1,0 +1,68 @@
+using Game.SaveStorages;
+using Game.SaveStorages.Paths;
+using Game.Tools.Extensions;
+using MalbersAnimations.Controller;
+using UnityEngine;
+
+namespace Game.Stats.Stamina
+{
+	public sealed class Stamina : MonoBehaviour
+	{
+		[SerializeField, Min(1)] private int _default = 100;
+		[SerializeField, Min(1)] private int _degenerate = 2;
+		[SerializeField, Min(1)] private int _regenerate = 1;
+		[SerializeField] private Bar _view;
+		[SerializeField] private MAnimal _animal;
+
+		private ISaveStorage<int> _maxValueStorage;
+		private Stat _stat;
+
+		private void Awake()
+		{
+			_maxValueStorage = new BinaryStorage<int>(new Path(nameof(Stamina)));
+
+			_stat = Stat();
+		}
+
+		private void Update()
+		{
+			if (_animal.MovementDetected)
+			{
+				if (_animal.Sprint)
+					_stat.Subtract(_degenerate);
+			}
+			else
+			{
+				_stat.Add(_regenerate);
+			}
+		}
+
+		private Stat Stat()
+		{
+			int max = _maxValueStorage.HasSave()
+				? _maxValueStorage.Load()
+				: _default;
+
+			IStatChanged statEmpty = new StatEmpty(new StatEmptyCallback(DisableSprint));
+			IStatChanged statNotEmpty = new StatNotEmpty(new StatNotEmptyCallback(EnableSprint));
+			IStatChanged textView = new StatChangedCallback(_view.Visualize);
+			IStatChanged[] changes = { statEmpty, statNotEmpty, textView };
+			IStatChanged statChanged = new CompositeStatChanged(changes);
+
+			return new Stat(max, statChanged);
+		}
+
+		private void DisableSprint() => _animal.UseSprint = false;
+
+		private void EnableSprint() => _animal.UseSprint = true;
+
+		public void IncreaseMaxValue(int value)
+		{
+			value.ThrowExceptionIfLessThanZero();
+
+			_maxValueStorage.Save(value);
+
+			_stat = Stat();
+		}
+	}
+}
