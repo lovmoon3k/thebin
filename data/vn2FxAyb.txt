@@ -1,0 +1,214 @@
+#include<stdio.h>
+#include<string>
+#include<iostream>
+#include<vector>
+#include<cstring>
+#include<cassert>
+#include<fstream>
+ 
+#define maxlen 70005
+#define maxwords 100005
+#define maxdictlen 500005
+#define maxsqrt 273
+#define base 73
+#define mods 2
+ 
+using namespace std;
+ 
+ 
+ifstream fin("sir3.in");
+ofstream fout("sir3.out");
+ 
+ 
+ 
+int n,dictSize,sqrtSize,bucati,op;
+string sir;
+string sqrtw[maxsqrt];
+int lung[maxwords],dictHash[maxwords][5],H[maxsqrt][mods],p[mods][maxlen];
+ 
+int mod[mods] = {100003,500009};
+ 
+inline void getWordHash ( string& , int *dictHash );
+ 
+inline void read () {
+ 
+	fin >> sir;
+	fin >> dictSize;
+	for ( int i = 1 ; i <= dictSize ; ++i ){
+		string word;
+		fin >> word;
+		lung[i] = (int)word.size();
+		getWordHash(word,dictHash[i]);
+	}
+	fin >> op;
+}
+ 
+inline void getWordHash ( string& word , int *h ){
+ 
+	for ( int j = 0 ; j < mods ; ++j ){
+		for ( int i = 0 ; i < (int)word.size() ; ++i ){
+			h[j] = (h[j]*base + word[i])%mod[j];
+		}
+	}
+}
+ 
+inline void buildSqrt () {
+ 
+	for ( int i = 1 ; i <= bucati ; ++i ){
+		sqrtw[i].clear();
+		for ( int j = 0 ; j < mods ; ++j ){
+			H[i][j] = 0;
+		}
+	}
+ 
+	sqrtSize = 1;
+	while ( (sqrtSize+1)*(sqrtSize+1) <= (int)sir.size() ){
+		++sqrtSize;
+	}
+ 
+	bucati = 1;
+	for ( int i = 0 ; i < (int)sir.size() ; ++i ){
+ 
+		if ( (int)sqrtw[bucati].size() == sqrtSize ){
+			++bucati;
+		}
+		sqrtw[bucati].push_back(sir[i]);
+		for ( int j = 0 ; j < mods ; ++j ){
+			H[bucati][j] = (H[bucati][j]*base + sir[i])%mod[j];
+		}
+	}
+}
+ 
+inline void rebuildHash ( const int &ind ){
+ 
+	for ( int i = 0 ; i < mods ; ++i ){
+		H[ind][i] = 0;
+		for ( int j = 0 ; j < (int)sqrtw[ind].size() ; ++j ){
+			H[ind][i] = (H[ind][i]*base + sqrtw[ind][j])%mod[i];
+		}
+	}
+}
+ 
+inline void insereaza ( int poz , const char &ch ){
+ 
+	for ( int i = 1 ; i <= bucati ; ++i ){
+		if ( (int)sqrtw[i].size()+1 >= poz ){
+			string s; s.push_back(ch);
+			sqrtw[i].insert(poz-1,s);
+			rebuildHash(i);
+			return ;
+		}
+		else{
+			poz -= (int)sqrtw[i].size();
+		}
+	}
+ 
+	assert(false);
+}
+ 
+inline void getHash ( const int &st , const int &dr , vector<int>&localH ){
+ 
+	int current_st = 1;
+	for ( int i = 1 ; i <= bucati && current_st <= dr ; ++i ){
+		int current_dr = current_st + (int)sqrtw[i].size() - 1;
+ 
+		int comst = max(current_st,st),comdr = min(current_dr,dr);
+		if ( comst == current_st && comdr == current_dr ){
+ 
+			for ( int j = 0 ; j < mods ; ++j ){
+				localH[j] = (1LL*localH[j]*p[j][sqrtw[i].size()] + H[i][j])%mod[j];
+			}
+		}
+		else{
+ 
+			for ( int k = comst-current_st ; k <= comdr-current_st ; ++k ){
+				for ( int j = 0 ; j < mods ; ++j ){
+					localH[j] = (localH[j]*base + sqrtw[i][k])%mod[j];
+				}
+			}
+		}
+ 
+		current_st += (int)sqrtw[i].size();
+	}
+}
+ 
+inline int solve ( int poz , int ind ){
+ 
+	int dr = poz; int st = dr-lung[ind]+1;
+ 
+	vector<int>localH(mods,0);
+	getHash(st,dr,localH);
+ 
+	for ( int j = 0 ; j < mods ; ++j ){
+		if ( localH[j] != dictHash[ind][j] ){
+			return 0;
+		}
+	}
+	return 1;
+}
+ 
+inline void precomputeBasePowers () {
+ 
+	for ( int j = 0 ; j < mods ; ++j ){
+		p[j][0] = 1;
+	}
+	for ( int i = 1 ; i < maxlen ; ++i ){
+		for ( int j = 0 ; j < mods ; ++j ){
+			p[j][i] = (p[j][i-1]*base)%mod[j];
+		}
+	}
+}
+ 
+inline void recompute () {
+ 
+	sir = "";
+	for ( int i = 1 ; i <= bucati ; ++i ){
+		sir.append(sqrtw[i]);
+	}
+	buildSqrt();
+}
+ 
+inline void solve () {
+ 
+	buildSqrt();
+ 
+    int last_ans = 0;
+    int a, b;
+	while ( op-- ){
+		int tip; fin >> tip;
+ 
+		if ( tip == 0 ){
+			int poz; char ch;
+			fin >> poz >> ch >> a >> b;
+			if(last_ans == 0)
+                poz ^= a;
+            else
+                poz ^= b;
+ 
+            insereaza(poz,ch);
+ 
+			--sqrtSize;
+			if ( !sqrtSize )	recompute();
+		}
+		else{
+			int poz,ind;
+			fin >> poz >> ind >> a >> b;
+            if(last_ans == 0)
+                poz ^= a;
+            else
+                poz ^= b;
+ 
+ 
+            last_ans = solve(poz, ind);
+			fout << last_ans << "\n";
+		}
+	}
+}
+ 
+int main () {
+ 
+	read();
+	precomputeBasePowers();
+	solve();
+	return 0;
+}
