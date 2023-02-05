@@ -1,0 +1,142 @@
+/* 
+Complexitate O(N * N + N * M)
+Sursa foloseste elemente de STL si C++11, dar acestea nu sunt critice in rezolvarea problemei.
+Pentru detalii despre anumite functii sau tipuri de date, puteti consulta documentatia pe cplusplus.com.
+*/
+
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    ifstream cin("admitere.in");
+    ofstream cout("admitere.out");
+
+    int tip, n, m; cin >> tip >> n >> m;
+
+    vector<vector<int>> fixedGrades(2, vector<int> (m, 0));
+    vector<vector<int>> currGrades(n, vector<int> (2, 0));
+    
+    // 0 = REAL, 1 = UMAN
+
+    for(int i = 0; i < 2; ++i)
+       for(int j = 0; j < m; ++j)
+           cin >> fixedGrades[i][j]; // cele M note deja existente la fiecare clasa
+
+    for(int i = 0; i < n; ++i)
+       cin >> currGrades[i][0] >> currGrades[i][1]; // notele celor N elevi privilegiati
+    
+    vector<vector<int>> frontAlready(2, vector<int> (n, 0));
+    vector<vector<int>> p(2, vector<int> (n, 0));
+    
+    // Precalculam p[C][index] = care este al index-lea elev privilegiat in ordine 
+    // crescatoare, daca ii sortam dupa nota pentru clasa C
+
+    for(int c = 0; c < 2; ++c) {  
+        for(int i = 0; i < n; ++i) 
+            p[c][i] = i;
+        sort(p[c].begin(), p[c].end(), [&] (int a, int b) {
+            return currGrades[a][c] < currGrades[b][c];
+        });
+    }
+    
+    // Precalculam frontAlready[C][E] = cate din cele M note deja existente la clasa C
+    // sunt mai mari decat nota elevului privilegiat cu numarul E la clasa C
+    
+    for(int c = 0; c < 2; ++c) 
+        for(int i = 0; i < n; ++i)
+            for(int j = 0; j < m; ++j)
+                if(fixedGrades[c][j] > currGrades[i][c]) 
+                    frontAlready[c][i]++;
+    
+    int bestAns = 0;
+    string bestConfig(n, 'X');
+    string label = "RU";
+    
+    // Functia realityCheck preia un string cu optiunile de inscriere ale celor N elevi
+    // si il "aduce la realitate", punand 'X' in dreptul elevilor care nu sunt admisi
+    // la clasa aleasa. Complexitatea functiei este O(N).
+
+    auto realityCheck = [&] (string config) -> string {
+        for(int c = 0; c < 2; ++c) {
+            int greaterFriends = 0;
+            for(int i = n - 1; i >= 0; --i) { // parcurgem elevii privilegiati inscrisi la clasa c in ordine descrescatoare dupa nota
+                if(config[p[c][i]] != label[c])
+                    continue;
+
+                // greaterFriends = cati elevi privilegiati inscrisi la clasa c au fost admisi deja
+                // frontAlready[..] = cati elevi din cei M initiali aveau note mai mari decat cel curent
+                // pozitia elevului curent este data de suma acestor doua valori + 1
+                // daca este >= m, elevul este respins
+
+                if(greaterFriends + frontAlready[c][p[c][i]] >= m) 
+                    config[p[c][i]] = 'X';
+                greaterFriends++; 
+            }
+        }
+        return config;
+    };
+    
+    // Cerinta 1
+
+    for(int c = 0; c < 2; ++c) {
+        string config(n, label[c]); // toti elevii se inscriu la clasa c
+        config = realityCheck(config); // config ne spune acum care elevi au ramas efectiv admisi la clasa c
+
+        int temp = 0;
+        for(int i = 0; i < n; ++i)
+            if(config[i] != 'X')
+                ++temp;
+
+        if(temp > bestAns) { // actualizam raspunsul cel mai bun
+            bestAns = temp;
+            bestConfig = config;
+        }
+    }
+
+    if(tip == 1) {
+        cout << bestAns << "\n";
+        cout << bestConfig << "\n";
+        return 0;
+    }
+    
+
+    //Cerinta 2
+
+    const int REAL = 0, UMAN = 1;
+
+    for(int minReal = 0; minReal < n; ++minReal) { // fixam ultimul privilegiat admis la Real
+        string config(n, 'X');
+        config[minReal] = label[REAL];
+        
+        int space = m - 1;
+        for(int i = 0; i < m; ++i)
+            if(fixedGrades[REAL][i] > currGrades[minReal][REAL]) // mai putem pune maxim "space" privilegiati la Real
+                space--;
+        
+        for(int i = 0; i < n; ++i) { // parcurgem ceilalti N - 1 elevi in ordine crescatoare dupa nota de la UMAN
+            if(p[UMAN][i] == minReal)
+                continue;
+            if(currGrades[p[UMAN][i]][REAL] > currGrades[minReal][REAL] && space > 0) { // daca elevul are nota de Real > minimul fixat si mai avem loc, il punem la real.
+                config[p[UMAN][i]] = label[REAL];
+                space--;
+            } else { // altfel se inscrie la uman
+                config[p[UMAN][i]] = label[UMAN];
+            }
+        }
+        
+        config = realityCheck(config); // aducem configuratia la realitate
+
+        int temp = 0;
+        for(int i = 0; i < n; ++i)
+            if(config[i] != 'X')
+                temp++;
+        
+        if(temp > bestAns) {
+            bestAns = temp;
+            bestConfig = config;
+        }
+    }
+        
+    cout << bestAns << "\n";
+    cout << bestConfig << "\n";
+} 
