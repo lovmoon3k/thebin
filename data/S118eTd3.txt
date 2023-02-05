@@ -1,0 +1,66 @@
+template<typename Range>
+using all_result_t = decltype(std::views::all(std::declval<Range>()));
+
+template<typename ... Ranges>
+class zip
+{
+public:
+	struct iterator
+	{
+		friend constexpr auto operator==(const iterator& lhs, const iterator& rhs)
+		{
+			return [&]<std::size_t ... I>(std::index_sequence<I...>)
+			{
+				return ((std::get<I>(lhs.iterators_) == std::get<I>(rhs.iterators_)) || ...);
+			}(std::make_index_sequence<sizeof...(Ranges)>());
+		}
+
+		constexpr void operator++() noexcept
+		{
+			[&] <std::size_t ... I>(std::index_sequence<I...>)
+			{
+				(++std::get<I>(iterators_), ...);
+			}(std::make_index_sequence<sizeof...(Ranges)>());
+		}
+
+		constexpr auto operator*() noexcept
+		{
+			return [&] <std::size_t ... I>(std::index_sequence<I...>)
+			{
+				return std::forward_as_tuple(*std::get<I>(iterators_) ... );
+			}(std::make_index_sequence<sizeof...(Ranges)>());
+		}
+		std::tuple<std::ranges::iterator_t<all_result_t<Ranges>> ...> iterators_{};
+	};
+
+	zip() = delete;
+
+	template<std::ranges::input_range ... Ranges2>
+	explicit constexpr zip(Ranges2&& ... ranges)
+		: ranges_{ std::forward<Ranges2>(ranges) ... }
+	{
+
+	}
+
+	constexpr iterator begin() noexcept
+	{
+		return [&]<std::size_t ... I>(std::index_sequence<I...>)
+		{
+			return iterator{ .iterators_ = { std::ranges::begin(std::get<I>(ranges_)) ... } };
+		}(std::make_index_sequence<sizeof...(Ranges)>());
+	}
+
+	constexpr iterator end() noexcept
+	{
+		return [&]<std::size_t ... I>(std::index_sequence<I...>)
+		{
+			return iterator{ .iterators_ = { std::ranges::end(std::get<I>(ranges_)) ... } };
+		}(std::make_index_sequence<sizeof...(Ranges)>());
+	}
+
+private:
+	std::tuple<Ranges ...> ranges_;
+};
+
+template<std::ranges::input_range ... Ranges>
+zip(Ranges&& ...) -> zip <all_result_t<Ranges>...>;
