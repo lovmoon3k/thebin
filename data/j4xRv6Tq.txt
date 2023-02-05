@@ -1,0 +1,41 @@
+from aiogram import Bot, Dispatcher
+from aiogram.filters import Command
+from aiogram.types import Message
+from aiogram.utils.i18n import gettext as _
+
+from src import keyboards
+from src.configs.env import TELEGRAM_TOKEN
+from src.database import db
+from src.handlers import settings
+from src.middlewares import i18n
+from src.models.user import UserModel
+
+dispatcher = Dispatcher()
+
+
+@dispatcher.message(Command(commands=["start"]))
+async def command_start_handler(message: Message) -> None:
+  user: UserModel = db.users.find_one({"userId": message.from_user.id})
+
+  if user:
+    return await message.answer(
+      _("I am your king <b>Tikhon</b>. I can analyze stocks, make market forecasts on them, and also trade them instead of you."),
+      reply_markup=keyboards.reply.command_start,
+      parse_mode="HTML"
+    )
+
+  return await message.answer(_("You have no rights to use this bot!"))
+
+
+bot = Bot(token=TELEGRAM_TOKEN)
+
+
+async def on_startup():
+  i18n.setup(dispatcher)
+  dispatcher.include_router(settings.router)
+
+  return await dispatcher.start_polling(bot)
+
+
+async def on_shutdown():
+  return await bot.session.close()
