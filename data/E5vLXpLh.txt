@@ -1,0 +1,72 @@
+
+RegisterCommand('test_sql', function()
+    local function isLast(tbl, i)
+        return i == table.len(tbl)
+    end
+
+    local function tableKeys(tbl)
+        local keys = {}
+        for k, _ in pairs(tbl) do
+            table.insert(keys, k)
+        end
+        return keys
+    end
+
+    local function prepareMultipleRowsInsert(basicQuery, values)
+        local query = basicQuery
+        local i = 1
+        local parametersMap = {}
+        for _, data in ipairs(values) do
+            local queryPart = '('
+            local inI = 1
+            local keyMap = {}
+            local valueKeyMap = {}
+            for key, value in pairs(data) do
+                valueKeyMap[key] = value
+            end
+            for ind, v in ipairs(tableKeys(data)) do
+                keyMap[ind] = v
+            end
+
+            for _, key in pairs(keyMap) do
+                local value = valueKeyMap[key]
+                local newKey = '@' .. key .. i
+                if isLast(data, inI) then
+                    queryPart = queryPart .. newKey
+                else
+                    queryPart = queryPart .. newKey .. ', '
+                end
+                parametersMap[newKey] = value
+
+                inI = inI + 1
+            end
+
+            queryPart = queryPart .. ')'
+
+            if i == 1 then
+                query = query .. string.format("%s", queryPart)
+            else
+                query = query .. string.format(", %s", queryPart)
+            end
+
+            i = i + 1
+        end
+        return query, parametersMap
+    end
+
+    local query, parametersMap = prepareMultipleRowsInsert('INSERT INTO `rcore_multiple_insert` (`identifier`, `chat`) VALUES ', {
+        {
+            ['identifier'] = 'steam:11000010f1c5b5f',
+            ['chat'] = 'some cool message',
+        },
+        {
+            ['identifier'] = 'license:',
+            ['chat'] = 'other message',
+        }
+    })
+
+    print(query, dumpTable(parametersMap))
+
+    --TODO CHECK
+    --MySQL.Sync.execute(query, parametersMap)
+end)
