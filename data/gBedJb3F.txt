@@ -1,0 +1,169 @@
+//Variety of functions for signup and login system
+
+# Checking if any of the fields have been left blank
+    function emptyInputSignup($fname, $lname, $uname, $email, $pwd, $rpwd){
+        $result;
+        if(empty($fname) || empty($lname) || empty($uname) || empty($email) || empty($pwd) || empty($rpwd)){
+            $result = true;
+        }else{
+            $result = false;
+        }
+        return $result;
+    }
+
+/************************************************************************************************************************************************************************************/
+
+# Checking if any of the fields have been left blank
+    function invalidUid($uname){
+        $result;
+        if(!preg_match("/^[a-zA-Z0-9]*$/", $uname)){
+            // True = error
+            $result = true;
+        }else{
+            $result = false;
+        }
+        return $result;
+    }
+
+/************************************************************************************************************************************************************************************/
+
+# Checking if valid email string
+    function invalidEmail($email){
+        $result;
+        if(!filter_var($email, FILTER_VALIDATE_EMAIL)){
+            //true = error
+            $result = true;
+        }else{
+            $result = false;
+        }
+        return $result;
+    }
+
+/************************************************************************************************************************************************************************************/
+
+# Checking if passwords match
+    function pwdMatch($pwd, $cpwd){
+        $result;
+        if($pwd != $cpwd){
+            // true = error
+            $result = true;
+        }else{
+            $result = false;
+        }
+        return $result;
+    }
+
+/************************************************************************************************************************************************************************************/
+
+    # Password not long enough
+        function pwdTooShort($pwd){
+            $result;
+            if($pwd >= 8){
+                // true = error
+                $result = true;
+            }else{
+                $result = false;
+            }
+            return $result;
+        }
+
+/************************************************************************************************************************************************************************************/
+
+# Checking if username already exists
+    function uidExists($dbc, $uname, $email){
+        $sql = "SELECT * FROM adminusers WHERE username = ? OR email = ?;";
+        
+        
+        
+        $stmt = mysqli_stmt_init($dbc);
+        
+        if(!mysqli_stmt_prepare($stmt, $sql)){
+            header('Location: register.php?error=stmtfailed');
+            exit();
+        }
+        
+        mysqli_stmt_bind_param($stmt, "ss", $uname, $email);
+        mysqli_stmt_execute($stmt);
+        
+        $resultData = mysqli_stmt_get_result($stmt);
+        
+        if($row = mysqli_fetch_assoc($resultData)){
+            return $row;
+        }else{
+            $result = false;
+            return $result;
+        }
+        
+        mysqli_stmt_close($stmt);
+        
+    }
+
+/************************************************************************************************************************************************************************************/
+
+ # Checking if username already exists
+    function createUser($dbc, $fname, $lname, $uname, $email, $pwd){
+        $sql = "INSERT INTO adminusers (first, last, email, username, password) VALUES (?,?,?,?,?);";
+        
+        $stmt = mysqli_stmt_init($dbc);
+        
+        if(!mysqli_stmt_prepare($stmt, $sql)){
+            header('Location: register.php?error=databaseerror');
+            exit();
+        }
+        
+        //Hashing pwd
+        $hashedPwd = password_hash($pwd, PASSWORD_DEFAULT);
+        
+        
+        mysqli_stmt_bind_param($stmt, "sssss", $fname, $lname, $email, $uname, $hashedPwd);
+        mysqli_stmt_execute($stmt);
+        
+        mysqli_stmt_close($stmt);
+        header("Location: register.php?none");
+        exit();
+    }
+
+/************************************************************************************************************************************************************************************/
+
+function emptyInputLogin($uname, $pwd){
+        $result;
+        if(empty($uname) || empty($pwd)){
+            $result = true;
+        }else{
+            $result = false;
+        }
+        return $result;
+    }
+
+/************************************************************************************************************************************************************************************/
+
+function loginUser($dbc, $uname, $pwd){
+        
+        $uidExists = uidExists($dbc, $uname, $uname);
+        
+        //If false username/email doesn't exist in dbase
+        if($uidExists === false){
+            header('Location: login.php?error=incorrectlogindetails');
+            exit();
+        }
+        
+        $pwd_hashed = $uidExists['password'];
+        $checkpwd = password_verify($pwd, $pwd_hashed);
+        
+        if($checkpwd === false){
+            header('Location: login.php?error=incorrectlogindetails');
+            exit();
+        }elseif($checkpwd === true){
+            $_SESSION['userid'] = $uidExists['id'];
+            $_SESSION['useruid'] = $uidExists['username'];
+            $_SESSION['useremail'] = $uidExists['email'];
+            $_SESSION['userfirst'] = $uidExists['first'];
+            $_SESSION['userlast'] = $uidExists['last'];
+            $_SESSION['userstatus'] = $uidExists['status'];
+            
+            
+            
+            header('Location: index.php');
+            exit();
+        }
+    }
