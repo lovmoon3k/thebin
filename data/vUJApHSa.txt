@@ -1,0 +1,107 @@
+// 0. be a twitter developer
+// 1. put information below 
+// 2. run the 'getOAuthURL'
+// 3. put the link into your browser
+// 4. run collect_words every 15 minutes and auto_block every 2 hours.
+
+
+
+// Put the appropriate spreadsheet ID here.
+log_sheet = '';
+// twitter API here
+twitter = ""
+twitter_secret = "";
+
+// the word you want to block here
+block_word= "";
+
+function collect_words(){
+  word = block_word;
+  json = twitterSearch(word+  " ",100);
+  try{SpreadsheetApp.openById(log_sheet).insertSheet().setName(word);}catch{}finally{}
+  sheet = getSheet(log_sheet, word);
+
+  json.statuses.forEach(function (stat){
+    
+    sheet.appendRow(
+    [getDate_Format(), stat.user.name, stat.user.id_str, stat.text]
+  );
+  let range = sheet.getDataRange();
+
+  range.removeDuplicates([2, 3, 4]);
+  });
+}
+
+function auto_block(){
+  var sheet = getSheet(log_sheet, "url:bnc.lt");
+  let values = [];
+  var i =0;
+  sheet.getRange('C1:C15').getValues().forEach(function (stat){
+    values[i] = stat[0];i++;
+  });
+  values.forEach(function (id){
+    post_block(id);
+  });
+  sheet.deleteRows(1,15);
+}
+
+function post_block(id){
+  const tw = 'https://api.twitter.com/1.1/blocks/create.json'; 
+  var service = getTwitterService(); 
+  
+  var response = JSON.parse(service.fetch(tw, {
+  method: 'post',
+    muteHttpExceptions : true,
+    payload: {
+      user_id: id
+    }
+  }));
+}
+
+function twitterSearch(keyword="test", maxCount=1) {
+    let encodedKeyword = encodeURIComponent(keyword);
+    try {
+        var twitterService = getTwitterService();
+        if (!twitterService.hasAccess()) {
+            var err;
+            if((err = twitterService.getLastError()) === undefined) Logger.log(err);
+            return null;
+        }
+        var url = 'https://api.twitter.com/1.1/search/tweets.json?q='
+            + encodedKeyword
+            + '&result_type=recent&lang=ja&locale=ja&count='
+            + maxCount;
+        var response = twitterService.fetch(url, { method: "GET",muteHttpExceptions:true });
+        var json = JSON.parse(response);
+        return json;
+    }
+    catch (ex) {
+        return null;
+    }
+}
+
+function getOAuthURL() {
+  Logger.log(getTwitterService().authorize());
+}
+ 
+function getTwitterService() {
+    return  OAuth1.createService('Twitter')
+      .setAccessTokenUrl('https://api.twitter.com/oauth/access_token')
+      .setRequestTokenUrl('https://api.twitter.com/oauth/request_token')
+      .setAuthorizationUrl('https://api.twitter.com/oauth/authorize')
+      .setConsumerKey(twitter)
+      .setConsumerSecret(twitter_secret)
+      .setCallbackFunction('authCallback')
+      .setPropertyStore(PropertiesService.getUserProperties());
+
+}
+ 
+function authCallback(request) {
+  var authorized = getTwitterService().handleCallback(request);
+  if (authorized) {
+    
+    return HtmlService.createHtmlOutput('success!!');
+  } else {
+    return HtmlService.createHtmlOutput('failed');
+  }    
+}
