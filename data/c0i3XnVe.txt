@@ -1,0 +1,212 @@
+#include <algorithm>
+#include <concepts>
+#include <format>
+#include <list>
+#include <iostream>
+#include <ranges>
+#include <set>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+
+template<typename Range>
+using all_result_t = decltype(std::views::all(std::declval<Range>()));
+
+template<typename ... Ranges> requires (sizeof...(Ranges) > 0)
+class zip : public std::ranges::view_interface<zip<Ranges...>>
+{
+public:
+	struct iterator
+	{
+		friend constexpr auto operator==(const iterator& lhs, const iterator& rhs)
+		{
+			return[&]<std::size_t ... I>(std::index_sequence<I...>)
+			{
+				return ((std::get<I>(lhs.iterators_) == std::get<I>(rhs.iterators_)) || ...);
+			}(std::make_index_sequence<sizeof...(Ranges)>());
+		}
+
+		constexpr iterator& operator++() noexcept
+		{
+			[&] <std::size_t ... I>(std::index_sequence<I...>)
+			{
+				(++std::get<I>(iterators_), ...);
+			}(std::make_index_sequence<sizeof...(Ranges)>());
+			return *this;
+		}
+
+		constexpr iterator operator++(int) noexcept
+		{
+			iterator cpy = *this;
+			[&] <std::size_t ... I>(std::index_sequence<I...>)
+			{
+				(++std::get<I>(iterators_), ...);
+			}(std::make_index_sequence<sizeof...(Ranges)>());
+			return cpy;
+		}
+
+		constexpr auto operator*() noexcept
+		{
+			return [&] <std::size_t ... I>(std::index_sequence<I...>)
+			{
+				return std::forward_as_tuple(*std::get<I>(iterators_) ... );
+			}(std::make_index_sequence<sizeof...(Ranges)>());
+		}
+
+		constexpr auto operator*() const noexcept
+		{
+			return[&] <std::size_t ... I>(std::index_sequence<I...>)
+			{
+				return std::forward_as_tuple(*std::get<I>(iterators_) ...);
+			}(std::make_index_sequence<sizeof...(Ranges)>());
+		}
+
+		std::tuple<std::ranges::iterator_t<all_result_t<Ranges>> ...> iterators_{};
+
+		using iterator_category = std::forward_iterator_tag;
+		using iterator_concept = std::forward_iterator_tag;
+		using value_type = std::tuple<decltype(*std::declval<std::ranges::iterator_t<all_result_t<Ranges>>>()) ...>;
+		using pointer = value_type*;
+		using reference = value_type;
+		using difference_type = std::ptrdiff_t;
+	};
+
+	struct sentinel
+	{
+		friend iterator;
+
+		friend constexpr auto operator==(const iterator& lhs, const sentinel& rhs)
+		{
+			return[&]<std::size_t ... I>(std::index_sequence<I...>)
+			{
+				return ((std::get<I>(lhs.iterators_) == std::get<I>(rhs.sentinels_)) || ...);
+			}(std::make_index_sequence<sizeof...(Ranges)>());
+		}
+
+		constexpr sentinel& operator++() noexcept
+		{
+			[&] <std::size_t ... I>(std::index_sequence<I...>)
+			{
+				(++std::get<I>(sentinels_), ...);
+			}(std::make_index_sequence<sizeof...(Ranges)>());
+			return *this;
+		}
+
+		constexpr sentinel operator++(int) noexcept
+		{
+			auto cpy = *this;
+			[&] <std::size_t ... I>(std::index_sequence<I...>)
+			{
+				(++std::get<I>(sentinels_), ...);
+			}(std::make_index_sequence<sizeof...(Ranges)>());
+			return cpy;
+		}
+
+		std::tuple<std::ranges::sentinel_t<all_result_t<Ranges>> ...> sentinels_{};
+
+		using iterator_category = std::forward_iterator_tag;
+		using iterator_concept = std::forward_iterator_tag;
+		using difference_type = std::ptrdiff_t;
+	};
+
+	template<std::ranges::input_range ... Ranges2>
+	explicit constexpr zip(Ranges2&& ... ranges)
+		: ranges_{ std::forward<Ranges2>(ranges) ... }
+	{
+
+	}
+
+	constexpr zip() noexcept = delete;
+	constexpr zip(const zip&) noexcept = default;
+	constexpr zip(zip&&) noexcept = default;
+	constexpr zip& operator=(const zip&) noexcept = default;
+	constexpr zip& operator=(zip&&) noexcept = default;
+
+	constexpr iterator begin() noexcept
+	{
+		return [&]<std::size_t ... I>(std::index_sequence<I...>)
+		{
+			return iterator{ .iterators_ = { std::ranges::begin(std::get<I>(ranges_)) ... } };
+		}(std::make_index_sequence<sizeof...(Ranges)>());
+	}
+
+	constexpr sentinel end() noexcept
+	{
+		return [&]<std::size_t ... I>(std::index_sequence<I...>)
+		{
+			return sentinel{ .sentinels_ = { std::ranges::end(std::get<I>(ranges_)) ... } };
+		}(std::make_index_sequence<sizeof...(Ranges)>());
+	}
+
+	constexpr auto size() const noexcept
+		requires (std::ranges::sized_range<Ranges> && ...)
+	{
+		using result_t = std::common_type_t<std::ranges::range_size_t<Ranges>...>;
+		return[&]<std::size_t ... I>(std::index_sequence<I...>)
+		{
+			return std::ranges::min({static_cast<result_t>(std::ranges::size(std::get<I>(ranges_))) ... });
+		}(std::make_index_sequence<sizeof...(Ranges)>());
+	}
+
+	using value_type = std::tuple<std::ranges::range_value_t<Ranges> ...>;
+	using reference_type = value_type&;
+	using iterator = iterator;
+	using sentinel = sentinel;
+
+private:
+	std::tuple<Ranges ...> ranges_;
+};
+
+template<typename... Ranges>
+inline constexpr bool std::ranges::enable_borrowed_range<zip<Ranges...>> =
+	(std::ranges::enable_borrowed_range<Ranges> && ...);
+
+template<std::ranges::input_range ... Ranges>
+zip(Ranges&& ...) -> zip <all_result_t<Ranges>...>;
+
+int main()
+{
+	std::vector<std::string> vec = { "Cristi", "Bogdi", "Andrei", "Florin" };
+	std::list<int> l = { 1, 2, 3 };
+	const std::set<double> s = { 0.5, 0.7, 0.1, 0.3 };
+
+	auto z = zip(vec, l, s);
+	for (auto&& [vec_it, l_it, s_it] : zip(vec, l, s))
+	{
+		std::cout << std::format("{} {} {}\n", vec_it, l_it, s_it);
+	}
+	std::cout << '\n';
+
+	for (auto&& [vec_it, s_it] : zip(vec, s) | std::views::take(2))
+	{
+		std::cout << std::format("{} {}\n", vec_it, s_it);
+	}
+	std::cout << '\n';
+
+	for (auto&& [vec_it, i] : zip(vec, std::views::iota(0)))
+	{
+		std::cout << std::format("{} {}\n", vec_it, i);
+	}
+	std::cout << '\n';
+
+	auto&& [a, b, c] = z.front();
+
+	std::cout << std::format("\n{} {} {}\n", a, b, c);
+
+	std::cout << std::format("size: {}\n", z.size());
+	std::cout << std::format("empty: {}\n", z.empty());
+
+	using zip_t = decltype(z);
+	using zip_it_t = zip_t::iterator;
+	using zip_sent_t = zip_t::sentinel;
+
+	static_assert(std::ranges::range<zip_t>);
+	static_assert(std::ranges::view<zip_t>);
+	static_assert(std::ranges::borrowed_range<zip_t>);
+
+	static_assert(std::ranges::forward_range<zip_t>);
+	static_assert(std::ranges::sized_range<zip_t>);
+	static_assert(std::input_iterator<zip_it_t>);
+	static_assert(std::sentinel_for<zip_sent_t, zip_it_t>);
+}
