@@ -1,0 +1,103 @@
+import requests
+from dotenv import load_dotenv
+import os
+from datetime import datetime
+
+load_dotenv()
+
+
+def send_message(text):
+    url = "https://api.telegram.org/bot{}/sendMessage".format(os.environ.get("TELEGRAM_BOT_TOKEN"))
+    payload = {'chat_id': os.environ.get('CHAT_ID'), 'text': template_text}
+    withProxy = True if os.environ.get("PROXY_SAKTI").strip() != '' else False
+    if withProxy:
+        proxyDict = {"http": os.environ.get("PROXY_SAKTI"),
+                    "https": os.environ.get("PROXY_SAKTI")}
+        req = requests.request("POST", url, data=payload, proxies=proxyDict)
+    else:
+        req = requests.request("POST", url, data=payload)
+    return req.status_code
+
+
+if __name__ == '__main__':
+    # connection = DB()
+    date_now = datetime.now()
+    current_month = int(date_now.strftime('%m'))
+    month_name = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
+    ]
+    month_name = month_name[current_month - 1]
+    current_date = date_now.strftime('%Y-%m-%d')
+    date_full = "{} {} {} - {} {} {}".format("01",  month_name, date_now.strftime('%Y'), date_now.strftime('%d'), month_name, date_now.strftime('%Y'))
+    payload = {
+        "email": "yogapramana@gmail.com",
+        "password": "12345678"
+    }
+    try:
+        balnus_token = requests.post("https://10.67.98.238/ditaAjaAPI/api/gettoken", params=payload, verify=False)
+        if balnus_token.status_code != 201 and balnus_token.status_code != 200:
+            with open('./error_log_{}.txt'.format(date_now.strftime('%Y-%m-%d')), 'a+') as file:
+                print("Error get token from server")
+                file.write("{} Error get token from server\n".format(date_now.strftime("%H:%M:%S")))
+            exit()
+        balnus_token = balnus_token.json()
+        token = balnus_token['data']['token']
+        headers = {
+            "Authorization": "{}".format(token)
+        }
+        
+        get_faq = requests.get("https://10.67.98.238/ditaAjaAPI/api/getReportFAQDitaAja", headers=headers, verify=False)
+        if get_faq.status_code != 201 and get_faq.status_code != 200:
+            with open('./error_log_{}.txt'.format(date_now.strftime('%Y-%m-%d')), 'a+') as file:
+                print("Error get data from DitaAja server")
+                file.write("{} Error get data from DitaAja server\n".format(date_now.strftime("%H:%M:%S")))
+            exit()
+        faq = get_faq.json()
+        jumlah_faq_data = faq['allFAQ'][0]['jumlah']
+        jumlah_pertanyaan = faq['FAQstatusTerjawab']
+        faq_status_tidak_terjawab = faq['FAQStatusTidakTerjawab']
+        
+        pertanyaan_terjawab = 0
+        pertanyaan_tdk_terjawab = 0
+        for pertanyaan in jumlah_pertanyaan:
+            if int(pertanyaan['statusTerjawab']) == 1:
+                pertanyaan_terjawab = int(pertanyaan['jumlah'])
+            elif int(pertanyaan['statusTerjawab']) == 0:
+                pertanyaan_tdk_terjawab = int(pertanyaan['jumlah'])
+        pertanyaan_tdk_relevan = faq['FAQNotRelevan'][0]['jumlah']
+        jumlah_kata = 0
+        jumlah_kalimat = 0
+        jumlah_pertanyaan = 0
+        persentase_kata_training = 0
+        persentase_kalimat_training = 0
+        persentase_pertanyaan_training = 0
+        data_trained = faq['DataTraining']
+        for data in data_trained:
+            if data['category'] == 'kata':
+                jumlah_kata = data['total']
+                # persentase_kata_training = float((data['total'] / 100)) * float(data['jml_sudah_training'])
+                persentase_kata_training = float((int(data['jml_sudah_traning']) / int(data['total'])) * 100)
+                persentase_kata_training = round(persentase_kata_training, 2)
+            elif data['category'] == 'kalimat':
+                jumlah_kalimat = data['total']
+                # persentase_kalimat_training = float((data['total'] / 100)) * float(data['jml_sudah_training'])
+                persentase_kalimat_training = float((int(data['jml_sudah_traning']) / int(data['total'])) * 100)
+                persentase_kalimat_training = round(persentase_kalimat_training, 2)
+            elif data['category'] == 'pertanyaan':
+                jumlah_pertanyaan = data['total']
+                # persentase_pertanyaan_training = float((data['total'] / 100)) * float(data['jml_sudah_training'])
+                persentase_pertanyaan_training = float((int(data['jml_sudah_traning']) / int(data['total'])) * 100)
+                persentase_pertanyaan_training = round(persentase_pertanyaan_training, 2)
+        pertanyaan_relevan = int(pertanyaan_terjawab) - int(pertanyaan_tdk_relevan)
+        pertanyaan_relevan = 0 if pertanyaan_relevan < 0 else pertanyaan_relevan
+
+        template_text = "Babysitting DitaAja 2.0\n{}\n\nConversation Flow FAQ\nTotal FAQ : {}\nTidak Dimengerti : {}/{}\nTerjawab : {}\n  Relevan : {}\n  Tidak Relevan : {}\n\n".format(date_full, jumlah_faq_data, faq_status_tidak_terjawab, pertanyaan_tdk_terjawab, pertanyaan_terjawab, pertanyaan_relevan, pertanyaan_tdk_relevan)
+        template_text += "Data Training\nCategory / Total / Trained(%)\n"
+        template_text += "Pertanyaan / {} / {}%\n".format(jumlah_pertanyaan, persentase_pertanyaan_training)
+        template_text += "Frasa / {} / {}%\n".format(jumlah_kalimat, persentase_kalimat_training)
+        template_text += "Kata / {} / {}%".format(jumlah_kata, persentase_kata_training)
+        send_message(template_text)
+    except Exception as e:
+            with open('./error_log_{}.txt'.format(date_now.strftime('%Y-%m-%d')), 'a+') as file:
+                print(e)
+                file.write("{} Unexpected error Occured message is:\n{}\n".format(date_now.strftime("%H:%M:%S"), e))
