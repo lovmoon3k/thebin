@@ -1,0 +1,71 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+
+namespace func_rocket
+{
+    public class LevelsTask
+    {
+        static readonly Physics StandardPhysics = new Physics();
+        static readonly Vector DefaultLocation = new Vector(200, 500);
+        static readonly Vector DefaultTarget = new Vector(600, 200);
+        static readonly Vector DefaultVelocity = Vector.Zero;
+        static readonly double DefaultDirection = -0.5 * Math.PI;
+        static readonly Gravity DefaultGravity = (size, location) => Vector.Zero;
+        static readonly Rocket DefaultRocket = new Rocket(DefaultLocation, DefaultVelocity, DefaultDirection);
+
+
+        public static IEnumerable<Level> CreateLevels()
+        {
+            yield return LevelBuilder("Zero");
+            yield return LevelBuilder("Up",
+                gravity: (size, location) => new Vector(0, -300 / (size.Height - location.Y + 300.0)),
+                target: new Vector(700, 500));
+            yield return LevelBuilder("Heavy",
+                gravity: (size, location) => new Vector(0, 0.9));
+            yield return LevelBuilder("WhiteHole",
+                gravity: WhiteHoleGravity(DefaultTarget));
+            yield return LevelBuilder("BlackHole",
+                gravity: BlackHoleGravity(DefaultTarget, DefaultLocation));
+            yield return LevelBuilder("BlackAndWhite",
+                gravity: (size, location) => BlackAndAndWhiteGravity(size, location, DefaultTarget, DefaultLocation));
+        }
+
+        public static Gravity WhiteHoleGravity(Vector target)
+        {
+            return (size, location) =>
+            {
+                var direction = target - location;
+                return direction.Normalize() * -140 * direction.Length / (direction.Length * direction.Length + 1);
+            };
+        }
+
+        public static Gravity BlackHoleGravity(Vector target, Vector start)
+        {
+            return (size, location) =>
+            {
+                var direction = (target + start) * 0.5 - location;
+                return direction.Normalize() * 300 * direction.Length / (direction.Length * direction.Length + 1);
+            };
+        }
+
+        public static Vector BlackAndAndWhiteGravity(Size size, Vector location, Vector target, Vector start) =>
+            (WhiteHoleGravity(target)(size, location) + BlackHoleGravity(target, start)(size, location)) / 2;
+
+
+        public static Level LevelBuilder(string name, Rocket rocket = null, Vector target = null,
+            Gravity gravity = null, Physics physics = null)
+        {
+            if (rocket == null)
+                rocket = DefaultRocket;
+            if (target == null)
+                target = DefaultTarget;
+            if (gravity == null)
+                gravity = DefaultGravity;
+            if (physics == null)
+                physics = StandardPhysics;
+
+            return new Level(name, rocket, target, gravity, physics);
+        }
+    }
+}
