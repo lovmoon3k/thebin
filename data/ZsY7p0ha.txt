@@ -1,0 +1,501 @@
+#include <iostream>
+#include <string>
+#include <algorithm>
+#include <vector>
+#include <unordered_set>
+#include <unordered_map>
+#include <stack>
+#include <deque>
+#include <cmath>
+
+using namespace std;
+
+void lTRIMALLL(std::string &s) {
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }));
+}
+
+void rTRIMALLL(std::string &s) {
+    s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }).base(), s.end());
+}
+
+void TRIMALLL(std::string &s) {
+    rTRIMALLL(s);
+    lTRIMALLL(s);
+}
+
+vector<string> split(string& s, const string& delimiter) {
+    vector<string> result;
+    size_t pos = 0;
+    std::string token;
+    while ((pos = s.find(delimiter)) != std::string::npos) {
+        token = s.substr(0, pos);
+        TRIMALLL(token);
+        result.push_back(token);
+        s.erase(0, pos + delimiter.length());
+    }
+
+    result.push_back(s);
+
+    return result;
+}
+
+struct Robot;
+int robotCheck(int x, int y, const vector<Robot*>& r);
+
+struct Robot {
+    int X, Y, hp, lastRound;
+    char direction;
+    bool d = false, onTheBoard = true;
+    string dStatus = "ACTIVE";
+    vector<pair<int, string>> actions;
+
+    explicit Robot(int x, int y, int hp, char a) {
+        X = x;
+        Y = y;
+        direction = a;
+        this->hp = hp;
+    }
+
+    void turnFull(int round) {
+        if (d)
+            return;
+
+        lastRound = round;
+        if (direction == 'L') {
+            direction = 'R';
+        } else if (direction == 'R') {
+            direction = 'L';
+        } else if (direction == 'U') {
+            direction = 'D';
+        } else if (direction == 'D') {
+            direction = 'U';
+        }
+    }
+
+    void turnLeft(int round) {
+        if (d)
+            return;
+
+        lastRound = round;
+        if (direction == 'L') {
+            direction = 'D';
+        } else if (direction == 'R') {
+            direction = 'U';
+        } else if (direction == 'D') {
+            direction = 'R';
+        } else if (direction == 'U') {
+            direction = 'L';
+        }
+    }
+
+    void turnRight(int round) {
+        if (d)
+            return;
+
+        lastRound = round;
+        // Поворот на 90 вправо
+        if (direction == 'L') {
+            direction = 'U';
+        } else if (direction == 'R') {
+            direction = 'D';
+        } else if (direction == 'U') {
+            direction = 'R';
+        } else if (direction == 'D') {
+            direction = 'L';
+        }
+    }
+
+    bool go(char dir, const vector<string>& f, const vector<Robot*>& r, int round) {
+        if (d)
+            return true;
+
+        lastRound = round;
+        // Идем вперед
+        if (dir == 'L') {
+            if (Y - 1 < 0) {
+                dStatus = "FALL";
+                d = true;
+                onTheBoard = false;
+                hp = -1;
+                return true;
+            }
+            if (f[X][Y - 1] == 'W') {
+                --hp;
+                if (hp <= 0) {
+                    dStatus = "COLLISION";
+                    d = true;
+                }
+                return false;
+            }
+
+            int playerIndex = robotCheck(X, Y - 1, r);
+            if (playerIndex != -1) {
+                bool flag = r[playerIndex]->go(dir, f, r, round);
+                if (flag) {
+                    --Y;
+                }
+                return flag;
+            }
+
+            --Y;
+            return true;
+        } else if (dir == 'R') {
+            if (Y + 1 >= f[0].size()) {
+                dStatus = "FALL";
+                onTheBoard = false;
+                d = true;
+                hp = -1;
+                return true;
+            }
+
+            if (f[X][Y + 1] == 'W') {
+                --hp;
+                if (hp <= 0) {
+                    d = true;
+                    dStatus = "COLLISION";
+                }
+                return false;
+            }
+            int playerIndex = robotCheck(X, Y + 1, r);
+            if (playerIndex != -1) {
+                bool flag = r[playerIndex]->go(dir, f, r, round);
+                if (flag) {
+                    ++Y;
+                }
+                return flag;
+            }
+
+            ++Y;
+            return true;
+        } else if (dir == 'U') {
+            if (X - 1 < 0) {
+                dStatus = "FALL";
+                onTheBoard = false;
+                d = true;
+                hp = -1;
+                return true;
+            }
+
+            if (f[X - 1][Y] == 'W') {
+                --hp;
+                if (hp <= 0) {
+                    d = true;
+                    dStatus = "COLLISION";
+                }
+                return false;
+            }
+            int playerIndex = robotCheck(X - 1, Y, r);
+            if (playerIndex != -1) {
+                bool flag = r[playerIndex]->go(dir, f, r, round);
+                if (flag) {
+                    --X;
+                }
+                return flag;
+            }
+
+            --X;
+            return true;
+        } else if (dir == 'D') {
+            if (X + 1 >= f.size()) {
+                dStatus = "FALL";
+                onTheBoard = false;
+                d = true;
+                hp = -1;
+                return true;
+            }
+
+            if (f[X + 1][Y] == 'W') {
+                --hp;
+                if (hp <= 0) {
+                    d = true;
+                    dStatus = "COLLISION";
+                }
+                return false;
+            }
+            int playerIndex = robotCheck(X + 1, Y, r);
+            if (playerIndex != -1) {
+                bool flag = r[playerIndex]->go(dir, f, r, round);
+                if (flag) {
+                    ++X;
+                }
+                return flag;
+            }
+
+            ++X;
+            return true;
+        }
+
+        return true;
+    }
+
+    void moveBackward(char dir, const vector<string>& f, const vector<Robot*>& r, int round) {
+        if (d)
+            return;
+
+        lastRound = round;
+        if (dir == 'L')
+            go('R', f, r, round);
+        else if (dir == 'R')
+            go('L', f, r, round);
+        else if (dir == 'U')
+            go('D', f, r, round);
+        else
+            go('U', f, r, round);
+    }
+};
+
+int robotCheck(int x, int y, const vector<Robot*>& r) {
+    for (int i = 0; i < (int)r.size(); ++i) {
+        if (r[i]->X == x && r[i]->Y == y && r[i]->onTheBoard)
+            return i;
+    }
+
+    return -1;
+}
+
+struct Game {
+    string name;
+    int fHeight = 0, fWidth = 0;
+    int pNumber = 0, MN = 0, rN = 0;
+    int cardsOnMove, moveCNT = 0;
+    vector<string> f = {};
+    vector<Robot*> p = {};
+
+    explicit Game(const string& x) {
+         name = x;
+         string line;
+//         cin >> line;
+         int hp;
+         // Вводим данные поля
+         cin >> fHeight >> fWidth;
+         for (int i = 0; i < fHeight; ++i) {
+             cin >> line;
+             f.push_back(line);
+         }
+         // Вводим данные о каждом роботе
+         cin >> pNumber >> hp;
+         for (int i = 0; i < pNumber; ++i) {
+             int posX, posY;
+             char direction;
+             cin >> posX >> posY >> direction;
+             auto* robot = new Robot(posX - 1, posY - 1, hp, direction);
+             p.push_back(robot);
+         }
+         // Вводим ходы
+         // Важно, что в строку задаются действия игрока в определенный ход
+         cin >> MN >> cardsOnMove;
+         for (int i = 0; i < MN; ++i) {
+             cin >> line;
+             getline(cin, line);
+             for (int j = 0; j < pNumber; ++j) {
+                 getline(cin, line);
+                 auto firstSplit = split(line, "->");
+                 for (auto& item: firstSplit) {
+                     TRIMALLL(item);
+                     auto secondSplit = split(item, " ");
+                     pair<int, string> pair;
+                     if (secondSplit.size() == 2)
+                        pair = make_pair(stoi(secondSplit[1]), secondSplit[0]);
+                     else
+                         pair = make_pair(stoi(secondSplit[2]), secondSplit[0] + " " + secondSplit[1]);
+                     p[j]->actions.push_back(pair);
+                 }
+             }
+         }
+    }
+
+    void makeAction() {
+         vector<pair<pair<int, string>, int>> curr_ways;
+
+         for (int i = 0; i < pNumber; ++i) {
+             curr_ways.emplace_back(p[i]->actions[moveCNT], i);
+         }
+
+         sort(curr_ways.begin(), curr_ways.end());
+         for (const auto& way: curr_ways) {
+             if (way.first.second == "uturn") {
+                 p[way.second]->turnFull(rN);
+             } else if (way.first.second == "turn right") {
+                 p[way.second]->turnRight(rN);
+             } else if (way.first.second == "turn left") {
+                 p[way.second]->turnLeft(rN);
+             } else if (way.first.second == "move forward") {
+                 p[way.second]->go(p[way.second]->direction, f, p, rN);
+             } else if (way.first.second == "move backward") {
+                 p[way.second]->moveBackward(p[way.second]->direction, f, p, rN);
+             }
+         }
+
+         up();
+    }
+
+    void shot() {
+        for (int i = 0; i < pNumber; ++i) {
+            if (p[i]->d)
+                continue;
+
+            if (p[i]->direction == 'L') {
+                int j = p[i]->Y - 1;
+                while (j >= 0) {
+                    int playerIndex = robotCheck(p[i]->X, j, p);
+                    if (playerIndex != -1) {
+                        if (p[playerIndex]->d) {
+                            break;
+                        }
+                        --p[playerIndex]->hp;
+                        if (p[playerIndex]->hp <= 0) {
+                            p[playerIndex]->d = true;
+                            p[playerIndex]->dStatus = "LASER";
+                        }
+                        break;
+                    }
+                    if (f[p[i]->X][j] == 'W') {
+                        break;
+                    }
+                    --j;
+                }
+            } else if (p[i]->direction == 'R') {
+                int j = p[i]->Y + 1;
+                while (j < fWidth) {
+                    int playerIndex = robotCheck(p[i]->X, j, p);
+                    if (playerIndex != -1) {
+                        if (p[playerIndex]->d) {
+                            break;
+                        }
+                        --p[playerIndex]->hp;
+                        if (p[playerIndex]->hp <= 0) {
+                            p[playerIndex]->d = true;
+                            p[playerIndex]->dStatus = "LASER";
+                        }
+                        break;
+                    }
+                    if (f[p[i]->X][j] == 'W') {
+                        break;
+                    }
+                    ++j;
+                }
+            } else if (p[i]->direction == 'U') {
+                int j = p[i]->X - 1;
+                while (j >= 0) {
+                    int playerIndex = robotCheck(j, p[i]->Y, p);
+                    if (playerIndex != -1) {
+                        if (p[playerIndex]->d) {
+                            break;
+                        }
+                        --p[playerIndex]->hp;
+                        if (p[playerIndex]->hp <= 0) {
+                            p[playerIndex]->d = true;
+                            p[playerIndex]->dStatus = "LASER";
+                        }
+                        break;
+                    }
+                    if (f[j][p[i]->Y] == 'W') {
+                        break;
+                    }
+                    --j;
+                }
+            } else {
+                int j = p[i]->X + 1;
+                while (j < fHeight) {
+                    int playerIndex = robotCheck(j, p[i]->Y, p);
+                    if (playerIndex != -1) {
+                        if (p[playerIndex]->d) {
+                            break;
+                        }
+                        --p[playerIndex]->hp;
+                        if (p[playerIndex]->hp <= 0) {
+                            p[playerIndex]->d = true;
+                            p[playerIndex]->dStatus = "LASER";
+                        }
+                        break;
+                    }
+                    if (f[j][p[i]->Y] == 'W') {
+                        break;
+                    }
+                    ++j;
+                }
+            }
+        }
+
+        up();
+    }
+
+    void fEffects() {
+        for (const auto& item: p) {
+            if (item->d)
+                continue;
+            if (f[item->X][item->Y] == '<') {
+                item->go('L', f, p, rN);
+            } else if (f[item->X][item->Y] == '>') {
+                item->go('R', f, p, rN);
+            } else if (f[item->X][item->Y] == '^') {
+                item->go('U', f, p, rN);
+            } else if (string(1, f[item->X][item->Y]) == "v") {
+                item->go('D', f, p, rN);
+            } else if (f[item->X][item->Y] == 'T') {
+                --item->hp;
+                if (item->hp <= 0) {
+                    item->d = true;
+                    item->dStatus = "TRAP";
+                }
+            }
+        }
+    }
+
+    void up() {
+         for (const auto& item: p) {
+             if (item->hp > 0)
+                 continue;
+
+             item->d = true;
+             item->onTheBoard = false;
+         }
+     }
+
+    void play() {
+        ++rN;
+         for (int i = 0; i < cardsOnMove; ++i) {
+             makeAction();
+             ++moveCNT;
+         }
+        fEffects();
+        up();
+        shot();
+     }
+
+    void playGame() {
+        for (int i = 0; i < MN; ++i) {
+            play();
+        }
+     }
+};
+
+
+int main() {
+    int t;
+    string tmp;
+    cin >> t;
+    vector<Game> ans;
+    for (int i = 0; i < t; ++i) {
+//        cin >> tmp;
+        Game tmpGame = Game("Game " + to_string(i + 1));
+        tmpGame.playGame();
+        ans.push_back(tmpGame);
+    }
+
+    for (const auto& item: ans) {
+        cout << item.name << endl;
+        for (const auto& jitem: item.p) {
+            if (jitem->d) {
+                cout << "FAILED on " << jitem->X + 1 << " " << jitem->Y + 1 << " cause " << jitem->dStatus << " step " << jitem->lastRound << endl;
+            } else {
+                cout << "ACTIVE on " << jitem->X + 1 << " " << jitem->Y + 1 << " facing " << jitem->direction << " with " << jitem->hp << " HP" << endl;
+            }
+        }
+    }
+    return 0;
+}
