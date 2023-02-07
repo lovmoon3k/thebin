@@ -1,0 +1,77 @@
+-- Original query, with params wrapped in quotes:
+SELECT
+  "accounting_account"."id",
+  "accounting_account"."name",
+  "accounting_account"."owner_id",
+  "accounting_account"."short_name",
+  "accounting_account"."type",
+  "accounting_account"."group_account",
+  SUM("accounting_transactionentry"."debit") AS "total_debit",
+  SUM("accounting_transactionentry"."credit") AS "total_credit",
+  COUNT("accounting_transactionentry"."id") AS "entry_count",
+  (
+    SUM("accounting_transactionentry"."debit") - SUM("accounting_transactionentry"."credit")
+  ) AS "balance"
+FROM
+  "accounting_account"
+  INNER JOIN "accounting_transactionentry" ON (
+    "accounting_account"."id" = "accounting_transactionentry"."account_id"
+  )
+  INNER JOIN "accounting_transaction" ON (
+    "accounting_transactionentry"."transaction_id" = "accounting_transaction"."id"
+  )
+  INNER JOIN "accounting_group" T5 ON ("accounting_account"."group_id" = T5."id")
+WHERE
+  (
+    "accounting_transaction"."group_id" = 1
+    AND "accounting_transaction"."date" >= '2021-01-05'
+    AND "accounting_transaction"."date" <= '2023-01-30'
+    AND "accounting_transaction"."state" = 'Com'
+  )
+GROUP BY
+  "accounting_account"."id",
+  T5."name"
+ORDER BY
+  T5."name" ASC,
+  "accounting_account"."name" ASC;
+
+-- Desired query:
+SELECT
+  "accounting_account"."id",
+  "accounting_account"."name",
+  "accounting_account"."owner_id",
+  "accounting_account"."short_name",
+  "accounting_account"."type",
+  "accounting_account"."group_account",
+  "transaction_summary"."total_debit",
+  "transaction_summary"."total_credit",
+  "transaction_summary"."entry_count",
+  "transaction_summary"."balance"
+FROM
+  "accounting_account"
+  INNER JOIN "accounting_group" T5 ON ("accounting_account"."group_id" = T5."id")
+  LEFT JOIN (
+    SELECT
+      "accounting_transactionentry"."account_id",
+      SUM("accounting_transactionentry"."debit") AS "total_debit",
+      SUM("accounting_transactionentry"."credit") AS "total_credit",
+      COUNT("accounting_transactionentry"."id") AS "entry_count",
+      (
+        SUM("accounting_transactionentry"."debit") - SUM("accounting_transactionentry"."credit")
+      ) AS "balance"
+    FROM
+      "accounting_transactionentry"
+      LEFT JOIN "accounting_transaction" ON (
+        "accounting_transactionentry"."transaction_id" = "accounting_transaction"."id"
+      )
+    WHERE
+      (
+        "accounting_transaction"."state" = 'Com'
+        AND "accounting_transaction"."date" >= '2021-01-05'
+        AND "accounting_transaction"."date" <= '2023-01-30'
+      )
+    GROUP BY
+      "accounting_transactionentry"."account_id"
+  ) AS transaction_summary ON "accounting_account"."id" = transaction_summary."account_id"
+WHERE
+  T5."id" = 1;
