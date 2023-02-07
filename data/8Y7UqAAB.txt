@@ -1,0 +1,250 @@
+local gameInProgress = false
+
+local seekers = {}
+local hiders = {}
+
+local transformingPlayers = {}
+
+
+--DATA HANDLING
+local dss = game:GetService("DataStoreService")
+local ds = dss:GetDataStore("CASH DATA")
+
+
+function saveData(plr)
+	if not plr:FindFirstChild("DATA FAILED TO LOAD") then
+
+		local cash = plr.leaderstats.Cash.Value
+
+		local success, err = nil, nil
+		while not success do
+			success, err = pcall(function()
+				ds:SetAsync(plr.UserId, cash)
+			end)
+			if err then
+				warn(err)
+			end
+			task.wait(0.02)
+		end
+	end
+end
+
+game.Players.PlayerRemoving:Connect(saveData)
+game:BindToClose(function()
+	for _, plr in pairs(game.Players:GetPlayers()) do
+		saveData(plr)
+	end
+end)
+
+game.Players.PlayerAdded:Connect(function(plr)
+	
+	plr.CharacterAdded:Connect(function(char)
+		if gameInProgress and not transformingPlayers[plr] then
+			
+			if table.find(hiders, plr) then
+				table.remove(hiders, table.find(hiders, plr))
+			end
+			
+			char.HumanoidRootPart.CFrame = workspace.MAP.SPAWN.CFrame
+			for __, weapon in pairs(game.ReplicatedStorage:WaitForChild("SeekerWeapons"):GetChildren()) do
+				weapon:Clone().Parent = plr.Backpack
+			end
+		end
+	end)
+
+	local dataFailedWarning = Instance.new("StringValue")
+	dataFailedWarning.Name = "DATA FAILED TO LOAD"
+	dataFailedWarning.Parent = plr
+
+	local success, plrData = nil, nil
+	while not success do
+		success, plrData = pcall(function()
+			return ds:GetAsync(plr.UserId)
+		end)
+		task.wait(0.02)
+	end
+	dataFailedWarning:Destroy()
+
+	if not plrData then
+		plrData = 0
+	end
+
+	local ls = Instance.new("Folder")
+	ls.Name = "leaderstats"
+
+	local cashVal = Instance.new("IntValue")
+	cashVal.Name = "Cash"
+	cashVal.Value = plrData
+	cashVal.Parent = ls
+
+	ls.Parent = plr
+end)
+
+
+
+--TRANSFORMING INTO PROPS
+local maxDistanceFromProp = 10
+
+game.ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("Transform").OnServerEvent:Connect(function(plr, object)
+	
+	if object and object:FindFirstChild("PROP") and gameInProgress and table.find(hiders, plr) then
+		
+		local char = plr.Character
+		if (char.HumanoidRootPart.Position - object:GetPivot().Position).Magnitude <= maxDistanceFromProp then
+			
+			transformingPlayers[plr] = true
+			
+			local newCharacter = game.ReplicatedStorage.PropCharacters[object.Name]:Clone()
+			newCharacter.Name = char.Name
+			
+			for _, child in pairs(char:GetChildren()) do
+				if child:IsA("Script") or child:IsA("LocalScript") then
+					child:Clone().Parent = newCharacter
+				end
+			end
+			
+			newCharacter:PivotTo(char.HumanoidRootPart.CFrame)
+			plr.Character = newCharacter
+			newCharacter.Parent = workspace
+			
+			transformingPlayers[plr] = nil
+		end
+	end
+end)
+
+
+--MAIN GAME LOOP
+local minPlayersToStart = 2
+
+local numSeekersStart = 1
+
+local seekerReward = 40
+local hiderReward = 15
+
+
+local maps = game.ReplicatedStorage:WaitForChild("Maps")
+
+local statusVal = Instance.new("StringValue")
+statusVal.Name = "GAME STATUS"
+statusVal.Parent = game.ReplicatedStorage
+
+
+local rnd = Random.new()
+
+
+function getPlayerList()
+	
+	local plrs = {}
+	for _, plr in pairs(game.Players:GetPlayers()) do
+		if plr.Character and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health > 0 then
+			table.insert(plrs, plr)
+		end
+	end
+	
+	return plrs
+end
+
+
+while true do
+	
+	seekers = {}
+	hiders = {}
+	
+	local plrsInGame = getPlayerList()
+	while #plrsInGame < minPlayersToStart do
+		statusVal.Value = "Waiting for " .. (minPlayersToStart - #plrsInGame) .. " more player" .. ((minPlayersToStart - #plrsInGame) ~= 1 and "s" or "") .. " to start"
+		task.wait(0.2)
+		plrsInGame = getPlayerList()
+	end
+	
+	local intermissionTime = 5
+	for i = intermissionTime, 0, -1 do
+		statusVal.Value = "Choosing map in " .. i .. "s"
+		task.wait(1)
+	end
+	
+	plrsInGame = getPlayerList()
+	
+	if #plrsInGame >= minPlayersToStart then
+		
+		local chosenMap = maps:GetChildren()[rnd:NextInteger(1, #maps:GetChildren())]
+		local newMap = chosenMap:Clone()
+		newMap.Name = "MAP"
+		newMap.Parent = workspace
+
+		statusVal.Value = "Map chosen: " .. chosenMap.Name
+
+		for i = 1, numSeekersStart do
+			local randKey = rnd:NextInteger(1, #plrsInGame)
+			local randPlr = plrsInGame[randKey]
+			table.insert(seekers, randPlr)
+			table.remove(plrsInGame, randKey)
+		end
+		hiders = plrsInGame
+		
+		local timeBeforePlayersTeleported = 3
+		task.wait(timeBeforePlayersTeleported)
+		
+		gameInProgress = true
+		
+		local timeToHide = 10
+		
+		for _, hider in pairs(hiders) do
+			hider.Character.HumanoidRootPart.CFrame = newMap.SPAWN.CFrame
+		end
+		
+		for i = timeToHide, 0, -1 do
+			statusVal.Value = "Seekers will spawn in " .. i .. "s"
+			task.wait(1)
+		end
+		
+		for _, seeker in pairs(seekers) do
+			seeker.Character.HumanoidRootPart.CFrame = newMap.SPAWN.CFrame
+			for __, weapon in pairs(game.ReplicatedStorage:WaitForChild("SeekerWeapons"):GetChildren()) do
+				weapon:Clone().Parent = seeker.Backpack
+			end
+		end
+		
+		local roundTime = 300
+		local roundStarted = tick()
+		
+		while true do
+			game:GetService("RunService").Heartbeat:Wait()
+			
+			local timeSinceStarted = tick() - roundStarted
+			if timeSinceStarted >= roundTime then break end
+			
+			local timeLeft = math.round(roundTime - timeSinceStarted)
+			statusVal.Value = "Round ends in " .. timeLeft .. "s"
+			
+			if #hiders == 0 then
+				break
+			end
+		end
+		
+		for _, plr in pairs(game.Players:GetPlayers()) do
+			plr.Backpack:ClearAllChildren()
+			if plr.Character:FindFirstChildOfClass("Tool") then plr.Character:FindFirstChildOfClass("Tool"):Destroy() end
+			plr:LoadCharacter()
+		end
+		
+		gameInProgress = false
+		
+		if #hiders == 0 then
+			statusVal.Value = "Seekers win!"
+			for _, seeker in pairs(seekers) do
+				seeker.leaderstats.Cash.Value += seekerReward
+			end
+		else
+			statusVal.Value = "Hiders win!"
+			for _, hider in pairs(hiders) do
+				hider.leaderstats.Cash.Value += hiderReward
+			end
+		end
+		
+		newMap:Destroy()
+		
+		local timeAfterRound = 5
+		task.wait(timeAfterRound)
+	end
+end
