@@ -1,0 +1,56 @@
+local expect = require "cc.expect".expect
+
+local click_out = 0
+local timeout = 250
+
+local dc = {}
+
+--- Check if the filter is valid to return the event.
+---@param got string? The actual event.
+---@param filter string? The filter given.
+---@retutn boolean valid The validity of the event.
+local function check_filter(got, filter)
+  return not filter or filter == got
+end
+
+--- Pull an event, listening gor double-clicks.
+---@param filter string? The event name, or any event.
+---@return string event_name The event name.
+---@return any ... Event arguments.
+function dc.pull(filter)
+  expect(1, filter, "string", "nil")
+  while true do
+    local event = table.pack(os.pullEvent())
+
+    if event[1] == "mouse_click" then
+      local current = os.epoch "utc"
+
+      -- if we passed the timeout time (single click)
+      if current > click_out then
+        -- calculate the next timeout time
+        click_out = current + timeout
+      else
+        -- Double click! Change the event type
+        event[1] = "mouse_double_click"
+
+        -- Also reset the double-click timer.
+        -- Next click will start the timer, click after that will be double again.
+        click_out = 0
+      end
+    end
+
+    if check_filter(event[1], filter) then
+      return table.unpack(event, 1, event.n)
+    end
+  end
+end
+
+--- Sets the length of the interval for a doubleclick
+---@param n number The timeout, in milliseconds.
+function dc.setTimeout(n)
+  expect(1, n, "number")
+
+  timeout = n
+end
+
+return dc
