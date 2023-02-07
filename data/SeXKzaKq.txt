@@ -1,0 +1,263 @@
+local tArgs = { ... }
+if #tArgs < 1 then
+	print("Usage: mine <length> <width> <depth>\nSlot1: Fuel");
+	return
+end
+
+local relative = {N=0,E=1,S=2,W=3};
+local relativeString = {"N","E","S","W"}
+local curLoc = {x=0, y=0, z=0, d=relative.N};
+local savedLoc = {x=0, y=0, z=0, d=relative.N};
+local firstItem, lastItem = 2, 16;
+local item = {fuel=1};
+
+local tLength = tonumber( tArgs[1] )
+tLength = tLength - 1;
+if tLength < 1 then
+	print( "Length must be positive" )
+	return
+end
+
+local tWidth = tonumber( tArgs[2] )
+if tWidth == nil then
+    tWidth = 1;
+elseif tWidth < 1 then
+    print("Width must be positive");
+    return;
+end
+
+local tDepth = tonumber( tArgs[3] )
+if tDepth == nil then
+    tDepth = 1;
+elseif tDepth < 1 then
+    print("Depth must be positive");
+    return;
+end
+
+local function doTurnRight()
+    --print("turning right");
+    turtle.turnRight();
+    curLoc.d = (curLoc.d + 1) % 4;
+end
+
+local function doTurnLeft()
+    --print("turning left");
+    turtle.turnLeft();
+    curLoc.d = (curLoc.d - 1) % 4;
+end
+
+local function setDirection(desiredDirection)
+    local turnFunction = doTurnRight;
+    if (curLoc.d - 1) % 4 == desiredDirection then
+        turnFunction = doTurnLeft;
+    end
+    while curLoc.d ~= desiredDirection do
+        turnFunction();
+    end
+end
+
+local function locToString(loc)
+    local dir = relativeString[loc.d + 1];
+    return "X: " .. loc.x .. ", Y: " .. loc.y .. " Z: " .. loc.z .. " D: " .. dir;
+end
+
+local function printLocation()
+    print("Current Location: " .. locToString(curLoc));
+end
+
+local function doRefuel()
+    if turtle.getFuelLevel() == 0 then
+        turtle.select(item.fuel)
+        turtle.refuel(1)
+    end
+end
+
+local function doDig()
+    while turtle.detect() == true do
+        turtle.dig()
+        sleep(0.5)
+    end
+end
+
+local function doDigUp()
+    while turtle.detectUp() == true do
+        turtle.digUp()
+        sleep(0.5)
+    end
+end
+
+local function doDigDown()
+    while turtle.detectDown() do
+        turtle.digDown();
+        sleep(0.5);
+    end
+end
+
+local function doUp()
+    doDigUp();
+    doRefuel();
+    turtle.up();
+    curLoc.z = curLoc.z + 1;
+end
+
+local function doDown()
+    doDigDown();
+    doRefuel();
+    turtle.down();
+    curLoc.z = curLoc.z - 1;
+end
+
+local function setHeight(desiredHeight)
+    if curLoc.z < desiredHeight then
+        while curLoc.z < desiredHeight do
+            doUp();
+        end
+    elseif curLoc.z > desiredHeight then
+        while curLoc.z > desiredHeight do
+            doDown();
+        end
+    end
+end
+
+local function doForward()
+    doDig();
+    doRefuel();
+    turtle.forward();
+    if curLoc.d == relative.N then
+        curLoc.y = curLoc.y + 1;
+    elseif curLoc.d == relative.E then
+        curLoc.x = curLoc.x + 1;
+    elseif curLoc.d == relative.S then
+        curLoc.y = curLoc.y - 1;
+    elseif curLoc.d == relative.W then
+        curLoc.x = curLoc.x - 1;
+    else
+
+    end
+
+    printLocation();
+end
+
+local function saveCurrentLocation()
+    print("Saving Current Location: " .. locToString(curLoc));
+
+    savedLoc.x = curLoc.x;
+    savedLoc.y = curLoc.y;
+    savedLoc.z = curLoc.z;
+    savedLoc.d = curLoc.d;
+end
+
+local function returnHome()
+    print ("Returning home.")
+    
+    saveCurrentLocation();
+
+    setHeight(0);
+
+    if savedLoc.x > 0 then
+        setDirection(relative.W);
+        for x = 1, savedLoc.x do
+            doForward();
+        end
+    end
+
+    if savedLoc.y > 0 then
+        setDirection(relative.S);
+        for y = 1, savedLoc.y do
+            doForward();
+        end
+    end
+
+    setDirection(relative.N);
+end
+
+local function backToWork()
+    print("Returning to Location: " .. locToString(savedLoc));
+    
+    if savedLoc.x > 0 then
+        setDirection(relative.E);
+        for x = 1, savedLoc.x do
+            doForward();
+        end
+    end
+
+    if savedLoc.y > 0 then
+        setDirection(relative.N);
+        for y = 1, savedLoc.y do
+            doForward();
+        end
+    end
+
+    setDirection(savedLoc.d);
+    setHeight(savedLoc.z);
+end
+
+function putAwayInventory()
+    setDirection(relative.S);
+    for i = firstItem, lastItem do
+      turtle.select(i)
+      turtle.drop()
+    end
+    turtle.select(firstItem);
+    setDirection(relative.N);
+end
+
+function inventoryCheck()
+    if turtle.getItemCount(16) > 0 then
+        returnHome();
+        putAwayInventory();
+        backToWork();
+    end
+end
+
+local function mainLoop()
+    local returnRoute = false;
+    for h = 1, tDepth do
+        for w = 1, tWidth do
+            for l = 1, tLength do
+                inventoryCheck();
+                doDigDown();
+                doForward();
+            end
+
+            doDigDown();
+
+            if w ~= tWidth then
+                if curLoc.d == relative.N then
+                    if returnRoute == false then
+                        doTurnRight();
+                        doForward();
+                        doTurnRight();
+                    else
+                        doTurnLeft();
+                        doForward();
+                        doTurnLeft();
+                    end
+                else
+                    if returnRoute == false then
+                        doTurnLeft();
+                        doForward();
+                        doTurnLeft();
+                    else
+                        doTurnRight();
+                        doForward();
+                        doTurnRight();
+                    end
+                end
+            else
+                -- turn around, dig down, repeat.
+                doTurnRight();
+                doTurnRight();
+                doDown();
+            end
+        end
+
+        returnRoute = not returnRoute;
+    end
+
+    returnHome();
+    setDirection(relative.N);
+end
+
+mainLoop();
+print("end");
