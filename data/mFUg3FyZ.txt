@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# Formatting the partitions
+parted /dev/sda mklabel gpt
+parted /dev/sda mkpart primary ext4 0% 150GB
+parted /dev/sda mkpart primary linux-swap 150GB 166GB
+parted /dev/sda mkpart primary btrfs 166GB 100%
+
+# Creating file systems on the partitions
+mkfs.ext4 /dev/sda1
+mkswap /dev/sda2
+swapon /dev/sda2
+mkfs.btrfs /dev/sda3
+
+# Mounting the file systems
+mount /dev/sda1 /mnt
+mkdir /mnt/home
+mount /dev/sda3 /mnt/home
+
+# Installing base system
+pacstrap /mnt base
+
+# Generating fstab file
+genfstab -U /mnt >> /mnt/etc/fstab
+
+# Chrooting into the new system
+arch-chroot /mnt /bin/bash <<EOF
+
+# Setting the locale
+echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
+echo "ru_RU.UTF-8 UTF-8" >> /etc/locale.gen
+locale-gen
+
+# Setting the timezone
+ln -sf /usr/share/zoneinfo/Asia/Almaty /etc/localtime
+
+# Setting the hostname
+echo "arch" > /etc/hostname
+
+# Installing bootloader
+pacman -S grub --noconfirm
+grub-install /dev/sda
+grub-mkconfig -o /boot/grub/grub.cfg
+
+# Installing X-server and Xfce4
+pacman -S xorg xfce4 --noconfirm
+
+# Creating new user
+useradd -m -G wheel testuser
+echo "testuser:1" | chpasswd
+echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+
+EOF
+
+# Unmounting and rebooting
+umount -R /mnt
+reboot
