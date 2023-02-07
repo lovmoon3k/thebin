@@ -1,0 +1,96 @@
+local modem = peripheral.find("modem")
+local monitor = peripheral.find("monitor")
+local args = {...} -- args[1] = listen ,args[2] = transmit
+local CL = tonumber(args[1])
+local CT = tonumber(args[2])
+modem.open(CL)
+ 
+monitor.setTextScale(5)
+monitor.setPaletteColour(colours.red,0xFF0000)
+monitor.setPaletteColour(colours.green,0x00FF00)
+monitor.setPaletteColour(colours.yellow,0xFFFF00)
+ 
+local function standby()
+    monitor.setCursorPos(1,1)
+    monitor.setBackgroundColor(colours.green)
+    monitor.setTextColor(colours.green)
+    monitor.write("X")
+end
+ 
+local function stop()
+    monitor.setCursorPos(1,1)
+    monitor.setBackgroundColor(colours.red)
+    monitor.setTextColor(colours.red)
+    monitor.write("X")
+end
+ 
+local function black()
+    monitor.setCursorPos(1,1)
+    monitor.setBackgroundColor(colours.black)
+    monitor.setTextColor(colours.black)
+    monitor.write("X")
+end
+ 
+local function warn()
+    monitor.setCursorPos(1,1)
+    monitor.setBackgroundColor(colours.yellow)
+    monitor.setTextColor(colours.yellow)
+    monitor.write("X")
+end
+ 
+local function modem_message(message)
+  print("Status: "..message)
+  if message == "standby" then
+    standby()
+  elseif message == "warn" then
+    warn()
+  elseif message == "stop" then
+    stop()
+  end
+end
+    
+local function init()
+  modem.transmit(CT,CL,"status")
+  local event,id,channel,r_channel,message,distance = os.pullEvent("modem_message")
+  print(message)
+  if message == "standby" then
+    standby()
+  elseif message == "warn" then
+    warn()
+  elseif message == "stop" then
+    stop()
+  else
+    init()
+  end
+end
+ 
+local function TrainListener()
+  local event,id,channel,r_channel,message,distance
+  parallel.waitForAny(
+    function()
+      event,id,channel,r_channel,message,distance = os.pullEvent("modem_message")
+    end,
+    function() 
+      event = os.pullEvent("redstone")
+    end
+  )
+ 
+  if event == "modem_message" then
+    modem_message(message)
+    return
+  elseif event == "redstone" then
+    for i = 1,#redstone.getSides() do
+      if redstone.getInput(redstone.getSides()[i]) == true then
+        modem.transmit(CT,CL,"stop")
+        return
+      end
+    end
+    modem.transmit(CT,CL,"clear")
+    return
+  end
+end
+ 
+init()
+while true do 
+  TrainListener()
+end
