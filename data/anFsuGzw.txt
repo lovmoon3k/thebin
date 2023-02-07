@@ -1,0 +1,216 @@
+-- Main
+local Players = game.Players
+local ReplicatedFirst = game.ReplicatedFirst
+local ReplicatedStorage = game.ReplicatedStorage
+
+-- Services
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local Frame = script.Parent
+local Settings = Frame.Parent.Settings
+local CellOriginal = script.Cell
+
+local Test = false
+
+local Playing = false
+
+local LastSpeedValue = ""
+
+local AliveNeighborSpawnInt, MinimumAliveNeighborAmount, MaximumAliveNeighborAmount = 3,2,3
+
+wait(2)
+
+local GridSize = Vector2.new(math.floor(Frame.AbsoluteSize.X / (Frame.UIGridLayout.CellSize.X.Offset + Frame.UIGridLayout.CellPadding.X.Offset)),math.floor(Frame.AbsoluteSize.Y / (Frame.UIGridLayout.CellSize.Y.Offset + Frame.UIGridLayout.CellPadding.Y.Offset)))
+
+local CellTable = {}
+
+local function GetCellAliveFromVector2(Vector) -- Cell coordinates go in and alive status goes out.
+	-- This checks if the requested cell is out of the grid
+	if Vector.X == 0 or Vector.Y == 0 or Vector.X == GridSize.X + 1 or Vector.X == GridSize.Y + 1 or CellTable[Vector.X][Vector.Y] == nil then
+		return false
+	end
+	return CellTable[Vector.X][Vector.Y]:GetAttribute("Alive")
+end
+
+local function GenerateGrid() -- Generates grid.
+	-- Deletes any old cells
+	for index,value in pairs(Frame:GetChildren()) do
+		if value:IsA("TextButton") then
+			value:Destroy()
+		end
+	end
+	-- Made for debuging, just counts the cells
+	local Count = 0
+	for Y = 1,GridSize.Y do
+		for X = 1,GridSize.X do
+			-- Creates cell and configures it here, gives it attributes like X,Y and Alive
+			local Cell = CellOriginal:Clone()
+			Cell.Parent = Frame
+			-- Assigns a function to run when the cell changes the "Alive" attribute
+			Cell.AttributeChanged:Connect(function(attribute)
+				if attribute == "Alive" then
+					if Cell:GetAttribute("Alive") == true then
+						local Tween = TweenService:Create(Cell.Glow,TweenInfo.new(0.5,Enum.EasingStyle.Quad),{ImageTransparency = 0.8})
+						Tween:Play()
+						Cell.BackgroundColor3 = Color3.new(0.933333, 0.764706, 0.14902)
+					else
+						local Tween = TweenService:Create(Cell.Glow,TweenInfo.new(0.5,Enum.EasingStyle.Quad),{ImageTransparency = 1})
+						Tween:Play()
+						Cell.BackgroundColor3 = Color3.new(0.14902, 0.14902, 0.14902)
+					end
+				end
+			end)
+			Cell:SetAttribute("X",X)
+			Cell:SetAttribute("Y",Y)
+			Cell:SetAttribute("Alive",false)
+			if CellTable[X] == nil then
+				CellTable[X] = {}
+			end
+			CellTable[X][Y] = Cell
+			-- Set the "Test" variable (at the begginning of the script) to true and you will see what this does.
+			if Test == true then
+				Cell.TextTransparency = 0
+				Cell.TextStrokeTransparency = 0
+				Cell.Text = "X: " .. X .. " Y: " .. Y
+			end
+			-- Reacts to mouse clicks
+			Cell.MouseButton1Click:Connect(function()
+				if Cell:GetAttribute("Alive") == true then
+					Cell:SetAttribute("Alive",false)
+				else
+					Cell:SetAttribute("Alive",true)
+				end
+			end)
+			-- Counts cells
+			if Cell ~= nil and Cell.Parent == Frame then
+				Count += 1
+			end
+		end
+	
+		wait()
+	end
+	if Test == true then
+		print(Count)
+	end
+end
+
+local function Generation() -- Will calculate 1 generation when called
+	local OperationsPlanned = {} -- Records changes to do when everything is calculated
+	for index,value in pairs(Frame:GetChildren()) do -- Goes through every cell
+		if value:IsA("TextButton") then
+			-- Gets the cell X,Y and Alive status
+			local X = value:GetAttribute("X")
+			local Y = value:GetAttribute("Y")
+			local Alive = value:GetAttribute("Alive")
+			local TotalAliveNeighbors = 0
+			-- Counts how many of the eight neighbors are alive
+			if GetCellAliveFromVector2(Vector2.new(X - 1,Y)) == true then
+				TotalAliveNeighbors += 1
+			end
+			if GetCellAliveFromVector2(Vector2.new(X - 1,Y + 1)) == true then
+				TotalAliveNeighbors += 1
+			end
+			if GetCellAliveFromVector2(Vector2.new(X,Y + 1)) == true then
+				TotalAliveNeighbors += 1
+			end
+			if GetCellAliveFromVector2(Vector2.new(X + 1,Y + 1)) == true then
+				TotalAliveNeighbors += 1
+			end
+			if GetCellAliveFromVector2(Vector2.new(X + 1,Y)) == true then
+				TotalAliveNeighbors += 1
+			end
+			if GetCellAliveFromVector2(Vector2.new(X + 1,Y - 1)) == true then
+				TotalAliveNeighbors += 1
+			end
+			if GetCellAliveFromVector2(Vector2.new(X,Y - 1)) == true then
+				TotalAliveNeighbors += 1
+			end
+			if GetCellAliveFromVector2(Vector2.new(X - 1,Y - 1)) == true then
+				TotalAliveNeighbors += 1
+			end
+			-- The game rules are here, you can change the numbers and see what happens!
+			if Alive == true then
+				if TotalAliveNeighbors < MinimumAliveNeighborAmount or TotalAliveNeighbors > MaximumAliveNeighborAmount then
+					OperationsPlanned[value] = false
+				end
+			else
+				if TotalAliveNeighbors == AliveNeighborSpawnInt then
+					OperationsPlanned[value] = true
+				end
+			end
+		end
+	end
+	--[[ Applies all the operations that where planned before, this is done later, so that we calculate the 
+	everything and ONLY THEN apply the chanages
+	]]
+	for Object, AliveStatus in pairs(OperationsPlanned) do
+		Object:SetAttribute("Alive",AliveStatus)
+	end
+end
+
+local function FixText()
+	if Frame.AbsoluteSize.Magnitude < 2300 then
+		print(Frame.AbsoluteSize.Magnitude)
+		for index,value in pairs(Frame.Parent:GetDescendants()) do
+			if value:IsA("TextLabel") or value:IsA("TextButton") or value:IsA("TextBox") then
+				value.TextScaled = true
+			end
+		end
+	else
+		for index,value in pairs(Frame.Parent:GetDescendants()) do
+			if value:IsA("TextLabel") or value:IsA("TextButton") or value:IsA("TextBox") then
+				value.TextScaled = false
+			end
+		end
+	end
+end
+
+FixText()
+
+Frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(FixText)
+
+Settings.Generate.MouseButton1Click:Connect(function() -- This runs when the user generates the grid
+	local Size = math.clamp(tonumber(Settings.CellSize.Text),5,100)
+	Frame.UIGridLayout.CellSize = UDim2.fromOffset(Size,Size)
+	GridSize = Vector2.new(math.floor(Frame.AbsoluteSize.X / (Frame.UIGridLayout.CellSize.X.Offset + Frame.UIGridLayout.CellPadding.X.Offset)),math.floor(Frame.AbsoluteSize.Y / (Frame.UIGridLayout.CellSize.Y.Offset + Frame.UIGridLayout.CellPadding.Y.Offset)))
+	GenerateGrid()
+end)
+
+Settings.Play.MouseButton1Click:Connect(function() -- This runs when the user wants to itterate generations.
+	Playing = not Playing
+	if Playing == true then
+		Settings.Play.Text = "Pause"
+		Settings.One.Visible = false
+	else
+		Settings.Play.Text = "Play"
+		Settings.One.Visible = true
+	end
+end)
+
+Settings.One.MouseButton1Click:Connect(function() -- One generation
+	Generation()
+end)
+
+GenerateGrid() -- Generates start grid
+
+Settings.Speed:GetPropertyChangedSignal("Text"):Connect(function() -- Number only field
+	local Speed = tonumber(Settings.Speed.Text)
+	if typeof(Speed) == "nil" and Settings.Speed.Text ~= "" then
+		Settings.Speed.Text = LastSpeedValue
+	elseif typeof(Speed) == "number" then
+		Settings.Speed.Text = math.clamp(Speed,1,100)
+		LastSpeedValue = Settings.Speed.Text
+	end
+end)
+
+while true do -- Repeat the generation process if play button is activated (Reacts to the speed field)
+	if Settings.Speed.Text == "" then
+		wait(0.3)
+	else
+		wait(1 / tonumber(Settings.Speed.Text) * 5)
+	end
+	if Playing == true then
+		Generation()
+	end
+end
