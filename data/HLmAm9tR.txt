@@ -1,0 +1,202 @@
+<?php
+
+/*
+	fonction pour compléter / nettoyer / uniformiser les infos d'une commune en utilisant le service API Geo de api.gouv.fr, requiert un tableau contenant une ou plusieurs des clés suivantes :
+	'cp' => code postal de la commune recherchée, exemple : "69009"
+	'dep' => département de la commune recherchée, exemple : "69"
+	'insee' => code INSEE de la commune recherchée, exemple : "69389"
+	'ville' => nom de la commune recherchée, exemple : "Lyon"
+	'lat' => latitude de la commune recherchée, exemple : 45.7802892
+	'lng' => longitude de la commune recherchée, exemple : 4.8055573
+*/
+function apigouv_get_commune($infos) {
+	// on récupère et nettoie les différentes infos
+	$cp = (trim($infos['cp']) and strlen(trim($infos['cp']))>2)?trim($infos['cp']):'';
+	$dep = trim($infos['dep'])?:trim($cp)?substr(trim($cp),0,2):'';
+	$insee = trim($infos['insee'])?:'';
+	$ville = trim($infos['ville'])?:'';
+	$lat = trim($infos['lat'])?:'';
+	$lng = trim($infos['lng'])?:'';
+	
+	// si on a pas assez d'infos (le département seul ne suffit pas) on arrête tout
+	if (!$cp and !$insee and !$ville and !$lat and !$lng)
+		return false;
+	
+	// liste des champs demandés à API Geo
+	$fields = 'nom,code,codesPostaux,siren,codeDepartement,codeRegion,centre';
+	
+	// on initialise un potentiel retour immédiat et une liste de retours potentiels
+	$ret = false;
+	$retz = array();
+	
+	// si on a un code INSEE, on commence par tenter une récupération d'infos avec lui seul
+	if ($insee) {
+		$args = array('code'=>$insee);
+		// on stock les résultats potentiels dans le tableau
+		$retz[] = json_decode(file_get_contents('https://geo.api.gouv.fr/communes?'.http_build_query($args).'&fields='.$fields.'&format=json&geometry=centre'),true);
+		
+		// si on a un résultat unique, alors on le prend et toutes les requêtes suivantes seront zappées
+		if (count(end($retz))==1)
+			$ret = end($retz)[0];
+	}
+	
+	// si on a pas eu de retour unique, on tente requête avec un maximum d'infos
+	if (!$ret and (!end($retz) or count(end($retz))>1)) {
+		$args = array();
+		if ($cp)
+			$args['codePostal'] = $cp;
+		if ($dep)
+			$args['codeDepartement'] = $dep;
+		if ($insee)
+			$args['code'] = $insee;
+		if ($ville)
+			$args['nom'] = explode(',',$ville)[0];
+		if ($lat)
+			$args['lat'] = $lat;
+		if ($lng)
+			$args['lon'] = $lng;
+		// on stock les résultats potentiels dans le tableau
+		$retz[] = json_decode(file_get_contents('https://geo.api.gouv.fr/communes?'.http_build_query($args).'&fields='.$fields.'&format=json&geometry=centre'),true);
+		
+		// si on a un résultat unique, alors on le prend et toutes les requêtes suivantes seront zappées
+		if (count(end($retz))==1)
+			$ret = end($retz)[0];
+	}
+	
+	// si on a pas eu de retour unique, on tente requête avec le code postal et/ou la latitude et/ou longitude suivant dispo
+	if (!$ret and ((!end($retz) or count(end($retz))>1) and ($cp or $lat or $lng))) {
+		$args = array();
+		if ($cp)
+			$args['codePostal'] = $cp;
+		if ($lat)
+			$args['lat'] = $lat;
+		if ($lng)
+			$args['lon'] = $lng;
+		// on stock les résultats potentiels dans le tableau
+		$retz[] = json_decode(file_get_contents('https://geo.api.gouv.fr/communes?'.http_build_query($args).'&fields='.$fields.'&format=json&geometry=centre'),true);
+	
+		// si on a un résultat unique, alors on le prend et toutes les requêtes suivantes seront zappées
+		if (count(end($retz))==1)
+			$ret = end($retz)[0];
+	}
+	
+	// si on a pas eu de retour unique, on tente requête avec le nom de la ville et/ou la latitude et/ou la longitude suivant dispo
+	if (!$ret and ((!end($retz) or count(end($retz))>1) and ($nom or $lat or $lng))) {
+		$args = array();
+		if ($ville)
+			$args['nom'] = explode(',',$ville)[0];
+		if ($lat)
+			$args['lat'] = $lat;
+		if ($lng)
+			$args['lon'] = $lng;
+		// on stock les résultats potentiels dans le tableau
+		$retz[] = json_decode(file_get_contents('https://geo.api.gouv.fr/communes?'.http_build_query($args).'&fields='.$fields.'&format=json&geometry=centre'),true);
+	
+		// si on a un résultat unique, alors on le prend et toutes les requêtes suivantes seront zappées
+		if (count(end($retz))==1)
+			$ret = end($retz)[0];
+	}
+	
+	// si on a pas eu de retour unique, on tente requête avec la latitude et la longitude si dispo
+	if (!$ret and ((!end($retz) or count(end($retz))>1) and $lat and $lng)) {
+		$args = array();
+		$args['lat'] = $lat;
+		$args['lon'] = $lng;
+		// on stock les résultats potentiels dans le tableau
+		$retz[] = json_decode(file_get_contents('https://geo.api.gouv.fr/communes?'.http_build_query($args).'&fields='.$fields.'&format=json&geometry=centre'),true);
+	
+		// si on a un résultat unique, alors on le prend et toutes les requêtes suivantes seront zappées
+		if (count(end($retz))==1)
+			$ret = end($retz)[0];
+	}
+	
+	// si on a pas eu de retour unique, on tente requête avec le code postal et la ville si dispo
+	if (!$ret and ((!end($retz) or count(end($retz))>1) and $ville and $cp)) {
+		$args = array();
+		$args['codePostal'] = $cp;
+		$args['nom'] = explode(',',$ville)[0];
+		// on stock les résultats potentiels dans le tableau
+		$retz[] = json_decode(file_get_contents('https://geo.api.gouv.fr/communes?'.http_build_query($args).'&fields='.$fields.'&format=json&geometry=centre'),true);
+	
+		// si on a un résultat unique, alors on le prend et toutes les requêtes suivantes seront zappées
+		if (count(end($retz))==1)
+			$ret = end($retz)[0];
+	}
+	
+	// si on a pas eu de retour unique, on tente requête avec le code postal si dispo
+	if (!$ret and ((!end($retz) or count(end($retz))>1) and $cp)) {
+		$args = array();
+		$args['codePostal'] = $cp;
+		// on stock les résultats potentiels dans le tableau
+		$retz[] = json_decode(file_get_contents('https://geo.api.gouv.fr/communes?'.http_build_query($args).'&fields='.$fields.'&format=json&geometry=centre'),true);
+	
+		// si on a un résultat unique, alors on le prend et toutes les requêtes suivantes seront zappées
+		if (count(end($retz))==1)
+			$ret = end($retz)[0];
+	}
+	
+	// si on a pas eu de retour unique, on tente requête avec la ville si dispo
+	if (!$ret and ((!end($retz) or count(end($retz))>1) and $ville)) {
+		$args = array();
+		$args['nom'] = $ville;
+		// on stock les résultats potentiels dans le tableau
+		$retz[] = json_decode(file_get_contents('https://geo.api.gouv.fr/communes?'.http_build_query($args).'&fields='.$fields.'&format=json&geometry=centre'),true);
+	
+		// si on a un résultat unique, alors on le prend et toutes les requêtes suivantes seront zappées
+		if (count(end($retz))==1)
+			$ret = end($retz)[0];
+	}
+	
+	// si on a pas eu de retour unique, on tente requête avec la ville et le département si dispo
+	if (!$ret and ((!end($retz) or count(end($retz))>1) and $ville and $dep)) {
+		$args = array();
+		$args['nom'] = $ville;
+		$args['codeDepartement'] = $dep;
+		// on stock les résultats potentiels dans le tableau
+		$retz[] = json_decode(file_get_contents('https://geo.api.gouv.fr/communes?'.http_build_query($args).'&fields='.$fields.'&format=json&geometry=centre'),true);
+	
+		// si on a un résultat unique, alors on le prend et toutes les requêtes suivantes seront zappées
+		if (count(end($retz))==1)
+			$ret = end($retz)[0];
+	}
+	
+	// si on a pas eu de retour unique, on tente requête avec le CP et le département si dispo
+	if (!$ret and ((!end($retz) or count(end($retz))>1) and $cp and $dep)) {
+		$args = array();
+		$args['codePostal'] = $cp;
+		$args['codeDepartement'] = $dep;
+		// on stock les résultats potentiels dans le tableau
+		$retz[] = json_decode(file_get_contents('https://geo.api.gouv.fr/communes?'.http_build_query($args).'&fields='.$fields.'&format=json&geometry=centre'),true);
+	
+		// si on a un résultat unique, alors on le prend et toutes les requêtes suivantes seront zappées
+		if (count(end($retz))==1)
+			$ret = end($retz)[0];
+	}
+	
+	// si on a pas eu de retour unique, on boucle sur le liste des retours pour trouver celui qui a donné le moins de possibilités et on récupère sa première possibilité en estiment que c'est celle qui a la plus de chances d'être la bonne
+	if (!$ret) {
+		$max = 0;
+		foreach($retz as $r) {
+			$count = count($r);
+			if (!$count)
+				continue;
+			if (!$max or $count<$max) {
+				$max = $count;
+				$ret = $r[0];
+			}
+		}
+	}
+	
+	// si on a un retour on renvoie le tableau d'entrée nettoyé et complété
+	if ($ret) {
+		$ret = array(
+			'cp' => ($cp and strlen($cp)>2)?$cp:$ret['codesPostaux'][0],
+			'dep' => $ret['codeDepartement'],
+			'insee' => $insee?:$ret['code'],
+			'ville' => $ret['nom'],
+			'lat' => $lat?:$ret['centre']['coordinates'][1],
+			'lng' => $lng?:$ret['centre']['coordinates'][0],
+		);
+	}
+	return $ret;
+}
