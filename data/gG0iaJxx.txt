@@ -1,0 +1,211 @@
+local module = {}
+
+local EMPTY_FUNC_REFERENCE = function()
+end
+local HyberbolicTangentFunction = function(x)
+	return (1 / (1 + math.exp(-x*2))-0.5) * 2
+end
+
+module.CreateNeuralNetwork = function(Layers:{number},LearnRate)
+	local Learning = {
+		LearnRate = LearnRate or 0.1;
+	}
+	local IterationReference = {
+		CurrentIteration = 0
+	}
+	local NeuronFunctions = {
+		AddMult = function(self,Connection)
+			local Neuron = Connection.NeuronReference
+			local Weight = Connection.Weight
+			self.LogisticValue= HyberbolicTangentFunction(self.Bias + self.Value)
+			local R1 = self.LogisticValue *Weight
+			Neuron:Add(R1)
+		end,
+		Add = function(self,Value)
+			if not (self.Iteration == IterationReference.CurrentIteration) then
+				self.Value = Value;
+				self.Iteration = IterationReference.CurrentIteration
+				self.LogisticValue = HyberbolicTangentFunction(self.Value+self.Bias)
+				return
+			end
+			self.Value += Value;
+			self.LogisticValue = HyberbolicTangentFunction(self.Value+self.Bias);
+		end,
+	}
+	
+	local NeuralNetwork = {
+		IterationReference = IterationReference;
+		Learning = Learning;
+		Layers = {
+
+		};
+		CreateConnection = function(self,Neuron,Neuron2,ConnectionWeight) 
+			local Connection = {
+				Weight = ConnectionWeight;
+				NeuronReference = Neuron2;
+				OriginalReference = Neuron;
+			}
+			
+			return Connection
+		end;
+		CreateNeuron = function(self,X,Y,SpecialFunction,Bias)
+			return {
+				Connections = {};
+				IsConnectedTo = {};
+				Value = 0;
+				LogisticValue = 0;
+				Iteration = 0;
+				Bias = Bias or 0;
+				SpecialFunction = SpecialFunction or EMPTY_FUNC_REFERENCE; 
+				Layer = X;
+				Neuron = Y;
+				
+				Add = NeuronFunctions.Add,
+				AddMult = NeuronFunctions.AddMult
+			}
+		end;
+		ConnectNeurons = function(self,Connection)
+			local Neuron2 = Connection.NeuronReference
+			local IsConnectedTo = Connection;
+			
+			
+			local Connections = Connection.OriginalReference.Connections
+			
+			table.insert(Connections,Connection)
+			table.insert(Neuron2.IsConnectedTo,Connection)	
+		end,
+		InsertNeuron = function(self,X,Y,Neuron)
+			self.Layers[X] = self.Layers[X] or {}
+			self.Layers[X][Y] = Neuron
+		end,
+		GetNeuron = function(self,X,Y)
+			if not self.Layers[X] then
+				return nil
+			end
+			return self.Layers[X][Y]
+		end,
+		Fill = function(self,CreateCustomWeightFunction)
+			local WeightFunction = CreateCustomWeightFunction or function(Connection)
+				return math.random(-10000,10000)/10000
+			end
+			for LayerIndex,LayerSize in pairs(Layers) do
+				for NeuronIndex = 1,LayerSize do
+					self:InsertNeuron(LayerIndex,NeuronIndex,self:CreateNeuron(LayerIndex,NeuronIndex))
+				end
+			end
+			for LayerIndex,Layer in pairs(self.Layers) do
+				for _,Neuron in ipairs(Layer) do
+					for _,Neuron2 in ipairs(self.Layers[LayerIndex+1] or {}) do
+						local Connection = self:CreateConnection(Neuron,Neuron2)
+						Connection.Weight = WeightFunction(Connection)
+						self:ConnectNeurons(Connection)
+					end
+				end
+			end
+		end,
+		Iterate = function(self)
+			for LayerIndex,Layer in ipairs(self.Layers) do
+				for _,Neuron in ipairs(Layer) do
+					Neuron:SpecialFunction()
+					for _,Connection in ipairs(Neuron.Connections) do
+						Neuron:AddMult(Connection)
+					end
+				end
+			end
+			local LastLayer = self.Layers[#self.Layers]
+			local BiggestValue = LastLayer[1].LogisticValue
+			local Neuron =  LastLayer[1]
+			for _,Neuron2 in ipairs(LastLayer) do
+				
+				local OverallValue = Neuron2.LogisticValue+ Neuron2.Bias
+				
+				if OverallValue < BiggestValue then
+					continue
+				end
+				
+				BiggestValue = OverallValue
+				Neuron = Neuron2
+			end
+			
+			IterationReference.CurrentIteration += 1
+			
+			return Neuron,BiggestValue
+		end,
+		Backpropagate = function(self,Ideal,IdealIndex,Cost,Iterate:boolean)
+			
+			if Iterate then
+				self:Iterate()
+			end
+			--is much faster than the previous method yet it requires to follow the NN structure strictly
+			
+			local function Backpropagate(Ideal,PreviousLayerIndex)
+				
+				for LayerIndex = PreviousLayerIndex-1,1 do
+					for _,Neuron in ipairs(self.Layers[LayerIndex] or {}) do
+
+						local Connections = Neuron.IsConnectedTo
+						if #Connections == 0 then
+							continue
+						end
+						local Connections = Neuron.IsConnectedTo
+						for _,Connection in ipairs(Connections) do
+							local Neuron2 = Connection.OriginalReference
+
+							local Guess = Neuron2.LogisticValue
+							local Error = Guess-Cost
+							local ChangeNudgeWeight = Error * Neuron2.LogisticValue * Learning.LearnRate
+							local ChangeNudgeBias = Error * Learning.LearnRate
+
+							Connection.Weight += ChangeNudgeWeight
+							Neuron2.Bias += ChangeNudgeBias
+						end
+					end
+				end
+		
+			end
+			
+			for NeuronIndex,Neuron in ipairs(self.Layers[#self.Layers-1]) do
+				local Connections = Neuron.IsConnectedTo
+
+				if #Connections == 0 then
+					continue
+				end
+				local Connections = Neuron.IsConnectedTo
+				local Ideal = if IdealIndex == NeuronIndex then Ideal else 0
+				for _,Connection in ipairs(Connections) do
+					local Neuron2 = Connection.OriginalReference
+
+					local Guess = Neuron2.LogisticValue
+					local Error = Guess-Cost
+					local ChangeNudgeWeight = Error * Neuron2.LogisticValue* Learning.LearnRate
+					local ChangeNudgeBias = Error * Learning.LearnRate
+
+					Connection.Weight += ChangeNudgeWeight
+					Neuron2.Bias += ChangeNudgeBias
+					Backpropagate(Ideal,#self.Layers-1)
+				end
+			end
+			
+		end,
+		CalculateCost = function(self,Ideal,IdealIndex)
+			local Distance = 0
+			local Layers = self.Layers
+			for Index,Neuron in ipairs(Layers[#Layers]) do
+				
+				if Index == IdealIndex then
+					Distance += (Neuron.LogisticValue -Ideal+1)^2
+					continue
+				end
+				
+				local Ideal  = 0
+				
+				Distance += (Neuron.LogisticValue -Ideal+1)^2
+			end
+			return Distance
+		end,
+	}
+	
+	return NeuralNetwork
+end
+
+return module
