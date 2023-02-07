@@ -1,0 +1,210 @@
+import nuke
+from nukescripts import utils
+import socket
+import threading
+import os
+import tempfile
+from Deadline.DeadlineConnect import DeadlineCon as Connect
+from panels import PCsPanel
+
+HOST = '0.0.0.0'
+PORT = 3000
+SERVER_ADDRESS = (HOST, PORT)
+
+
+class Client:
+	"""
+	Example of running an IPV6 socket client to create nodes in Nuke.
+
+	from nukescripts import clientserver
+	c = clientserver.client()
+	c.send("Blur")
+	"""
+
+	def __init__(self, host=HOST, port=PORT):
+		for res in socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE):
+			af, socktype, proto, canonname, sa = res
+			try:
+				self.s = socket.socket(af, socktype, proto, timeout=3)
+			except socket.error as msg:
+				err = msg
+				nuke.tprint(msg)
+				self.s = None
+				continue
+			try:
+				self.s.connect(sa)
+			except socket.error as msg:
+				err = msg
+				nuke.tprint(msg)
+				self.s.close()
+				self.s = None
+				continue
+			break
+
+		if not self.s:
+			raise RuntimeError("Unable to initialise client.", err)
+
+	def send(self, msg):
+		if isinstance(msg, str):
+			msg = msg.encode('utf-8')
+		self.s.send(msg)
+
+	def close(self):
+		self.s.close()
+
+
+class Server:
+	"""
+	Example of running an IPV6 socket server on a separate thread inside Nuke.
+	The default command is to create the named node.
+
+	from nukescripts import clientserver
+	clientserver.threaded_server()
+	"""
+
+	def __init__(self, host=HOST, port=PORT):
+		for res in socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE):
+			af, socktype, proto, canonname, sa = res
+			try:
+				self.s = socket.socket(af, socktype, proto)
+			except socket.error as msg:
+				nuke.tprint(msg)
+				self.s = None
+				continue
+			try:
+				self.s.bind(sa)
+				self.s.listen(5)
+			except socket.error as msg:
+				nuke.tprint(msg)
+				self.s.close()
+				self.s = None
+				continue
+			break
+
+		if not self.s:
+			raise RuntimeError("Unable to initialise server.")
+
+	def start(self, callback):
+		(conn, addr) = self.s.accept()
+
+		while 1:
+			data = conn.recv(1024).decode('utf-8')
+			if not data:
+				break
+
+			callback(addr, data)
+		conn.close()
+
+
+class NodeTransfer:
+	pcs = []
+	active_pcs = []
+
+	last_selected = None
+
+	def __init__(self):
+		self.__print('Initializing...')
+
+		try:
+			con = Connect('145.90.27.84', 8081)
+			pcs = con.Slaves.GetSlaveInfos()
+			pcs = list(filter(lambda pc: pc['UpTime'] > 10, pcs))
+			pcs = list(map(lambda w: {'IP': w['IP'], 'Name': w['Name'], 'User': w['User']}, pcs))
+			self.pcs = pcs
+
+			t = threading.Thread(None, self.start_server)
+			t.start()
+
+			self.__print(f'Started server on port {PORT}')
+		except RuntimeError as e:
+			self.__print('ERROR: Deadline WebService could not be reached.')
+			self.__print(e)
+
+	def build_menu(self):
+		toolbar = nuke.menu('Nuke')
+		bar = toolbar.addMenu('Node Transfer')
+
+		bar.addCommand('Send selected nodes', self.send_selected_nodes, 'ctrl+t')
+
+	# SERVER
+	def start_server(self, host=HOST, port=PORT):
+		s = Server(host, port)
+		s.start(self.receive_message)
+
+	def receive_message(self, addr, data):
+		pc = next((pc for pc in self.pcs if pc["IP"] == addr[0]), None)
+
+		def main():
+			msg = 'Someone tried to transfer nodes from an unknown pc. Do you want to accept it anyway?' if pc is None \
+				else '{} wants to send over some nodes. Do you want to accept them?'.format(pc["User"])
+			self.__log(data)
+			if nuke.ask(msg):
+				file_path = os.path.join(tempfile.gettempdir(), 'transfer_nodes.txt')
+				with open(file_path, "w") as f:
+					f.write(data)
+				self.__log(file_path)
+
+				if os.path.isfile(file_path):
+					nuke.nodePaste(file_path)
+				else:
+					nuke.message('Something went wrong while transferring the nodes. Please try again.')
+
+		utils.executeInMainThread(main)
+
+	def send_selected_nodes(self):
+		if len(self.pcs) == 0:
+			nuke.message('There are no pcs available to transfer to. Please check if the Deadline WebService is running.')
+			return
+		if len(nuke.selectedNodes()) == 0:
+			nuke.message('You must select at least one node to transfer.')
+			return
+
+		pcs = list(map(lambda w: f'{w["User"]}: {w["Name"]}', self.pcs))
+		pcs.sort()
+		p = PCsPanel(pcs, self.last_selected)
+		if p.showModalDialog():
+			name = p.pcKnob.value().split(': ')[1]
+			self.last_selected = p.pcKnob.value()
+
+			self.__log('Sending nodes to {}'.format(self.last_selected))
+
+			file_path = os.path.join(tempfile.gettempdir(), 'transfer_nodes.txt')
+			nuke.nodeCopy(file_path)
+
+			if os.path.isfile(file_path):
+				text_file = open(file_path, "r")
+				data = text_file.read()
+				text_file.close()
+
+				pc = next((pc for pc in self.pcs if pc["Name"] == name), None)
+
+				if pc is not None:
+					try:
+						c = Client(pc['IP'])
+						c.send(data)
+						nuke.message('Sent the nodes to {}'.format(self.last_selected))
+						c.close()
+					except RuntimeError as e:
+						nuke.message('Could not connect to the pc. Make sure it has Nuke running and try again. Sending to {}'.format(self.last_selected))
+						self.__log(e)
+				else:
+					nuke.message('Could not find the pc.')
+			else:
+				nuke.message('Something went wrong while transferring the nodes. Please try again.')
+
+	# LOGGING
+	@staticmethod
+	def __debug(text):
+		message = '[NodeTransfer] %s' % str(text)
+		print(message)
+		nuke.tprint(message)
+
+	@staticmethod
+	def __print(text):
+		message = '[NodeTransfer] %s' % str(text)
+		print(message)
+
+	@staticmethod
+	def __log(text):
+		message = '[NodeTransfer] %s' % str(text)
+		nuke.tprint(message)
