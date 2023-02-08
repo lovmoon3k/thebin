@@ -1,0 +1,480 @@
+#include "json.h"
+
+#include <algorithm>
+
+using namespace std;
+
+namespace json {
+
+    Node::Node()
+        : value_(std::nullptr_t()) {
+    }
+
+    Node::Node(std::nullptr_t)
+        : value_(std::nullptr_t()) {
+    }
+
+    Node::Node(Array value)
+        : value_(move(value)) {
+    }
+
+    Node::Node(Dict value)
+        : value_(move(value)) {
+    }
+
+    Node::Node(bool value)
+        : value_(value) {
+    }
+
+    Node::Node(int value)
+        : value_(value) {
+    }
+
+    Node::Node(double value)
+        : value_(value) {
+    }
+
+    Node::Node(string value)
+        : value_(move(value)) {
+    }
+
+    bool Node::IsInt() const {
+        return value_.index() == 4;
+    }
+    // IsDouble Возвращает true, если в Node хранится int либо double.
+    bool Node::IsDouble() const {
+        return (value_.index() == 4) || (value_.index() == 5);
+    }
+    // IsPureDouble Возвращает true, если в Node хранится double.
+    bool Node::IsPureDouble() const {
+        return value_.index() == 5;
+    }
+    bool Node::IsBool() const {
+        return value_.index() == 3;
+    }
+    bool Node::IsString() const {
+        return value_.index() == 6;
+    }
+    bool Node::IsNull() const {
+        return value_.index() == 0;
+    }
+    bool Node::IsArray() const {
+        return value_.index() == 1;
+    }
+    bool Node::IsMap() const {
+        return value_.index() == 2;
+    }
+
+    const vector <Node> &Node::AsArray() const {
+        if (value_.index() == 1) {
+            return get<Array>(value_);
+        } else {
+            throw std::logic_error("");
+        }
+    }
+
+    const map <string, Node> &Node::AsMap() const {
+        if (value_.index() == 2) {
+            return get<Dict>(value_);
+        } else {
+            throw std::logic_error("");
+        }
+    }
+
+    bool Node::AsBool() const {
+        if (value_.index() == 3) {
+            return get<bool>(value_);
+        } else {
+            throw std::logic_error("");
+        }
+    }
+
+    int Node::AsInt() const {
+        if (value_.index() == 4) {
+            return get<int>(value_);
+        } else {
+            throw std::logic_error("");
+        }
+    }
+
+    double Node::AsDouble() const {
+        if (value_.index() == 4) {
+           return get<int>(value_) * 1.0;
+        } else if (value_.index() == 5) {
+            return get<double>(value_);
+        } else {
+            throw std::logic_error("");
+        }
+    }
+
+    const string &Node::AsString() const {
+        if (value_.index() == 6) {
+            return get<std::string>(value_);
+        } else if (value_.index() == 0) {
+            return none_str;
+        } else {
+            throw std::logic_error("");
+        }
+    }
+
+    const Node::Value& Node::GetValue() const {
+        return value_;
+    }
+
+    Document::Document(Node root)
+            : root_(move(root)) {
+    }
+
+    const Node &Document::GetRoot() const {
+        return root_;
+    }
+
+    Node LoadNode(istream &input);
+/*
+    Node LoadArray(istream &input) {
+        vector<Node> result;
+
+        for (char c; input >> c && c != ']';) {
+            if (c != ',') {
+                input.putback(c);
+            }
+            result.push_back(LoadNode(input));
+        }
+
+        return Node(move(result));
+    }
+*/
+
+    Node LoadArray(istream &input) {
+        vector<Node> result;
+
+        for (char c; input >> c;) {
+            if (c == ']') {
+                return Node(move(result));
+            }
+            if (c != ',') {
+                input.putback(c);
+            }
+            result.push_back(LoadNode(input));
+        }
+
+        throw ParsingError(""s);
+    }
+
+/*
+    Node LoadInt(istream &input) {
+        int result = 0;
+        while (isdigit(input.peek())) {
+            result *= 10;
+            result += input.get() - '0';
+        }
+        return Node(result);
+    }
+
+    Node LoadString(istream &input) {
+        string line;
+        getline(input, line, '"');
+        return Node(move(line));
+    }
+*/
+
+    using Number = std::variant<int, double>;
+
+    Node LoadNumber(std::istream& input) {
+        using namespace std::literals;
+
+        std::string parsed_num;
+
+        // Считывает в parsed_num очередной символ из input
+        auto read_char = [&parsed_num, &input] {
+            parsed_num += static_cast<char>(input.get());
+            if (!input) {
+                throw ParsingError("Failed to read number from stream"s);
+            }
+        };
+
+        // Считывает одну или более цифр в parsed_num из input
+        auto read_digits = [&input, read_char] {
+            if (!std::isdigit(input.peek())) {
+                throw ParsingError("A digit is expected"s);
+            }
+            while (std::isdigit(input.peek())) {
+                read_char();
+            }
+        };
+
+        if (input.peek() == '-') {
+            read_char();
+        }
+        // Парсим целую часть числа
+        if (input.peek() == '0') {
+            read_char();
+            // После 0 в JSON не могут идти другие цифры
+        } else {
+            read_digits();
+        }
+
+        bool is_int = true;
+        // Парсим дробную часть числа
+        if (input.peek() == '.') {
+            read_char();
+            read_digits();
+            is_int = false;
+        }
+
+        // Парсим экспоненциальную часть числа
+        if (int ch = input.peek(); ch == 'e' || ch == 'E') {
+            read_char();
+            if (ch = input.peek(); ch == '+' || ch == '-') {
+                read_char();
+            }
+            read_digits();
+            is_int = false;
+        }
+
+        try {
+            if (is_int) {
+                // Сначала пробуем преобразовать строку в int
+                try {
+                    return Node(std::stoi(parsed_num));
+                } catch (...) {
+                    // В случае неудачи, например, при переполнении,
+                    // код ниже попробует преобразовать строку в double
+                }
+            }
+            return Node(std::stod(parsed_num));
+        } catch (...) {
+            throw ParsingError("Failed to convert "s + parsed_num + " to number"s);
+        }
+    }
+
+    // Считывает содержимое строкового литерала JSON-документа
+// Функцию следует использовать после считывания открывающего символа ":
+    Node LoadString(std::istream& input) {
+        using namespace std::literals;
+
+        auto it = std::istreambuf_iterator<char>(input);
+        auto end = std::istreambuf_iterator<char>();
+        std::string s;
+        while (true) {
+            if (s == "null"s) {
+                return Node();
+            } else if (s == "true") {
+                return Node(true);
+            } else if (s == "false") {
+                return Node(false);
+            }
+            if (it == end) {
+                // Поток закончился до того, как встретили закрывающую кавычку?
+                throw ParsingError("String parsing error");
+            }
+            const char ch = *it;
+            if (ch == '"') {
+                // Встретили закрывающую кавычку
+                ++it;
+                break;
+            } else if (ch == '\\') {
+                // Встретили начало escape-последовательности
+                ++it;
+                if (it == end) {
+                    // Поток завершился сразу после символа обратной косой черты
+                    throw ParsingError("String parsing error");
+                }
+                const char escaped_char = *(it);
+                // Обрабатываем одну из последовательностей: \\, \n, \t, \r, \"
+                switch (escaped_char) {
+                    case 'n':
+                        s.push_back('\n');
+                        break;
+                    case 't':
+                        s.push_back('\t');
+                        break;
+                    case 'r':
+                        s.push_back('\r');
+                        break;
+                    case '"':
+                        s.push_back('"');
+                        break;
+                    case '\\':
+                        s.push_back('\\');
+                        break;
+                    default:
+                        // Встретили неизвестную escape-последовательность
+                        throw ParsingError("Unrecognized escape sequence \\"s + escaped_char);
+                }
+            } else if (ch == '\n' || ch == '\r') {
+                // Строковый литерал внутри- JSON не может прерываться символами \r или \n
+                throw ParsingError("Unexpected end of line"s);
+            } else {
+                // Просто считываем очередной символ и помещаем его в результирующую строку
+                s.push_back(ch);
+            }
+            ++it;
+        }
+        return Node(s);
+    }
+/*
+    Node LoadDict(istream &input) {
+        map<string, Node> result;
+
+        for (char c; input >> c && c != '}';) {
+            if (c == ',') {
+                input >> c;
+            }
+
+            string key = LoadString(input).AsString();
+            input >> c;
+            result.insert({move(key), LoadNode(input)});
+        }
+
+        return Node(move(result));
+    }
+*/
+
+    Node LoadDict(istream &input) {
+        map<string, Node> result;
+
+        for (char c; input >> c;) {
+            if (c == '}') {
+                return Node(move(result));
+            }
+            if (c == ',') {
+                input >> c;
+            }
+
+            string key = LoadString(input).AsString();
+            input >> c;
+            result.insert({move(key), LoadNode(input)});
+        }
+
+        throw ParsingError(""s);
+    }
+
+    Node LoadNode(istream &input) {
+        char c;
+        input >> c;
+
+        if (c == '[') {
+            return LoadArray(input);
+        } else if (c == '{') {
+            return LoadDict(input);
+        } else if (c == '"') {
+            return LoadString(input);
+        } else if ((c == 'n') || (c == 't') || (c == 'f')) {
+            input.putback(c);
+            return LoadString(input);
+        } else {
+            input.putback(c);
+            return LoadNumber(input);
+        }
+    }
+
+
+    Document Load(istream &input) {
+        return Document{LoadNode(input)};
+    }
+
+    void Print(const Node& node, std::ostream& out);
+
+    // Перегрузка функции PrintValue для вывода значений null
+    void PrintValue(std::nullptr_t, std::ostream& out) {
+        using namespace std::literals;
+        out << "null"sv;
+    }
+
+    void PrintValue(const Array& array, std::ostream& out) {
+        using namespace std::literals;
+        out << '[';
+        bool first_node = true;
+        for (auto node : array) {
+            if (!first_node) {
+                out << ", ";
+            }
+            Print(node, out);
+            first_node = false;
+        }
+        out << ']';
+    }
+
+
+    void PrintValue(const Dict& dict, std::ostream& out) {
+        using namespace std::literals;
+        bool first_key = true;
+        out << '{';
+        for (auto [key, value] : dict) {
+            if (!first_key) {
+                out << ", ";
+            }
+            out << "\"" << key << "\": ";
+            Print(value, out);
+            first_key = false;
+        }
+        out << "}";
+    }
+
+    void ReplaceAll(std::string& source, const std::string& to_replace, const std::string& for_replace) {
+        // Get the first occurrence
+        size_t pos = source.find(to_replace);
+        // Repeat till end is reached
+        while(pos != std::string::npos)
+        {
+            // Replace this occurrence of Sub String
+            source.replace(pos, to_replace.size(), for_replace);
+            // Get the next occurrence from the current position
+            pos = source.find(to_replace, pos + for_replace.size());
+        }
+    }
+
+    void PrintValue(std::string str, std::ostream& out) {
+        vector<pair<std::string, std::string>> replacements {
+            {"\\", "\\\\"},
+            {"\"", "\\\""},
+            {"\r", "\\r"},
+            {"\n", "\\n"}
+        };
+        for (const auto& rep : replacements) {
+            ReplaceAll(str, rep.first, rep.second);
+        }
+        out << '"' << str << '"';
+    }
+
+    void PrintValue(const bool value, std::ostream& out) {
+        if (value) {
+            out << "true";
+        } else {
+            out << "false";
+        }
+    }
+
+    void Print(const Node& node, std::ostream& out) {
+        std::visit(
+                [&out](const auto& value){ PrintValue(value, out); },
+                node.GetValue());
+    }
+
+    void Print(const Document& doc, std::ostream& out) {
+        Print(doc.GetRoot(), out);
+    }
+
+    bool operator ==(const Node& lv, const Node& rv) {
+        if (lv.GetValue().index() == rv.GetValue().index()) {
+            return lv.GetValue() == rv.GetValue();
+        }
+        return false;
+    }
+
+    bool operator !=(const Node& lv, const Node& rv) {
+        if (lv.GetValue().index() != rv.GetValue().index()) {
+            return true;
+        }
+        return lv.GetValue() != rv.GetValue();
+    }
+
+    bool operator ==(const Document& lv, const Document& rv) {
+        return lv.GetRoot() == rv.GetRoot();
+    }
+
+    bool operator !=(const Document& lv, const Document& rv) {
+        return lv.GetRoot() != rv.GetRoot();
+    }
+}
