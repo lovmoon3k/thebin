@@ -1,0 +1,110 @@
+if not DailyRewards then
+                             
+	DailyRewards = {
+
+		dayStorage = 722699,
+		dayCountStorage = 722700,
+		hoursToReceiveReward = 60,
+		dayReward = 12438,
+		weekReward = 12189,
+		monthReward = 12446, 
+
+	}
+
+	DailyRewards.list = {}
+
+	function DailyRewards:checkLogin(cid)
+		local guid = getPlayerGUID(cid)
+		if self:getOnlineTime(guid) <= (self.hoursToReceiveReward * 60) then
+			registerCreatureEvent(cid, "DailyRewards") 
+			self:addTime(cid)
+		else
+			if getCreatureStorage(cid, self.dayStorage) == EMPTY_STORAGE then
+				self:addReward(cid, false, false)
+			end
+		end
+		return true
+	end
+
+	function DailyRewards:checkOnThink(cid, interval)
+		self:addTime(cid)
+		return true
+	end
+
+	function DailyRewards:getOnlineTime(guid)
+		return self.list[guid] and self.list[guid] or 0
+	end
+
+	function DailyRewards:addTime(cid)
+
+		local guid = getPlayerGUID(cid)
+		self.list[guid] = self:getOnlineTime(guid) + 1
+		if self.list[guid] == (self.hoursToReceiveReward * 60) then
+			self:addReward(cid, false, false)
+		end
+	end
+
+	function DailyRewards:addReward(cid, week, month)
+		if not isPlayer(cid) then
+			return
+		end
+		if week then
+			if canPlayerReceiveItem(cid, self.weekReward, 2) then
+				doPlayerAddItem(cid, self.weekReward, 2)
+				doPlayerAddItem(cid, self.dayReward, 1)
+                addGrad(cid, 500)	
+				doPlayerSendTextMessage(cid, MESSAGE_STATUS_CONSOLE_BLUE, "[Recompensa Semanal] Você recebeu seu prêmio por ter ficado online por 7 dias seguidos, 2 Exp Potion + 1 Stamina Recovery + 500 Graduation Points! Continue ficando online diariamente para ganhar mais prêmios!")
+			else
+				doPlayerSendTextMessage(cid, MESSAGE_STATUS_CONSOLE_ORANGE, "[Recompensa Semanal] Você já pode receber seu premio dessa semana mas está sem espaço na backpack! Libere espaço para poder receber!")
+				addEvent(self.addReward, 2000, self, cid, true, false)
+			end
+			return true
+		end
+
+		if month then
+			if canPlayerReceiveItem(cid, self.monthReward, 1) then
+			    doPlayerAddItem(cid, self.monthReward, 1)
+			    addGrad(cid, 2000)
+				doCreatureSetStorage(cid, self.dayCountStorage, 0)
+				doPlayerSendTextMessage(cid, MESSAGE_STATUS_CONSOLE_BLUE, "[Recompensa Mensal] Você recebeu seu prêmio por ter ficado online por 30 dias seguidos, Uma Skin BOX + 2000 Graduation Points! Obrigado por jogar o NDBO ROX!")
+			else
+				doPlayerSendTextMessage(cid, MESSAGE_STATUS_CONSOLE_ORANGE, "[Recompensa Mensal] Você já pode receber seu premio desse mês mas está sem espaço na backpack! Libere espaço para poder receber!")
+				addEvent(self.addReward, 2000, self, cid, false, true)
+			end
+			return true
+		end
+		if getCreatureStorage(cid, self.dayStorage) == EMPTY_STORAGE then
+			if canPlayerReceiveItem(cid, self.dayReward, 1) then
+				doCreatureSetStorage(cid, self.dayStorage, 1)
+				local straightDays = getPlayerStorageZero(cid, self.dayCountStorage)
+				doCreatureSetStorage(cid, self.dayCountStorage, straightDays + 1)
+				--doPlayerAddItem(cid, self.dayReward, 1)
+				addPontos(cid, 250)
+				addGrad(cid, 75)
+				doPlayerSendTextMessage(cid, MESSAGE_STATUS_CONSOLE_BLUE, "[Recompensa Diária] Você recebeu seu prêmio de hoje, 250 Events Points e 75 Graduation Points! Continue ficando online diariamente para ganhar mais prêmios!")
+				local thingPos = getThingPos(cid)
+				doSendAnimatedText(thingPos, "REWARD!", COLOR_LIGHTGREEN)
+				if straightDays == 6 then
+					self:addReward(cid, true, false)
+				elseif straightDays == 29 then
+					self:addReward(cid, false, true)
+				end
+			else
+
+				doPlayerSendTextMessage(cid, MESSAGE_STATUS_CONSOLE_ORANGE, "[Recompensa Diária] Você já pode receber seu premio de hoje mas está sem espaço na backpack! Libere espaço para poder receber!")
+				addEvent(self.addReward, 2000, self, cid, false, false)
+			end                                                                            
+		end
+	end
+
+	function DailyRewards:checkShutdown()
+		local guids = {}
+		for guid, time in next, self.list do
+			if time >= (self.hoursToReceiveReward * 60) then
+				table.insert(guids, guid)
+			end
+		end
+		db.query("DELETE FROM `player_storage` WHERE `key` = '".. self.dayStorage .. "'")
+		--db.query("DELETE FROM `player_storage` WHERE `key` = '".. self.dayCountStorage .. "' AND player_id NOT IN (".. table.concat(guids, ', ') ..");")
+	end
+end
