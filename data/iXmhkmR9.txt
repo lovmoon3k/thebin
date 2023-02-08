@@ -1,0 +1,161 @@
+<?php
+
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+
+// так как cron не понимает хост $_SERVER['DOCUMENT_ROOT'], то сделаем чтобы понимал - получим путь до текущей директории
+
+$url = dirname(dirname(__FILE__));
+
+
+
+// amo crm
+$data = json_decode(file_get_contents($url.'/gana2/amo-crm/access.json'), true);
+
+if(!$data || !is_array($data) || count($data) <= 0){
+echo 'Нет доступов к Амо';
+exit;
+}
+
+$subdomain = 'partneryango2';
+
+$access_token = $data['access_token'];
+$refresh_token = $data['refresh_token'];
+if(isset($data['endTokenTime']) && !empty($data['endTokenTime'])){
+$endTokenTime = $data['endTokenTime'];
+}
+else{
+$endTokenTime = 0;
+}
+
+if(time() >= $endTokenTime){
+/* запрашиваем новый токен */
+$endTokenTime = returnNewToken($refresh_token, $url);
+$data = json_decode(file_get_contents($url.'/gana2/amo-crm/access.json'), true);
+$newAccess_token = $data['access_token'];
+}
+else {
+$newAccess_token = $access_token;
+}
+
+$headersAmo = [
+'Accept: application/json',
+'Authorization: Bearer ' . $newAccess_token
+];
+
+$query = 'https://'.$subdomain.'.amocrm.ru/api/v4/leads/5805075';
+
+$edit = [
+'pipeline_id' => 6160222,
+'status_id' => 142,
+];
+
+
+$curl = curl_init();
+curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($curl, CURLOPT_USERAGENT, "amoCRM-API-client/1.0");
+curl_setopt($curl, CURLOPT_HTTPHEADER, $headersAmo);
+curl_setopt($curl, CURLOPT_URL, $query);
+curl_setopt($curl, CURLOPT_CUSTOMREQUEST, 'PATCH');
+curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($edit));
+curl_setopt($curl, CURLOPT_HEADER, false);
+
+$outs = curl_exec($curl);
+$code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+$code = (int)$code;
+curl_close($curl);
+$results2 = json_decode($outs, true);
+
+echo 'Code - '.$code.'<br>';
+
+if(!$results2){
+echo 'нет результатов переноса сделки';
+}
+
+
+echo '<pre>';
+print_r($results2);
+echo '</pre>';
+exit;
+
+
+
+
+
+
+/* обновление токена - в эту функцию мы передаём текущий refresh_token */
+function returnNewToken($refresh_token, $url) {
+
+$subdomain = 'partneryango2';
+
+$link = 'https://'.$subdomain.'.amocrm.ru/oauth2/access_token';
+
+$data = [
+'client_id' => '97b695ee-eca7-4049-a6f3-c06fc1751585',
+'client_secret' => 'akhYGqaWrT4LZQHSs26El7zCxA4BGsbwX9kfncnZV6QzJNKuRjlC98d5Ehk8fAFD',
+'grant_type' => 'refresh_token',
+'refresh_token' => $refresh_token,
+'redirect_uri' => 'https://miller-site.com',
+];
+
+$curl = curl_init();
+curl_setopt($curl,CURLOPT_RETURNTRANSFER, true);
+curl_setopt($curl,CURLOPT_USERAGENT,'amoCRM-oAuth-client/1.0');
+curl_setopt($curl,CURLOPT_URL, $link);
+curl_setopt($curl,CURLOPT_HTTPHEADER,['Content-Type:application/json']);
+curl_setopt($curl,CURLOPT_HEADER, false);
+curl_setopt($curl,CURLOPT_CUSTOMREQUEST, 'POST');
+curl_setopt($curl,CURLOPT_POSTFIELDS, json_encode($data));
+curl_setopt($curl,CURLOPT_SSL_VERIFYPEER, 1);
+curl_setopt($curl,CURLOPT_SSL_VERIFYHOST, 2);
+$out = curl_exec($curl);
+$code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+curl_close($curl);
+$code = (int)$code;
+$errors = [
+400 => 'Bad request',
+401 => 'Unauthorized',
+403 => 'Forbidden',
+404 => 'Not found',
+500 => 'Internal server error',
+502 => 'Bad gateway',
+503 => 'Service unavailable',
+];
+
+try
+{
+/** Если код ответа не успешный - возвращаем сообщение об ошибке  */
+if ($code < 200 || $code > 204) {
+throw new Exception(isset($errors[$code]) ? $errors[$code] : 'Undefined error', $code);
+}
+}
+catch(\Exception $e)
+{
+die('Ошибка: ' . $e->getMessage() . PHP_EOL . 'Код ошибки: ' . $e->getCode());
+}
+
+$response = json_decode($out, true);
+
+if($response) {
+
+/* записываем конечное время жизни токена */
+$response["endTokenTime"] = $response["expires_in"] + time();
+
+$responseJSON = json_encode($response);
+
+/* передаём значения наших токенов в файл */
+$file = $url.'/gana2/amo-crm/access.json';
+$current = file_get_contents($file);
+file_put_contents($file, $responseJSON);
+
+$response = json_decode($responseJSON, true);
+
+return $response;
+}
+else {
+return false;
+}
+
+}
