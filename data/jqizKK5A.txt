@@ -1,0 +1,181 @@
+---@diagnostic disable: undefined-global
+local OreType = { "coal", "iron", "lapis", "gold", "redstone", "diamond", "emerald", "nether" }
+local position = vector.new(0, 0, 0)
+local isExplored = false
+local Visited = {}
+local Stack = {}
+local facing = 1
+local dirVec
+
+function Nav(faceDir, digDir)
+    -- faceDir 1:North, 2:East, 3:South, 4:West
+    if faceDir - facing == 1 or faceDir - facing == -3 then
+        shell.run('turn', 'right', 1)
+        facing = facing + 1
+    elseif faceDir - facing == 2 or faceDir - facing == -2 then
+        shell.run('turn', 'right', 2)
+        facing = facing + 2
+    elseif faceDir - facing == 3 or faceDir - facing == -1 then
+        shell.run('turn', 'left', 1)
+        facing = facing - 1
+    end
+    --Correct facing
+    if facing == 5 then facing = 1
+    elseif facing == 6 then facing = 2
+    elseif facing == 0 then facing = 4
+    elseif facing == -1 then facing = 3
+    end
+
+    if digDir == 'forward' then
+        while not turtle.forward() do
+            turtle.dig()
+        end
+        print('moved forward')
+    elseif digDir == 'back' then
+        if not turtle.back() then
+            shell.run('turn', 'right', 2)
+            while not turtle.forward() do
+                turtle.dig()
+            end
+            shell.run('turn', 'right', 2)
+        end
+        print('moved back')
+    elseif digDir == 'up' then
+        while not turtle.up() do
+            turtle.digUp()
+        end
+        print('moved up')
+    elseif digDir == 'down' then
+        while not turtle.down() do
+            turtle.digDown()
+        end
+        print('moved down')
+    end
+end
+
+function Move()
+    --Set direction vector to nearby ore
+    if Stack[#Stack] ~= nil and (Stack[#Stack]:sub(position)):length() == 1 then
+        isExplored = false
+        dirVec = Stack[#Stack]:sub(position)
+        table.insert(Visited, position)
+        table.remove(Stack, #Stack)
+        print('directed to nearby ore')
+    elseif Visited[#Visited] ~= nil then --Ore in stack too far or Stack depleted
+        print('directing to POI')
+        isExplored = true
+        dirVec = Visited[#Visited]:sub(position)
+        table.remove(Visited, #Visited)
+    end
+
+    if dirVec ~= nil then
+        if dirVec:tostring() == vector.new(0, 1, 0):tostring() then
+            Nav(facing, 'up')
+            if isExplored == true then turtle.placeDown() end
+            position = position:add(vector.new(0, 1, 0))
+        elseif dirVec:tostring() == vector.new(0, -1, 0):tostring() then
+            Nav(facing, 'down')
+            if isExplored == true then turtle.placeUp() end
+            position = position:add(vector.new(0, -1, 0))
+        elseif dirVec:tostring() == vector.new(0, 0, 1):tostring() then
+            if isExplored == true then
+                Nav(3, 'back')
+                turtle.place()
+            else
+                Nav(1, 'forward')
+            end
+            position = position:add(vector.new(0, 0, 1))
+        elseif dirVec:tostring() == vector.new(1, 0, 0):tostring() then
+            if isExplored == true then
+                Nav(4, 'back')
+                turtle.place()
+            else
+                Nav(2, 'forward')
+            end
+            position = position:add(vector.new(1, 0, 0))
+        elseif dirVec:tostring() == vector.new(0, 0, -1):tostring() then
+            if isExplored == true then
+                Nav(1, 'back')
+                turtle.place()
+            else
+                Nav(3, 'forward')
+            end
+            position = position:add(vector.new(0, 0, -1))
+        elseif dirVec:tostring() == vector.new(-1, 0, 0):tostring() then
+            if isExplored == true then
+                Nav(2, 'back')
+                turtle.place()
+            else
+                Nav(4, 'forward')
+            end
+            position = position:add(vector.new(-1, 0, 0))
+        end
+    end
+end
+
+function DFS()
+    print('Running DFS...')
+    while (Stack[#Stack] ~= nil) or (Visited[#Visited] ~= nil) do
+        for k, v in pairs(Stack) do
+            if (k < #Stack) and (v:tostring() == Stack[#Stack]:tostring()) then
+                table.remove(Stack, k)
+            end
+        end
+        Move()
+        if isExplored == false then Inspect() end
+    end
+end
+
+function Inspect()
+    local isBlock, blockInfo
+
+    --Up
+    isBlock, blockInfo = turtle.inspectUp()
+    for i = 1, #OreType, 1 do
+        if isBlock and string.find(blockInfo.name, OreType[i]) then
+            --TODO DONT ADD STACK IF ALREADY EXISTS
+            table.insert(Stack, position:add(vector.new(0, 1, 0)))
+        end
+    end
+    --Down
+    isBlock, blockInfo = turtle.inspectDown()
+    for i = 1, #OreType, 1 do
+        if isBlock and string.find(blockInfo.name, OreType[i]) then
+            table.insert(Stack, position:add(vector.new(0, -1, 0)))
+        end
+    end
+    --Forward, Right, Back, Left
+    for f = 1, 4, 1 do
+        Nav(facing + 1)
+        isBlock, blockInfo = turtle.inspect()
+        for i = 1, #OreType, 1 do
+            if isBlock and string.find(blockInfo.name, OreType[i]) then
+                print(facing, ": ", OreType[i])
+                if facing == 1 then table.insert(Stack, position:add(vector.new(0, 0, 1))) end
+                if facing == 2 then table.insert(Stack, position:add(vector.new(1, 0, 0))) end
+                if facing == 3 then table.insert(Stack, position:add(vector.new(0, 0, -1))) end
+                if facing == 4 then table.insert(Stack, position:add(vector.new(-1, 0, 0))) end
+            end
+        end
+    end
+
+    if Stack[#Stack] ~= nil then DFS() end
+end
+
+write('Distance: ')
+local distance = tonumber(read())
+for i = 1, distance/2,1 do
+    Inspect()
+    Nav(1, 'up')
+    Inspect()
+    Nav(1, 'forward')
+    Inspect()
+    Nav(1,'down')
+    Inspect()
+    Nav(1, 'forward')
+end
+
+for i = 1, distance, 1 do
+    Nav(3, 'forward')
+end
+
