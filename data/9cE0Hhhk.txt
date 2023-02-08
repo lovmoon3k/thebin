@@ -1,0 +1,35 @@
+require 'uri'
+require 'net/http'
+require 'json'
+
+def fetch_names(filepath:, category:, query: {})
+  uri = URI.parse("https://en.wikipedia.org/w/api.php")
+  full_query = {
+    action: 'query',
+    list: 'categorymembers',
+    cmtitle: category,
+    cmlimit: '500',
+    cmtype: 'page',
+    format: 'json'
+  }.merge(query)
+  uri.query = URI.encode_www_form(full_query)
+
+  req = Net::HTTP::Get.new(uri)
+  res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true){|http| http.request(req) }
+
+  body = JSON.parse(res.body)
+  
+  File.open(filepath, 'a') do |file|
+    file.write(body.dig('query', 'categorymembers').map{|n| n['title'].gsub(/ (.*)/, '')}.uniq.join("\n"))
+    file.write("\n")
+  end
+
+  cmcontinue = body.dig('continue', 'cmcontinue')
+  if cmcontinue
+    query = { cmcontinue: }
+    fetch_names(filepath:, query:, category:)
+  end
+end
+
+fetch_names(filepath: './given_names.txt', category: 'Category:Given_names')
+fetch_names(filepath: './surnames.txt', category: 'Category:Surnames')
