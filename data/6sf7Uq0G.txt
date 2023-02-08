@@ -1,0 +1,75 @@
+#include <vector>
+#include <iostream>
+#include <set>
+
+using namespace std;
+
+template<class Container>
+struct merged_container_iterator_adapter {
+    using container_iterator = typename Container::iterator;
+    using value_type = typename container_iterator::value_type;
+
+    struct iterator {
+        merged_container_iterator_adapter<Container>* self;
+        std::size_t index;
+        container_iterator iter;
+
+        const value_type& operator*() {
+            return *iter;
+        }
+
+        iterator& operator++() {
+            self->next(*this);
+            return *this;
+        }        
+        bool operator!=(iterator other) {
+            return this->iter != other.iter || this->index != other.index;
+        }
+    };
+
+    vector<Container*> container_refs;
+
+
+    merged_container_iterator_adapter(vector<Container*>&& containers): container_refs(containers) {}
+
+    iterator begin() {
+        return iterator {this, 0, (*container_refs.begin())->begin()};
+    }
+
+    iterator end() {
+        return iterator {this, container_refs.size() - 1, (*(--container_refs.end()))->end()};
+    }
+
+    void next(iterator& it) {
+        container_iterator next = ++(it.iter);
+        size_t index = it.index;
+        if (next != container_refs[index]->end() || index == container_refs.size() - 1) {
+            it.iter = next;
+        } else {
+            ++index;
+            it.index = index;
+            it.iter = container_refs[index]->begin();
+        }
+    }
+};
+
+int main() {
+    vector vec1 {1, 2, 3};
+    vector vec2 {4, 5, 6};
+    vector vec3 {7, 8, 9};
+
+    merged_container_iterator_adapter merged {vector{&vec1, &vec2, &vec3}};
+
+    for (auto&& x: merged) {
+        cout<< x << endl;
+    }
+
+    set set1 {1, 2, 3};
+    set set2 {4, 5, 6};
+
+    merged_container_iterator_adapter merged_set {vector{&set1, &set2}};
+
+    for (auto&& elem: merged_set) {
+        cout<< elem << endl;
+    }
+}
