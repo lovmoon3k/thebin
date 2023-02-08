@@ -1,0 +1,63 @@
+class Game_Enemy < Game_Battler
+  attr_accessor :original_id
+  
+  alias :tlb_et_initialize :initialize
+  def initialize(index, enemy_id)
+    tlb_et_initialize(index, enemy_id)
+    @original_id = nil
+  end
+  
+  alias :tlb_et_add_new_state :add_new_state
+  def add_new_state(state_id)
+    tlb_et_add_new_state(state_id)
+    override = false
+    notes = $data_enemies[@enemy_id].note.split(/[\r\n]/)
+    if notes.size > 0
+      notes.each do |line|
+        case line
+        when /<transform (\d+) override:(\d+)>/i
+          override_state_id = $1.to_i
+          if override_state_id == state_id
+            override = true
+            @original_id = @enemy_id
+            self.transform($2.to_i)
+          end
+        end
+      end
+    end
+    if !override
+      $data_states[state_id].note.split(/[\r\n]/).each do |line|
+        case line
+        when /<transform:(\d+)>/i
+          @original_id = @enemy_id
+          self.transform($1.to_i)
+        end
+      end
+    end
+  end
+  
+  alias :tlb_et_erase_state :erase_state
+  def erase_state(state_id)
+    if @original_id && state?(state_id)
+      self.transform(@original_id)
+      @original_id = nil
+    end
+    tlb_et_erase_state(state_id)
+  end
+  
+  alias :tlb_et_transform :transform
+  def transform(enemy_id)
+    tlb_et_transform(enemy_id)
+    @motion_start = -1
+    @motion_stand = [-1,0]
+    @motion_action = [-1,0]
+    @motion_collapse = [99,0]
+    @motion_damage = [0,0]
+    @motion_move = [false,0,0]
+    @motion_org_pos = [0,0]
+    @motion_bms = [0,false]
+    @motion_slice = [false,0,0]
+    bact_action_clear
+    setup_motion_animation(@enemy_id)
+  end
+end

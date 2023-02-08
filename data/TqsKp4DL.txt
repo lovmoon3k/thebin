@@ -1,0 +1,180 @@
+#-------------------------------------------------------------------------------
+# Don't remove this header!
+#-------------------------------------------------------------------------------
+# Region Based Sprite Script
+# by Black Mage (https://burningwizard.wordpress.com/)
+# 
+# Version : 1.4 (Trihan)
+#
+# This script is commisioned by Batworks Software.
+#-------------------------------------------------------------------------------
+ 
+#-------------------------------------------------------------------------------
+# Version History
+#-------------------------------------------------------------------------------
+# 1.4 - Added switch to prevent Alice graphic changes (Trihan)
+# 1.3 - Fix a bug where the character under DEATH_STATE_ID is using their
+#       default sprite instead of ignoring the script.
+#
+# 1.2 - Fix a bug where the followers registered inside the setting still has
+#       appears on the map even when the followers visibily is turned off.
+#
+# 1.1 - Fix a bug where the sprite with $ sign are displayed incorrectly when
+#       the character index is greater than 0.
+#
+# 1.0 - Initial design.
+#-------------------------------------------------------------------------------
+ 
+#-------------------------------------------------------------------------------
+# What this script do?
+#-------------------------------------------------------------------------------
+# Upon entering certain region, the player/follower sprite will change to the
+# one that assigned inside the SPRITE_LIST. 
+#
+# Region ID of value -1 is reserved as the default sprite to be assigned when 
+# the sprite that corresponds to current player character region ID is not 
+# assigned inside the SPRITE_LIST. If the value -1 itself is not registered,
+# the sprite that will be used is the one that will be shown if the script is
+# not used at all (in other words, the sprite will behave like how the default 
+# system would be).
+#
+# NOTE: The graphic files must be present inside the Graphics/Characters folder, 
+# as the script doesn't have ability to read whether certain file exists inside 
+# the RTP.
+#-------------------------------------------------------------------------------
+ 
+#-------------------------------------------------------------------------------
+# Settings for the script.
+#-------------------------------------------------------------------------------
+module BLACK
+  # Any actor that has any state listed below would not be affected by this 
+  # script.
+  DEATH_STATE_ID = [1,90]
+  
+  ALICE_SWITCH_ID = 582
+ 
+  SPRITE_LIST = {
+  # actor id
+    1         => {
+                # region ID        file name
+                  -1            => "actor4",
+                  3             => "actor2",   
+                  4             => "actor3",
+                  },
+                
+    5         => {
+                  -1            => "$bolt-2",
+                  20             => "$bolt-2side",
+                  },
+                  
+    17         => {
+                  -1            => "$wendy",
+                  20             => "$wendyside",
+                  },
+                  
+    19         => {
+                  -1            => "$flynt",
+                  20             => "$flyntside",
+                  },
+                  
+    24         => {
+                  -1            => "$buckethead",
+                  20             => "$bucketheadside",
+                  },
+                  
+    31         => {
+                  -1            => "$rojo",
+                  20             => "$rojoside",
+                  },
+                  
+    33         => {
+                  -1            => "$george",
+                  20             => "$georgeside",
+                  },
+  }
+end
+#-------------------------------------------------------------------------------
+ 
+#-------------------------------------------------------------------------------
+# * Beyond this is the sacred land of code. You need programming qualification 
+#   to dwelve deeper, or it'll cause many unnecessary problems. Proceed on your 
+#   own risk.
+#-------------------------------------------------------------------------------
+ 
+class Game_CharacterBase
+  attr_accessor :cur_region
+  alias b_reg_spr_init initialize
+  def initialize; b_reg_spr_init; @cur_region = 0; end
+end
+ 
+class Sprite_Character < Sprite_Base
+  include BLACK
+  def graphic_changed?
+    @tile_id != @character.tile_id ||
+    @character_name != @character.character_name ||
+    @character_index != @character.character_index ||
+    black_region_check
+  end
+  def black_region_check
+    return false if !black_actor?
+    #char_stt_id = @character.actor.states.collect {|stt| stt.id }
+    #return false if !(char_stt_id & DEATH_STATE_ID).empty?
+    return false if !black_actor?
+    a = @character.cur_region == @character.region_id
+    if a
+      return false
+    else
+      @character.cur_region = @character.region_id
+      return true
+    end
+  end
+  def black_actor?
+    return false if @character.id != 0
+    return false if @character.class.name == "Game_Vehicle"
+    return false if @character.actor.nil?
+    return true
+  end
+  def set_character_bitmap
+    a = get_sprite_name; b = @character_name
+    (b = a[0] if File.exists?(a[1])) if !a.nil?
+    if black_actor?
+      char_stt_id = @character.actor.states.collect {|stt| stt.id }
+      b = @character_name if !(char_stt_id & DEATH_STATE_ID).empty?
+    end
+    self.bitmap = Cache.character(b)
+    sign = b[/^[\!\$]./]
+    if sign && sign.include?('$')
+      @cw = bitmap.width / 3; @ch = bitmap.height / 4
+    else
+      @cw = bitmap.width / 12; @ch = bitmap.height / 8
+    end
+    self.ox = @cw / 2; self.oy = @ch
+  end
+  def get_sprite_name
+    return nil if @character.id != 0
+    return nil if @character.class.name == "Game_Follower" && !$game_player.followers.visible
+    return nil if !["Game_Follower","Game_Player"].include?(@character.class.name)
+    return nil if @character.actor.nil?
+    return nil if @character.actor.id == 1 && !$game_switches[ALICE_SWITCH_ID]
+    return nil if SPRITE_LIST[@character.actor.id].nil?
+    a = SPRITE_LIST[@character.actor.id][@character.region_id]
+    a = SPRITE_LIST[@character.actor.id][-1] if a.nil?
+    return nil if a.nil?
+    return [a, "Graphics/Characters/" + a + ".png"]
+  end
+  def update_src_rect
+    if @tile_id == 0
+      index = @character.character_index
+      a = get_sprite_name; b = @character_name
+      (b = a[0] if File.exists?(a[1])) if !a.nil?
+      sign = b[/^[\!\$]./]
+      index = 0 if sign && sign.include?('$')
+      pattern = @character.pattern < 3 ? @character.pattern : 1
+      sx = (index % 4 * 3 + pattern) * @cw
+      sy = (index / 4 * 4 + (@character.direction - 2) / 2) * @ch
+      self.src_rect.set(sx, sy, @cw, @ch)
+    end
+  end
+
+    end
+
