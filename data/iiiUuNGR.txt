@@ -1,0 +1,86 @@
+local multiplescreen = {}
+local curmon = '557'
+local gpu = require('component').gpu
+local image = require('image')
+local monitors = {'a05','b77','6d1','917','7a6','7b1','17a','10d','de3','a92','000','0fd','47e','ca0','0d7','b29','d35','b4b','b1e','902','4fc','4b8','31f','82a','05b','d4f','4ee','79b','518','c7a'}
+function round(num)
+    return num + (2 ^ 52 + 2 ^ 51) - (2 ^ 52 + 2 ^ 51)
+end
+function get(address,CT) -- позаимствовано у OpenOs
+  for c in require('component').list(CT,true) do
+    if c:sub(1,address:len()) == address then
+       return c
+    end
+  end
+end
+function multiplescreen.getMonitor(x,y)
+  local i = 126
+  while i < x do
+    i = i + i
+  end
+  local xx = round(i / 126)
+  local i= 63
+  while i < y do
+    i = i + i
+  end
+  local yy = round(i / 63) -- все вот это ранее это определяем какой моник мыы должны использовать
+  i = 0
+  e = 0
+  x = 0
+  toend = {}
+  s = 0
+  while x < 126*6 do
+    x = x + 126
+    i = i + 1
+    toend[i] = {}
+    y = 0
+    e = 0
+    while y < 63 * 5 do
+      y = y + 63
+      e = e + 1
+      s = s + 1
+      toend[i][e] = monitors[s]
+    end
+  end
+  if curmon ~= toend[xx][yy] then -- проверяем надобность биндить
+    gpu.setResolution(126,63)
+    gpu.bind(get(toend[xx][yy]),false) -- фолсе вторым аргументом, все как надо
+    gpu.setResolution(126,63)
+    curmon = toend[xx][yy]
+  end
+  return toend[xx][yy]
+end
+local function set(...)
+  local idk = {...}
+  multiplescreen.getMonitor(idk[1],idk[2]) -- биндимся на нужный монитор
+  while idk[1] > 126 do
+    idk[1] = idk[1] - 126
+  end
+  while idk[2] > 63 do
+    idk[2] = idk[2] - 63
+  end
+  gpu.setForeground(idk[4])
+  gpu.setBackground(idk[3])
+  return gpu.set(idk[1],idk[2],idk[5])
+end
+function multiplescreen.draw(x1,y1,path)
+  if type(path) == 'string' then
+     imagee =  image.load(path)
+     print('load')
+  else
+    local imagee = path
+  end
+  local w = imagee[1]
+  local h = imagee[2]
+  for x = 1,w do
+    for y = 1,h do
+      local bg,fg,_,symbol = image.get(imagee,x,y)
+      print(bg,fg,symbol)
+      set(x1+x-1,y1+y-1,bg,fg,symbol)
+    end
+  end
+  gpu.setResolution(126,63)
+  gpu.bind(get('557'))
+end
+multiplescreen.draw(100,50,'/BG.pic') -- тест пикча
+return multiplescreen-- задумано как библия
