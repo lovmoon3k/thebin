@@ -1,0 +1,65 @@
+#include "lexer.h"
+
+#include <regex>
+#include <cstdlib>
+
+#include <llvm/Support/ErrorHandling.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/raw_ostream.h>
+
+ExprToken ExprLexer::next()
+{
+    std::string::const_iterator end = input.end();
+
+    // Create a regular expression adding numbered groups for each type of token 
+    //
+    // Number:     0|[1-9][0-9]*
+    // Symbol:     [*+-/()]
+    // Whitespace: [ \\t\\n\\r]+    
+    // The enum represents the index of each "()" group in the regular expression.
+    // Each group will then have a corresponding entry in the 'smatch' collection that is filled by regex_search
+    // Note: (?:  ) is a special notation for a group that should not appear in the 'smatch' collection 
+    //
+    enum { RAll, RNumber, RSymbol, RWhiteSpace, RGroupCount };
+    std::regex rex("(0|[1-9][0-9]*)|([*+-/()])|([ \\t\\r\\n]+)");
+    for(;;)
+    {
+        ExprToken token;
+        if (pos == end) 
+        {
+            token.type = ExprToken::EndOfData;
+            return token;
+        }
+        // Search for all the token types at once. 
+        std::smatch m;
+        if (std::regex_search(pos, end, m, rex, std::regex_constants::match_continuous))
+        {
+            if (m.size() != RGroupCount)
+                llvm_unreachable("Internal error : regex has different number of numbered groups than expected");
+
+            pos = m[RAll].second; // Skip the token that was just matched, update positoin for the following time next() is called
+
+            // Number?
+            if (m[RNumber].matched)
+            {
+                token.type = ExprToken::Number;
+                token.numberValue = std::stoul(m[RNumber].str());
+                return token;
+            }
+
+            // Symbol?
+            if (m[RSymbol].matched)
+            {
+                assert(m[RSymbol].length() > 0);
+                token.type = ExprToken::Symbol;
+                token.symbolValue = m[RSymbol].str().at(0);
+                return token;
+            }
+            if (m[RWhiteSpace].matched)
+                continue;
+        }
+
+        llvm::outs() << llvm::formatv("Illegal character '{0}' in input.\n", std::string(pos,pos+1).at(0));
+        std::exit(1);
+    }
+}
