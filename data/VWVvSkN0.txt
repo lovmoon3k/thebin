@@ -1,0 +1,40 @@
+import paho.mqtt.client as mqtt
+import subprocess
+import json
+import csv
+import time
+
+# MQTT broker and topic information
+# HOST = "localhost"
+HOST = "192.168.1.5"
+TOPIC = "nvidia/params"
+USER = "mqtt"
+PASSWD = "mqtt#"
+
+    # Capture the output of nvidia-smi
+def send_nvidia_mqtt():   
+    result = subprocess.run(["nvidia-smi", "--query-				gpu=index,uuid,name,temperature.gpu,utilization.gpu,memory.total,memory.free,memory.used", "--format=csv"], stdout=subprocess.PIPE)
+    nvidia_smi_output = result.stdout.decode('utf-8')  
+    reader = csv.DictReader(nvidia_smi_output.splitlines(), delimiter=',')
+    
+    rows = list()
+    for row in reader:
+        rows.append(row)
+        
+    json_object = json.dumps(rows, indent=4)
+    
+    # Create MQTT client and connect to the broker
+    client = mqtt.Client()
+    client.username_pw_set(USER, PASSWD)
+    client.connect(HOST, 1883, 60)
+    
+    # Publish the JSON data to the desired topic
+    client.publish(TOPIC, json_object)
+    
+    # Disconnect from the broker
+    client.disconnect()
+
+if __name__ == "__main__":
+    while True:
+        send_nvidia_mqtt()
+        time.sleep(5)       # Wait for 5 seconds
