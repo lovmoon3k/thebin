@@ -1,0 +1,405 @@
+--op.lua
+--Uses In game documentation for computercraft peripherals and displays it in a practical way
+--Explicitly supports
+        --Open Peripherals
+        --Logistics Pipes
+       
+local tArgs = {...}
+ 
+local fTitle = "METHODMAN: Practical display for in game documentation of computercraft + addons\n"
+local newFiles = {}
+local newFilesLookup = {}
+local logisticsPipeID1 = "LogisticsPipes"
+local logisticsPipeID2 = "LogisticsChassiePipe"
+local pastebinEnabled = false -- Set to true to enable automatic pastebin upload capability
+local fastMode = false -- Set to true to prevent the program to ask you if you want to overwrite a pre-existing file
+ 
+for i,v in pairs(tArgs) do
+        if v == "pastebin" then
+                pastebinEnabled = true
+                print("Pastebin mode enabled")
+        elseif v == "fast" then
+                fastMode = true
+                print("Fast mode enabled")
+        end
+end
+ 
+function advMethodHandlerUpdated(data, name)   
+        local file = fs.open(name, "a")
+        file.writeLine("\nOpen Peripherals Advanced Method Data")
+        local c = 0
+        for i,v in pairs(data) do
+                c = c+1
+                local name = i
+                if type(v["name"]) ~= "nil" then
+                        name = v["name"]
+                end
+                file.writeLine("\n"..c..". "..name.."\n")
+                local returnType = "Unknown"
+                if v["returnType"] ~= nil then
+                        returnType = v["returnType"]
+                elseif v["returnTypes"] ~= nil then
+                        returnType = ""
+                        local tLen = #v["returnTypes"]
+                        for j = 1,tLen do
+                                local str = v["returnTypes"][j]
+                                if j < tLen then
+                                        returnType = returnType..str..", "
+                                else
+                                        returnType = returnType..str
+                                end
+                        end
+                end
+                file.writeLine("Return Type: "..returnType)
+                file.writeLine("Description: "..v["description"])
+                local args = v["args"]
+                local str = "("
+                local len =  #args
+                for k = 1, len do
+                        str = str..args[k]["name"]
+                        if k < len then
+                                str = str..", "
+                        end
+                end
+                file.writeLine("\n\tArguments: "..name..str..")")
+                if len >= 1 then
+                        file.writeLine("")
+                        for k = 1,len do
+                                file.writeLine("\t\t"..k..". "..args[k]["name"])                       
+                                file.writeLine("\t\tDescription: "..args[k]["description"])
+                                file.writeLine("\t\tType: "..args[k]["type"])
+                        end
+                else
+                        file.writeLine("\tNo Arguments")
+                end    
+        end
+        file.close()
+end
+ 
+--[[
+function advMethodHandler(data, name)
+        local file = fs.open(name, "a")
+        file.writeLine("\nOpen Peripherals Advanced Method Data")
+        for i,v in pairs(data) do
+                file.writeLine("\n"..i..". "..v["name"].."\n")
+                local returnType = "Unknown"
+                if v["returnType"] ~= nil then
+                        returnType = v["returnType"]
+                elseif v["returnTypes"] ~= nil then
+                        returnType = ""
+                        local tLen = #v["returnTypes"]
+                        for j = 1,tLen do
+                                local str = v["returnTypes"][j]
+                                if j < tLen then
+                                        returnType = returnType..str..", "
+                                else
+                                        returnType = returnType..str
+                                end
+                        end
+                end
+                file.writeLine("Return Type: "..returnType)
+                file.writeLine("Description: "..v["description"])
+                local args = v["args"]
+                local str = "("
+                local len =  #args
+                for k = 1, len do
+                        str = str..args[k]["name"]
+                        if k < len then
+                                str = str..", "
+                        end
+                end
+                file.writeLine("\n\tArguments: "..v["name"]..str..")")
+                if len >= 1 then
+                        file.writeLine("")
+                        for k = 1,len do
+                                file.writeLine("\t\t"..k..". "..args[k]["name"])                       
+                                file.writeLine("\t\tDescription: "..args[k]["description"])
+                                file.writeLine("\t\tType: "..args[k]["type"])
+                        end
+                else
+                        file.writeLine("\tNo Arguments")
+                end    
+        end
+        file.close()
+end
+]]
+ 
+function lpMethodHandler(data, name)
+        local file = fs.open(name, "a")
+        file.writeLine("\nLogistics Pipes Peripheral Help")
+        file.write(data)
+        file.close()
+end
+ 
+function yesOrNo(timeout)
+        local timer
+        local answer = "timeout"
+        if type(timeout) == "number" then
+                timer = os.startTimer(timeout)
+        end
+        while true do
+                local event = {os.pullEvent()}
+                if event[2] == timer then
+                        break
+                elseif event[1] == "key" then
+                        local key = string.lower(keys.getName(event[2]))
+                        if key == "y" or key == "n" then
+                                if key == "y" then
+                                        answer = true
+                                elseif key == "n" then
+                                        answer = false
+                                end
+                                break
+                        end
+                end
+        end
+        return answer
+end
+ 
+function uploadToPastebin(files)
+        for i,v in pairs(files) do
+                term.clear()
+                term.setCursorPos(1,1)
+                print("Uploading file: "..v)
+                shell.run("pastebin", "put", v)
+                print("Press any key to continue")
+                os.pullEvent("key")
+        end
+end
+ 
+function isValidReport(path)
+        local file = fs.open(path, "r")
+        local line = file.readLine()
+        file.close()
+        if line == fTitle or line.."\n" == fTitle then
+                return true
+        else
+                return false
+        end
+end
+ 
+function newFileName(name)
+        local fileName = nil
+        local c = 2
+        while true do
+                local testName = name.."_"..c
+                if fs.exists(testName) == false then
+                        fileName = testName
+                        break
+                end
+                c = c+1
+        end
+        return fileName
+end
+ 
+function mainProg(side)
+        local pType = peripheral.getType(side)
+        local isLPPipe = false
+        if string.match(pType, logisticsPipeID1) == logisticsPipeID1 or string.match(pType, logisticsPipeID2) == logisticsPipeID2 then
+                isLPPipe = true
+        end
+        if pType == "modem" then
+                local p = peripheral.wrap(side)
+                if p.isWireless() == true then
+                        pType = "wireless_modem"
+                else
+                        pType = "wired_modem"
+                end
+        end
+        local header = "Peripheral found\n\tSide: "..side.."\n\tType: "..pType.."\n"
+        print(header)
+        local fileName
+        if fs.exists(pType) == true then
+                local isReport = isValidReport(pType)
+                if fastMode == false then
+                        term.clear()
+                        term.setCursorPos(1,1)
+                        if isReport == false then
+                                print("A file by the name of "..pType.." was detected but it does not appear to be a report.")
+                                print("If you wish to overwrite this file press \"o\", else press any other key.")
+                                local event = {os.pullEvent("key")}
+                                local key = string.lower(keys.getName(event[2]))
+                                if key == "o" then
+                                        print("Are you sure? (y/n)")
+                                        local answer = yesOrNo()
+                                        if answer == true then
+                                                fileName = pType
+                                        else
+                                                fileName = newFileName(pType)
+                                        end
+                                else
+                                        fileName = newFileName(pType)
+                                end
+                        else
+                                print("A report for peripheral: "..pType.." already exists.")
+                                print("Do you wish to overwrite this file or generate a new filename?")
+                                print("Press the \"y\" key to overwrite, press \"n\" to get a new filename")
+                                local answer = yesOrNo()
+                                if answer == false then
+                                        fileName = newFileName(pType)
+                                else
+                                        fileName = pType
+                                end
+                        end
+                        term.clear()
+                        sleep(0.1)
+                else
+                        if isReport == true then
+                                fileName = pType
+                        else
+                                print("A file by the name of "..pType.." was detected but it does not appear to be a report.")
+                                print("Automatically getting a new name for report file")
+                                fileName = newFileName(pType)
+                        end
+                end
+        else
+                fileName = pType
+        end
+        if newFilesLookup[fileName] == nil then
+                table.insert(newFiles, 0, fileName)
+        end
+        newFilesLookup[fileName] = true
+        local file = fs.open(fileName, "w")
+        file.writeLine(fTitle)
+        file.writeLine(header)
+        file.close()   
+        local basicMethods = peripheral.getMethods(side)
+        local openPeripheralSupport = false
+        local logisticsPipesSupport = false
+        print("Generating Basic Method List")
+        file = fs.open(fileName, "a")
+        file.writeLine(pType.." method list:\n")
+        file.close()   
+        for i,v in pairs(basicMethods) do
+                file = fs.open(fileName, "a")
+                file.writeLine("\t"..v)
+                file.close()
+                if v == "getAdvancedMethodsData" then
+                        print("Open Peripheral's advanced method data info found")
+                        openPeripheralSupport = true
+                end
+                if v == "help" and isLPPipe == true then
+                        print("Logistics Pipes help found")
+                        logisticsPipesSupport = true
+                end
+        end
+        print("Basic Method List Complete")
+        if openPeripheralSupport then
+                local pHandler = peripheral.wrap(side)
+                print("Resolving squiggly OP nested tables")
+                local advMethods = pHandler.getAdvancedMethodsData()
+                advMethodHandlerUpdated(advMethods, fileName)
+        end
+        if logisticsPipesSupport then
+                local pHandler = peripheral.wrap(side)
+                print("Resolving LP help string")
+                local lpMethods = pHandler.help()
+                lpMethodHandler(lpMethods, fileName)
+        end
+        file = fs.open(fileName, "a")
+        file.writeLine("\n\n--------------------\n")
+        file.writeLine("All actual documentation is written by the mod developer who made the peripheral, not me. I just displayed it - happy computercrafting")
+        file.close()
+        print("Documentation roundup for "..pType.." complete")
+end
+ 
+function deleteReports(safeMode)
+        local fileList = fs.list("")
+        print("Searching Root Directory for peripheral reports\n")
+        for i,v in pairs(fileList) do
+                if fs.isDir(v) == false and isValidReport(v) == true then
+                        print("Found a report under the name of: "..v)
+                        local canDelete = true
+                        if safeMode == true then
+                                print("\t--Do you want to delete this report? (y/n)")
+                                local answer = yesOrNo()
+                                if answer == false then
+                                        canDelete = false
+                                end
+                        end
+                        if canDelete == true then
+                                print("Deleting "..v)
+                                fs.delete(v)
+                        end
+                        print("")
+                end
+                sleep(0.1)
+        end
+        print("\nSearch complete")
+end
+ 
+function help()
+        print("Methodman help\n")
+        local helpTable = {
+                [1] = "New files will be created in the root directory. Access this by typing dir into the computer.",
+                [2] = "File names are based on the name of the peripheral, according to the getName method. Sometimes these are weird unlocalised names that would make Direwolf20 laugh.",
+                [3] = "In order for this program to recognise a peripheral you can either place the peripheral directly adjacent to the computer, or you can use wired modems and networking cable to connect peripherals. Wireless modems will not work.",
+                [4] = "This program supports some arguments to change its behaviour when you run it. When running the program, write the name of this program followed by the arguments you want. Valid arguments are listed below.",
+                [5] = "help. Passing this as the first argument will bring up the help section.",
+                [6] = "delete. If you have too many reports, running this program with delete as the first argument gives you a convenient tool to delete them all at once. Optionally you can pass the word, safe, as the second argument to delete in safe mode.",
+                [7] = "The following arguments can be passed together and in any order. They won't do anything in help or delete mode though",
+                [8] = "pastebin. This program can automatically upload your reports to pastebin. By default this is set to false. Passing this argument however will enable it at runtime.",
+                [9] = "fast. Passing this argument enables fastmode. By default this mode is disabled. Enabling it will stop the program from asking if you wish to overwrite pre-existing reports. In fast mode, reports will always be overwritten (although it won't automatically delete non-reports).",
+                [10] = "You can also enable pastebin and fast mode by editing the program and setting some variables to true at the top of the program. Comments guide you to these variables.",
+                }
+        for i,v in pairs(helpTable) do
+                print(i..": "..v)
+                print("\t--Press any key to continue\n")
+                os.pullEvent("key")
+        end
+        print("Thank you for reading and enjoy using this program.")
+end
+ 
+function mainWrapper()
+        local answer = false
+        if fastMode == false then
+                print("Methodman! Documentation for your computer peripherals\n")
+                print("Make easily readable reports to display the documentation available on all those peripherals and save them in the directory.\n")
+                print("Documentation was written by the mod developers, not me. I have just tried to display it nicely.\n")
+                print("Do you wish to continue? (y/n)")
+                answer = yesOrNo(60)
+        end
+        if answer == true or fastMode == true then
+                term.clear()
+                term.setCursorPos(1,1)                 
+                for i,v in pairs(peripheral.getNames()) do
+                        mainProg(v)
+                end
+                term.clear()
+                term.setCursorPos(1,1)
+                if #newFiles > 0 then
+                        print("The following files have been generated in this computer's directory:\n")
+                        for i,v in pairs(newFiles) do
+                                print("\t"..i..": "..v)
+                        end
+                        if pastebinEnabled == true then
+                                print("\nWould you like to upload these files automatically to pastebin? (y/n)")
+                                local answer = yesOrNo(60)
+                                if answer == true then
+                                        uploadToPastebin(newFiles)
+                                end
+                        end
+                else
+                        print("No new peripherals found")
+                end
+                print("\nHappy computercrafting")
+        else
+                print("Okay bye")
+        end
+        sleep(0.1)
+end
+ 
+term.clear()
+term.setCursorPos(1,1)
+if tArgs[1] == "delete" then
+        local safeMode = false
+        if tArgs[2] == "safe" then
+                deleteReports(true)
+        else
+                deleteReports(false)
+        end
+elseif tArgs[1] == "help" then
+        help()
+else
+        mainWrapper()
+end
