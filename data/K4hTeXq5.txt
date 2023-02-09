@@ -1,0 +1,398 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { bindActionCreators, Dispatch } from 'redux';
+import { connect } from 'react-redux';
+import { Translation } from 'react-i18next';
+import { makeStyles, mergeClasses, shorthands, tokens } from '@fluentui/react-components';
+
+import { AppState } from '../../../../reducers';
+import * as actions from '../../../../actions';
+
+import { RecorderStages } from '../../../../constants/RecorderStages';
+import { Modals } from '../../../../constants/Modals';
+import { getViewSize } from '../../../../helper/viewSize';
+import cacheHelper from '../../../../helper/cacheHelper';
+import { useSettingsStore } from '../../../../featureManagement/SettingsStoreContext';
+import { isSettingTrue } from '../../../../featureManagement/cameraSettings';
+import { useStateMachine } from '../../../../statemachine/StateMachineContext';
+import { useWindowObject } from '../../../../context/window-obj-context';
+
+import usePrevious from '../../../../hooks/usePrevious';
+
+import type { EffectsType } from '../../../../types/CameraProps';
+import type { Lens } from '../../../../types/LensSDK';
+
+import BabylonRenderer from './BabylonRenderer';
+
+const useStyles = makeStyles({
+  babylonCanvasContainer: {
+    width: '100%',
+    height: '100%',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  blurEffectCanvas: {
+    position: 'absolute',
+    display: 'block',
+    pointerEvents: 'none',
+  },
+  babylonCanvas: {
+    zIndex: 1,
+    ...shorthands.borderRadius(tokens.borderRadiusXLarge),
+    '@media screen and (-ms-high-contrast: active), (forced-colors: active)': {
+      ...shorthands.border('4px', 'solid', 'WindowText'),
+    },
+  },
+  busyIndicatorContainer: {
+    pointerEvents: 'none',
+    position: 'absolute',
+  },
+});
+
+const mapStateToProps = (state: AppState) => {
+  const {
+    backdrop: backdropConfig,
+    effects,
+    enableDynamicCanvas,
+    lens: lensConfig,
+    telemetryCallbacks,
+    thumbnailAspectRatio,
+    videoOrientation,
+    debug,
+  } = state.config;
+
+  const { settings, audioAnalyser, mediaStreams, cameraId } = state.mediaStream;
+  const {
+    activeSnapLens,
+    backdrop,
+    background,
+    bgPropEnabled,
+    bgPropInterval,
+    board,
+    boardSplitScreenRatio,
+    customPresenterModeSettings,
+    didLoadSnapLenses,
+    filter,
+    frame,
+    isApplyingLens,
+    micModeSettings,
+    mirrorVideo,
+    presenterMode,
+  } = state.effects;
+  const { recMode, videoSize } = state.recorder;
+  return {
+    activeSnapLens,
+    audioAnalyser,
+    backdrop,
+    backdropConfig,
+    background,
+    bgPropEnabled,
+    bgPropInterval,
+    board,
+    boardSplitScreenRatio,
+    cameraId,
+    customPresenterModeSettings,
+    debug,
+    didLoadSnapLenses,
+    enableDynamicCanvas,
+    filter,
+    frame,
+    isApplyingLens,
+    lensConfig,
+    mediaStreams,
+    micModeSettings,
+    micModeSettingsConfig: effects?.micModeSettings,
+    mirrorVideo,
+    presenterMode,
+    recMode,
+    settings,
+    telemetryCallbacks,
+    thumbnailAspectRatio,
+    videoOrientation,
+    videoSize,
+  };
+};
+
+const mapDispatchToProps = (dispatch: Dispatch<actions.Actions>) =>
+  bindActionCreators(
+    {
+      setModal: actions.setModal,
+      setBoard: actions.setBoard,
+      setBackdrop: actions.setBackdrop,
+      setPresenterMode: actions.setPresenterMode,
+      logError: actions.logError,
+      suspendAudioAnalyser: actions.suspendAudioAnalyser,
+      resumeAudioAnalyser: actions.resumeAudioAnalyser,
+      toggleBusyIndicator: actions.toggleBusyIndicator,
+      toggleSnapLensLoadingOverlay: actions.toggleSnapLensLoadingOverlay,
+      setSnapLenses: actions.setSnapLenses,
+      toggleDidLoadSnapLenses: actions.toggleDidLoadSnapLenses,
+      didInteractWithCurrLens: actions.didInteractWithCurrLens,
+      toggleIsApplyingLens: actions.toggleIsApplyingLens,
+    },
+    dispatch,
+  );
+
+type Props = ReturnType<typeof mapStateToProps> &
+  ReturnType<typeof mapDispatchToProps> & {
+    canvasScale: number;
+    showBackgroundBlurAnimation?: boolean;
+    hoistBabylonRenderer?: (renderer: TSFix) => void;
+  };
+
+function BabylonCanvas({
+  activeSnapLens,
+  audioAnalyser,
+  backdrop,
+  backdropConfig,
+  background,
+  bgPropEnabled,
+  bgPropInterval,
+  board,
+  boardSplitScreenRatio,
+  cameraId,
+  canvasScale,
+  customPresenterModeSettings,
+  debug,
+  didLoadSnapLenses,
+  enableDynamicCanvas,
+  filter,
+  frame,
+  isApplyingLens,
+  lensConfig,
+  mediaStreams,
+  micModeSettings,
+  micModeSettingsConfig,
+  mirrorVideo,
+  presenterMode,
+  recMode,
+  settings,
+  showBackgroundBlurAnimation,
+  telemetryCallbacks,
+  thumbnailAspectRatio,
+  videoOrientation,
+  videoSize,
+  didInteractWithCurrLens,
+  hoistBabylonRenderer,
+  logError,
+  resumeAudioAnalyser,
+  setBackdrop,
+  setBoard,
+  setModal,
+  setPresenterMode,
+  setSnapLenses,
+  suspendAudioAnalyser,
+  toggleBusyIndicator,
+  toggleDidLoadSnapLenses,
+  toggleIsApplyingLens,
+  toggleSnapLensLoadingOverlay,
+}: Props) {
+  const container = useRef<HTMLDivElement>(null);
+  const backgroundCanvas = useRef<HTMLCanvasElement>(null);
+  const babylonCanvas = useRef<HTMLCanvasElement>(null);
+  const settingsStore = useSettingsStore();
+  const { host } = useWindowObject();
+  const [state, send] = useStateMachine();
+  const classNames = useStyles();
+
+  const babylonRenderer = useMemo(() => new BabylonRenderer(), []);
+  const isSupported = useMemo(() => babylonRenderer.isSupported(), [babylonRenderer]);
+
+  const log = (...msg: unknown[]) => debug && console && console.log(...msg);
+  const assetAspectRatio = () => (videoOrientation === 'portrait' ? '9x16' : '16x9');
+
+  const isThumbnailStep =
+    state.matches(RecorderStages.THUMBNAIL) ||
+    state.matches(RecorderStages.THUMBNAIL_TAKEN) ||
+    state.matches(RecorderStages.IMPORT_IMAGE_EDIT);
+
+  // mount & unmount
+  useEffect(() => {
+    log('BabylonCanvas → mount', { isSupported, host });
+
+    // If webgl is not supported, don't run and throw error message
+    if (!isSupported) {
+      setModal(Modals.WEBGL_NOT_SUPPORTED);
+      send('ERROR');
+
+      // emit a Babylon error event to be caught by the error handler and log as an error
+      babylonRenderer.emit(BabylonRenderer.Events.ERROR, { msg: 'WebGLNotSupportedError' });
+
+      return;
+    }
+
+    babylonRenderer.setKillSwitches({
+      isCanvasLeakFixEnabled: isSettingTrue(settingsStore?.getSettingObject('isCanvasLeakFixEnabled', 'boolean')),
+      isLensStepEnabled: isSettingTrue(settingsStore?.getSettingObject('isLensStepEnabled', 'boolean')),
+      isLensStepResizeCheckEnabled: isSettingTrue(
+        settingsStore?.getSettingObject('isLensStepResizeCheckEnabled', 'boolean'),
+      ),
+    });
+
+    setup();
+
+    // eslint-disable-next-line consistent-return
+    return () => {
+      log('BabylonCanvas → unmount');
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Initial setup function
+  const setup = () => {
+    if (!container.current || !babylonCanvas.current) return;
+
+    babylonRenderer.init(
+      babylonCanvas.current,
+      backdropConfig,
+      {
+        didLoadSnapLenses,
+        lensConfig,
+        lensTapCallback: () => didInteractWithCurrLens(),
+        setSnapLenses,
+        toggleDidLoadSnapLenses,
+      },
+      telemetryCallbacks,
+      host,
+      debug,
+    );
+
+    if (hoistBabylonRenderer) hoistBabylonRenderer(babylonRenderer);
+
+    if (mediaStreams && mediaStreams.length > 0 && cameraId) {
+      const stream = mediaStreams.find(mediaStream => mediaStream.videoDeviceID === cameraId);
+      if (stream)
+        babylonRenderer
+          .setActiveMediaStream(stream.mediaStream, videoOrientation)
+          .then(() => {})
+          .catch(() => {});
+    }
+
+    if (filter.name) babylonRenderer.setColorFilter(filter);
+
+    if (board.name) babylonRenderer.setBoard(!!board.name, board.assets[assetAspectRatio()], boardSplitScreenRatio);
+
+    if (recMode === 'mic') {
+      // To make sure we don't conflict with unmount logic which may suspend the audio analyser's context we resume on the next cycle of the event loop.
+      setTimeout(resumeAudioAnalyser, 0);
+      babylonRenderer.toggleMicMode(true, audioAnalyser);
+    }
+
+    if (micModeSettings) babylonRenderer.updateMicModeSettings(micModeSettings);
+
+    if (frame.name) {
+      let frameUrl = frame.assets[assetAspectRatio()];
+      if (isThumbnailStep && thumbnailAspectRatio === '4x5' && frame.assets['4x5']) frameUrl = frame.assets['4x5'];
+
+      babylonRenderer.setFrame(!!frame.name, frameUrl);
+    }
+
+    if (backdrop.id && background !== 'video') {
+      toggleBusyIndicator(true);
+      babylonRenderer
+        .setBackdrop(!!backdrop.id, backdrop.assets[assetAspectRatio()])
+        .then(() => {
+          toggleBusyIndicator(false);
+        })
+        .catch(() => {});
+    } else if (
+      backdrop.id &&
+      background === 'video' &&
+      backdrop.assets.video !== 'undefined' &&
+      backdrop.assets.video !== null
+    ) {
+      toggleBusyIndicator(true);
+      babylonRenderer
+        .toggleVideoBackground(!!backdrop.id, backdrop.assets.video)
+        .then(async () => {
+          await babylonRenderer.setBackdrop(false);
+          toggleBusyIndicator(false);
+        })
+        .catch(() => {});
+    }
+
+    if (background) {
+      // toggleBackgroundEffect();
+
+      if (
+        isSettingTrue(settingsStore?.getSettingObject('isCustomBackdropAssetCacheEnabled', 'boolean')) &&
+        background === 'media' &&
+        cacheHelper.has('customBackground')
+      ) {
+        const { type, url } = cacheHelper.get('customBackground') as { type: string; url: string };
+        if (type === 'image') babylonRenderer.toggleImageBackground(true, url);
+        else if (type === 'video') {
+          babylonRenderer
+            .toggleVideoBackground(true, url)
+            .then(() => {})
+            .catch(() => {});
+        }
+      }
+    }
+
+    if (presenterMode) babylonRenderer.setPresenterMode(presenterMode);
+
+    if (presenterMode === BabylonRenderer.CustomPresenterMode)
+      babylonRenderer.setCustomPresenterMode(customPresenterModeSettings);
+
+    if (bgPropEnabled || bgPropInterval) babylonRenderer.toggleBackgroundReplaceInterval(bgPropEnabled, bgPropInterval);
+
+    if (mirrorVideo) babylonRenderer.setMirrorVideo(mirrorVideo);
+
+    // ignore activeLens when in mic mode
+    if (recMode !== 'mic' && activeSnapLens.id && activeSnapLens.id !== '') {
+      setLens(activeSnapLens)
+        .then(() => {})
+        .catch(() => {});
+    }
+
+    // If the importImageCanvas is available, we swap the videoTexture using the webcam with the canvas from import
+    const element = host.document.getElementById('fgr-importImageCanvas');
+    if (element) {
+      babylonRenderer.useImportedTextureInput(element);
+    }
+
+    babylonRenderer.setInputStreamVideoElement();
+    babylonRenderer.resetViewPort();
+
+    // if (showBackgroundBlurAnimation) {
+    //   this.setState({ shouldAnimateBg: true }, () => {
+    //     this.animateBg();
+    //   });
+    // }
+  };
+
+  const setLens = async (lens: Lens) => {
+    if (isApplyingLens) return;
+    toggleSnapLensLoadingOverlay(true);
+    toggleIsApplyingLens(true);
+    await babylonRenderer.setSnapLens(lens);
+    toggleIsApplyingLens(false);
+    toggleSnapLensLoadingOverlay(false);
+  };
+
+  const { width, height } = enableDynamicCanvas ? videoSize : getViewSize(videoOrientation);
+
+  return (
+    <>
+      <div ref={container} className={`fgr-babylonCanvas__container ${classNames.babylonCanvasContainer}`}>
+        <Translation>
+          {t => (
+            <canvas
+              id="fgr-babylonCanvas"
+              onContextMenuCapture={e => e?.preventDefault()}
+              ref={babylonCanvas}
+              aria-label={t('babylonCanvas.recordingWindow')}
+              width={width}
+              height={height}
+              className={classNames.babylonCanvas}
+              style={{ transform: `scale(${canvasScale})` }}
+            />
+          )}
+        </Translation>
+      </div>
+    </>
+  );
+}
+
+export default connect(mapStateToProps, mapDispatchToProps)(BabylonCanvas);
