@@ -1,0 +1,61 @@
+## Config for other clusters 
+prometheus:
+  enabled: true
+  prometheusSpec:
+    disableCompaction: false
+    replicas: 1
+    retention: 90d
+    externalLabels:
+      geo: eu 
+      region: west4 
+      cluster: staging 
+    image:
+      repository: prometheus/prometheus
+      tag: v2.41.0
+    thanos:
+      tag: v0.30.1
+      objectStorageConfig:
+        key: thanos_gcs.yml
+        name: thanos-gcs-storage
+    additionalArgs:
+    - name: storage.tsdb.min-block-duration
+      value: 5m    
+    - name: storage.tsdb.max-block-duration
+      value: 5m
+    additionalScrapeConfigs:
+    - job_name: 'kubernetes-service-endpoints'
+      honor_labels: true
+      kubernetes_sd_configs:
+      - role: endpoints
+      relabel_configs:
+        # select only those endpoints whose service has "prometheus.io/scrape: true" annotation
+        - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        # set the metrics_path to the path specified in "prometheus.io/path: <metric path>" annotation.
+        - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        # set the scrapping port to the port specified in "prometheus.io/port: <port>" annotation and set address accordingly.
+        - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+          action: replace
+          target_label: __address__
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+        - action: labelmap
+          regex: __meta_kubernetes_service_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_service_name]
+          action: replace
+          target_label: kubernetes_name
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    image:
+      repository: prometheus/alertmanager
+      tag: v0.25.0
+grafana:
+  enabled: false
