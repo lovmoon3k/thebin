@@ -1,0 +1,98 @@
+import paho.mqtt.client as mqtt
+import subprocess
+import xml.etree.ElementTree as ET
+import xmltodict
+import json
+import csv
+import time
+
+# MQTT broker and topic information
+HOST = "192.168.1.5"
+TOPIC = "nvidia/params"
+USER = "mqtt"
+PASSWD = "mqtt#"
+
+    # Capture the output of nvidia-smi
+def send_nvidia_mqtt():
+    result = subprocess.run(["nvidia-smi", "-q", "-x"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    xml_output = result.stdout.decode("utf-8")
+    
+    # xml parsing
+    root = ET.fromstring(xml_output)
+    
+    # xml to dict conversion
+    data_dict = xmltodict.parse(xml_output)['nvidia_smi_log']['gpu']
+    
+    # dict to json conversion
+    json_dict = {
+        "fan_speed": data_dict['fan_speed'],
+        "performance_state": data_dict['performance_state'],
+        "fb_memory_usage": data_dict['fb_memory_usage'],
+        "utilization": data_dict['utilization'],
+        "temperature": data_dict['temperature'],
+        "power_readings": data_dict['power_readings'],
+        "clocks": data_dict['clocks'],
+    }
+
+    # json object creation
+    json_object = json.dumps(json_dict, indent=4)
+       
+    # Create MQTT client and connect to the broker
+    client = mqtt.Client()
+    client.username_pw_set(USER, PASSWD)
+    client.connect(HOST, 1883, 60)
+    
+    # Publish the JSON data to the desired topic
+    client.publish(TOPIC, json_object)
+    
+    # Disconnect from the broker
+    client.disconnect()
+
+# Main function
+if __name__ == "__main__":
+    while True:
+        send_nvidia_mqtt()
+        time.sleep(5)       # Wait for 5 seconds
+
+=====================================================================================================
+# Output (JSON):
+{
+    "fan_speed": "0 %",
+    "performance_state": "P8",
+    "fb_memory_usage": {
+        "total": "5942 MiB",
+        "used": "407 MiB",
+        "free": "5535 MiB"
+    },
+    "utilization": {
+        "gpu_util": "7 %",
+        "memory_util": "7 %",
+        "encoder_util": "0 %",
+        "decoder_util": "0 %"
+    },
+    "temperature": {
+        "gpu_temp": "45 C",
+        "gpu_temp_max_threshold": "96 C",
+        "gpu_temp_slow_threshold": "93 C",
+        "gpu_temp_max_gpu_threshold": "91 C",
+        "gpu_target_temperature": "83 C",
+        "memory_temp": "N/A",
+        "gpu_temp_max_mem_threshold": "N/A"
+    },
+    "power_readings": {
+        "power_state": "P8",
+        "power_management": "Supported",
+        "power_draw": "17.24 W",
+        "power_limit": "125.00 W",
+        "default_power_limit": "125.00 W",
+        "enforced_power_limit": "125.00 W",
+        "min_power_limit": "70.00 W",
+        "max_power_limit": "150.00 W"
+    },
+    "clocks": {
+        "graphics_clock": "300 MHz",
+        "sm_clock": "300 MHz",
+        "mem_clock": "405 MHz",
+        "video_clock": "540 MHz"
+    }
+}
