@@ -1,0 +1,211 @@
+#include <iostream>
+#include <vector>
+#include <math.h>
+#include <algorithm>
+
+using namespace std;
+
+double EPS = 1e-9;
+
+struct point
+{
+    double x,y;
+    point(){x=y=0;};
+    
+    point(int x, int y)
+    {
+        this->x = x;
+        this->y = y;
+    }
+
+    bool operator == (const point& other) const
+    {
+        return (fabs(x-other.x) < EPS) && (fabs(y - other.y) < EPS);
+    }
+
+    bool operator < (point other) const
+    {
+        if(fabs(x-other.x)>EPS) return x < other.x;
+        return y<other.y;
+    }
+
+};
+
+double dist(const point& p1, const point& p2)
+{
+    return hypot(p1.x-p2.x, p1.y-p2.y);
+}
+
+struct line{ double a,b,c; };
+
+void pointsToLine(const point& p1, const point& p2, line& l)
+{
+    if(fabs(p1.x-p2.x) < EPS)
+        l = {1, 0, -p1.x};
+    else
+        l = {
+            -(p2.y-p1.y) / (p2.x-p1.x),
+            1,
+            (p2.y-p1.y) / (p2.x-p1.x)*p1.x - p1.y
+        };
+}
+
+void pointSlopeToLine(point p, double m, line& l)
+{
+    l.a = -m;
+    l.b = 1.0;
+    l.c = -((l.a*p.x) + (l.b*p.y));
+}
+
+bool areParallel(line l1, line l2)
+{
+    return (fabs(l1.a - l2.a) < EPS) && (fabs(l1.b - l2.b) < EPS);
+}
+
+bool areSame(line l1, line l2)
+{
+    return areParallel(l1,l2) && (fabs(l1.c - l2.c) < EPS);
+}
+
+bool areIntersect(line l1, line l2, point& p)
+{
+    if(areParallel(l1,l2)) return false;
+
+    p.x = (l2.b*l1.c - l1.b*l2.c) / (l2.a*l1.b - l1.a * l2.b);
+
+    if(fabs(l1.b)>EPS)  p.y = -(l1.a*p.x + l1.c);
+    else                p.y = -(l2.a*p.x + l2.c);
+    
+    return true;
+}
+
+struct vec
+{
+    double x,y;
+    vec(double x, double y)
+    {
+        this->x = x;
+        this->y = y;
+    }
+};
+
+// return the vector from point a to point b
+vec toVec(const point& a, const point& b)
+{
+    return vec(b.x-a.x, b.y-a.y);
+}
+
+// scale the vector v by a factor of scalar s
+vec scale(const vec& v, double s)
+{
+    return vec(s*v.x, s*v.y);
+}
+
+// translate the point p according to vector v
+point translate(const point& p, const vec& v)
+{
+    return point(p.x+v.x, p.y+v.y);
+}
+
+double dot(vec a, vec b) { return a.x*b.x + a.y*b.y; }
+double norm_sq(vec v) { return v.x*v.x + v.y*v.y; }
+
+double angle(const point& a, const point& o, const point& b)
+{
+    vec oa = toVec(o, a), ob = toVec(o, b);
+    return acos(dot(oa, ob) / sqrt( norm_sq(oa) * norm_sq(ob) ) );
+}
+
+double cross(vec a, vec b){ return a.x*b.y - a.y*b.x; }
+bool ccw(point p, point q, point r){ return cross(toVec(p,q), toVec(p,r)) > EPS; }
+bool collinear(point p, point q, point r){ return fabs(cross(toVec(p,q), toVec(p,r))) < EPS; }
+
+double perimeter(const vector<point>& P)
+{
+    double ans = 0;
+    
+    for(int i=0; i < P.size()-1; i++)
+        ans += dist(P[i], P[i+1]);
+    
+    return ans;
+}
+
+double area(const vector<point>& P)
+{
+    double ans = 0;
+    
+    for(int i=0;i<P.size()-1;i++)
+        ans += (P[i].x*P[i+1].y - P[i+1].x*P[i].y);
+    
+    return fabs(ans)/2.0;
+}
+
+// returns 1 if pt inside, 0 if pt on, and -1 if pt outside P
+int insidePolygon(point pt, const vector<point>& P)
+{
+    int n = P.size();
+    if(n<=3) return -1;
+    for(int i=0;i<n-1;i++)
+        if(fabs( dist(P[i], pt) + dist(pt, P[i+1]) - dist(P[i],P[i+1]) ) < EPS )
+            return 0;
+    
+    double sum = 0;
+    for(int i=0;i<n-1;i++)
+    {
+        if(ccw(pt, P[i], P[i+1]))
+            sum += angle(P[i], pt, P[i+1]);
+        else
+            sum -= angle(P[i], pt, P[i+1]);
+    }
+
+    return fabs(sum) > 3.14 ? 1 : -1;
+
+}
+
+// O(n log n)
+vector<point> CH_Graham(vector<point>& Pts)
+{
+    vector<point> P(Pts);
+    int n = (int)P.size();
+    if(n<=3)
+    {
+        if(!(P[0]==P[n-1])) P.push_back(P[0]);
+        return P;
+    }
+
+    int P0 = min_element(P.begin(), P.end()) - P.begin();
+    swap(P[0], P[P0]);
+
+    sort(++P.begin(), P.end(), [&](point a, point b) {
+        return ccw(P[0],a,b);
+    });
+
+    vector<point> S({P[n-1], P[0], P[1]});
+    int i = 2;
+    while(i<n)
+    {
+        int j = S.size()-1;
+        if(ccw(S[j-1], S[j], P[i])) S.push_back(P[i++]);
+        else S.pop_back();
+    }
+
+    return S;
+
+}
+
+int main()
+{
+    vector<point> P;
+
+    P.emplace_back(0,0);
+    P.emplace_back(0,4);
+    P.emplace_back(-4,0);
+    P.emplace_back(5,0);
+    P.emplace_back(0,-6);
+    P.emplace_back(1,0);
+
+    vector<point> S = CH_Graham(P);
+
+    for(point p:S) cout << '(' << p.x << ", " << p.y << ")\n";
+
+}
