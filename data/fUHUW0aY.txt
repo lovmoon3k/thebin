@@ -1,0 +1,128 @@
+//=======================================texture.h==========================================================================
+
+#pragma once
+#include "common.h"
+
+class Texture {
+public:
+    explicit Texture(Image image)
+        : image_(std::move(image)) {
+    }
+
+    Size GetSize() const {
+        if (image_.empty()) {
+			return {0, 0};
+		} 
+		return {int(image_[0].size()), int(image_.size())};
+    }
+
+    char GetPixelColor(Point p) const {
+		if (int(image_.size()) <= p.y || int(image_[0].size()) <= p.x || p.x < 0 || p.y < 0) {
+			return '.';
+		}
+		return image_[p.y][p.x];
+    }
+
+private:
+    Image image_;
+};
+
+
+//============================================shapes.h=============================================================================
+
+#pragma once
+#include "texture.h"
+
+#include <memory>
+
+// Поддерживаемые виды фигур: прямоугольник и эллипс
+enum class ShapeType {RECTANGLE, ELLIPSE};
+
+class Shape {
+public:
+    // Фигура после создания имеет нулевые координаты и размер,
+    // а также не имеет текстуры
+    explicit Shape(ShapeType type) : type_(type) {
+    }
+
+    void SetPosition(Point pos) {
+        position_ = pos;
+    }
+
+    void SetSize(Size size) {
+        size_ = size;
+    }
+
+    void SetTexture(std::shared_ptr<Texture> texture) {
+        texture_ = std::move(texture);
+    }
+
+    // Рисует фигуру на указанном изображении
+	// В зависимости от типа фигуры должен рисоваться либо эллипс, либо прямоугольник
+    // Пиксели фигуры, выходящие за пределы текстуры, а также в случае, когда текстура не задана,
+    // должны отображаться с помощью символа точка '.'
+    // Части фигуры, выходящие за границы объекта image, должны отбрасываться.
+    void Draw(Image& image) const {
+		Size ImageSize = GetImageSize(image);
+		const int start_drawing_vertically = ImageSize.height - position_.y - 1;
+		const int end_drawing_vertically = std::max((ImageSize.height - std::min(ImageSize.height, size_.height) - position_.y), 0);
+		const int start_drawing_horizontally = position_.x;
+		const int end_drawing_horizontally = std::min(size_.width + position_.x, ImageSize.width);
+		int ellipse_y = size_.height - 1;
+		int ellipse_x = 0;
+		int texture_y = texture_->GetSize().height - 1;
+		int texture_x = 0;
+		if (type_ == ShapeType::RECTANGLE) {
+			if (!texture_) {
+				for (int i = start_drawing_vertically; i >= end_drawing_vertically; --i) {
+					for (int j = start_drawing_horizontally; j < end_drawing_horizontally; ++j) {
+						image[i][j] = '.';
+					}
+				}
+			} else {
+				for (int i = start_drawing_vertically; i >= end_drawing_vertically; --i) {
+					for (int j = start_drawing_horizontally; j < end_drawing_horizontally; ++j) {
+						image[i][j] = texture_->GetPixelColor({texture_x, texture_y});
+						++texture_x;
+					}
+					texture_x = 0;
+					--texture_y;
+				}
+			}
+		}
+		if (type_ == ShapeType::ELLIPSE) {
+			if (!texture_) {
+				for (int i = start_drawing_vertically; i >= end_drawing_vertically; --i) {
+					for (int j = start_drawing_horizontally; j < end_drawing_horizontally; ++j) {
+						if (IsPointInEllipse({ellipse_x, ellipse_y}, size_)) {
+							image[i][j] = '.';
+						}
+						++ellipse_x;
+					}
+					ellipse_x = 0;
+					--ellipse_y;
+				}
+			} else {
+				for (int i = start_drawing_vertically; i >= end_drawing_vertically; --i) {
+					for (int j = start_drawing_horizontally; j < end_drawing_horizontally; ++j) {
+						if (IsPointInEllipse({ellipse_x, ellipse_y}, size_)) {
+							image[i][j] = texture_->GetPixelColor({texture_x, texture_y});
+						}
+						++ellipse_x;
+						++texture_x;
+					}
+					ellipse_x = 0;
+					texture_x = 0;
+					--ellipse_y;
+					--texture_y;
+				}
+			}
+		}
+    }
+	
+private:
+	ShapeType type_;
+	Point position_;
+	Size size_;
+	std::shared_ptr<Texture> texture_;
+};
