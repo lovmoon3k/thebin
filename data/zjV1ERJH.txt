@@ -1,0 +1,184 @@
+local component = require("component")
+local fs = require("filesystem")
+local tapee = {}
+local options = {}
+
+local function getTapeDrive()
+  --Credits to gamax92 for this
+  local tape
+  if options.address then
+    if type(options.address) ~= "string" then
+      say("'address' may only be a string.")
+      return
+    end
+    local fulladdr = component.get(options.address)
+    if fulladdr == nil then
+      say("No component at this address.")
+      return
+    end
+    if component.type(fulladdr) ~= "tape_drive" then
+      say("No tape drive at this address.")
+      return
+    end
+    tape = component.proxy(fulladdr)
+  else
+    tape = component.tape_drive
+  end
+  return tape
+  --End of gamax92's part
+end
+
+local tape = getTapeDrive()
+
+if not tape.isReady() then
+  say("The tape drive does not contain a tape.")
+  return
+end
+
+function tapee.label(name)
+  if not name then
+    if tape.getLabel() == "" then
+      say("Tape is currently not labeled.")
+      return
+    end
+    say("Tape is currently labeled: " .. tape.getLabel())
+    return
+  end
+  tape.setLabel(name)
+  say("Tape label set to " .. name)
+end
+function tapee.rewind()
+  say("Rewound tape")
+  tape.seek(-tape.getSize())
+end
+
+function tapee.play()
+  if tape.getState() == "PLAYING" then
+    say("Tape is already playing")
+  else
+    tape.play()
+    say("Tape started")
+  end
+end
+function tapee.stop()
+  if tape.getState() == "STOPPED" then
+    say("Tape is already stopped")
+  else
+    tape.stop()
+    tape.seek(-tape.getSize())
+    say("Tape stopped")
+  end
+end
+function tapee.pause()
+  if tape.getState() == "STOPPED" then
+    say("Tape is already paused")
+  else
+    tape.stop()
+    say("Tape paused")
+  end
+end
+
+function tapee.speed(sp)
+  local s = tonumber(sp)
+  if not s or s < 0.25 or s > 2 then
+    say("Speed needs to be a number between 0.25 and 2.0")
+    return
+  end
+  tape.setSpeed(s)
+  say("Playback speed set to " .. sp)
+end
+
+function tapee.volume(vol)
+  local v = tonumber(vol)
+  if not v or v < 0 or v > 1 then
+    say("Volume needs to be a number between 0.0 and 1.0")
+    return
+  end
+  tape.setVolume(v)
+  say("Volume set to " .. vol)
+end
+
+function confirm(msg)
+  if not options.y then
+    say(msg)
+    say("Type `y` to confirm, `n` to cancel.")
+    repeat
+      local response = answer()
+      if response and response:lower():sub(1, 1) == "n" then
+        say("Canceled.")
+        return false
+      end
+    until response and response:lower():sub(1, 1) == "y"
+  end
+  return true
+end
+
+function tapee.wipe()
+  if not confirm("Are you sure you want to wipe this tape?") then return end
+  local k = tape.getSize()
+  tape.stop()
+  tape.seek(-k)
+  tape.stop() --Just making sure
+  tape.seek(-90000)
+  local s = string.rep("\xAA", 8192)
+  for i = 1, k + 8191, 8192 do
+    tape.write(s)
+  end
+  tape.seek(-k)
+  tape.seek(-90000)
+  say("Done.")
+end
+
+function tapee.writeTape(path)
+  local file, msg, _, y
+  local block = 2048 --How much to read at a time
+  if not confirm("Are you sure you want to write to this tape?") then return end
+  tape.stop()
+  tape.seek(-tape.getSize())
+  tape.stop() --Just making sure
+
+  local bytery = 0 --For the progress indicator
+  local filesize = tape.getSize()
+    filesize = fs.size(path)
+    say("Path: " .. path)
+    file, msg = fs.open(path, "rb")
+    if not file then
+      say("Error: " .. msg)
+      return
+    end
+
+    say("Writing...")
+  end
+
+  if filesize > tape.getSize() then
+    say("Warning: File is too large for tape, shortening file")
+    filesize = tape.getSize()
+  end
+
+  --Displays long numbers with commas
+  local function fancyNumber(n)
+    return tostring(math.floor(n)):reverse():gsub("(%d%d%d)", "%1,"):gsub("%D$", ""):reverse()
+  end
+
+  repeat
+    local bytes = file:read(block)
+    if bytes and #bytes > 0 then
+      if not tape.isReady() then
+        say("Error: Tape was removed during writing.")
+        file:close()
+        return
+      end
+      bytery = bytery + #bytes
+      local displaySize = math.min(bytery, filesize)
+      say(string.format("Read %s of %s bytes... (%.2f %%)", fancyNumber(displaySize), fancyNumber(filesize), 100 * displaySize / filesize))
+      tape.write(bytes)
+    end
+  until not bytes or bytery > filesize
+  file:close()
+  tape.stop()
+  tape.seek(-tape.getSize())
+  tape.stop() --Just making sure
+  say("Done.")
+end
+
+return tapee
