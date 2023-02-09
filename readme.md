@@ -1,13 +1,7 @@
-[**UynxjNEW**](/data/UynxjNEW.txt) (09/02/23 - 21:36)- 239 bytes
+[**pGrFnz7G**](/data/pGrFnz7G.txt) (09/02/23 - 21:45)- 819 bytes
 
-[**8LLqDBHW**](/data/8LLqDBHW.txt) (09/02/23 - 21:36)- 2546 bytes
+[**pGrFnz7G**](/data/pGrFnz7G.txt) (09/02/23 - 21:45)- 819 bytes
 
-[**8LLqDBHW**](/data/8LLqDBHW.txt) (09/02/23 - 21:36)- 2546 bytes
+**Total Datas**: 9153
 
-[**ayBCzhS5**](/data/ayBCzhS5.txt) (09/02/23 - 21:36)- 1081 bytes
-
-[**ayBCzhS5**](/data/ayBCzhS5.txt) (09/02/23 - 21:36)- 1081 bytes
-
-**Total Datas**: 9152
-
-**Total Size**: 60.39 MB / 60.4 MB
+**Total Size**: 60.40 MB / 60.4 MB
