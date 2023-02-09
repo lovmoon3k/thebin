@@ -1,0 +1,133 @@
+#ifndef LIST_H
+#define LIST_H
+
+#include <concepts>
+#include "util.hpp"
+
+namespace kernel::intrusive {
+
+template <typename Tag = void>
+struct ListElement;
+
+template <>
+struct ListElement<void> {
+    ListElement* prev;
+    ListElement* next;
+};
+
+template <typename Tag>
+struct ListElement : ListElement<> {};
+
+template <typename T, typename Tag = void>
+requires (std::derived_from<T, ListElement<Tag>>)
+struct BaseClassCastPolicy {
+    static constexpr
+    T& GetRefFromHeader(ListElement<>* ref)
+    {
+        return static_cast<ListElement<Tag>&>(*ref);
+    }
+
+    static constexpr
+    auto GetHeaderFromRef(T& ref) -> ListElement<>*
+    {
+        return &static_cast<ListElement<Tag>&>(ref);
+    }
+};
+
+template <typename T, std::size_t offset>
+struct OffsetCastPolicy {
+    static constexpr
+    T& GetRefFromHeader(ListElement<>* ref)
+    {
+        return *ptr_cast<T*>(ptr_cast<char*>(ref) - offset);
+    }
+
+    static constexpr
+    auto GetHeaderFromRef(T& ref) -> ListElement<>*
+    {
+        return ptr_cast<char*>(AddressOf(ref)) + offset;
+    }
+};
+
+template <typename T, typename CastPolicy>
+class List {
+    using Element = ListElement<>;
+public:
+    struct Iterator {
+        friend class List;
+        Iterator& operator++()
+        {
+            ptr = ptr->next;
+            return *this;
+        }
+
+        Iterator& operator--()
+        {
+            ptr = ptr->prev;
+            return *this;
+        }
+
+        T& operator*()
+        {
+            return CastPolicy::GetRefFromHeader(ptr);
+        }
+
+        bool operator!=(const Iterator& other)
+        {
+            return this->ptr != other.ptr;
+        }
+    private:
+        Element* ptr;
+    };
+
+    List() :
+        sentinel{ .prev = &sentinel, .next = &sentinel }
+    {}
+
+    Iterator Insert(Iterator it, T& ref) noexcept
+    {
+        Element* elem = CastPolicy::GetHeaderFromRef(ref);
+        Element* next = it.ptr;
+        Element* prev = next->prev;
+        elem->prev = prev;
+        prev->next = elem;
+        elem->next = next;
+        next->prev = elem;
+        return { elem };
+    }
+
+    void Erase(T& ref) noexcept
+    {
+        Element& elem = ref;
+        Element* prev = elem.prev;
+        Element* next = elem.next;
+        prev->next = next;
+        next->prev = prev;
+    }
+
+    Iterator Begin()
+    {
+        return { sentinel.next };
+    }
+
+    Iterator End()
+    {
+        return { &sentinel };
+    }
+
+    friend Iterator begin(List& list)
+    {
+        return list.Begin();
+    }
+
+    friend Iterator end(List& list)
+    {
+        return list.End();
+    }
+private:
+    Element sentinel;
+};
+
+}
+
+#endif // LIST_H
