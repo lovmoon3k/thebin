@@ -1,0 +1,337 @@
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.PriorityQueue;
+import java.util.stream.Collectors;
+
+public class Main {
+
+    public static void main(String[] args) {
+
+        // The labyrinth string representation
+        String maze = "" +
+                " ,M,N, ,X\n" +
+                "N, ,N,~, \n" +
+                " , ,N, , \n" +
+                " , ,N, , \n" +
+                " , , , , \n" +
+                " , , , , ";
+
+        App.solveLabyrinth(maze);
+
+    }
+
+}
+
+// Class from the task in moodle
+class App {
+
+    // solver is refactored for presentation
+    public static void solveLabyrinth(String mapFilename) {
+
+        String data = mapFilename.replaceAll(",", "");
+
+        Labyrint labyrinth = new Labyrint(data);
+
+        List<Cel> path = labyrinth.findPath(labyrinth);
+
+        if (Labyrint.IS_FOUND) {
+            labyrinth.consolePrint(path);
+            System.out.println("Total cost is: " + labyrinth.calculateCost(path));
+
+            labyrinth.markPath(path);
+            String visualizeMazePath = labyrinth.visualizeMazePath(Labyrint.FINAL_MAZE_PATH);
+            System.out.print(visualizeMazePath);
+        } else {
+            System.out.println("There is no path!");
+        }
+
+    }
+}
+
+// Labyrinth with all methods for the task solve
+class Labyrint {
+
+    // static fields for initialization
+    private int[][] maze;
+    private Cel start;
+    private Cel end;
+    private boolean[][] visited;
+    private static final int ROAD = 0;
+    private static final int WALL = 1;
+    private static final int START = 2;
+    private static final int END = 3;
+    private static final int PATH = 4;
+    private static final int WATER = 5;
+
+    //all directions
+    private static final int[][] DIRECTIONS_STRAIGHT = { { 0, 1 }, { 1, 0 }, { 0, -1 }, { -1, 0 } };
+    private static final int[][] DIRECTIONS_DIAGONAL = { { 1, 1 }, { -1, -1 }, { 1, -1 }, { -1, 1 } };
+
+    // auxiliary fields
+    public static boolean IS_FOUND = false;
+    public static int[][] FINAL_MAZE_PATH;
+    public static Cel FOOD;
+
+    public Labyrint(String maze) {
+        initializeMaze(maze);
+    }
+
+    // represent labyrinth in 2D int matrix (using static fields)
+    private void initializeMaze(String text) {
+        if (text == null || text.length() == 0) {
+            throw new IllegalArgumentException("Empty lines data.");
+        }
+        
+        String[] lines = text.split("\n");
+        maze = new int[lines.length][lines[0].length()];
+        visited = new boolean[lines.length][lines[0].length()];
+
+        for (int row = 0; row < getHeight(); row++) {
+            if (lines[row].length() != getWidth()) {
+                throw new IllegalArgumentException("Line " + (row) + " wrong length (was " + lines[row].length() + " but should be " + getWidth() + ").");
+            }
+
+            for (int col = 0; col < getWidth(); col++) {
+                if (lines[row].charAt(col) == 'N')
+                    maze[row][col] = WALL;
+                else if (lines[row].charAt(col) == 'M') {
+                    maze[row][col] = START;
+                    start = new Cel(row, col);
+                } else if (lines[row].charAt(col) == 'X') {
+                    maze[row][col] = END;
+                    end = new Cel(row, col);
+                    FOOD = new Cel(row, col);
+                } else if (lines[row].charAt(col) == ' ') {
+                    maze[row][col] = ROAD;
+                } else if (lines[row].charAt(col) == '~') {
+                    maze[row][col] = WATER;
+                }
+            }
+        }
+    }
+
+    public int getHeight() {
+        return maze.length;
+    }
+
+    public int getWidth() {
+        return maze[0].length;
+    }
+
+    public Cel getEntry() {
+        return start;
+    }
+
+    // the path find algorithm
+    public List<Cel> findPath(Labyrint labyrinth) {
+        //using priority queue
+        PriorityQueue<Cel> queue = new PriorityQueue<>(Cel::compareTo);
+        // entry point (Cell)
+        Cel start = labyrinth.getEntry();
+        queue.offer(start);
+
+        while (!queue.isEmpty()) {
+            Cel current = queue.poll();
+            labyrinth.setVisited(current.getX(), current.getY(), true);
+
+            double cost;
+
+            if (labyrinth.isFound(current.getX(), current.getY())) {
+                IS_FOUND = true;
+                return backtrackPath(current);
+            }
+
+            // move in straight directions - cost 1
+            for (int[] direction : DIRECTIONS_STRAIGHT) {
+                cost = 1;
+                move(labyrinth, queue, current, direction, cost);
+            }
+
+            // move in diagonals - cost 1.5
+            for (int[] direction : DIRECTIONS_DIAGONAL) {
+                cost = 1.5;
+                move(labyrinth, queue, current, direction, cost);
+            }
+        }
+        return Collections.emptyList();
+    }
+
+    // move method with different cost
+    private void move(Labyrint maze, PriorityQueue<Cel> queue, Cel current, int[] direction, double cost) {
+        Cel nextPosition = new Cel(current.getX() + direction[0], current.getY() + direction[1], current, cost);
+        // check for validate next position
+        if (maze.invalidLocation(nextPosition.getX(), nextPosition.getY())
+                || maze.isExplored(nextPosition.getX(), nextPosition.getY())
+                || maze.isWall(nextPosition.getX(), nextPosition.getY())) {
+            return;
+        }
+        // check for water
+        if (maze.isWater(current.getX(), current.getY())) {
+            nextPosition.setCost(2);
+        }
+        queue.add(nextPosition);
+    }
+
+    public boolean isStart(int x, int y) {
+        return x == start.getX() && y == start.getY();
+    }
+
+    public boolean isFound(int x, int y) {
+        return x == end.getX() && y == end.getY();
+    }
+
+    public boolean isWall(int row, int col) {
+        return maze[row][col] == WALL;
+    }
+
+    public boolean isWater(int row, int col) {
+        return maze[row][col] == WATER;
+    }
+
+    public boolean isExplored(int row, int col) {
+        return visited[row][col];
+    }
+
+    public void setVisited(int row, int col, boolean value) {
+        visited[row][col] = value;
+    }
+
+    public boolean invalidLocation(int row, int col) {
+        return row < 0 || row >= getHeight() || col < 0 || col >= getWidth();
+    }
+
+    // backtracking the path using parent of each visited cell
+    private List<Cel> backtrackPath(Cel current) {
+        List<Cel> path = new ArrayList<>();
+        Cel next = current;
+
+
+        while (next != null) {
+            path.add(next);
+            next = next.parent;
+        }
+
+        return path;
+    }
+
+    // marking path in 2D int matrix with value for visualisation
+    public void markPath(List<Cel> path) {
+        int[][] mazePath = Arrays.stream(maze)
+                .map(int[]::clone)
+                .toArray(int[][]::new);
+        for (Cel cell : path) {
+            if (isStart(cell.getX(), cell.getY()) || isFound(cell.getX(), cell.getY())) {
+                continue;
+            }
+            mazePath[cell.getX()][cell.getY()] = PATH;
+        }
+        FINAL_MAZE_PATH = mazePath;
+    }
+
+    // calculate total cost of founded path
+    public double calculateCost(List<Cel> path) {
+        double totalCost = 0;
+        for (Cel cell : path) {
+            if (isStart(cell.getX(), cell.getY())) {
+                continue;
+            }
+            totalCost += cell.getCost();
+        }
+        return totalCost;
+    }
+
+    // visualisation method for better understand (represent the 2D int matrix like a string)
+    public String visualizeMazePath(int[][] maze) {
+        StringBuilder result = new StringBuilder(maze[0].length * (maze.length + 1));
+        result.append("Visualization: ");
+        result.append(System.lineSeparator());
+        for (int[] row : maze) {
+            for (int col = 0; col < maze[0].length; col++) {
+                if (row[col] == PATH) {
+                    result.append('.');
+                } else if (row[col] == WALL) {
+                    result.append('N');
+                } else if (row[col] == START) {
+                    result.append('M');
+                } else if (row[col] == END) {
+                    result.append('X');
+                } else if (row[col] == WATER) {
+                    result.append('~');
+                } else {
+                    result.append(' ');
+                }
+            }
+            result.append('|');
+            result.append(System.lineSeparator());
+        }
+        return result.toString();
+    }
+
+    // print method
+    public void consolePrint(List<Cel> path) {
+        Collections.reverse(path);
+        String result = path.stream().map(Cel::toString).collect(Collectors.joining(", "));
+        System.out.println("Find path in " + (path.size() - 1) + " steps: ");
+        System.out.println(result);
+    }
+
+}
+
+// Cell class represent the point in labyrinth
+class Cel implements Comparable<Cel> {
+
+    private final int x;
+
+    private final int y;
+
+    private double cost;
+
+    public Cel parent;
+
+    public Cel(int x, int y) {
+        this.x = x;
+        this.y = y;
+        this.parent = null;
+    }
+
+    public Cel(int x, int y, Cel parent, double cost) {
+        this(x, y);
+        this.parent = parent;
+        this.cost = cost;
+    }
+
+    int getX() {
+        return x;
+    }
+
+    int getY() {
+        return y;
+    }
+
+    public double getCost() {
+        return cost;
+    }
+
+    public void setCost(double cost) {
+        this.cost = cost;
+    }
+
+    // distance to target for heuristic
+    public double getDistanceToTarget() {
+        return Math.abs(getX() - Labyrint.FOOD.getX()) + Math.abs(getY() - Labyrint.FOOD.getY());
+    }
+
+    // compare method for priority in queue
+    @Override
+    public int compareTo(Cel cell) {
+        return (int) ((getCost() + getDistanceToTarget()) - (cell.getCost() + cell.getDistanceToTarget()));
+    }
+
+    @Override
+    public String toString() {
+        return String.format("%d %d", getX(), getY());
+    }
+
+}
