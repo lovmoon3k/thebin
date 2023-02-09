@@ -1,19 +1,15 @@
-[**LFjwn1Qk**](/data/LFjwn1Qk.txt) (09/02/23 - 11:13)- 14734 bytes
+[**yPS1kbSF**](/data/yPS1kbSF.txt) (09/02/23 - 11:30)- 13708 bytes
 
-[**LFjwn1Qk**](/data/LFjwn1Qk.txt) (09/02/23 - 11:13)- 14734 bytes
+[**RAsbyuRj**](/data/RAsbyuRj.txt) (09/02/23 - 11:30)- 14414 bytes
 
-[**9nWD5PRa**](/data/9nWD5PRa.txt) (09/02/23 - 11:13)- 15310 bytes
+[**RAsbyuRj**](/data/RAsbyuRj.txt) (09/02/23 - 11:30)- 14414 bytes
 
-[**iE7sRJzc**](/data/iE7sRJzc.txt) (09/02/23 - 11:13)- 15310 bytes
+[**GRezRQz9**](/data/GRezRQz9.txt) (09/02/23 - 11:30)- 12552 bytes
 
-[**LRfKSQ3C**](/data/LRfKSQ3C.txt) (09/02/23 - 11:13)- 14987 bytes
+[**yPS1kbSF**](/data/yPS1kbSF.txt) (09/02/23 - 11:30)- 13708 bytes
 
-[**iE7sRJzc**](/data/iE7sRJzc.txt) (09/02/23 - 11:13)- 15310 bytes
+[**GRezRQz9**](/data/GRezRQz9.txt) (09/02/23 - 11:30)- 12552 bytes
 
-[**9nWD5PRa**](/data/9nWD5PRa.txt) (09/02/23 - 11:13)- 15310 bytes
+**Total Datas**: 9093
 
-[**LRfKSQ3C**](/data/LRfKSQ3C.txt) (09/02/23 - 11:13)- 14987 bytes
-
-**Total Datas**: 9090
-
-**Total Size**: 60.08 MB / 60.1 MB
+**Total Size**: 60.12 MB / 60.1 MB
