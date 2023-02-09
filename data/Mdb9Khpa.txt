@@ -1,0 +1,162 @@
+#include <win.h>
+#include <hpkeyb49.h>
+
+// The HP49G+ screen is 131 by 80 pixels in size
+const int HEIGHT = 60;
+const int WIDTH = 130;
+
+/*
+ * drawns and returns an image 
+ */
+ hpg_t* draw()
+ {
+	hpg_t *img = hpg_alloc_mono_image(30,30);
+	
+	hpg_clear_on(img);
+	hpg_draw_circle_on(img,15,15,14);
+	hpg_draw_line_on(img,0,0,29,29);
+	hpg_draw_line_on(img,29,0,0,29);
+	hpg_draw_rect_on(img,0,0,29,29);
+	hpg_clip(img,0,0,29,29);
+	return img;
+}
+/*
+ * key typed event handler 
+ */
+int
+onkeytyped(void *event_data, void *app_data)
+{
+    win_keytyped_t *key = (win_keytyped_t *) event_data;
+    if ((int)(key->keycode) == KB_ON)
+	win_event_quit();
+    return 0;
+}
+
+/*
+ * timer event handler 
+ */
+int
+ontimer(void *event_data, void *app_data)
+{
+	static int old = 0;
+    win_widget_t *prog = ((win_widget_t *)app_data);
+	old++;
+	if(old > 10)
+		old = 0;
+	win_progress_set_value(prog,old);
+	return 0;
+}
+
+/*
+ * menu event handler 
+ */
+ int idx = 0;
+int
+onsoftmenu(void *event_data, void *app_data)
+{
+	idx++;
+	if(idx == 3)
+		idx = 0;
+	win_choose_set_index((win_widget_t *)app_data,idx);
+	switch(idx){
+		case 0:
+			hpg_set_mode_mono(1);
+			break;
+		case 1:
+			hpg_set_mode_gray4(1);
+			break;
+		case 2:
+			hpg_set_mode_gray16(1);
+			break;
+		default:
+			break;
+	}
+	hpg_flip();
+    return 0;
+}
+
+int
+main(void)
+{
+    (void) win_init();
+    win_add_event_handler(WIN_KEY_TYPED, 0,
+			  (win_eventhandler) onkeytyped,0);//set keytyped event handler
+	//soft menu
+	win_widget_t *menu = win_softmenu_new();
+	int MENU_EVENT = win_register_event();
+	win_softmenu_add_item(menu,"choose",MENU_EVENT,0);
+	//  box
+	win_widget_t *pBox = win_box_new();
+	win_widget_set_location(pBox,0,0);
+	win_widget_set_size(pBox,WIDTH,HEIGHT);
+	win_widget_t *pBoxtl = win_box_new();
+	win_widget_set_location(pBoxtl,0,0);
+	win_widget_set_size(pBoxtl,WIDTH/2,HEIGHT/2);
+	win_widget_t *pBoxtr = win_box_new();
+	win_widget_set_location(pBoxtr,WIDTH/2,0);
+	win_widget_set_size(pBoxtr,WIDTH/2,HEIGHT/2);
+	win_widget_t *pBoxb = win_box_new();
+	win_widget_set_location(pBoxb,0,HEIGHT/2);
+	win_widget_set_size(pBoxb,WIDTH,HEIGHT/2);
+	// entry
+    win_widget_t *pEdit = win_text_new_entry(WIDTH/2);
+	win_widget_set_location(pEdit,0,0);
+	win_widget_set_size(pEdit,WIDTH/2,8);
+	// choose
+	win_widget_t *pChoose = win_choose_new();
+	win_widget_set_location(pChoose,0,8);
+	win_widget_set_size(pChoose,WIDTH/2,8);
+	win_add_event_handler(MENU_EVENT, 0,
+		(win_eventhandler)onsoftmenu,(void *)pChoose);
+	win_choose_add(pChoose,"mono");
+	win_choose_add(pChoose,"4 cores");
+	win_choose_add(pChoose,"16 cores");
+	win_choose_set_menu(pChoose, menu, 0);
+	//  progress
+	win_widget_t * prog = win_progress_new(WIN_PROGRESS_HORIZ);
+	win_progress_set_range(prog,0,10);
+	int PROGRESS_EVENT = win_register_event();
+	win_progress_set_event(prog,PROGRESS_EVENT);
+	win_progress_set_inc(prog,1);
+	win_widget_set_location(prog,WIDTH/2,0);
+	win_widget_set_size(prog,WIDTH/2,8);
+	// checkbox
+	win_widget_t *pCheck = win_checkbox_new("check");
+	win_widget_set_location(pCheck,WIDTH/2,8);
+	win_widget_set_size(pCheck,WIDTH/2,8);
+	win_checkbox_set_menu(pCheck,menu,1);
+	// image
+	win_widget_t *img = win_img_new(0,draw());
+	win_widget_set_location(img,0,HEIGHT/2);
+	win_widget_set_size(img,WIDTH,HEIGHT/2);
+	// add all - required?
+	win_add_widget(pEdit);
+	win_add_widget(pChoose);
+	win_add_widget(pBox);
+	win_add_widget(pBoxtl);
+	win_add_widget(pBoxtr);
+	win_add_widget(pBoxb);
+	win_add_widget(menu);
+	win_add_widget(prog);
+	win_add_widget(img);
+	win_add_widget(pCheck);
+	// add to box - absolute values
+	win_box_add_at(pBox,pBoxtl,0,0);
+	win_box_add_at(pBox,pBoxtr,WIDTH/2,0);
+	win_box_add_at(pBox,pBoxb,0,HEIGHT/2);
+	win_box_add_at(pBoxtl,pEdit,0,0);
+	win_box_add_at(pBoxtl,pChoose,0,8);
+	win_box_add_at(pBoxtr, prog,WIDTH/2,0);
+	win_box_add_at(pBoxtr,pCheck,WIDTH/2,8);
+	win_box_add_at(pBoxb,img,0,HEIGHT/2);
+	//win_box_layout(pBoxtl);
+	//win_box_layout(pBoxtr);
+	//win_box_layout(pBoxb);
+	win_box_layout(pBox);	/* it can only call the outtermost box*/
+	int TIMER_EVENT = win_register_event();
+	win_add_event_handler(TIMER_EVENT, 0,
+			  (win_eventhandler)ontimer,(void *)prog);
+	win_add_timer_event(TIMER_EVENT,0,1000,1);
+    win_event_loop();
+    return 0;
+}
