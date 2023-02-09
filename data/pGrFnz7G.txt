@@ -1,0 +1,34 @@
+# Build image
+
+FROM node:19.4.0-buster-slim AS build
+WORKDIR /usr/src/app
+
+COPY package.json .
+COPY yarn.lock .
+
+RUN apt-get update -y && apt-get install openssl -y
+RUN yarn add glob rimraf
+RUN yarn install
+RUN yarn generate
+
+COPY ./prisma/schema.prisma prisma/schema.prisma
+COPY ./src src
+
+RUN yarn build
+
+# Production image
+
+FROM node:19.4.0-buster-slim
+WORKDIR /usr/src/app
+
+ARG ENV_MODE=production
+ENV NODE_ENV=${ENV_MODE}
+
+COPY --from=build /usr/src/app/dist ./dist
+#COPY --from=build node_modules/@prisma/client/runtime/index.js node_modules/@prisma/client/runtime/
+#COPY --from=build node_modules/.prisma/client/index.js node_modules/.prisma/client/
+#COPY --from=build node_modules/.prisma/client/schema.prisma node_modules/.prisma/client/
+
+USER node
+
+CMD ["node", "dist/main"]
