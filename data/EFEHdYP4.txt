@@ -1,0 +1,54 @@
+VOID FxCmdHandleRead()
+{
+	FxEvtSignalPending();
+	if (!FxEvtWaitForDelivered())
+	{
+		DbgPrintEx(0, 0, "[Flaxen][WARN] Read request never received additional timeout.\n");
+		return;
+	}
+
+	FxSmRead();
+	PFX_READ_COMMAND ReadCommand = (PFX_READ_COMMAND)FxSmGetSharedSection();
+
+	PEPROCESS Process;
+	NTSTATUS Status = PsLookupProcessByProcessId((HANDLE)ReadCommand->SourceProcessId, &Process);
+	if (!NT_SUCCESS(Status))
+	{
+		DbgPrintEx(0, 0, "[FLAXEN][FAIL] PsLookupProcessByProcessId failed with code: %d\n", Status);
+		ObDereferenceObject(Process);
+		return;
+	}
+
+	PVOID Buffer = ExAllocatePool2(POOL_FLAG_PAGED, ReadCommand->Size, 'enoN');
+	if (Buffer == NULL)
+	{
+		DbgPrintEx(0, 0, "[FLAXEN][FAIL] Failed to allocate buffer for read operation!\n");
+		return;
+	}
+
+	KAPC_STATE ApcState;
+	KeStackAttachProcess(Process, &ApcState);
+
+	SIZE_T ReturnedSize;
+	MmCopyVirtualMemory(Process, ReadCommand->SourceAddress, PsGetCurrentProcess(), Buffer, ReadCommand->Size, KernelMode, &ReturnedSize);
+
+	KeUnstackDetachProcess(&ApcState);
+
+	if (!NT_SUCCESS(Status) || !ReturnedSize)
+	{
+		DbgPrintEx(0, 0, "[FLAXEN][WARN] MmCopyVirtualMemory failed: (Status %d | Size %d)\n", Status, ReturnedSize);
+		return;
+	}
+
+	ULONGLONG Size = ReadCommand->Size;
+
+	FxSmRead();
+	if (!memcpy(FxSmGetSharedSection(), Buffer, Size))
+	{
+		DbgPrintEx(0, 0, "[FLAXEN][FAIL] Failed to copy read result to the shared buffer.\n");
+		return;
+	}
+
+	FxEvtReset();
+	FxEvtSignalComplete();
+}
