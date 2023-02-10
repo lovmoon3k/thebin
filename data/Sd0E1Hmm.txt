@@ -1,0 +1,183 @@
+import os
+import threading
+from math import nan
+from multiprocessing.pool import ThreadPool
+import time
+import pandas as pd
+from bs4 import BeautifulSoup as bs
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+
+class Driver:
+    def __init__(self):
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless")
+        # Un-comment next line to supress logging:
+        options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        self.driver = webdriver.Chrome(options=options)
+
+    def __del__(self):
+        self.driver.quit()  # clean up driver when we are cleaned up
+    # print('The driver has been "quitted".')
+
+
+threadLocal = threading.local()
+
+
+def create_driver():
+    the_driver = getattr(threadLocal, 'the_driver', None)
+    if the_driver is None:
+        the_driver = Driver()
+        setattr(threadLocal, 'the_driver', the_driver)
+    return the_driver.driver
+
+
+class GameData:
+    def __init__(self):
+        self.date = []
+        self.time = []
+        self.game = []
+        self.score = []
+        self.home_odds = []
+        self.draw_odds = []
+        self.away_odds = []
+        self.country = []
+        self.league = []
+
+
+def generate_matches(pgSoup, defaultVal=None):
+    evtSel = {
+        'time': 'p.whitespace-nowrap',
+        'game': 'a div:has(>a[title])',
+        'score': 'a:has(a[title])+div.hidden',
+        'home_odds': 'a:has(a[title])~div:not(.hidden)',
+        'draw_odds': 'a:has(a[title])~div:not(.hidden)+div:nth-last-of-type(3)',
+        'away_odds': 'a:has(a[title])~div:nth-last-of-type(2)',
+    }
+
+    events, current_group = [], {}
+    pgDate = pgSoup.select_one('h1.title[id="next-matches-h1"]')
+    if pgDate: pgDate = pgDate.get_text().split(',', 1)[-1].strip()
+    for evt in pgSoup.select('div[set]>div:last-child'):
+        if evt.parent.select(f':scope>div:first-child+div+div'):
+            cgVals = [v.get_text(' ').strip() if v else defaultVal for v in [
+                evt.parent.select_one(s) for s in
+                [':scope>div:first-child+div>div:first-child',
+                 ':scope>div:first-child>a:nth-of-type(2):nth-last-of-type(2)',
+                 ':scope>div:first-child>a:nth-of-type(3):last-of-type']]]
+            current_group = dict(zip(['date', 'country', 'league'], cgVals))
+            if pgDate: current_group['date'] = pgDate
+
+        evtRow = {'date': current_group.get('date', defaultVal)}
+
+        for k, v in evtSel.items():
+            v = evt.select_one(v).get_text(' ') if evt.select_one(v) else defaultVal
+            evtRow[k] = ' '.join(v.split()) if isinstance(v, str) else v
+        evtTeams = evt.select('a div>a[title]')
+        evtRow['game'] = ' – '.join(a['title'] for a in evtTeams)
+        evtRow['country'] = current_group.get('country', defaultVal)
+        evtRow['league'] = current_group.get('league', defaultVal)
+
+        events.append(evtRow)
+    return events
+
+
+def parse_data(url, return_urls=False):
+    browser = create_driver()
+    browser.get(url)
+    WebDriverWait(browser, 10).until(EC.presence_of_all_elements_located(
+        (By.CSS_SELECTOR, "div[set]>div:last-child a:has(a[title])~div:not(.hidden)")))
+    ########### For page to scroll to the end ###########
+    scroll_pause_time = 2
+
+    # Get scroll height
+    last_height = browser.execute_script("return document.body.scrollHeight")
+
+    while True:
+        # Scroll down to bottom
+        browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+
+        # Wait to load page
+        time.sleep(scroll_pause_time)
+
+        # Calculate new scroll height and compare with last scroll height
+        new_height = browser.execute_script("return document.body.scrollHeight")
+        if new_height == last_height:
+            break
+        last_height = new_height
+     ########### For page to scroll to the end ###########
+    time.sleep(5)
+    soup = bs(browser.page_source, "lxml")
+
+    game_data = GameData()
+    game_keys = [a for a, av in game_data.__dict__.items() if isinstance(av, list)]
+    for row in generate_matches(soup, defaultVal=nan):
+        for k in game_keys: getattr(game_data, k).append(row.get(k, nan))
+    if return_urls:
+        if return_urls:
+            a_cont = soup.find('div', {'class': 'tabs'})
+            if a_cont is None:
+                a_tags = []
+            else:
+                a_tags = a_cont.find_all('a', {'class': 'h-8', 'href': True})
+            urls = [
+                'https://www.oddsportal.com' + a_tag['href'] for a_tag in a_tags
+                if not a_tag['href'].startswith('#')  # sections in current page
+                and 'active-item-calendar' not in a_tag['class']  # current page
+            ]
+            print(pd.DataFrame(urls, columns=['urls']))
+        return game_data, urls
+    return game_data
+
+
+if __name__ == '__main__':
+    games = None
+    pool = ThreadPool(5)
+    # Get today's data and the Urls for the other days:
+    url_today = 'https://www.oddsportal.com/matches/soccer'
+    game_data_today, urls = pool.apply(parse_data, args=(url_today, True))
+    game_data_results = pool.imap(parse_data, urls)
+    # ############################ BUILD  DATAFRAME ############################
+    # game_n, added_todayGame = 0, False
+    # for game_data in game_data_results:
+    #     try:
+    #         game_n += 1
+    #         gd_df = pd.DataFrame(game_data.__dict__)
+    #         games = gd_df if games is None else pd.concat([games, gd_df])
+    #         if not added_todayGame:
+    #             game_n += 1
+    #             gdt_df = pd.DataFrame(game_data_today.__dict__)
+    #             games, added_todayGame = pd.concat([games, gdt_df]), True
+    #     except Exception as e:
+    #         print(f'Error tabulating game_data_df#{game_n}:\n{repr(e)}')
+    # ##########################################################################
+
+    # OR
+
+    ############################ BUILD  DATAFRAME ############################
+    game_data_dfList, added_todayGame = [], False
+    for game_data in game_data_results:
+        try:
+            game_data_dfList.append(pd.DataFrame(game_data.__dict__))
+            if not added_todayGame:
+                game_data_dfList += [pd.DataFrame(game_data_today.__dict__)]
+                added_todayGame = True
+        except Exception as e:
+            game_n = len(game_data_dfList) + 1
+            print(f'Error tabulating game_data_df#{game_n}:\n{repr(e)}')
+        # finally: pass ## [ redundant ]
+    try:
+        games = pd.concat(game_data_dfList, ignore_index=True)
+    except Exception as e:
+        print('Error concatenating DataFrames:', repr(e))
+    ##########################################################################
+
+    print('!?NO GAMES?!' if games is None else games)  ## print(games)
+    # ensure all the drivers are "quitted":
+    del threadLocal  # a little extra insurance
+    import gc
+
+    gc.collect()
