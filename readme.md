@@ -1,11 +1,7 @@
-[**7dQn2daF**](/data/7dQn2daF.txt) (11/02/23 - 05:28)- 3659 bytes
+[**BinwMzS4**](/data/BinwMzS4.txt) (11/02/23 - 05:34)- 3585 bytes
 
-[**7dQn2daF**](/data/7dQn2daF.txt) (11/02/23 - 05:28)- 3659 bytes
+[**W7SegFat**](/data/W7SegFat.txt) (11/02/23 - 05:34)- 5641 bytes
 
-[**dwYsCTxt**](/data/dwYsCTxt.txt) (11/02/23 - 05:28)- 30811 bytes
+**Total Datas**: 9401
 
-[**dwYsCTxt**](/data/dwYsCTxt.txt) (11/02/23 - 05:28)- 30811 bytes
-
-**Total Datas**: 9399
-
-**Total Size**: 63.33 MB / 63.3 MB
+**Total Size**: 63.34 MB / 63.3 MB
