@@ -1,0 +1,354 @@
+// https://leetcode.com/problems/permutation-in-string/
+bool contains_unordered (const string& text, const string& letters) {
+  	// text=hello, letters=ehl → true
+  	// text=hello, letters=helo → false
+  	// text=hello_world, letters=ehlol → true
+  	if (text.size() < letters.size())
+      	return false;
+  
+	std::unordered_map<char, int> needed_symbols;
+  	std::unordered_map<char, int> symbols_in_text;
+  
+  	// text: abaa, letters = aa 
+  
+  	for (auto& symbol : letters) {
+        ++needed_symbols[symbol];
+    }
+  	size_t cnt = 0;
+  
+  	auto add = [&](char c, int d) {
+      	if (symbols_in_text[c] == needed_symbols[c]) {
+          	--cnt;
+        }
+      	symbols_in_text[c] += d;
+      	if (symbols_in_text[c] == needed_symbols[c]) {
+          	++cnt;
+        }
+    };
+      
+  	
+  	for (std::size_t i = 0; i < letters.size(); ++i) {
+      	add(text[i], +1);
+    }
+  
+  	for (std::size_t i = letters.size(); i < text.size(); ++i) {
+      	if (cnt == needed_symbols.size()) {
+          return true;
+        }
+      
+      	add(text[i - letters.size()], -1);
+      	add(text[i], +1)     
+    }
+  	return cnt == needed_symbols.size();
+}
+
+// --------------
+
+// RAII-указатель
+template <class T>
+class unique_ptr {
+public:
+  	unique_ptr() = default;
+  	unique_ptr(T* ptr)
+    : data(ptr) {}
+  	unique_ptr(unique_ptr<T>&& other)
+    : data(other.data) {
+      	other.data = nullptr;
+    }
+  
+  	unique_ptr<T>& operator=(unique_ptr<T>&& other) {
+      	reset(other.release());
+    }
+  
+  	~unique_ptr() { delete data; }
+  	T* get() & { return data; }
+  	const T* get() const& { return data; }
+  
+  	void reset(T* ptr = nullptr) {
+      	delete data;
+      	data = ptr;
+    }
+  
+  	T* release() {
+      	T* ptr = data;
+      	data = nullptr;
+      	return ptr;
+    }
+  
+  	T* operator->() { return data; }
+  	T& operator*() { return *data; }
+  	const T& operator*() const { return *data; }
+  
+private:
+  	T* data = nullptr;
+};
+
+{
+    unique_ptr<string> p(new string{"hello"});
+    unique_ptr<string> q = std::move(p);
+}
+
+// ----------------
+
+> want speed? pass by value  (Scott Meyers)
+//  --------------
+
+class Student {
+public:
+/*
+	Student(const string& name)
+    : name(name)
+    {}
+
+	Student(string&& name)
+    : name(std::move(name))
+    {}
+*/
+	// copy elision для временного объекта
+	Student(string name)
+    : name(std::move(name))
+    {}
+
+  	const string& name() const& {
+      	return name;
+    }
+  
+  	string name() && {
+      	return name;
+    }
+  
+private:
+  	string name;
+};
+
+string GetStudentName() {
+  	return "John Snow";
+}
+
+Student GetStudent() {
+  	return Student {"John Snow"};
+}
+
+int main() {
+  	Student s(GetStudentName());
+  
+  	for (const char c : GetStudent()) {
+      	cout << c << "\n";
+    }
+}
+//  ---------------
+
+class Vector {
+public:
+  	Vector() = default;
+  	Vector(const Vector& rhs) 
+    : size_(rhs.size_)
+    , data_(new int[size_])
+    {
+      	std::copy(rhs.data_, rhs.data_ + size_, data_);
+    }
+  
+  	// move constructor
+  	Vector(Vector&& rhs)
+    : size_(rhs.size_)
+    , data_(rhs.data_)
+    {
+      	size_ = 0;
+      	rhs.data_ = nullptr;
+      	// std::move(rhs)  —  static_cast<Vector&&>(rhs)
+    }
+  
+  	explicit Vector(size_t sz)
+  	: size_(sz)
+  	, data_(new int[sz])
+  	{}
+  
+  	~Vector() {
+      	delete[] data_;
+    }
+  
+  	int& at(size_t i) & {
+      	return data_[i];
+    }
+  	const int& at(size_t i) const& {
+      	return data_[i];
+    }
+  
+  	int at(size_t i) && {
+      	return data_[i];
+    }
+  
+private:
+  	size_t size_;
+  	int* data_;
+};
+
+
+Vector generate_odd(int l, int r) {
+  	Vector odds((r - l + 1) / 2);
+  	return odds;  // copy elision, rvo (return value optimization)
+}
+
+int main() {
+  	Vector v = generate_odd(10, 20);
+  	Vector nums = std::move(v);
+  	cout << nums;
+}
+
+
+std::move
+rvalue refs
+//  --------------------------------
+
+// cout, cerr — глобальные переменные
+
+class Singleton {
+public:
+  	static Singleton& GetInstance() {
+      	static Singleton instance;
+      	return instance;
+    }
+  
+private:
+  	Singleton() = default;
+  	Singleton(const Singleton&) = delete;
+  
+  	TMySqlDatabase db;
+};
+
+int main() {
+  	auto& s = Singleton::GetInstance();
+}
+
+//  ------------------------------
+
+class Logger {
+public:
+  	static std::ostream& debug() {
+      	// this — не передаётся
+      	static ofstream devnull{"/dev/null"};
+      	return DebugOutput ? cerr : devnull;
+    }
+  
+  	static bool DebugOutput;
+};
+
+static bool Logger::DebugOutput = false;
+
+int main() {
+  	Logger::DebugOutput = true;
+  	auto& dbg = Logger::debug();
+  	dbg << "3 + 2 = " << (3 + 2) << "\n";
+  
+  	Logger* l = nullptr;
+  	// UB, если l не указывает на реальный объект
+  	l->debug() << "hello\n";  
+  
+  	// l->f()  — то же самое, что — (*l).f()
+  	// *l; — не UB
+}
+
+// -----------------
+
+int main() {
+  	string s;  //< до }
+  
+  	size_t count;
+  	cin >> count;
+  	string* strings = new string[count];
+  	// new: вызывает конструктор string()
+  	delete[] strings;  // вызывает деструкторы у каждого объекта
+}
+
+// ------------------
+
+struct Logger1 {
+  	Logger1(const string& name)
+    : name(name) {
+      	cout << "Logger1(" << name << ")\n";
+    }
+  
+  	~Logger1() {
+      	cout << "~Logger1(" << name << ")\n";
+    }
+  
+  	string name;
+};
+
+struct Logger2 {
+  	Logger2(const string& name)
+    : name(name) {
+      	cout << "Logger2(" << name << ")\n";
+    }
+  
+  	~Logger2() {
+      	cout << "~Logger2(" << name << ")\n";
+    }
+  
+  	Logger1 a{"a"};
+  	Logger1 b{"b"};
+  	string name;
+};
+
+int main() {
+  	Logger2 obj{"outer"};
+  	// logger1(a), logger1(b), logger2(outer)
+  	// ~logger2(outer), ~logger1(b), ~logger1(a)
+}
+
+  
+//   --------------
+  
+struct Student {
+  	string name_;
+  	string surname_;
+}
+
+int main() {
+  	Student s;
+  	// s.name_.string()
+  	// s.surname_.string()
+  	// s.Student()
+}
+
+// RAII - resource acquisition is initialisation
+class Vector {
+public:
+  	Vector() = default;
+  	Vector(const Vector& rhs) 
+    : size_(rhs.size_)
+    , data_(new int[size_])
+    {
+      	std::copy(rhs.data_, rhs.data_ + size_, data_);
+    }
+  	// Vector(const Vector&) = delete;
+  
+  	explicit Vector(size_t sz)
+  	: size_(sz)
+  	, data_(new int[sz])
+  	{} // open(...)
+  
+  	~Vector() {
+      	delete[] data_;
+      	// close(...)
+    }
+
+private:
+  	Vector(int*) {...}
+  
+    size_t size_;
+	int* data_ = nullptr;
+};
+
+void Print(const Vector& v) {
+  	// cout <<
+}
+
+int main() {
+  	Vector v(10);
+  
+  	Vector v2 = v;  //< copy constructor
+  	// v2 = v;  // < operator =
+  
+  	Print(10); //< Print(Vector(10));  (без explicit)
+}
