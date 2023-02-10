@@ -1,0 +1,301 @@
+import sys
+from asciimatics.widgets import Frame, Layout, VerticalDivider
+from asciimatics.widgets import Button
+from asciimatics.effects import Screen
+from asciimatics.scene import Scene
+from asciimatics.exceptions import ResizeScreenError, StopApplication
+from asciimatics.renderers import Box, ImageFile, StaticRenderer
+from asciimatics.utilities import DOUBLE_LINE, SINGLE_LINE
+from asciimatics.widgets.utilities import THEMES
+from asciimatics.widgets.widget import Widget
+from asciimatics.event import KeyboardEvent, MouseEvent
+from asciimatics.widgets.divider import Divider
+
+from builtins import object
+from builtins import range
+from PIL import Image
+
+last = None
+s, z = 0, 0
+
+
+def cancel():
+    raise StopApplication("User pressed quit")
+
+
+def none():
+    pass
+
+
+
+
+
+
+class PhotoButton(Widget):
+    def __init__(self, picture, height=1, on_click=None, label=None, add_box=True, name=None, **kwargs):
+        """
+        :param text: The text for the button.
+        :param on_click: The function to invoke when the button is clicked.
+        :param label: An optional label for the widget.
+        :param add_box: Whether to wrap the text with chevrons.
+        :param name: The name of this widget.
+
+        Also see the common keyword arguments in :py:obj:`.Widget`.
+        """
+        super().__init__(name, **kwargs)
+        self._add_box = add_box
+        self._picture = picture # вместо текста
+        self._required_height = height
+        self._on_click = on_click
+        self._label = label
+        #self._w = height
+        # вместо лен(текст) надо бы вычислять сторону квадрата фотограафии
+        # так как квадрат, значит все стороны раны
+        # значит просто передаем height
+        #self._strings = list(ImageFile(self._picture, self._required_height).images)[0][1:]
+        #self._string_len = len(self._strings[1]) + 2
+        #self._renderer_on = Box(width=self._string_len, height=3, uni=True, style=DOUBLE_LINE)
+        #self._renderer_off = Box(width=self._string_len, height=3, uni=True, style=SINGLE_LINE)
+        #self._excess = 0
+
+        self._strings = ImageFile(self._picture, self._required_height).images
+        self._string_len = height
+        self._renderer_on = Box(width=self._string_len, height=3, uni=True, style=DOUBLE_LINE)
+        self._renderer_off = Box(width=self._string_len, height=3, uni=True, style=SINGLE_LINE)
+
+
+        #renderer = list(Box(width=20, height=30, uni=True, style=SINGLE_LINE).images)
+
+    def reset(self):
+        self._value = False
+
+    def update(self, frame_no):
+        self._draw_label()
+
+        (colour, attr, background) = self._frame.palette['borders']
+        #colour = self._colours
+        # if self._picture:
+        #     for dig, string in enumerate(self._strings):
+        #         self._frame.canvas.print_at(string, self._x, self._y + dig-1, colour, attr, background)
+
+        # Нужно модифицировать функцию чтобы после добавления границ
+        # Сохранился текст фотографии
+        if self._has_focus:
+            box = self._renderer_on.images
+            frame = next(box)
+            (colour, attr, bg) = self._pick_colours("button")
+            bg = Screen.COLOUR_BLUE
+            self._frame.canvas.print_at(frame[0], self._x - 1, self._y-1, colour, attr, bg)
+            for dig, string in enumerate(self._strings):
+                self._frame.canvas.print_at(frame[1][0] + string + frame[1][-1], self._x - 1, self._y + dig, colour, attr, bg)
+            self._frame.canvas.print_at(frame[2], self._x - 1, self._y + dig, colour, attr, bg)
+
+        else:
+            # self._draw_label()
+            # (colour, attr, bg) = self._pick_colours("button")
+            # for dig, string in enumerate(self._strings):
+            #     self._frame.canvas.print_at(string, self._x, self._y + dig, colour, attr, background)
+            box = self._renderer_off.images
+            frame = next(box)
+            (colour, attr, bg) = self._pick_colours("button")
+            bg = Screen.COLOUR_BLUE
+            self._frame.canvas.print_at(frame[0], self._x - 1, self._y - 1, colour, attr, bg)
+            for dig, string in enumerate(self._strings):
+                self._frame.canvas.print_at(frame[1][0] + string + frame[1][-1], self._x - 1, self._y + dig, colour,
+                                            attr, bg)
+            #[self._frame.canvas.print_at(frame[1][0] + string + frame[1][-1], self._x-1, self._y-1 + dig, colour) for dig, string in enumerate(self._strings)]
+            #self._frame.canvas.print_at(frame[2], self._x - 1, self._y + self.h, colour, attr, bg)
+
+    def process_event(self, event):
+        if isinstance(event, KeyboardEvent):
+            if event.key_code in [ord(" "), 10, 13]:
+                self._on_click()
+                return None
+            # Ignore any other key press.
+            return event
+        if isinstance(event, MouseEvent):
+            if event.buttons != 0 and self.is_mouse_over(event, include_label=False):
+                self._on_click()
+                return None
+        # Ignore other events
+        return event
+
+    def value(self):
+        return self._value
+
+    def required_height(self, offset, width):
+        return self._required_height + 3
+
+
+
+
+
+    def _pick_palette_key(self, palette_name, selected=False, allow_input_state=True):
+        """
+        Pick the rendering colour for a widget based on the current state.
+
+        :param palette_name: The stem name for the widget - e.g. "button".
+        :param selected: Whether this item is selected or not.
+        :param allow_input_state: Whether to allow input state (e.g. focus) to affect result.
+        :returns: A colour palette key to be used.
+        """
+        key = palette_name
+        if self._custom_colour:
+            key = self._custom_colour
+        elif self.disabled:
+            key = "disabled"
+        elif not self._is_valid:
+            key = "invalid"
+        elif allow_input_state:
+            if self._has_focus:
+                key = "focus_" + palette_name
+            if selected:
+                key = "selected_" + key
+        return key
+
+    def _pick_colours(self, palette_name, selected=False):
+        """
+        Pick the rendering colour for a widget based on the current state.
+
+        :param palette_name: The stem name for the widget - e.g. "button".
+        :param selected: Whether this item is selected or not.
+        :returns: A colour tuple (fg, attr, background) to be used.
+        """
+        return self._frame.palette[self._pick_palette_key(palette_name, selected)]
+
+    # НУЖНО МОДИФИЦИРОВАТЬ ФУНКЦИЮ
+    def set_layout(self, x, y, offset, w, h):
+        # Do the usual layout work. then recalculate exact x/w values for the
+        # rendered button.
+        super().set_layout(x, y, offset, w, h)
+        text_width = self._required_height
+        self._x += 1
+        self._y += 1
+        self._excess = w
+
+
+        #if self._add_box:
+            # Minimize widget to make a nice little button.  Only centre it if there are no label offsets.
+            #if offset == 0:
+                #self._x += max(0, (self.width - text_width) // 2)
+            #self._w = min(self._w, text_width) + offset
+        #else:
+            # Maximize text to make for a consistent colouring when used in menus.
+            #self._text += " " * (self._w - text_width)
+
+
+
+
+
+
+class _ImageSequence(object):
+    """
+    Simple class to make an iterator for a PIL Image object.
+    """
+
+    def __init__(self, im):
+        self.im = im
+
+    def __getitem__(self, ix):
+        try:
+            if ix:
+                self.im.seek(ix)
+            return self.im
+        except EOFError:
+            raise IndexError
+
+class ImageFile(StaticRenderer):
+    """
+    Renderer to convert an image file (as supported by the Python Imaging
+    Library) into an ascii grey scale text image.
+    """
+
+    # The ASCII grey scale from darkest to lightest.
+    _greyscale = ' .:;rsA23hHG#9&@'
+
+    def __init__(self, filename, height=30, colours=8):
+        """
+        :param filename: The name of the file to render.
+        :param height: The height of the text rendered image.
+        :param colours: The number of colours the terminal supports.
+        """
+        super(ImageFile, self).__init__()
+        with Image.open(filename) as image:
+            background = image.info['background'] if 'background' in \
+                image.info else None
+            for frame in _ImageSequence(image):
+                ascii_image = ""
+                frame = frame.resize(
+                    (height*2, height),
+                    Image.QUAD)
+                grey_frame = frame.convert('L')
+                for py in range(0, grey_frame.size[1]):
+                    ascii_image += "\n"
+                    for px in range(0, grey_frame.size[0]):
+                        real_col = frame.getpixel((px, py))
+                        col = grey_frame.getpixel((px, py))
+                        if real_col == background:
+                            ascii_image += " "
+                        else:
+                            if colours >= 256:
+                                ascii_image += "${%d}" % (232 + col * 23 // 256)
+                            else:
+                                ascii_image += "${%d,%d}" % (
+                                    7 if col >= 85 else 0,
+                                    Screen.A_BOLD if col < 85 or col > 170 else
+                                    Screen.A_NORMAL
+                                )
+                            ascii_image += self._greyscale[
+                                (int(col) * len(self._greyscale)) // 256]
+                self._images.append(ascii_image)
+
+
+
+
+
+
+
+def demo(screen, scene):
+
+    frame = Frame(screen, screen.height - 3, screen.width // 3 * 2, can_scroll=False, has_border=True, title="VK.COM")
+    frame.border_box.unicode_aware = True
+    frame.border_box.style = 2
+    half = 60 // 5
+    buttons = Layout([half, half, half, half, half, 34, 6])
+    line = Layout([1])
+    window = Layout([1, 1, 1])
+    frame.add_layout(buttons)
+    frame.add_layout(line)
+    frame.add_layout(window)
+
+    window.add_widget(PhotoButton("1.jpg", height=15, on_click=cancel), 0)
+    window.add_widget(PhotoButton("2.jpg", height=15, on_click=cancel), 1)
+    window.add_widget(PhotoButton("3.jpg", height=15, on_click=cancel), 2)
+
+
+
+
+
+    # layout.add_widget(MyButton(text=" Vasya ", on_click=none), 0)
+    # layout.add_widget(MyButton(text=" Pupok ", on_click=cancel), 1)
+    # layout.add_widget(MyButton(text=" Pupok ", on_click=cancel), 2)
+    # layout1.add_widget(Block(on_click=cancel), 0)
+    frame.fix()
+
+    global s
+    global z
+    s = screen.height
+    z = screen.width
+
+    scenes = [Scene([frame], -1, name="Main")]
+    screen.play(scenes, stop_on_resize=True, start_scene=scene, repeat=False)
+
+
+last_scene = None
+while True:
+    try:
+        Screen.wrapper(demo, arguments=[last_scene])
+        print(s, z)
+        sys.exit(0)
+    except ResizeScreenError as e:
+        last_scene = e.scene
