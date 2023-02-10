@@ -1,0 +1,134 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include "bits/stdc++.h"
+using namespace std;
+#define all(a) a.begin(), a.end()
+const int c = 400;
+vector<vector<pair<int, int>>> gr;
+vector<int> euler;
+struct Query {
+    int l, r, ind;
+    Query(int _l, int _r, int _i) : l(_l), r(_r), ind(_i) {}
+    Query() {}
+    bool operator<(const Query& other) {
+        if (l / c == other.l / c) {
+            if ((l / c) & 1) {
+                return r > other.r;
+            }
+            return r < other.r;
+        }
+        return l < other.l;
+    }
+};
+
+vector<Query> q;
+struct Set_sqrt {
+    int n;
+    vector<int> cnt, st, sq;
+    Set_sqrt(int _n) : n(_n) {
+        cnt.resize(_n + 1);
+        st.resize(_n + 1);
+        sq.resize(c + 1);
+    }
+    void insert(int x) {
+        cnt[x]++;
+        if (cnt[x] == 2) {
+            sq[x / c]++;
+            st[x] = 1;
+        }
+    }
+    void erase(int x) {
+        cnt[x]--;
+        if (cnt[x] == 1) {
+            sq[x / c]--;
+            st[x] = 0;
+        }
+    }
+    int get_max() {
+        int it = c;
+        while (sq[it] == 0) {
+            it--;
+            if (it == -1) {
+                return 0;
+            }
+        }
+        int res = min(it * c + c - 1, n);
+        while (st[res] == 0) {
+            res--;
+        }
+        return res;
+    }
+};
+vector<int> clr;
+void dfs(int v, int p) {
+    euler.push_back(clr[v]);
+    for (auto&& [u, ind] : gr[v]) {
+        if (u == p) { continue; }
+        int l = (int)euler.size();
+        dfs(u, v);
+        int r = (int)euler.size() - 1;
+        q.push_back(Query(l, r, ind));
+    }
+}
+signed main() {
+#ifdef _DEBUG
+    freopen("input.txt", "r", stdin);
+    freopen("output.txt", "w", stdout);
+#endif
+    ios_base::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n; cin >> n;
+    gr.resize(n); clr.resize(n);
+    for (int i = 0; i < n - 1; i++) {
+        int u, v; cin >> u >> v;
+        u--, v--;
+        gr[u].push_back({ v, i });
+        gr[v].push_back({ u, i });
+    }
+    for (int i = 0; i < n; i++) {
+        cin >> clr[i];
+    }
+    vector<int> cnt1;
+    vector<int> cnt2;
+    vector<int> cpy = clr;
+    cpy.push_back(0);
+    sort(all(cpy));
+    cpy.resize(unique(all(cpy)) - cpy.begin());
+    Set_sqrt U1((int)cpy.size());
+    Set_sqrt U2((int)cpy.size());
+
+    for (int& i : clr) {
+        i = lower_bound(all(cpy), i) - cpy.begin();
+        U1.insert(i);
+    }
+    dfs(0, 0);
+    sort(all(q));
+    auto add = [&](int x) {
+        U1.erase(x);
+        U2.insert(x);
+    };
+    auto del = [&](int x) {
+        U1.insert(x);
+        U2.erase(x);
+    };
+    vector<int> ans(n - 1);
+    int l = 0, r = -1;
+    for (const Query& i : q) {
+        while (l > i.l) {
+            add(euler[--l]);
+        }
+        while (r < i.r) {
+            add(euler[++r]);
+        }
+        while (l < i.l) {
+            del(euler[l++]);
+        }
+        while (r > i.r) {
+            del(euler[r--]);
+        }
+        ans[i.ind] = cpy[max(U1.get_max(), U2.get_max())];
+    }
+    for (int& i : ans) {
+        cout << i << '\n';
+    }
+    return 0;
+}
