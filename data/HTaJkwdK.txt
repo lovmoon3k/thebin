@@ -1,0 +1,132 @@
+import { KEY_DOWN, KEY_UP, KEY_HOME, KEY_END } from "keycode-js";
+import * as $ from "jquery";
+
+const Accordion = ({ element = document.querySelector("[data-accordion]") } = {}) => {
+	const $element = $(element);
+	const $accordionTitles = $element.children("[data-accordion-title]");
+	const $accordionPanels = $element.children("[data-accordion-panel]");
+
+	const state = {
+		accordion: [],
+	};
+
+	const initAccordionScaffoldingAndState = () => {
+		// Setup accordion title
+		$accordionTitles.each((index, accordionTitle) => {
+			const $accordionTitle = $(accordionTitle);
+			const accordionId = $(accordionTitle).data("accordion-id");
+
+			// Wrap initial title content in button with accessible labels
+			const $accessibleTitleButton = $(`<button class="accordion__button">${$accordionTitle.html()}</button>`);
+			$accessibleTitleButton.attr("id", accordionId);
+			$accessibleTitleButton.attr("aria-expanded", "false");
+			$accessibleTitleButton.attr("aria-controls", `${accordionId}-panel`);
+
+			$accordionTitle.html($accessibleTitleButton);
+
+			state.accordion.push({
+				index,
+				id: accordionId,
+				titleTrigger: $accessibleTitleButton,
+				panelEl: undefined,
+				isOpened: false,
+			});
+		});
+
+		// Setup accordion panel
+		$accordionPanels.each((index, accordionPanel) => {
+			const $accordionPanel = $(accordionPanel);
+			const accordionId = $(accordionPanel).data("accordion-id");
+
+			$accordionPanel.attr("id", `${accordionId}-panel`);
+			$accordionPanel.attr("role", "region");
+			$accordionPanel.attr("aria-labelledby", accordionId);
+
+			const accordionState = state.accordion.find(accordion => accordion.id === accordionId);
+
+			if (accordionState) {
+				accordionState.panelEl = $accordionPanel;
+
+				if (!accordionState.isOpened) {
+					accordionState.panelEl.hide();
+				}
+			}
+		});
+	};
+
+	const attachEventListener = () => {
+		state.accordion.forEach(accordion => {
+			if (!accordion.panelEl) {
+				console.warn(`Accordion "${accordion.id}" does not have a matching panel`);
+				return;
+			}
+			accordion.titleTrigger.click(event => handleToggleAccordion(event, accordion));
+			accordion.titleTrigger.on("keydown", event => handleAccordionNavigation(event, accordion));
+		});
+	};
+
+	const handleToggleAccordion = (event, accordion) => {
+		event.preventDefault();
+
+		if (accordion.isOpened) {
+			accordion.panelEl.slideUp();
+		} else {
+			accordion.panelEl.slideDown();
+		}
+
+		accordion.isOpened = !accordion.isOpened;
+		accordion.titleTrigger.attr("aria-expanded", accordion.isOpened);
+	};
+
+	const handleAccordionNavigation = (event, accordion) => {
+		if (
+			event.type === "keydown" &&
+			event.keyCode !== KEY_UP &&
+			event.keyCode !== KEY_DOWN &&
+			event.keyCode !== KEY_HOME &&
+			event.keyCode !== KEY_END
+		) {
+			return;
+		}
+
+		event.preventDefault();
+
+		let newFocusIndex = 0;
+
+		if (event.keyCode === KEY_UP || event.keyCode === KEY_DOWN) {
+			if (event.keyCode === KEY_UP) {
+				newFocusIndex = accordion.index - 1;
+
+				if (accordion.index === 0) {
+					newFocusIndex = state.accordion.length - 1;
+				}
+			}
+
+			if (event.keyCode === KEY_DOWN) {
+				newFocusIndex = accordion.index + 1;
+
+				if (accordion.index === state.accordion.length - 1) {
+					newFocusIndex = 0;
+				}
+			}
+		}
+
+		if (event.keyCode === KEY_HOME || event.keyCode === KEY_END) {
+			if (event.keyCode === KEY_HOME) {
+				newFocusIndex = 0;
+			}
+
+			if (event.keyCode === KEY_END) {
+				newFocusIndex = state.accordion.length - 1;
+			}
+		}
+
+		state.accordion[newFocusIndex].titleTrigger.focus();
+	};
+
+	initAccordionScaffoldingAndState();
+	attachEventListener();
+};
+
+export default Accordion;
+export { Accordion };
