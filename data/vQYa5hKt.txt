@@ -1,0 +1,372 @@
+using System;
+
+namespace MyApp // Note: actual namespace depends on the project name.
+{
+    internal class OutOfRangeException : Exception {
+        public OutOfRangeException()
+        {}
+
+        public OutOfRangeException(string msg) : base(msg) {}
+
+        public OutOfRangeException(string msg, Exception inner)
+        : base(msg, inner) {}
+    }
+
+    abstract class Set
+    {
+        protected int maxElem_;
+
+        public abstract void Add(int elem);
+        public abstract void Remove(int elem);
+        public abstract bool Check(int elem);
+
+        public void Fill(string str)
+        {
+            string[] elems = str.Split(' ');
+            foreach (var elem in elems)
+            {
+                Add(int.Parse(elem));
+            }
+        }
+
+        public void Fill(int[] elems)
+        {
+            foreach (var elem in elems)
+            {
+                Add(elem);
+            }
+        }
+
+        public override string ToString()
+        {
+            string res = "";
+            for (int i = 0; i <= maxElem_; ++i)
+            {
+                if (Check(i))
+                {
+                    res += i.ToString() + " ";
+                }
+            }
+            res.TrimEnd();
+            return res;
+        }
+
+        protected void CheckRange(int elem) {
+            if (elem > maxElem_)
+            {
+                throw new OutOfRangeException();
+            }
+        }
+    }
+
+    class SimpleSet : Set
+    {
+        private bool[] data_;
+
+        public SimpleSet(int maxElem)
+        {
+            maxElem_ = maxElem;
+            data_ = new bool[maxElem_ + 1]; 
+        }
+
+        public override void Add(int elem)
+        {
+            CheckRange(elem);
+            data_[elem] = true;
+        }
+        public override void Remove(int elem)
+        {
+            if (elem <= maxElem_) {
+                data_[elem] = false;
+            }
+        }
+        public override bool Check(int elem)
+        {
+            return (elem <= maxElem_) && data_[elem];
+        }
+
+        public static SimpleSet operator + (SimpleSet lSet, SimpleSet rSet)
+        {
+            int maxElem = (lSet.maxElem_ > rSet.maxElem_) ? lSet.maxElem_ : rSet.maxElem_;
+            int lowerMax = (lSet.maxElem_ > rSet.maxElem_) ? rSet.maxElem_ : lSet.maxElem_;
+            SimpleSet set = new(maxElem);
+            for (int i = 0; i < rSet.maxElem_; ++i) {
+                    set.data_[i] = lSet.data_[i] || rSet.data_[i];
+                }
+            return set;
+        }
+
+        public static SimpleSet operator * (SimpleSet lSet, SimpleSet rSet)
+        {
+            int maxElem = (lSet.maxElem_ > rSet.maxElem_) ? rSet.maxElem_ : lSet.maxElem_;
+            SimpleSet set = new(maxElem);
+            for (int i = 0; i < maxElem; ++i) {
+                    set.data_[i] = lSet.data_[i] && rSet.data_[i];
+                }
+            return set;
+        }
+    }
+
+    class BitSet : Set
+    {
+        private const int BSize = 32;
+        private int[] data_;
+
+        public BitSet(int maxElem)
+        {
+            maxElem_ = maxElem;
+            data_ = new int[maxElem_ / BSize + 1];
+        }
+
+        public override void Add(int elem)
+        {
+            CheckRange(elem);
+            data_[elem / BSize] |= GetMask(elem);
+        }
+        public override void Remove(int elem)
+        {
+            if (elem <= maxElem_) {
+                data_[elem / BSize] &= ~GetMask(elem);
+            }
+        }
+
+        public override bool Check(int elem)
+        {
+            return (elem <= maxElem_) && ((data_[elem / BSize] & GetMask(elem)) != 0);
+        }
+
+        public static BitSet operator + (BitSet lSet, BitSet rSet)
+        {
+            int maxElem = (lSet.maxElem_ > rSet.maxElem_) ? lSet.maxElem_ : rSet.maxElem_;
+            int length = (lSet.data_.Length > rSet.data_.Length) ? rSet.data_.Length : lSet.data_.Length;
+            BitSet set = new(maxElem);
+            for (int i = 0; i <= length; ++i) {
+                    set.data_[i] = lSet.data_[i] | rSet.data_[i];
+                }
+            return set;
+        }
+
+        public static BitSet operator * (BitSet lSet, BitSet rSet)
+        {
+            int maxElem = (lSet.maxElem_ > rSet.maxElem_) ? rSet.maxElem_ : lSet.maxElem_;
+            BitSet set = new(maxElem);
+            for (int i = 0; i <= maxElem; ++i) {
+                    set.data_[i] = lSet.data_[i] & rSet.data_[i];
+                }
+            return set;
+        }
+
+        private int GetMask(int elem)
+        {
+            return 1 << (BSize - elem % BSize);
+        }
+    }
+
+    class MultiSet : Set
+    {
+        int[] data_;
+
+        public MultiSet(int maxElem)
+        {
+            maxElem_ = maxElem;
+            data_ = new int[maxElem_ + 1];
+        }
+
+        public override void Add(int elem)
+        {
+            CheckRange(elem);
+            ++data_[elem];
+        }
+
+        public override void Remove(int elem)
+        {
+            if (elem <= maxElem_ && data_[elem] > 0)
+            {
+                --data_[elem];
+            }
+        }
+
+        public override bool Check(int elem)
+        {
+            return (elem <= maxElem_) && (data_[elem] != 0);
+        }
+
+        public static MultiSet operator + (MultiSet lSet, MultiSet rSet)
+        {
+            int maxElem = (lSet.maxElem_ > rSet.maxElem_) ? lSet.maxElem_ : rSet.maxElem_;
+            int lowerMax = (lSet.maxElem_ > rSet.maxElem_) ? rSet.maxElem_ : lSet.maxElem_;
+            MultiSet set = new(maxElem);
+            for (int i = 0; i <= lowerMax; ++i) {
+                    set.data_[i] = Math.Max(lSet.data_[i], rSet.data_[i]);
+                }
+            return set;
+        }
+
+        public static MultiSet operator * (MultiSet lSet, MultiSet rSet)
+        {
+            int maxElem = (lSet.maxElem_ > rSet.maxElem_) ? rSet.maxElem_ : lSet.maxElem_;
+            MultiSet set = new(maxElem);
+            for (int i = 0; i <= maxElem; ++i) {
+                    set.data_[i] = Math.Min(lSet.data_[i], rSet.data_[i]);
+                }
+            return set;
+        }
+    }
+
+    internal class Program
+    {
+        static int[] ReadFromFile(string fileName)
+        {
+            List<int> res = new();
+            string[] lines = File.ReadAllLines(fileName);
+            foreach (var line in lines) {
+                res.Add(int.Parse(line));
+            }
+            return res.ToArray();
+        }
+
+        static int Max(string str)
+        {
+            int maxElem = 0;
+            string[] nums = str.Split(' ');
+            foreach (var num in nums) {
+                maxElem = (int.Parse(num) > maxElem) ? int.Parse(num) : maxElem;
+            }
+            return maxElem;
+        }
+
+        static void DefaultTest()
+        {
+            const string inputWelcome = 
+                "Введите:\n" +
+                "\tДобавить n - для включения элемента n в множество\n" +
+                "\tУдалить n - для исключения элемента n из множества\n" +
+                "\tПроверить n - для проверки наличия n в множестве\n" +
+                "\tВыход - для завершения программы";
+
+            Console.WriteLine("Выберите способ представления:\nSimpleSet\nBitSet\nMultiSet");
+            string type = Console.ReadLine();
+            Console.WriteLine("Выберите способ ввода множества\nФайл\nКонсоль");
+            string inputType = Console.ReadLine();
+            string cInput = "";
+            int[] fInput = new int[0];
+            int maxElem = 0;
+
+            switch (inputType) {
+                case "Файл":
+                    Console.WriteLine("Введите имя файла");
+                    fInput = ReadFromFile(Console.ReadLine());
+                    maxElem = fInput.Max();
+                    break;
+                case "Консоль":
+                    Console.WriteLine("Введите список элементов множества");
+                    cInput = Console.ReadLine();
+                    maxElem = Max(cInput);
+                    break;
+                default:
+                    Console.WriteLine("Некорректный ввод");
+                    return;
+            }
+
+            Set set;
+            switch (type) {
+                case "SimpleSet":
+                    set = new SimpleSet(maxElem);
+                    break;
+                case "BitSet":
+                    set = new BitSet(maxElem);
+                    break;
+                case "MultiSet":
+                    set = new MultiSet(maxElem);
+                    break;
+                default:
+                    Console.WriteLine($"{type} - неизвестный тип множества!");
+                    return;
+            }
+            
+            switch (inputType) {
+                case "Файл":
+                    set.Fill(fInput);
+                    break;
+                case "Консоль":
+                    set.Fill(cInput);
+                    break;
+            }
+
+            Console.WriteLine("Множество:\n" + set.ToString());
+
+            Console.WriteLine(inputWelcome);
+            while (true) {
+                string[] input = Console.ReadLine().Split(' ');
+                if (input.Length == 0) {
+                    return;
+                }
+                string cmd = input[0];
+                switch (cmd) {
+                    case "Добавить":
+                        if (input.Length > 1) {
+                            set.Add(int.Parse(input[1]));
+                            Console.WriteLine(set.ToString());
+                        } else {
+                            Console.WriteLine("Некорректный ввод");
+                        }
+                        break;
+                    case "Удалить":
+                        if (input.Length > 1) {
+                            set.Remove(int.Parse(input[1]));
+                            Console.WriteLine(set.ToString());
+                        } else {
+                            Console.WriteLine("Некорректный ввод");
+                        }
+                        break;
+                    case "Проверить":
+                        if (input.Length > 1) {
+                            string tmp = set.Check(int.Parse(input[1])) ? "присутствует" : "отсутствует";
+                            Console.WriteLine($"Элемент {tmp} в множестве");
+                        } else {
+                            Console.WriteLine("Некорректный ввод");
+                        }
+                        break;
+                    case "Выход":
+                        Console.WriteLine("Множество:\n" + set.ToString());
+                        return;
+                    default:
+                        Console.WriteLine(inputWelcome);
+                        break;
+                }
+            }
+        }
+
+        static void OperatorTest()
+        {
+            string aInput = "", bInput = "";
+            Console.WriteLine("Введите множество A");
+            aInput = Console.ReadLine();
+            Console.WriteLine("Введите множество B");
+            bInput = Console.ReadLine();
+            int aMax = Max(aInput), bMax = Max(bInput);
+            SimpleSet sSetA = new(aMax), sSetB = new(bMax);
+            sSetA.Fill(aInput);
+            sSetB.Fill(bInput);
+            BitSet bSetA = new(aMax), bSetB = new(bMax);
+            bSetA.Fill(aInput);
+            bSetB.Fill(bInput);
+            
+            SimpleSet sSetC = sSetA + sSetB;
+            Console.WriteLine("Множество C для логического представления:\n" + sSetC.ToString());
+            SimpleSet sSetD = sSetA * sSetB;
+            Console.WriteLine("Множество D для логического представления:\n" + sSetD.ToString());
+
+            BitSet bSetC = bSetA + bSetB;
+            Console.WriteLine("Множество C для битового представления:\n" + sSetC.ToString());
+            BitSet bSetD = bSetA * bSetB;
+            Console.WriteLine("Множество D для битового представления:\n" + sSetD.ToString());
+        }
+
+        static void Main(string[] args)
+        {
+            //DefaultTest();
+            OperatorTest();
+        }
+    }
+}
