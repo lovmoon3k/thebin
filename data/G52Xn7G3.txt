@@ -1,0 +1,92 @@
+version: '3.2'
+services:
+
+  db:
+    container_name: nextcloud_postgres-db
+    image: postgres:15.1-alpine
+    restart: always
+    volumes:
+      - db:/var/lib/postgresql/data
+    env_file:
+      - db.env
+
+  app:
+    container_name: nextcloud_app
+    image: nextcloud:25.0.3-apache
+    restart: always
+    ports:
+      - 8090:80
+    volumes:
+      - nextcloud_data:/var/www/html
+    env_file:
+      - nextcloud.env
+    depends_on:
+      - db
+
+  redis:
+    container_name: nextcloud_redis
+    image: redis:7.0.8-alpine
+    restart: always
+
+  cron:
+    container_name: nextcloud_cron
+    image: nextcloud:25.0.3-apache
+    restart: always
+    volumes:
+      - nextcloud_data:/var/www/html
+    entrypoint: /cron.sh
+    depends_on:
+      - db
+
+  onlyoffice:
+    container_name: nextcloud_onlyoffice_server
+    image: onlyoffice/documentserver:latest
+    restart: always
+    ports:
+      - '80'
+      - '443'
+    volumes:
+      - document_data:/var/www/onlyoffice/Data
+      - document_log:/var/log/onlyoffice
+      - document_data:/var/lib/onlyoffice
+      - document_data:/var/lib/postgresql
+    env_file:
+      - onlyoffice.env
+
+  nginx:
+    build: ./nginx
+    restart: always
+    container_name: nginx
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - nginx_config:/etc/nginx
+      - nginx_log:/var/log/nginx
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/usr/share/nginx/html
+
+
+  certbot:
+    build: ./certbot
+    restart: always
+    container_name: certbot
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+      - certbot_log:/var/log/letsencrypt
+      - certbot_lib:/var/lib/letsencrypt
+    depends_on:
+      - nginx
+
+volumes:
+  db:
+  nextcloud_data:
+  nginx_config:
+  nginx_log:
+  certbot_conf:
+  certbot_www:
+  certbot_log:
+  certbot_lib:
+  document_log:
+  document_data:
