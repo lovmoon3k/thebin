@@ -1,0 +1,90 @@
+--crafty turtle item supplier
+
+storage = "occultism:stable_wormhole_1" ---inventory to take items from
+target = "minecraft:barrel_8"           ---inventory that's supplying the turtle
+
+sourceInv = peripheral.wrap(storage)
+targetInv = peripheral.wrap(target)
+
+
+--initialize
+local craftingRecipes = {}
+local file = fs.open("craftingRecipes", "r")
+local recipeNames = {}
+
+---load recipes
+if file then
+  craftingRecipes = textutils.unserialize(file.readAll())
+  file.close()
+end
+for k, v in pairs(craftingRecipes) do
+  table.insert(recipeNames, k)
+end
+
+-- Connect peripherals
+local sides = {"left", "right", "top", "bottom", "front", "back"}
+for i, side in ipairs(sides) do
+  local device = peripheral.getType(side)
+  if device == "modem" then
+    rednet.open(side)
+    -- print("Opened rednet on " .. side)
+  elseif device then
+    local wrapper = peripheral.wrap(side)
+    -- print("Wrapped " .. device .. " on " .. side)
+  end
+end
+
+--functions
+function findAndMoveItems(fromInventories, itemToSearch)
+    local inventory = peripheral.wrap(storage)
+    for slot, item in pairs(inventory.list()) do
+		-- print(slot)
+      if item.name == itemToSearch then
+		sourceInv.pushItems(target, slot, 1)
+		break
+      end
+	end	
+end
+
+function scanInventory(itemName)
+    local items = {}
+    for k, v in pairs(sourceInv.list()) do
+        for prop, value in pairs(v) do
+            if prop == "name" and value == itemName then
+					-- print(prop, value)
+                if items[itemName] == nil then
+                    items[itemName] = 0
+                end
+                items[itemName] = items[itemName] + v.count
+                break
+            end
+        end
+    end
+    return items[itemName] or 0
+end
+
+-- print(scanInventory("minecraft:chest"))
+
+
+---execute
+
+function doall()
+while true do
+  local _, msg, protocol = rednet.receive()
+  -- print(msg)
+	if protocol == "crafter" then
+		if msg == "clear" then
+			targetInv.pushItems(storage, 1)
+		else
+			findAndMoveItems(target, msg)
+			print("Moving " ..msg)
+		end
+	elseif protocol == "availability" then
+		print("Checking availability on " ..msg)
+		rednet.broadcast(scanInventory(msg), "availabilityResponse")
+	end
+end
+end
+
+doall()
+

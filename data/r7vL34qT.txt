@@ -1,0 +1,485 @@
+--this program needs another computer connected to the storage and turtle "interface" (= storage this turtle is interacting with) to work
+--requests are made by the stockpile brain
+
+--variables
+supportComputerID = 17 -- id of the computer moving items around
+dropDirection = turtle.drop ---these should be the same direction
+suckDirection = turtle.suck ---these should be the same direction
+monitorDirection = "top"
+
+--initialize
+local craftingRecipes = {}
+local file = fs.open("craftingRecipes", "r")
+local recipeNames = {}
+mainItem = true
+monitor = peripheral.wrap(monitorDirection)
+if fs.exists("scrollItems.lua") == false then
+shell.run("pastebin", "get", "s1F8FVrJ", "scrollItems") 
+end
+if fs.exists("recipeRecorder.lua") == false then
+shell.run("pastebin", "get", "JvsrKViR", "recipeRecorder") 
+end
+
+
+
+---load recipes
+if file then
+  craftingRecipes = textutils.unserialize(file.readAll())
+  file.close()
+end
+for k, v in pairs(craftingRecipes) do
+  table.insert(recipeNames, k)
+end
+
+-- Connect peripherals
+local sides = {"left", "right", "top", "bottom", "front", "back"}
+for i, side in ipairs(sides) do
+  local device = peripheral.getType(side)
+  if device == "modem" then
+    rednet.open(side)
+    -- print("Opened rednet on " .. side)
+  elseif device then
+    local wrapper = peripheral.wrap(side)
+    -- print("Wrapped " .. device .. " on " .. side)
+  end
+end
+
+---functions
+
+
+
+function requestAndSortItems(craftingRequest) --send item requests to support computer and sort them into the correct turtle slot
+  local stuckCount = 0
+  local recipeName = craftingRequest
+  local recipe = craftingRecipes[recipeName]
+  local keyCount = recipe.keyCount
+  if makeSureItemsAvailable(recipeName) == false then
+    return false
+  end
+    for ingredient, ingredientData in pairs(recipe) do
+      if ingredient ~= "keyCount" then
+        local Iterations = 0
+        for j, data in ipairs(ingredientData) do
+          rednet.send(supportComputerID, ingredient, "crafter")
+          while not suckDirection(1) do
+            sleep(0.1)
+            stuckCount = stuckCount + 1
+            if stuckCount >= 2 then
+              return false
+            end
+          end
+          local item = turtle.getItemDetail(1)
+          if item.name == ingredient then
+            turtle.select(1)
+            turtle.transferTo(data.slot, data.count)
+          end
+          Iterations = Iterations + 1
+		  finalPerc = math.floor((Iterations/#ingredientData) * 100)
+			-- if probablyFinish == true then
+				monitor.setCursorPos(1, 5)
+				monitor.clearLine()
+				monitor.setTextColor(colors.lime)
+				monitor.write("Moving " ..ingredient)
+				displayLoadingBar(monitor, finalPerc)
+		  -- end
+        end
+      end
+    end
+  return true
+end
+
+
+function split(s, delimiter)
+    result = {};
+    for match in (s..delimiter):gmatch("(.-)"..delimiter) do
+        table.insert(result, match);
+    end
+    return result;
+end
+
+function receive()
+	senderID, message, protocol = rednet.receive()
+    split(message, " ")
+    itemToCraft = tostring(result[1])
+	return itemToCraft
+end
+
+function dropInventory()
+  for i=1,16 do
+    if turtle.getItemCount(i) > 0 then
+      turtle.select(i)
+      dropDirection()
+	  rednet.send(supportComputerID, "clear", "crafter")
+    end
+  end
+  turtle.select(1)
+end
+
+function broadcastItems(craftingRecipes) --- informs brain about all available crafting recipes
+  for itemName, itemData in pairs(craftingRecipes) do
+     rednet.broadcast("saveItem " ..itemName, "stockpileupdate")
+	 print("All recipes transmitted to Stockpile Brain.")
+  end
+end
+
+function getRecipeIngredients(recipeName, craftingRecipes)
+  local ingredients = {}
+  local recipe = craftingRecipes[recipeName]
+  
+  for ingredientName, ingredientData in pairs(recipe) do
+    if ingredientName ~= "keyCount" then
+      for i, ingredient in ipairs(ingredientData) do
+        ingredients[ingredientName] = (ingredients[ingredientName] or 0) + ingredient.count
+      end
+    end
+  end
+  return ingredients
+end
+
+function isItemAvailableAsRecipe(recipes, itemName)
+  for recipeName, recipe in pairs(recipes) do
+    if recipeName == itemName then
+      return true
+    end
+  end
+  return false
+end
+
+function getKeyCount(itemName)
+ local recipe = craftingRecipes[itemName]
+  for ingredientName, ingredientData in pairs(recipe) do
+		if ingredientName == "keyCount" then
+			return ingredientData
+		end
+	end	
+end
+
+function makeSureItemsAvailable(item)
+	local wantedItem = getRecipeIngredients(item, craftingRecipes) 
+	  for key, value in pairs(wantedItem) do
+		canItemBeCrafted = isItemAvailableAsRecipe(craftingRecipes, key)
+		-- print(canItemBeCrafted)
+		rednet.send(supportComputerID, key, "availability")
+		repeat 
+		id, message, protocol = rednet.receive()
+		until protocol == "availabilityResponse" and id == supportComputerID
+		if tonumber(message) >= value then
+			-- print("true: ", key)
+			return true
+		else
+			-- print("false: ", key)
+			return false
+		end
+	end
+end	
+
+function askItemAvailability(item)
+	local wantedItem = getRecipeIngredients(item, craftingRecipes) 
+	  for key, value in pairs(wantedItem) do
+		canItemBeCrafted = isItemAvailableAsRecipe(craftingRecipes, key)
+		-- print(canItemBeCrafted)
+		rednet.send(supportComputerID, key, "availability")
+		repeat 
+		id, message, protocol = rednet.receive()
+		until protocol == "availabilityResponse" and id == supportComputerID
+		if tonumber(message) >= value then
+			-- print(key, " good")
+		elseif canItemBeCrafted == true then
+			numberOfMissing = value - tonumber(message)
+			local keyCount = getKeyCount(key)
+			nextLine()
+			monitor.setTextColor(colors.orange)
+			-- print("Missing items: " ..key..": " ..value - tonumber(message))
+			monitor.setTextColor(colors.green)
+			monitor.setCursorPos(1, 4)
+			monitor.clearLine()
+			monitor.write("Crafting missing ingredients:")
+			nextLine()
+			monitor.clearLine()
+			monitor.write("Crafting " ..key)
+			if mainItem == true then
+				missingMainItem = math.ceil(numberOfMissing/keyCount)
+			end
+			start = 1
+			craftReps = math.ceil(missingMainItem/keyCount)
+			for i = start, craftReps do
+				completeness = i/craftReps
+				displayLoadingBar(monitor, completeness * 100)
+				if requestAndSortItems(key) == false then
+					mainItem = false
+					askItemAvailability(key)
+					break
+				else
+					mainItem = true
+				end
+				turtle.craft()
+				dropDirection()
+				rednet.send(supportComputerID, "clear", "crafter")
+				sleep(0.1)
+			end
+		else
+		clearScreen()
+		monitor.setTextColor(colors.red)
+		monitor.write(key)
+		nextLine()
+		monitor.write("not available.")
+		nextLine()
+		nextLine()
+		monitor.write("Can't craft ")
+		nextLine()
+		monitor.write(item.. ".")
+		print("Item "..key.." not available to craft " ..item.. ".")
+		key, event = os.pullEvent("key")
+		end
+	end
+end
+
+function nextLine()
+	x, y = monitor.getCursorPos()
+	monitor.setCursorPos(1, y + 1)
+end
+
+function clearScreen()
+	monitor.setCursorPos(1, 1)
+	monitor.clear()
+end
+
+
+function updateAvailableItems(itemName, itemCount)
+  availableItems[itemName] = (availableItems[itemName] or 0) + itemCount
+end
+
+function keyExists(table, key)
+  for k, v in pairs(table) do
+    if k == key then
+      return true
+    end
+  end
+  return false
+end
+
+
+
+function finishIt(itemToCraft)
+	if keyExists(craftingRecipes, itemToCraft) == false then
+	clearScreen()
+	monitor.setTextColor(colors.red)
+	monitor.write("No recipe saved for")
+	nextLine()
+	monitor.write(itemToCraft)
+	event, key = os.pullEvent("key")
+	os.reboot()
+	end
+	monitor.setCursorPos(1,1)
+	monitor.setTextColor(colors.yellow)
+	monitor.write("Crafting ")
+	monitor.setTextColor(colors.orange)
+	monitor.write(itemToCraft.. ".")
+	nextLine()
+	monitor.setTextColor(colors.gray)
+	-- monitor.write("Requesting and crafting ingredients.")
+	askItemAvailability(itemToCraft) --<-------------
+	if makeSureItemsAvailable(itemToCraft) == true then
+		monitor.setCursorPos(1, 4)
+		monitor.clearLine()
+		monitor.setTextColor(colors.yellow)
+		monitor.write("Crafting final item.")
+		nextLine()
+		monitor.clearLine()
+		monitor.setCursorPos(1, 7)
+		monitor.clearLine()
+		monitor.setCursorPos(1, 8)
+		monitor.clearLine()
+		requestAndSortItems(itemToCraft)
+		if turtle.craft() then
+			local item = turtle.getItemDetail(1)
+			if item ~= nil and item.name == itemToCraft then
+				monitor.setTextColor(colors.lime)
+				monitor.setCursorPos(1, 4)
+				monitor.clearLine()
+				monitor.write("Successfully crafted:")
+				nextLine()
+				monitor.clearLine()
+				monitor.write(itemToCraft)
+				finishedForReal = true
+				sleep(1)
+			else 
+				finishedForReal = false
+			end
+		end
+		dropDirection()
+		rednet.send(supportComputerID, "clear", "crafter")
+		else 
+		finishIt(itemToCraft)
+	end
+end
+
+function displayLoadingBar(monitor, percent)
+  if percent == 100 then
+    monitor.setCursorPos(1, 7)
+    monitor.clearLine()
+	monitor.setTextColor(colors.gray)
+	monitor.write("Success.")
+    monitor.setCursorPos(1, 8)
+    monitor.clearLine()
+  else
+    monitor.setTextColor(colors.gray)
+    local width = monitor.getSize()
+    local barWidth = math.min(math.floor(width * percent / 100), width - 2)
+    monitor.setCursorPos(1,7)
+    monitor.write("[")
+    for i=1,barWidth do
+      monitor.write("=")
+    end
+    for i=barWidth+1,width-2 do
+      monitor.write(" ")
+    end
+    monitor.write("]")
+    monitor.setCursorPos(1, 8)
+    monitor.write(tostring(math.floor(percent)) .. "%")
+  end
+end
+
+function deleteRecipe(name)
+term.clear()
+term.setCursorPos(1,1)
+term.setTextColor(colors.white)
+  for itemName, recipe in pairs(craftingRecipes) do
+	-- print(itemName)
+    if string.find(itemName, name) then
+      print("Found recipe: " .. itemName .. ".\n")
+	  		term.setTextColor(colors.orange)
+	  print("\nDo you want to delete it? (y/n)\n")
+      local response = io.read()
+      if response == "y" then
+		craftingRecipes[itemName] = nil
+		file = fs.open("craftingRecipes", "w")
+		file.write(textutils.serialize(craftingRecipes))
+		file.close()
+		term.setTextColor(colors.red)
+        print("Recipe deleted.")
+		sleep(1)
+		os.reboot()
+      else
+		term.setTextColor(colors.green)
+        print("Deletion cancelled.")
+		sleep(1)
+		os.reboot()
+      end
+    end
+  end
+  print("No recipe found with the given name.")
+end
+
+
+function search_item(item, tableName)
+term.clear()
+term.setCursorPos(1,1)
+term.setTextColor(colors.lightGray)
+  local file = fs.open("craftingRecipes", "r")
+  if file then
+    craftingRecipes = textutils.unserialize(file.readAll())
+    file.close()
+  end
+
+  local matches = {}
+  for key, value in pairs(tableName) do
+    if string.find(key, item) then
+      table.insert(matches, key)
+    end
+  end
+
+  if #matches == 0 then
+    print("Item not found.")
+	sleep(1)
+	os.reboot()
+    return nil
+  elseif #matches == 1 then
+    deleteRecipe(matches[1])
+    return value
+  else
+    print("Multiple items match the search criteria:")
+	term.setTextColor(colors.lightGray)
+    for i, match in ipairs(matches) do
+      print(i .. ". " .. match)
+    end
+    print("Which item would you like to delete? (Enter the number)")
+
+    local choice = tonumber(read())
+    if choice and matches[choice] then
+      deleteRecipe(matches[choice])
+	  	  os.reboot()
+      return tableName[matches[choice]]
+    else
+      print("Invalid choice.")
+	  sleep(1)
+	  os.reboot()
+      return nil
+    end
+  end
+end
+
+
+
+function switchToMenu()
+	event, key = os.pullEvent("key")
+		if key == keys.s then
+			shell.run("scrollItems")
+		elseif key == keys.c then
+			shell.run("recipeRecorder")
+		elseif key == keys.u then
+			broadcastItems(craftingRecipes)
+		elseif key == keys.enter then
+			term.clear()
+			term.setCursorPos(1,1)
+			term.setTextColor(colors.lightGray)
+			print("Enter name of item to search:\n")
+			searchedItem = read()
+			searchedItem = string.gsub(searchedItem, "%s", "")
+			if searchedItem ~= "" then
+			search_item(searchedItem, craftingRecipes)
+			else
+			os.reboot()
+			end
+		end
+		
+end
+
+function craftstuff()
+monitor.setTextScale(1)
+clearScreen()
+monitor.setTextColor(colors.gray)
+monitor.write("Currently waiting")
+nextLine()
+monitor.write("for requests.")
+receive()
+
+if protocol == "stockpile" then
+monitor.setTextScale(0.5)
+availableItems = {}
+clearScreen()
+monitor.setTextColor(colors.blue)
+monitor.write("Cleaning up my inventory.")
+dropInventory()
+clearScreen()
+finishIt(itemToCraft)
+end
+end
+
+term.clear()
+term.setCursorPos(1,1)
+term.setTextColor(colors.white)
+print("Enter to search for items.\n")
+print("'S' to scroll through items.\n")
+print("'C' to save recipe.\n")
+term.setTextColor(colors.gray)
+print("'U' to send all recipes to brain(only do this if you know what you're doing.")
+
+rednet.send(supportComputerID, "clear", "crafter")
+while true do
+parallel.waitForAny(switchToMenu, craftstuff)
+end
+
+
+
+

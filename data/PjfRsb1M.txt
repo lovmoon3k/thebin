@@ -1,0 +1,96 @@
+local UserInputService = game:GetService("UserInputService")
+local PlayersService = game:GetService("Players")
+
+local Remotes = workspace:WaitForChild("Remote")
+
+local toggleSiren = Remotes.toggleSiren
+local sirenToggleScript = toggleSiren.sirenToggleScript
+local movetorso = Remotes.Legacy.movetorso
+local torsoMoveScript = movetorso.Script
+
+-- can't have nice things
+if sirenToggleScript.Disabled and torsoMoveScript.Disabled then
+    error('fe destroy wont work on this server')
+end
+
+local RandomSound = workspace:FindFirstChildWhichIsA("Sound", true)
+
+toggleSiren:FireServer({isOn = {}, Speaker = {Sound = RandomSound}, Part2 = {l = sirenToggleScript}})
+toggleSiren:FireServer({isOn = {}, Speaker = {Sound = RandomSound}, Part2 = {l = torsoMoveScript}})
+
+local LocalPlayer = game:GetService("Players").LocalPlayer
+local LocalMouse = LocalPlayer:GetMouse()
+
+local Order = {}
+local Cache = {}
+
+local byedb = false
+local function bye(target, newCF, skip)
+    if byedb then
+        return
+    end
+
+    byedb = true
+
+    local oldCF = target.CFrame
+
+    local function try()
+        movetorso:InvokeServer({Character = {Torso = target}}, {Name = "tread", CFrame = newCF})
+    end
+
+    local success = pcall(try)
+
+    if not success then
+        repeat
+            success = pcall(try)
+            task.wait(0.05)
+        until success
+    end
+
+    if not skip then
+        if not PlayersService:GetPlayerFromCharacter(target.Parent) then
+            Cache[target] = oldCF
+
+            table.insert(Order, target)
+        end
+    end
+
+    byedb = false
+end
+
+local function hello()
+    local index = #Order
+
+    local last = Order[index]
+
+    local oldCF = Cache[last]
+
+    if not oldCF then
+        if last then
+            table.remove(Order, index)
+        end
+
+        return
+    end
+
+    bye(last, oldCF * CFrame.new(0, -3, 0), true)
+
+    Cache[last] = nil
+
+    table.remove(Order, index)
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+        return
+    end
+
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local target = LocalMouse.Target
+        if target then
+            bye(target, CFrame.new(0, -100000, 0))
+        end
+    elseif input.KeyCode == Enum.KeyCode.Z then
+        hello()
+    end
+end)
