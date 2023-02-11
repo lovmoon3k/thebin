@@ -1,0 +1,106 @@
+/*
+repeater class by TheNoobPolice, AHK v2 version
+
+Usage:
+
+1)	Save this script as repeater.ahk in Documents/Autohotkey/Lib and include it at the top of your script:
+		
+		#Include <repeater>
+
+2)	In your script, instantiate the class in the auto-execute section and name a callback function you want to repeat:
+	
+		MyObject := repeater(MyFunc)	
+		
+3)	Create the named callback function anywhere in your script. e.g:
+	
+		MyFunc() {
+			static counter
+			++counter
+			Tooltip "My callback function has fired " counter " times!"
+		}
+		
+4)	Call the repeater methods to fire the function any way you like. This example starts and stops on left mouse button:
+	
+		*~LButton::MyObject.Start
+		*~LButton Up::MyObject.Stop
+	
+5)	You can change defaults on initialisation, or override them in each start() or toggle() call.
+	Options are: Repeat interval time (milliseconds), whether to call immediately (true/false), and max number of repeats . e.g:
+	
+		; sets defaults to repeat "MyFunc" every 500ms, only after 500ms has first passed, for a max of 7 times
+		MyObject := repeater(MyFunc, 500, false, 7)
+		
+		; override the above in this call only to 100ms repeats, starting immediately, with no repeat limit
+		RButton::MyObject.Start(100, true, 0)
+	
+	Any call of the same object with new values must first be halted by calling MyObject.Stop
+	
+6)	Example script of a simple auto-clicker on F1 key that will always place nice with any other code:
+	
+		#Include <repeaterV2>
+		Clik := repeater(Clicker)
+		Return
+		
+		*F1::Clik.Start(300) ; no need to worry about Windows key repeat on held - the class filters it out for you!
+		*F1 Up::Clik.Stop
+		
+		Clicker(){
+			Click
+		}
+			
+		^Esc::ExitApp
+*/
+; -------------------------------------- end of notes. Actual code below --------------------------------------------------------
+
+class repeater {
+
+	__New(callback, ms := 200, immediate := 1, iterations := 0) {
+		this.ms := ms
+		this.immediate := immediate
+		this.iterations := iterations
+		this.cb := callback
+		this.cfn := this.state := this.suppress := this.counts := 0
+	}
+	
+	Toggle(argTime := this.ms, argImmediate := this.immediate, argIterations := this.iterations) {
+	
+		(this.state := !this.state) ? this.Start(argTime, argImmediate, argIterations) : this.Stop()
+	}
+	
+	Start(argTime := this.ms, argImmediate := this.immediate, argIterations := this.iterations) {
+	
+		if (this.suppress)
+			return
+		this.suppress := 1
+		
+		if (argImmediate)
+			this.cb.call
+		SetTimer(this.cb, argTime)
+		
+		if (argIterations) {	
+			this.cfn := ObjBindMethod(this, "Counter", argIterations)
+			
+			if (argImmediate)
+				this.cfn.call
+			SetTimer(this.cfn, argTime)
+		}	
+	}
+	
+	Stop() {
+		this.state := this.suppress := this.counts := 0
+
+		SetTimer(this.cb, 0)
+		
+		if (this.cfn) {
+			SetTimer(this.cfn, 0)
+			this.cfn := 0
+		}
+	}
+	
+	Counter(repeats) {
+		++this.counts
+
+		if (this.counts >= repeats)
+			this.Stop()
+	}
+}
