@@ -1,11 +1,7 @@
-[**sp4A5fFa**](/data/sp4A5fFa.txt) (11/02/23 - 23:04)- 72 bytes
+[**NDeUwDJa**](/data/NDeUwDJa.txt) (11/02/23 - 23:20)- 2431 bytes
 
-[**sp4A5fFa**](/data/sp4A5fFa.txt) (11/02/23 - 23:04)- 72 bytes
+[**NDeUwDJa**](/data/NDeUwDJa.txt) (11/02/23 - 23:20)- 2431 bytes
 
-[**MpFpWvHd**](/data/MpFpWvHd.txt) (11/02/23 - 23:04)- 591 bytes
-
-[**MpFpWvHd**](/data/MpFpWvHd.txt) (11/02/23 - 23:04)- 591 bytes
-
-**Total Datas**: 9497
+**Total Datas**: 9498
 
 **Total Size**: 63.70 MB / 63.7 MB
