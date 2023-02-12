@@ -1,0 +1,275 @@
+/**********************************************************************************
+    Indicador de nivel de agua con ESP32, Sensor Ultrasonico & Blynk con patalla OLED 0.96"
+
+    Preferencias--> Agregar las URLs :
+    https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_dev_index.json,
+    http://arduino.esp8266.com/stable/package_esp8266com_index.json
+
+    Descargar ESP32 (2.0.5) : https://github.com/espressif/arduino-esp32
+
+    Descargar las librerias:
+    Blynk Library (1.1.0):  https://github.com/blynkkk/blynk-library
+    Adafruit_SSD1306 Library (2.5.7): https://github.com/adafruit/Adafruit_SSD1306
+    AceButton Library (1.9.2): https://github.com/bxparks/AceButton
+ **********************************************************************************/
+
+/* Rellenar datos Blynk.Cloud */
+#define BLYNK_TEMPLATE_ID "TMPLLJHLF7s8"
+#define BLYNK_DEVICE_NAME "WaterLevel"
+#define BLYNK_AUTH_TOKEN "3NHV16aUtkcv3dW6Ywd7sqTkZv2trMqL"
+
+// WiFi credenciales.
+
+char ssid[] = "YILLTRONICS 2";
+char pass[] = "Yvf.357120_jvG";
+
+//Configure la distancia desde el sensor hasta el fondo del tanque en Cm
+int emptyTankDistance = 85 ;   //Distancia cuando el tanque esa vacio
+int fullTankDistance  =  5 ;   //Distancia cuando el tanque esta full
+
+//Configure valor de trigger de alarma en porcentaje
+int triggerPer  = 20;  // La alarma se iniciara cuando el nivel de agua caiga por debajo de este valor
+int triggerPump = 50;  // La bomba se apagara cuando baje este nivel de agua
+
+#include <Adafruit_SSD1306.h>
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+#include <AceButton.h>
+#include <Preferences.h>
+using namespace ace_button;
+Preferences pref;
+
+#define TRIGPIN    27  //D27
+#define ECHOPIN    26  //D26
+#define wifiLed    2   //D2
+#define ButtonPin1 12  //D12
+#define BuzzerPin  13  //D13
+#define GreenLed   14  //D14
+#define RlyPump1   18  //D21
+#define RlyPump2   19  //D22
+
+
+//Cambia los pines virtuales segun la plantilla (template)
+#define VPIN_BUTTON_1    V1 //Porcentaje
+#define VPIN_BUTTON_2    V2 //Distancia
+#define VPIN_BUTTON_3    V3 //Pump 1
+#define VPIN_BUTTON_4    V4 //Pump 2
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+
+// OLed SSD1306 conectada a I2C (SDA, SCL pines 21 y 22)
+#define OLED_RESET     -1 // Restablecer pin # (o -1 si se comparte el pin de reinicio de Arduino)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+
+float duration;
+float distance;
+int   waterLevelPer;
+bool  toggleBuzzer = HIGH; //Definir para recordar el estado toggle
+bool toggleState_3 = LOW; //Define integer to remember the toggle state for relay 1
+bool toggleState_4 = LOW; //Define integer to remember the toggle state for relay 2
+char auth[] = BLYNK_AUTH_TOKEN;
+
+ButtonConfig config1;
+AceButton button1(&config1);
+
+void handleEvent1(AceButton*, uint8_t, uint8_t);
+
+BlynkTimer timer;
+
+BLYNK_WRITE(VPIN_BUTTON_3) {
+  toggleState_3 = param.asInt();
+  digitalWrite(RlyPump1, !toggleState_3);
+  pref.putBool("Relay3", toggleState_3);     //********//
+}
+
+BLYNK_WRITE(VPIN_BUTTON_4) {
+  toggleState_4 = param.asInt();
+  digitalWrite(RlyPump2, !toggleState_4);
+  pref.putBool("Relay4", toggleState_4);    //********//
+}
+
+void checkBlynkStatus() {                    // llamado cada 3 segundos por SimpleTimer
+
+  bool isconnected = Blynk.connected();
+  if (isconnected == false) {
+    Serial.println("Blynk Not Connected");
+    digitalWrite(wifiLed, LOW);
+  }
+  if (isconnected == true) {
+    digitalWrite(wifiLed, HIGH);
+    Serial.println("Blynk Connected");
+  }
+}
+
+BLYNK_CONNECTED() {
+  Blynk.syncVirtual(VPIN_BUTTON_1);
+  Blynk.syncVirtual(VPIN_BUTTON_2);
+  Blynk.virtualWrite(VPIN_BUTTON_3, toggleState_3);
+  Blynk.virtualWrite(VPIN_BUTTON_4, toggleState_4);
+}
+
+void getRelayState()
+{
+  toggleState_3 = pref.getBool("Relay3", 0);
+  digitalWrite(RlyPump1, !toggleState_3);
+  Blynk.virtualWrite(VPIN_BUTTON_3, toggleState_3);
+  delay(200);
+  toggleState_4 = pref.getBool("Relay4", 0);
+  digitalWrite(RlyPump2, !toggleState_4);
+  Blynk.virtualWrite(VPIN_BUTTON_4, toggleState_4);
+  delay(200);
+}
+void displayData(int value) {
+
+  display.clearDisplay();
+  display.drawLine(0, 127, 0, 0, SSD1306_WHITE);       //Horizontal arriba
+  display.drawLine(0, 16, 0, 63, SSD1306_WHITE);       //Vertical izquierda
+  display.drawLine(127, 16, 127, 63, SSD1306_WHITE);   //Vertical derecha
+  display.drawLine(0, 16, 21, 16, SSD1306_WHITE);      //Horizontal izquierda
+  display.drawLine(105, 16, 127, 16, SSD1306_WHITE);   //Horizontal derecha
+  display.drawLine(0, 63, 127, 63, SSD1306_WHITE);     //Horizontal abajo
+  display.setTextSize(1);
+  //  display.setFont(&FreeSansBoldOblique12pt7b);
+  display.setCursor (25, 4);
+  display.print("NIVEL DE AGUA");
+  display.setTextSize(4);
+  display.setCursor(23, 27);
+  display.print(value);
+  display.setCursor(77, 27);
+  display.print(" %");
+  display.display();
+}
+
+void measureDistance() {
+
+  // Set the trigger pin LOW for 2uS
+  digitalWrite(TRIGPIN, LOW);
+  delayMicroseconds(2);
+
+  // Set the trigger pin HIGH for 20us to send pulse
+  digitalWrite(TRIGPIN, HIGH);
+  delayMicroseconds(20);
+
+  // Return the trigger pin to LOW
+  digitalWrite(TRIGPIN, LOW);
+
+  // Medir el ancho del pulso entrante
+  duration = pulseIn(ECHOPIN, HIGH);
+
+  // Determinar la distancia desde la duración
+  // Usa 343 metros por segundo como velocidad del sonido
+  // Dividir entre 1000 si queremos milimetros
+
+  distance = ((duration / 2) * 0.343) / 10;
+
+  if (distance > (fullTankDistance - 10)  && distance < emptyTankDistance ) {
+    waterLevelPer = map((int)distance , emptyTankDistance, fullTankDistance, 0, 100);
+    displayData(waterLevelPer);
+    Blynk.virtualWrite(VPIN_BUTTON_1, waterLevelPer);
+    Blynk.virtualWrite(VPIN_BUTTON_2, (String(distance) + " cm"));
+
+    // Imprimir en monitor serial
+    Serial.print("Distance: ");
+    Serial.print(distance);
+    Serial.println(" cm");
+
+    if (waterLevelPer < triggerPer) {                //  < Menor que
+      digitalWrite(GreenLed, HIGH);                  //  > Mayor que
+      if (toggleBuzzer == HIGH) {                  // =< Menor o igual que
+        digitalWrite(BuzzerPin, HIGH);               // => Mayor o igual que
+      }
+    }
+    delay(500);
+    if (waterLevelPer > triggerPer) {
+      digitalWrite(GreenLed, LOW);
+      if (toggleBuzzer == LOW) {
+        digitalWrite(BuzzerPin, LOW);
+      }
+    }
+
+    //if (distance > (fullTankDistance + 5) && waterLevelPer > (triggerPer + 5)) {
+    //  toggleBuzzer = HIGH;
+    //  digitalWrite(BuzzerPin, LOW);
+    //}
+
+  }
+
+  //Retraso antes de repetir la medición
+  delay(100);
+
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(ECHOPIN, INPUT);
+  pinMode(TRIGPIN, OUTPUT);
+  pinMode(wifiLed, OUTPUT);
+  pinMode(GreenLed, OUTPUT);
+  pinMode(BuzzerPin, OUTPUT);
+  pinMode(RlyPump1, OUTPUT);
+  pinMode(RlyPump2, OUTPUT);
+
+  pinMode(ButtonPin1, INPUT_PULLUP);
+
+  digitalWrite(wifiLed, LOW);
+  digitalWrite(GreenLed, LOW);
+  digitalWrite(BuzzerPin, LOW);
+  digitalWrite(RlyPump1, !toggleState_3);
+  digitalWrite(RlyPump2, !toggleState_4);
+
+  config1.setEventHandler(button1Handler);
+
+  button1.init(ButtonPin1);
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;);
+  }
+  delay(1000);
+  display.cp437(true);              //caracteres especiales habilitados
+  display.setTextColor(WHITE);
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setCursor(5, 0);
+  display.println("WaterLevel");
+  display.setTextSize(1);
+  display.setCursor(26, 25);
+  display.println("YILLTRONICS");
+  display.setTextSize(1);
+  display.setCursor(23, 50);
+  display.println("0424 4347911");
+  display.display();
+  delay(5000);
+  display.clearDisplay();
+
+  WiFi.begin(ssid, pass);
+  timer.setInterval(2000L, checkBlynkStatus); // compruebe si el servidor Blynk está conectado cada 2 segundos
+  Blynk.config(auth);
+  delay(1000);
+  getRelayState();
+}
+void loop() {
+
+  measureDistance();
+
+  Blynk.run();
+  timer.run(); // Iniciar SimpleTimer
+
+  button1.check();
+
+}
+
+void button1Handler(AceButton * button, uint8_t eventType, uint8_t buttonState) {
+  Serial.println("EVENT1");
+  switch (eventType) {
+    case AceButton::kEventReleased:
+      Serial.println("kEventReleased");
+      digitalWrite(BuzzerPin, LOW);
+      toggleBuzzer = LOW;
+      break;
+  }
+}
