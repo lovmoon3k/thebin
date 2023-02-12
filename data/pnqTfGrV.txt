@@ -1,0 +1,93 @@
+
+import requests
+import urllib.parse
+import pandas as pd
+from requests_html import HTML
+from requests_html import HTMLSession
+import pprint
+
+def get_source(url):
+    """Return the source code for the provided URL.
+
+    Args:
+        url (string): URL of the page to scrape.
+
+    Returns:
+        response (object): HTTP response object from requests_html.
+    """
+
+    try:
+        session = HTMLSession()
+        response = session.get(url)
+        return response
+
+    except requests.exceptions.RequestException as e:
+        print(e)
+
+def get_results(query):
+
+    query = urllib.parse.quote_plus(query)
+    response = get_source("https://www.google.com/search?q=" + query)
+
+    return response
+
+def parse_results(response):
+
+    css_identifier_result = ".tF2Cxc"
+    css_identifier_title = "h3"
+    css_identifier_link = ".yuRUbf a"
+    css_identifier_text = ".VwiC3b"
+
+    results = response.html.find(css_identifier_result)
+
+    output = []
+
+    for result in results:
+
+        item = {
+            #'title': result.find(css_identifier_title, first=True).text,
+            #'link': result.find(css_identifier_link, first=True).attrs['href'],
+            # Textul fara data articolului primele 15 caractere
+            'text': result.find(css_identifier_text, first=True).text
+        }
+
+        output.append(item)
+
+    return output
+
+def google_search(query):
+    # steluta e pusa automat
+    cautare = '"' + query +' *"'
+    print("cautarea solicitata: ", cautare)
+    response = get_results(cautare)
+    results = parse_results(response)
+    ## Ce nu functioneaza inca
+    for item in results:
+        text = proceseaza_text(item['text'])
+        #print(query, "---->", text)
+        pozitie_text = text.find(query)
+        if pozitie_text > 0:
+            item['text'] = text[pozitie_text:]
+    return results
+
+def proceseaza_text(text):
+    # transformam totul in litere mici
+    text = text.lower()
+    dictionar = {
+        "ă": "a",
+        "â": "a",
+        "î": "i",
+        "ș": "s",
+        "ş": "s",
+        "ț": "t",
+        "ţ": "t",
+        ",": "",
+        "-": "",
+        ".": ""
+    }
+    for key, value in dictionar.items():
+        text = text.replace(key, value)
+    return text
+
+for cautare in ["Napoleon s-a nascut", "cutremurele din Turcia şi Siria", "cat costa un televizor Philips", "de ce are nevoie un nou nascut"]:
+    pprint.pprint(google_search(cautare))

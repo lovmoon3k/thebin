@@ -1,0 +1,169 @@
+#include <algorithm>
+#include <iostream>
+#include <numeric>
+#include <cassert>
+#include <vector>
+#include <set>
+
+typedef long long llong;
+const int MAXN = 1000000 + 10;
+const int INF = 2e7 + 10;
+
+struct Line
+{
+    llong x, y;
+    
+    Line()
+    {
+        x = -INF;
+        y = -INF;
+    }
+
+    Line(llong _x, llong _y)
+    {
+        x = _x; y = _y;
+    }
+
+    inline llong getValue(llong at)
+    {
+        return x * at + y;
+    }
+
+    inline friend bool operator < (const Line &a, const Line &b)
+    {
+        return a.x < b.x;
+    }
+};
+
+inline llong intersect(const Line &prev, const Line &next)
+{
+    return (prev.y - next.y) / (next.x - prev.x) + ((prev.y - next.y) % (next.x - prev.x) > 0);
+}
+
+int n, q;
+llong g[MAXN];
+Line lines[MAXN][2];
+Line liChao[2][4*MAXN];
+std::vector <std::pair <int,int>> vals[2];
+llong output[MAXN];
+
+void update(Line tree[], int parity, int l, int r, int node, Line line)
+{
+    int mid = (l + r) / 2;
+    bool atL = tree[node].getValue(vals[parity][l].first) < line.getValue(vals[parity][l].first);
+    bool atR = tree[node].getValue(vals[parity][r].first) < line.getValue(vals[parity][r].first);
+    bool atMid = tree[node].getValue(vals[parity][mid].first) < line.getValue(vals[parity][mid].first);
+    
+    if (atL && atR)
+    {
+        tree[node] = line;
+        return;
+    }
+
+    if (!atL && !atR)
+    {
+        return;
+    }
+
+    if (atMid)
+    {
+        std::swap(tree[node], line);
+    }
+
+    if (l == r) return;
+    if (atL ^ atMid)
+    {
+        update(tree, parity, l, mid, 2*node, line);
+    } else
+    {
+        update(tree, parity, mid + 1, r, 2*node + 1, line);
+    }
+}
+
+llong query(Line tree[], int parity, int l, int r, int node, int queryPos)
+{
+    if (tree[node].x == -1) return 0;
+    if (l == r)
+    {
+        return tree[node].getValue(queryPos);
+    }
+
+    int mid = (l + r) / 2;
+    if (queryPos <= vals[parity][mid].first)
+    {
+        return std::max(tree[node].getValue(queryPos), query(tree, parity, l, mid, 2*node, queryPos));
+    } else
+    {
+        return std::max(tree[node].getValue(queryPos), query(tree, parity, mid + 1, r, 2*node + 1, queryPos));
+    }
+}
+
+void solve()
+{
+    llong sum = g[1];
+    for (int i = 2 ; i <= n ; ++i)
+    {
+        lines[i][0] = {g[i] + g[i - 1], g[i] * (1 - (i + 1) / 2) - g[i - 1] * (i / 2) + sum};
+        lines[i][1] = {g[i] + g[i - 1], g[i] * (1 - i / 2) + g[i - 1] * (1 - (i + 1) / 2) + sum};
+        sum += g[i];
+    }
+
+    for (int j = 0 ; j < 2 ; ++j)
+    {
+        int ptr = 1;
+        std::sort(vals[j].begin(), vals[j].end());
+        for (int i = 0 ; i < vals[j].size() ; ++i)
+        {
+            if (vals[j][i].first == 0 && j)
+            {
+                output[vals[j][i].second] = g[1];
+                continue;
+            }
+
+            while (ptr + 1 <= std::min(n, 2 * vals[j][i].first + j))
+            {
+                ptr++;
+                update(liChao[j], j, 0, vals[j].size() - 1, 1, lines[ptr][j]);
+            }
+
+            output[vals[j][i].second] = query(liChao[j], j, 0, vals[j].size() - 1, 1, vals[j][i].first);
+        }
+    }
+
+    for (int i = 1 ; i <= q ; ++i)
+    {
+        std::cout << output[i] << '\n';
+    }
+}
+
+void read()
+{
+    std::cin >> n >> q;
+    for (int i = 1 ; i <= n ; ++i)
+    {
+        std::cin >> g[i];
+    }
+
+    int pos;
+    for (int i = 1 ; i <= q ; ++i)
+    {
+        std::cin >> pos;
+        vals[pos & 1].push_back({pos / 2, i});
+    }
+}
+
+void fastIO()
+{
+    std::ios_base :: sync_with_stdio(0);
+    std::cout.tie(nullptr);
+    std::cin.tie(nullptr);
+}
+
+int main()
+{
+    fastIO();
+    read();
+    solve();
+
+    return 0;
+}
