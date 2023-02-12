@@ -1,0 +1,153 @@
+-- kwei installation script
+-- by kodicraft4
+
+-- utilities that need to be embedded in the installer
+function printError(text)
+  term.setTextColor(colors.red)
+  print(text)
+  term.setTextColor(colors.white)
+end
+
+function printSuccess(text)
+  term.setTextColor(colors.green)
+  print(text)
+  term.setTextColor(colors.white)
+end
+
+function printInfo(text)
+  term.setTextColor(colors.yellow)
+  print(text)
+  term.setTextColor(colors.white)
+end
+
+function printWarning(text)
+  term.setTextColor(colors.orange)
+  print(text)
+  term.setTextColor(colors.white)
+end
+
+function download(url, dest)
+  -- download a file from a url to a destination
+  printInfo("Downloading " .. url)
+  local response = http.get(url)
+  printInfo("Got response: " .. response.getResponseCode())
+  -- printInfo("Filesize: " .. response.getResponseHeaders()["Content-Length"] .. " bytes")
+  if response then
+    local file = fs.open(dest, "w")
+    file.write(response.readAll())
+    file.close()
+    response.close()
+    printSuccess("Downloaded " .. url)
+    return true
+  else
+    printError("Could not download " .. url)
+    return false
+  end
+end
+
+-- constants
+local pkgRoot = "https://raw.githubusercontent.com/KodiCraft/kwei/main/pkg"
+
+
+-- check if we have access to github
+if not http.checkURL("https://github.com") then
+  printError("Could not install kwei: no internet access")
+  return
+end
+
+-- check if we have access to the kwei repo
+if not http.checkURL(pkgRoot .. "/kwei.lua") then
+  printError("Could not install kwei: no access to kwei repo")
+  return
+end
+
+-- create a /tmp directory where we can download files
+if not fs.exists("/tmp") then
+  fs.makeDir("/tmp")
+end
+
+-- create the shallow file system layout
+-- it should look like this:
+-- / (root)
+--   /tmp
+--   /etc
+--   /usr
+--     /bin
+--     /lib
+--   /var
+--     /log
+--     /run
+--     /kwei
+
+-- create the root directories
+local rootDirs = {"/etc", "/usr", "/var"}
+for _, dir in ipairs(rootDirs) do
+  if not fs.exists(dir) then
+    fs.makeDir(dir)
+  end
+end
+
+-- create the /usr subdirectories
+local usrDirs = {"/usr/bin", "/usr/lib"}
+for _, dir in ipairs(usrDirs) do
+  if not fs.exists(dir) then
+    fs.makeDir(dir)
+  end
+end
+
+-- create the /var subdirectories
+local varDirs = {"/var/log", "/var/run", "/var/kwei"}
+for _, dir in ipairs(varDirs) do
+  if not fs.exists(dir) then
+    fs.makeDir(dir)
+  end
+end
+
+local files = {"/usr/bin/kwei.lua", "/usr/lib/k-log.lua"}
+
+-- check if any of the files already exist
+for _, file in ipairs(files) do
+  if fs.exists(file) then
+    printWarning("File " .. file .. " already exists, deleting")
+    fs.delete(file)
+  end
+end
+
+-- download the files
+for _, file in ipairs(files) do
+  local url = pkgRoot .. file
+  local dest = "/tmp" .. file
+  if not download(url, dest) then
+    printError("Could not install kwei: could not download " .. url)
+    return
+  end
+end
+
+-- move the files to their final destination
+for _, file in ipairs(files) do
+  local dest = file
+  local src = "/tmp" .. file
+
+  fs.copy(src, dest)
+  fs.delete(src)
+  printSuccess("Installed " .. file)
+end
+
+-- add /usr/bin to the PATH
+local path = shell.path()
+if not path:find("/usr/bin") then
+  shell.setPath(path .. ":/usr/bin")
+end
+
+-- define default settings
+local kweisettings = {
+  {key = "kwei.log.level", description = "Log level for kwei, either 'info', 'warn' or 'error'", type = "string", default = "info"},
+  {key = "kwei.log.file", description = "Log file for kwei", type = "string", default = "/var/log/kwei.log"},
+  {key = "kwei.path.home", description = "Home directory for kwei and its files", type = "string", default = "/var/kwei"},
+  {key = "kwei.path.dl", description = "Temporary directory for downloads", type = "string", default = "/tmp"},
+}
+
+for _, setting in ipairs(kweisettings) do
+  settings.define(setting.key, {description = setting.description, type = setting.type, default = setting.default})
+end
+settings.save()
