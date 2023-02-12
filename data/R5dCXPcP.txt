@@ -1,0 +1,49 @@
+const Discord = require('discord.js');
+const client = new Discord.Client();
+const ytdl = require('ytdl-core');
+const ffmpeg = require('fluent-ffmpeg');
+const request = require('request');
+
+client.on('ready', () => {
+  console.log(`Logged in as ${client.user.tag}!`);
+});
+
+client.on('message', msg => {
+  if (msg.content.startsWith('!play')) {
+    const args = msg.content.split(' ');
+
+    // Get the search query
+    const query = args.slice(1).join(' ');
+
+    // Use the SoundCloud API to search for a track
+    request(`https://api.soundcloud.com/tracks?client_id=YOUR_SOUNDCLOUD_CLIENT_ID&q=${query}`, (error, response, body) => {
+      if (error) return console.error(error);
+
+      const tracks = JSON.parse(body);
+
+      if (!tracks.length) return msg.reply(`No results found for "${query}"`);
+
+      // Get the first track in the search results
+      const track = tracks[0];
+
+      // Get the voice channel of the user who sent the message
+      const voiceChannel = msg.member.voice.channel;
+
+      if (!voiceChannel) return msg.reply("You need to be in a voice channel to play music!");
+
+      // Join the voice channel
+      voiceChannel.join().then(connection => {
+        const stream = ytdl(track.stream_url + `?client_id=YOUR_SOUNDCLOUD_CLIENT_ID`, { filter: 'audioonly' });
+        const dispatcher = connection.play(stream);
+
+        // Convert the stream to PCM data with ffmpeg
+        ffmpeg(stream)
+          .audioCodec('pcm_s16le')
+          .format('s16le')
+          .pipe(dispatcher);
+      });
+    });
+  }
+});
+
+client.login('YOUR_DISCORD_BOT_TOKEN');
