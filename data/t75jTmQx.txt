@@ -1,0 +1,324 @@
+#include <stdio.h>
+#include <math.h>
+#include <string.h>
+#include <stdlib.h>
+
+#define MAX_EXPRESSION_LENGTH 100  // Максимальная длина выражения
+#define MAX_TOKEN_LENGTH 20        // Максимальная длина каждого токена в выражении
+#define STACK_SIZE 100             // Максимальная длина стэка
+#define PI 3.14159265
+
+// Токены - Перечисление всех типов токенов в выражении
+#define VALUE_ 0
+#define PLUS_ 1
+#define MINUS_ 2
+#define MULTIPLY_ 3
+#define DIVIDE_ 4
+#define POW_ 5
+#define SIN_ 6
+#define COS_ 7
+#define TAN_ 8
+#define L_PAREN_ 9
+#define R_PAREN_ 10
+
+// Token structure - структура для хранения каждого токена в выражении
+typedef struct {
+    int type;             // Тип токена (например, число, оператор, функция и т.д.)
+    double value;         // Если тип токена число -- используем валуе
+    char symbol[MAX_TOKEN_LENGTH]; // Если тип токена не число -- записываем в строку (например, "+", cos)
+} Token;
+
+// Stack structure -  структура для хранения стека токенов
+
+// Вообще не понимаю что в этом стеке происходит
+typedef struct {
+    Token data[STACK_SIZE];  // Массив токенов
+    int top;                 // Сколько у нас элементов массива
+} Stack;
+
+// Некоторые функции закоменченные. Они были либо лагучими, либо из разных кодов, либо не нужные, крч бесполезный высер
+void initializeStack(Stack *stack);
+int isStackEmpty(Stack *stack);
+void push(Stack *stack, Token token);
+Token pop(Stack *stack);
+Token getTop(Stack *stack);
+//int getStackSize(Stack *stack);
+
+void parseExpression(char * expression, Stack *stack);
+void translateToRPN(Stack *inputStack, Stack *outputStack);
+//double calculateRPN(Stack *stack);
+//void displayGraph(double (*func)(double), double start, double end, double step);
+
+// Инициалзиация стека
+void initializeStack(Stack *stack) {
+    stack->top = -1;  // Ставим топ -1 (супер странная реализация стека конечно)
+}
+
+// Стэк пустой
+int isStackEmpty(Stack *stack) {
+    return stack->top == -1;  
+}
+
+void push(Stack *stack, Token token) {
+    stack->data[++stack->top] = token;  
+}
+
+Token pop(Stack *stack) {
+    return stack->data[stack->top--];  }
+
+Token peek(Stack *stack) {
+  return stack->data[stack->top];
+}
+
+int getStackSize(Stack *stack) {
+  return stack->top + 1;
+}
+
+// Разбираем выражение в стэк токенов
+void parseExpression(char * expression, Stack *stack) {
+  Token token;
+  int i, j;
+  int length = (int) strlen(expression);
+  char number[MAX_TOKEN_LENGTH];
+
+  initializeStack(stack);
+
+  for (i = 0, j = 0; i < length; i++) {
+      // Если число
+    if ((expression[i] >= 48 && expression[i]<=57) || expression[i] == '.') {
+      number[j++] = expression[i];
+    } else {
+        // Если `j` больше 0 (указывает на то, что было сформировано число)
+      if (j > 0) {
+        number[j] = '\0';
+        j = 0;
+
+        token.type = VALUE_;
+          char* end;
+          // char to double
+        token.value = strtod(number, &end);
+        push(stack, token);
+      } else if (expression[i] == 'x') {// Если икс то валуе 0
+        token.type = VALUE_;
+        token.value = 0;
+        push(stack, token);
+      }
+
+      //Оператор Switch для обработки различных типов символов в строке выражения
+      switch (expression[i]) {
+        case '+':
+          token.type = PLUS_;
+          strcpy(token.symbol, "+");
+          push(stack, token);
+          break;
+        case '-':
+          token.type = MINUS_;
+          strcpy(token.symbol, "-");
+          push(stack, token);
+          break;
+        case '*':
+          token.type = MULTIPLY_;
+          strcpy(token.symbol, "*");
+          push(stack, token);
+          break;
+        case '/':
+          token.type = DIVIDE_;
+          strcpy(token.symbol, "/");
+          push(stack, token);
+          break;
+        case '^':
+          token.type = POW_;
+          strcpy(token.symbol, "^");
+          push(stack, token);
+          break;
+        case 's':
+          if (expression[i + 1] == 'i' && expression[i + 2] == 'n') {
+            token.type = SIN_;
+            strcpy(token.symbol, "sin");
+            push(stack, token);
+            i += 2;
+          }
+          break;
+        case 'c':
+          if (expression[i + 1] == 'o' && expression[i + 2] == 's') {
+            token.type = COS_;
+            strcpy(token.symbol, "cos");
+            push(stack, token);
+            i += 2;
+          }
+          break;
+        case 't':
+          if (expression[i + 1] == 'a' && expression[i + 2] == 'n') {
+            token.type = TAN_;
+            strcpy(token.symbol, "tan");
+            push(stack, token);
+            i += 2;
+          }
+          break;
+        case '(':
+          token.type = L_PAREN_;
+          strcpy(token.symbol, "(");
+          push(stack, token);
+          break;
+        case ')':
+          token.type = R_PAREN_;
+          strcpy(token.symbol, ")");
+          push(stack, token);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  if (j > 0) {
+    number[j] = '\0';
+//    j = 0;
+
+    token.type = VALUE_;
+      char* end;
+    token.value = strtod(number, &end);
+    push(stack, token);
+  }
+}
+
+// Из стэка всех символов собираем стэк в обратной полской нотации
+void translateToRPN(Stack *inputStack, Stack *outputStack) {
+  Stack operatorStack;
+  Token token, topToken;
+
+  initializeStack(outputStack);
+  initializeStack(&operatorStack);
+
+  while (!isStackEmpty(inputStack)) {
+    token = pop(inputStack);
+
+    switch (token.type) {
+      case VALUE_:
+        push(outputStack, token);
+        break;
+      case PLUS_:
+      case MINUS_:
+      case MULTIPLY_:
+      case DIVIDE_:
+      case POW_:
+      case SIN_:
+      case COS_:
+      case TAN_:
+        while (!isStackEmpty(&operatorStack) &&
+               getTop(&operatorStack).type >= token.type) {
+          topToken = pop(&operatorStack);
+          push(outputStack, topToken);
+        }
+
+        push(&operatorStack, token);
+        break;
+      case L_PAREN_:
+        push(&operatorStack, token);
+        break;
+      case R_PAREN_:
+        topToken = pop(&operatorStack);
+
+        while (topToken.type != L_PAREN_) {
+          push(outputStack, topToken);
+          topToken = pop(&operatorStack);
+        }
+
+        break;
+      default:
+        break;
+    }
+  }
+
+  while (!isStackEmpty(&operatorStack)) {
+    topToken = pop(&operatorStack);
+    push(outputStack, topToken);
+  }
+}
+
+// Вычисление в обратной польской нотации 
+double evaluateRPN(Stack *stack) {
+  double value1, value2;
+  Token token, topToken;
+
+  Stack valueStack;
+  initializeStack(&valueStack);
+
+  while (!isStackEmpty(stack)) {
+    token = pop(stack);
+
+    switch (token.type) {
+      case VALUE_:
+        push(&valueStack, token);
+        break;
+      case PLUS_:
+        value2 = pop(&valueStack).value;
+        value1 = pop(&valueStack).value;
+        push(&valueStack, (Token){ VALUE_, value1 + value2 });
+        break;
+      case MINUS_:
+        value2 = pop(&valueStack).value;
+        value1 = pop(&valueStack).value;
+        push(&valueStack, (Token){ VALUE_, value1 - value2 });
+        break;
+      case MULTIPLY_:
+        value2 = pop(&valueStack).value;
+        value1 = pop(&valueStack).value;
+        push(&valueStack, (Token){ VALUE_, value1 * value2 });
+        break;
+      case DIVIDE_:
+        value2 = pop(&valueStack).value;
+        value1 = pop(&valueStack).value;
+        push(&valueStack, (Token){ VALUE_, value1 / value2 });
+        break;
+      case POW_:
+        value2 = pop(&valueStack).value;
+        value1 = pop(&valueStack).value;
+        push(&valueStack, (Token){ VALUE_, pow(value1, value2) });
+        break;
+      case SIN_:
+        value1 = pop(&valueStack).value;
+        push(&valueStack, (Token){ VALUE_, sin(value1) });
+        break;
+      case COS_:
+        value1 = pop(&valueStack).value;
+        push(&valueStack, (Token){ VALUE_, cos(value1) });
+        break;
+      case TAN_:
+        value1 = pop(&valueStack).value;
+        push(&valueStack, (Token){ VALUE_, tan(value1) });
+        break;
+      default:
+        break;
+    }
+  }
+
+  return pop(&valueStack).value;
+}
+
+void printRPN(Stack *stack) {
+    int i;
+    Token token;
+    for (i = 0; i <= stack->top; i++) {
+        token = stack->data[i];
+        if (token.type == VALUE_) {
+            if(token.value == 0){
+
+            printf("x ");
+            }else
+            printf("%.1lf ", token.value);
+        } else {
+            printf("%s ", token.symbol);
+        }
+    }
+    printf("\n");
+}
+int main(int argc, char *argv[]) {
+    Stack inputStack, outputStack;
+
+  parseExpression("2+3*x", &inputStack);
+  translateToRPN(&inputStack, &outputStack);
+    printRPN(&outputStack);
+
+  return 0;
+}
