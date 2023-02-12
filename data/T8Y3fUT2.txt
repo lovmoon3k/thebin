@@ -1,0 +1,125 @@
+using System;
+using System.Numerics;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace CipherTest
+{
+	public class Cipher
+	{
+		const long KeySize = 64;
+		const long NonceSize = 8;
+		const long BlockSize = 8;
+		const long RoundCount = 16;
+
+		// <Hermione, Don't You Think On It For One Minute>
+		static readonly ulong[] Hagrid = { 0x3C4865726D696F6E, 0x652C20446F6E2774, 0x20596F7520546869, 0x6E6B204F6E204974, 0x20466F72204F6E65, 0x204D696E7574653E };
+
+		static readonly Encoding UTF = Encoding.UTF8;
+
+		private readonly RNGCryptoServiceProvider provider;
+		private readonly ulong[] key;
+
+		public Cipher(RNGCryptoServiceProvider provider, BigInteger key)
+		{
+			this.provider = provider;
+			byte[] keyBytes = new byte[KeySize], inBytes = key.ToByteArray(true);
+			Array.Copy(inBytes, keyBytes, Math.Min(inBytes.Length, KeySize));
+			this.key = Array.ConvertAll(keyBytes, Convert.ToUInt64);
+		}
+
+		public static void QR(ref ulong a, ref ulong b, ref ulong c, ref ulong d)
+		{
+			b ^= (a + d).RL(25);
+			c ^= (b + a).RL(23);
+			d ^= (c + b).RL(19);
+			a ^= (d + c).RL(46);
+		}
+
+		public static void Round(ulong[] table)
+		{
+			QR(ref table[0], ref table[4], ref table[8], ref table[12]);
+			QR(ref table[5], ref table[9], ref table[13], ref table[1]);
+			QR(ref table[10], ref table[14], ref table[2], ref table[6]);
+			QR(ref table[15], ref table[3], ref table[7], ref table[11]);
+
+			QR(ref table[0], ref table[1], ref table[2], ref table[3]);
+			QR(ref table[5], ref table[6], ref table[7], ref table[4]);
+			QR(ref table[10], ref table[11], ref table[8], ref table[9]);
+			QR(ref table[15], ref table[12], ref table[13], ref table[14]);
+		}
+
+		public ulong KeyBlock(ulong block, ulong nonce)
+		{
+			ulong[] table = {
+				Hagrid[0],	Hagrid[1],	Hagrid[2],	Hagrid[3],
+				key[0],		key[1],		key[2],		key[3],
+				key[4],		key[5],		key[6],		key[7],
+				block,		nonce,		Hagrid[4],  Hagrid[5]
+			};
+			var original = table[block & 15];
+
+			for (int i = 0; i < RoundCount; i += 2)
+			{
+				Round(table);
+			}
+
+			return original + table[block & 15];
+		}
+
+		public byte[] TransformBlock(byte[] bytes, long i, ulong block, long size, ulong nonce)
+		{
+			var inputBytes = new byte[BlockSize];
+			Array.Copy(bytes, i, inputBytes, 0, Math.Min(BlockSize, size - i));
+			return BitConverter.GetBytes(KeyBlock(block, nonce) ^ BitConverter.ToUInt64(inputBytes));
+		}
+
+		public string Encrypt(string input)
+		{
+			var plain = UTF.GetBytes(input);
+			var nonceBytes = new byte[NonceSize];
+			provider.GetBytes(nonceBytes);
+			ulong nonce = BitConverter.ToUInt64(nonceBytes);
+
+			long length = plain.Length;
+			long size = length + NonceSize;
+			var cipher = new byte[size];
+			Array.Copy(nonceBytes, cipher, NonceSize);
+
+			ulong j = 0;
+			for (long i = 0; i < length; i += BlockSize, ++j)
+			{
+				Array.Copy(TransformBlock(plain, i, j, length, nonce), 0, cipher, i + NonceSize, Math.Min(BlockSize, length - i));
+			}
+
+			return Helpers.BytesToHex(cipher);
+		}
+
+		public string? Decrypt(string input)
+		{
+			var bytes = Helpers.HexToBytes(input);
+			if (bytes == null || bytes.Length < NonceSize)
+			{
+				return null;
+			}
+
+			var nonceBytes = new byte[NonceSize];
+			Array.Copy(bytes, nonceBytes, NonceSize);
+			var nonce = BitConverter.ToUInt64(nonceBytes);
+
+			long size = bytes.Length - NonceSize;
+			var cipher = new byte[size];
+			Array.Copy(bytes, NonceSize, cipher, 0, size);
+
+			var plain = new byte[size];
+
+			ulong j = 0;
+			for (long i = 0; i < size; i += BlockSize, ++j)
+			{
+				Array.Copy(TransformBlock(cipher, i, j, size, nonce), 0, plain, i, Math.Min(BlockSize, size - i));
+			}
+
+			return UTF.GetString(plain);
+		}
+	}
+}
