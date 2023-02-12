@@ -1,0 +1,356 @@
+-- server config https://cdn.discordapp.com/attachments/358433226290626564/959697119164371005/unknown.png
+ 
+local os = require("os")
+local computer = require("computer")
+local term = require("term")
+local filesystem = require("filesystem")
+local component = require("component")
+local keyboard = require("keyboard")
+local event = require("event")
+local gpu = component.gpu
+local modem = component.modem
+local robotNavButtons = {}
+local robotActionsButtons = {}
+ 
+ 
+--minecraft colors
+colors_white = 0xffffff
+colors_orange = 0xff6600
+colors_magenta = 0xff00ff
+colors_lightblue = 0x0099ff
+colors_yellow = 0xffff00
+colors_lime = 0x00ff00
+colors_pink = 0xff3399
+colors_gray = 0x737373
+colors_silver = 0xc0c0c0
+colors_cyan = 0x169c9d
+colors_purple = 0x8932b7
+colors_blue = 0x3c44a9
+colors_brown = 0x825432
+colors_green = 0x5d7c15
+colors_red = 0xb02e26
+colors_black = 0x000000
+--minecraft colors
+
+primaryScrren = "e33b29d8-5a9d-449b-afa8-2b488e577d8f"
+secondaryScreen = "2db16f67-86c1-404d-be3d-61894134f13d"
+
+robotPos = {}
+robotPos.x = 0
+robotPos.y = 0
+robotPos.z = 0
+
+-----------------------------
+------ functions for UI -----
+------------\/---------------
+ 
+ 
+ 
+modem.open(6)
+ 
+
+ 
+function setBgColor (color)
+  gpu.setBackground(color)
+end
+
+function setFgColor (color)
+  gpu.setForeground(color)
+end
+
+function renderLine(posX, posY, sizeX, sizeY)
+  gpu.fill(posX, posY, sizeX, sizeY, " ")
+end
+
+
+function setCursorPos (posX, posY)
+  term.setCursor(posX, posY)
+end
+
+function renderText(text)
+  term.write(text)
+end
+ 
+function testFunction (text)
+  print(text)
+end
+
+function switchScreens(screen)
+  gpu.bind(screen, false)
+end
+
+
+function drawRobotNavPanel()
+  local panelX = 123
+  local panelY = 40
+  local panelSizeX = 31
+  local panelSizeY = 9
+  local panel_BGColor = colors_gray
+  setBgColor(panel_BGColor)
+  renderLine(panelX, panelY, panelSizeX, panelSizeY)
+  setCursorPos(panelX + panelSizeX / 2 - string.len("navigation controls")/2, panelY - 1)
+  setBgColor(colors_black)
+  setFgColor(colors_orange)
+  renderText("navigation controls")
+  
+  newButton("NAV_FWD", panelX + 11, panelY + 1, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "FWD", robotNavButtons)
+   newButton("NAV_LFT", panelX + 1, panelY + 1, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "LFT", robotNavButtons)
+    newButton("NAV_RHT", panelX + 21, panelY + 1, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "RHT", robotNavButtons)
+     newButton("NAV_UPW", panelX + 1, panelY + 5, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "UP", robotNavButtons)
+      newButton("NAV_DWN", panelX + 21, panelY + 5, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "DWN", robotNavButtons)
+       newButton("NAV_BWD", panelX + 11, panelY + 5, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "BWD", robotNavButtons)
+  drawButtons(robotNavButtons)
+end
+
+function drawRobotActionsPanel()
+  local panelX = 123
+  local panelY = 15
+  local panelSizeX = 26
+  local panelSizeY = 20
+  local panel_BGColor = colors_gray
+  setBgColor(panel_BGColor)
+  renderLine(panelX, panelY, panelSizeX, panelSizeY)
+  setCursorPos(panelX + panelSizeX / 2 - string.len("action controls")/2, panelY - 1)
+  setBgColor(colors_black)
+  setFgColor(colors_orange)
+  renderText("action controls")
+
+   newButton("DCT_UPW", panelX + 1, panelY + 1, string.len("DCT_UPW")+2, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "DCT_UPW", robotActionsButtons)
+    newButton("DCT_FWD", panelX + 1, panelY + 5, string.len("DCT_FWD")+2, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "DCT_FWD", robotActionsButtons)
+     newButton("DCT_DWD", panelX + 1, panelY + 5 + 4, (string.len("DCT_FWD")+2), 3, true, colors_lightblue, colors_white, sendMsgToRobot, "DCT_DWD", robotActionsButtons)
+      newButton("USE_FWD", panelX + 11, panelY + 1, (string.len("DCT_FWD")+2), 3, true, colors_lightblue, colors_white, sendMsgToRobot, "USE_FWD", robotActionsButtons)
+  drawButtons(robotActionsButtons)
+end
+
+
+ 
+function sendMsgToRobot (msg)
+  modem.open(5)
+  modem.setStrength(255)
+  modem.broadcast(5, msg)
+  modem.close(5)
+  updateConsole_01("sending command:"..msg)
+end
+
+function checkForEvents()
+  modem.open(5)
+  
+  local eventData = {event.pull(0.1)}
+  -- The event.pull() function waits for the next event to occur, 
+  -- and then returns a table with information about the event.
+
+  if eventData[1] == "key_down" then
+    -- Handle keyboard events
+    -- eventData[2] will contain the ASCII value of the key that was pressed
+
+  elseif eventData[1] == "touch" then
+    -- Handle touch events
+    -- eventData[3] and eventData[4] will contain the X and Y coordinates of the touch event, respectively
+    buttonCheck(eventData[3], eventData[4], robotNavButtons)
+    buttonCheck(eventData[3], eventData[4], robotActionsButtons)
+
+    buttonCheck(eventData[3], eventData[4], console_01_Buttons)
+    buttonCheck(eventData[3], eventData[4], console_02_Buttons)
+
+
+
+
+  elseif eventData[1] == "modem_message" then
+     
+    updateConsole_02(eventData[6])
+    
+    os.sleep(0.3)
+  end
+  modem.close(5)
+  return true -- Return true to continue checking for events
+end
+
+function buttonCheck(posX, posY, buttonTable)
+   t = false
+  for i = 1 , #buttonTable do
+
+     local buttonPosX = posX >= buttonTable[i].posX and posX <= buttonTable[i].posX+buttonTable[i].sizeX 
+     local buttonPosY = posY >= buttonTable[i].posY and posY <= buttonTable[i].posY+buttonTable[i].sizeY
+     if buttonPosX and buttonPosY then
+
+       if not t then
+         t = true
+         buttonTable[i].func(buttonTable[i].func_DATA)
+         
+       end
+
+     else
+      t = false
+     end 
+  end
+  
+end
+
+
+function drawButtons(buttonTable)
+  for i = 1, #buttonTable do
+   if buttonTable[i].sizeOverride then
+    setBgColor(buttonTable[i].buttonColor)
+    renderLine(buttonTable[i].posX, buttonTable[i].posY, buttonTable[i].sizeX, buttonTable[i].sizeY)
+    setCursorPos(buttonTable[i].posX+1, buttonTable[i].posY+1)
+    setFgColor(buttonTable[i].textColor)
+    renderText(buttonTable[i].label)
+   else
+    setBgColor(buttonTable[i].buttonColor)
+    renderLine(buttonTable[i].posX, buttonTable[i].posY, string.len(buttonTable[i].label)+2, 3)
+    setCursorPos(buttonTable[i].posX+1, buttonTable[i].posY+1)
+    setFgColor(buttonTable[i].textColor)
+    renderText(buttonTable[i].label)
+   end
+  end 
+end
+
+function newButton(label, posX, posY, sizeX, sizeY, SizeOverride, textColor, buttonColor, func, func_DATA, buttonTable)
+  button = {}
+   button.label = label
+   button.posX = posX
+   button.posY = posY
+   button.sizeX = sizeX
+   button.sizeY = sizeY
+   button.sizeOverride = SizeOverride
+   button.textColor = textColor
+   button.buttonColor = buttonColor
+   button.func = func
+   button.func_DATA = func_DATA
+   button.clicked = false
+
+ table.insert(buttonTable, button)
+
+end
+
+function init_Consol_01 ()
+
+  console_01_posX = 5
+  console_01_posY = 32
+  console_01_sizeX = 40
+  console_01_sizeY = 15
+  console_01_Buttons = {}
+  console_01_contents = {}
+  
+end
+
+function drawConsole_01()
+  setBgColor(colors_gray)
+  renderLine(console_01_posX, console_01_posY, console_01_sizeX, console_01_sizeY)
+  setBgColor(colors_black)
+  renderLine(console_01_posX+1, console_01_posY+1, console_01_sizeX-2, console_01_sizeY-2)
+  setFgColor(colors_white)
+  setBgColor(colors_gray)
+  setCursorPos(console_01_posX+console_01_sizeX/2-string.len("console 01")/2, console_01_posY)
+  renderText("console 01")
+  newButton("clear", console_01_posX, console_01_posY+console_01_sizeY, string.len("clear")+2, 3, true, colors_white, colors_lightblue, clearConsole_01, _, console_01_Buttons)
+  drawButtons(console_01_Buttons)
+end
+
+function updateConsole_01(text)
+  
+  if #console_01_contents < console_01_sizeY-4 then
+    table.insert(console_01_contents, text)
+    setBgColor(colors_black)
+    renderLine(console_01_posX+1, console_01_posY+1, console_01_sizeX-2, console_01_sizeY-2)
+   for i = 1, #console_01_contents do
+     setCursorPos(console_01_posX+1, console_01_posY+1+i)
+     renderText(console_01_contents[i])
+   end
+    
+  elseif #console_01_contents >= console_01_sizeY-4 then
+
+    
+    table.insert(console_01_contents, text)
+    table.remove(console_01_contents, 1)
+    setBgColor(colors_black)
+    renderLine(console_01_posX+1, console_01_posY+1, console_01_sizeX-2, console_01_sizeY-2)
+   for i = 1, #console_01_contents do
+     setCursorPos(console_01_posX+1, console_01_posY+1+i)
+     renderText(console_01_contents[i])
+   end
+  end
+end
+
+function clearConsole_01 ()
+  console_01_contents = {}
+  setBgColor(colors_black)
+  renderLine(console_01_posX+1, console_01_posY+1, console_01_sizeX-2, console_01_sizeY-2)
+end
+
+function init_Consol_02 ()
+  console_02_posX = 5
+  console_02_posY = 5
+  console_02_sizeX = 40
+  console_02_sizeY = 15
+  console_02_Buttons = {}
+  console_02_contents = {}
+end
+
+function drawConsole_02()
+  setBgColor(colors_gray)
+  renderLine(console_02_posX, console_02_posY, console_02_sizeX, console_02_sizeY)
+  setBgColor(colors_black)
+  renderLine(console_02_posX+1, console_02_posY+1, console_02_sizeX-2, console_02_sizeY-2)
+  setFgColor(colors_white)
+  setBgColor(colors_gray)
+  setCursorPos(console_02_posX+console_02_sizeX/2-string.len("console 02")/2, console_02_posY)
+  renderText("console 02")
+  newButton("clear", console_02_posX, console_02_posY+console_02_sizeY, string.len("clear")+2, 3, true, colors_white, colors_lightblue, clearConsole_02, _, console_02_Buttons)
+  drawButtons(console_02_Buttons)
+end
+
+function updateConsole_02(text)
+  
+  if #console_02_contents < console_02_sizeY-4 then
+    table.insert(console_02_contents, text)
+    setBgColor(colors_black)
+    renderLine(console_02_posX+1, console_02_posY+1, console_02_sizeX-2, console_02_sizeY-2)
+   for i = 1, #console_02_contents do
+     setCursorPos(console_02_posX+1, console_02_posY+1+i)
+     renderText(console_02_contents[i])
+   end
+    
+  elseif #console_02_contents >= console_02_sizeY-4 then
+
+    
+    table.insert(console_02_contents, text)
+    table.remove(console_02_contents, 1)
+    setBgColor(colors_black)
+    renderLine(console_02_posX+1, console_02_posY+1, console_02_sizeX-2, console_02_sizeY-2)
+   for i = 1, #console_02_contents do
+     setCursorPos(console_02_posX+1, console_02_posY+1+i)
+     renderText(console_02_contents[i])
+   end
+  end
+end
+
+function clearConsole_02 ()
+  console_02_contents = {}
+  setBgColor(colors_black)
+  renderLine(console_02_posX+1, console_02_posY+1, console_02_sizeX-2, console_02_sizeY-2)
+end
+
+init_Consol_01 ()
+init_Consol_02 ()
+
+drawConsole_01()
+drawConsole_02()
+
+drawRobotNavPanel()
+
+drawRobotActionsPanel()
+
+
+--switchScreens(secondaryScreen)
+ --setBgColor(colors_gray)
+ --renderLine(2, 2, 158, 48)
+ --switchScreens(primaryScrren)
+
+while true do 
+
+  checkForEvents()
+  
+
+
+end
