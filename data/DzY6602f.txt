@@ -1,0 +1,449 @@
+-- Startup PC ADMIN
+
+-- APIs externes
+local BN		=	require("BigNum")
+local SECURITE	=	require("SECURITE")
+
+-- Variables globales
+local nPCID			=	os.getComputerID()
+local sPCCode		=	os.getComputerLabel()
+local sPCJoueur		=	nil
+local tabsHotes		=	{"PCSECURITE","DOPA","DOPAP","DRPORTES","DRJOUEURS","DAPORTE","DAJOUEUR","DAACCES","DRDM","DMAJ"}
+local tabnIDHotes	=	{0,0,0,0,0,0,0,0,0,0}
+
+local function CreerClefCom(nIndHote)
+	local sClefCalcB
+	local nIDOrigine
+	local sProtocole
+	local bnumClefPublique	=	BigNum.new("2")
+	local bnumModuleClef	=	BigNum.new("411376139330301510538742295639337626245683966408394965837151833")
+	local bnumClefA			=	BigNum.new(math.random(10,100000000000))
+	local bnumCalcA			=	BigNum.new()
+	BigNum.modpow(bnumClefPublique,bnumClefA,bnumModuleClef,bnumCalcA)
+	rednet.send(tabnIDHotes[nIndHote],{stAdmin = {nID = nPCID,sCode = sPCCode},sPCJoueur = sPCJoueur,sClefCalcA = BigNum.tostring(bnumCalcA)},tabsHotes[nIndHote])
+	nIDOrigine,sClefCalcB,sProtocole = rednet.receive("R"..tabsHotes[nIndHote],4)
+	if nIDOrigine ~= tabnIDHotes[nIndHote] then return false end
+	local bnumCalcB			=	BigNum.new(sClefCalcB)
+	local bnumClefBA		=	BigNum.new()
+	BigNum.modpow(bnumCalcB,bnumClefA,bnumModuleClef,bnumClefBA)
+	SECURITE.AjouterClefCom({nID = nIDOrigine,sClef = BigNum.tostring(bnumClefBA),sNonce = "00000001"})
+	return true
+end
+
+local function Envoyer(stMessage,nIndHote)
+	local stRetour
+	local sMessage
+	local nIDOrigine
+	local sProtocole
+	local sRetour
+	local stRetour
+	sMessage = SECURITE.Chiffrer(stMessage,tabnIDHotes[nIndHote],false)
+	rednet.send(tabnIDHotes[nIndHote],sMessage,tabsHotes[nIndHote])
+	nIDOrigine,sRetour,sProtocole = rednet.receive("R"..tabsHotes[nIndHote],4)
+	if nIDOrigine ~= tabnIDHotes[nIndHote] then
+		print("Serveur "..tabsHotes[nIndHote].." timed out")
+		return nil
+	end
+	stRetour = SECURITE.Dechiffrer(sRetour,tabnIDHotes[nIndHote],true)
+	if stRetour == nil then
+		print("Erreur los de la réception du message")
+		return nil
+	end
+	return stRetour
+end
+
+local function Initialiser()
+	local bErreur
+	local fPCJoueur
+	local tabnHotes
+	local i
+	local sHote
+	local fenTest
+	local nX
+	local nY
+	
+	rednet.open("back")
+	term.clear()
+	term.setCursorPos(1,1)
+	
+	-- Recherche du nom du joueur affecté au PC
+	if not fs.exists("sPCJoueur") then bErreur = true end
+	if not bErreur then
+		fPCJoueur = fs.open("sPCJoueur","r")
+		if fPCJoueur == nil then bErreur = true end
+	end
+	if bErreur then
+		fPCJoueur = fs.open("sPCJoueur","w")
+		write("Identité de l'utilisateur manquante. Saisissez votre nom : ")
+		sPCJoueur = read()
+		fPCJoueur.writeLine(sPCJoueur)
+		fPCJoueur.close()
+		os.reboot()
+	else
+		sPCJoueur = fPCJoueur.readLine()
+		fPCJoueur.close()
+	end
+	
+	-- Tentative d'accès aux serveurs
+	term.clear()
+	term.setCursorPos(1,1)
+	term.setTextColor(16)
+	print("Vérification de la disponibilité des serveurs...")
+	term.setTextColor(1)
+	print("--------------------------")
+	nX,nY = term.getCursorPos()
+	fenTest = window.create(term.current(),23,nY,4,#tabsHotes)
+	fenTest.setBackgroundColor(256)
+	fenTest.clear()
+	term.setCursorPos(1,nY)
+	for i,sHote in ipairs(tabsHotes) do
+		print("Serveur "..sHote)
+	end
+	print("--------------------------")
+	for i,sHote in ipairs(tabsHotes) do
+		tabnHotes = {rednet.lookup(sHote)}
+		fenTest.setCursorPos(1,i)
+		if #tabnHotes == 1 then
+			tabnIDHotes[i] = tabnHotes[1]
+			fenTest.setBackgroundColor(8192)
+			fenTest.write(" OK ")
+		else
+			fenTest.setBackgroundColor(16384)
+			fenTest.write(" KO ")
+			bErreur = true
+		end
+	end
+	term.setCursorPos(1,nY+#tabsHotes+1)
+	if bErreur then
+		print("Erreur lors de la détection de serveurs. Redémarrage en cours...")
+		os.sleep(2)
+		os.reboot()
+	end
+	SECURITE.LireRegClefsCom()
+	if not SECURITE.RechercherClefCom(tabnIDHotes[1]) then
+		if not CreerClefCom(1) then
+			print("Impossible de communiquer avec l'hôte "..tabsHotes[1])
+			print("Demarrage impossible")
+			os.sleep(2)
+			os.shutdown()
+		end
+	end
+	print("Réseau opérationnel.")
+	os.sleep(2)
+end
+
+local function Menu()
+	while true do
+		while true do
+			local sEven
+			local nTouche
+			local bMaintenue
+			local sTouche
+			local nIDOrigine
+			local stPorte
+			local sProtocole
+			local sMessage
+			local sRetour
+			local stRetour
+			local i
+			local stPorte
+			local tabstPortes
+			local tabstJoueurs
+			local nNbPages
+			local bTrouve
+			local nPorte
+			local nJoueur
+			local nNumPage
+			local nID
+			local sCode
+			local sJoueur
+			
+			bErreur	=	false
+			bTrouve	=	false
+			
+			term.setBackgroundColor(2048)
+			term.clear()
+			term.setCursorPos(1,1)
+			term.setTextColor(16)
+			--print("PC : "..sPCCode)
+			print("Accès administrateur au système de sécurité. Utilisateur : "..sPCJoueur)
+			term.setTextColor(1)
+			print("--------------------------")
+			print("0 - Ouvrir porte à portée")
+			print("1 - Ouvrir porte au choix")
+			print("2 - Lancer vérouillage")
+			print("3 - Lancer dévérouillage")
+			print("4 - Enregistrer porte")
+			print("5 - Enregistrer joueur")
+			print("6 - Enregistrer accès")
+			print("7 - MAJ terminal")
+			print("8 - MAJ réseau")
+			print("9 - Redémarrer réseau")
+			print("Autre - Quitter")
+			print("--------------------------")
+			sEven,nTouche,bMaintenue = os.pullEvent("key")
+			sTouche = keys.getName(nTouche)
+			-- Ouvrir porte à portée
+			if sTouche == "numPad0" then
+				stRetour = Envoyer({stAdmin = {nID = nPCID,sCode = sPCCode},sPCJoueur = sPCJoueur},3)
+				if stRetour == nil then break end
+				print(stRetour.sMessage)
+				break
+			-- Ouvrir porte au choix
+			elseif sTouche == "numPad1" then
+				stRetour = Envoyer({stAdmin = {nID = nPCID,sCode = sPCCode},sPCJoueur = sPCJoueur},4)
+				if stRetour == nil then break end
+				tabstPortes = textutils.unserialize(stRetour.sMessage)
+				if #tabstPortes == 0 then
+					print("Aucune porte dans le registre")
+					break
+				end
+				nNbPages = math.ceil(#tabstPortes/10)
+				term.clear()
+				term.setCursorPos(1,1)
+				term.setTextColor(16)
+				nNumPage = 1
+				print("Ouverture de porte au choix ("..tostring(nNumPage).."/"..tostring(nNbPages..")"))
+				term.setTextColor(1)
+				print("--------------------------")
+				for i,stPorte in pairs(tabstPortes) do
+					print(tostring((i-1)%10).." - "..stPorte.sCode)
+					if i%10 == 0 and math.ceil(i/10) <= nNbPages then
+						print("Autre - Page suivante")
+						print("--------------------------")
+						sEven,nTouche,bMaintenue = os.pullEvent("key")
+						sTouche = keys.getName(nTouche)
+						if string.len(sTouche) == 7 and string.find(sTouche,"numPad.") ~= nil then
+							nPorte	=	tonumber(string.sub(sTouche,7,7))+1
+							bTrouve	=	true
+							break
+						else
+							term.clear()
+							term.setCursorPos(1,1)
+							term.setTextColor(16)
+							nNumPage = nNumPage+1
+							print("Ouverture de porte au choix ("..tostring(nNumPage).."/"..tostring(nNbPages..")"))
+							term.setTextColor(1)
+							print("--------------------------")
+						end
+					end
+				end
+				if not bTrouve then
+					print("Autre - Annuler")
+					print("--------------------------")
+					sEven,nTouche,bMaintenue = os.pullEvent("key")
+					sTouche = keys.getName(nTouche)
+					if string.len(sTouche) == 7 and string.find(sTouche,"numPad.") ~= nil then
+						nPorte = tonumber(string.sub(sTouche,7,7))+1
+						if nPorte+(nNbPages-1)*10 <= #tabstPortes then
+							bTrouve	=	true
+						end
+					end
+				end
+				if not bTrouve then
+					print("Annulation...")
+					break
+				end
+				stRetour = Envoyer({stPorte = tabstPortes[nPorte+(nNumPage-1)*10],stAdmin = {nID = nPCID,sCode = sPCCode},sPCJoueur = sPCJoueur},2)
+				if stRetour == nil then break end
+				print(stRetour.sMessage)
+				break
+			-- Lancer vérouillage
+			elseif sTouche == "numPad2" then
+				
+			-- Lancer dévérouillage
+			elseif sTouche == "numPad3" then
+				
+			-- Enregistrer porte
+			elseif sTouche == "numPad4" then
+				os.sleep(0.1)
+				term.clear()
+				term.setCursorPos(1,1)
+				term.setTextColor(16)
+				nNumPage = 1
+				print("Enregistrer porte")
+				term.setTextColor(1)
+				print("--------------------------")
+				print("ID   : ")
+				print("CODE : ")
+				print("--------------------------")
+				term.setCursorPos(8,3)
+				nID = tonumber(read())
+				term.setCursorPos(8,4)
+				sCode = read()
+				term.setCursorPos(1,6)
+				if nID == nil or nID == 0 or sCode == "" then
+					print("Saisie incorrecte")
+					break
+				end
+				stRetour = Envoyer({stPorte = {nID = nID,sCode = sCode},stAdmin = {nID = nPCID,sCode = sPCCode},sPCJoueur = sPCJoueur},6)
+				if stRetour == nil then break end
+				print(stRetour.sMessage)
+				break
+			-- Enregistrer joueur
+			elseif sTouche == "numPad5" then
+				os.sleep(0.1)
+				term.clear()
+				term.setCursorPos(1,1)
+				term.setTextColor(16)
+				nNumPage = 1
+				print("Enregistrer joueur")
+				term.setTextColor(1)
+				print("--------------------------")
+				print("JOUEUR : ")
+				print("--------------------------")
+				term.setCursorPos(10,3)
+				sJoueur = read()
+				term.setCursorPos(1,5)
+				if sJoueur == "" then
+					print("Saisie incorrecte")
+					break
+				end
+				stRetour = Envoyer({sJoueur = sJoueur,stAdmin = {nID = nPCID,sCode = sPCCode},sPCJoueur = sPCJoueur},7)
+				if stRetour == nil then break end
+				print(stRetour.sMessage)
+				break
+			-- Enregistrer accès
+			elseif sTouche == "numPad6" then
+				stRetour = Envoyer({stAdmin = {nID = nPCID,sCode = sPCCode},sPCJoueur = sPCJoueur},5)
+				if stRetour == nil then break end
+				tabstJoueurs = textutils.unserialize(stRetour.sMessage)
+				if #tabstJoueurs == 0 then
+					print("Aucun joueur dans le registre")
+					break
+				end
+				nNbPages = math.ceil(#tabstJoueurs/10)
+				term.clear()
+				term.setCursorPos(1,1)
+				term.setTextColor(16)
+				nNumPage = 1
+				print("Enregistrer accès, choix joueur ("..tostring(nNumPage).."/"..tostring(nNbPages..")"))
+				term.setTextColor(1)
+				print("--------------------------")
+				for i,sJoueur in pairs(tabstJoueurs) do
+					print(tostring((i-1)%10).." - "..sJoueur)
+					if i%10 == 0 and math.ceil(i/10) <= nNbPages then
+						print("Autre - Page suivante")
+						print("--------------------------")
+						sEven,nTouche,bMaintenue = os.pullEvent("key")
+						sTouche = keys.getName(nTouche)
+						if string.len(sTouche) == 7 and string.find(sTouche,"numPad.") ~= nil then
+							nPorte	=	tonumber(string.sub(sTouche,7,7))+1
+							bTrouve	=	true
+							break
+						else
+							term.clear()
+							term.setCursorPos(1,1)
+							term.setTextColor(16)
+							nNumPage = nNumPage+1
+							print("Enregistrer accès, choix joueur ("..tostring(nNumPage).."/"..tostring(nNbPages..")"))
+							term.setTextColor(1)
+							print("--------------------------")
+						end
+					end
+				end
+				if not bTrouve then
+					print("Autre - Annuler")
+					print("--------------------------")
+					sEven,nTouche,bMaintenue = os.pullEvent("key")
+					sTouche = keys.getName(nTouche)
+					if string.len(sTouche) == 7 and string.find(sTouche,"numPad.") ~= nil then
+						nJoueur = tonumber(string.sub(sTouche,7,7))+1
+						if nJoueur+(nNbPages-1)*10 <= #tabstJoueurs then
+							bTrouve	=	true
+						end
+					end
+				end
+				if not bTrouve then
+					print("Annulation...")
+					break
+				end
+				sJoueur = tabstJoueurs[nJoueur+(nNumPage-1)*10]
+				bTrouve = false
+				stRetour = Envoyer({stAdmin = {nID = nPCID,sCode = sPCCode},sPCJoueur = sPCJoueur},4)
+				if stRetour == nil then break end
+				tabstPortes = textutils.unserialize(stRetour.sMessage)
+				if #tabstPortes == 0 then
+					print("Aucune porte dans le registre")
+					break
+				end
+				nNbPages = math.ceil(#tabstPortes/10)
+				term.clear()
+				term.setCursorPos(1,1)
+				term.setTextColor(16)
+				nNumPage = 1
+				print("Enregistrer accès, choix porte ("..tostring(nNumPage).."/"..tostring(nNbPages..")"))
+				term.setTextColor(1)
+				print("--------------------------")
+				for i,stPorte in pairs(tabstPortes) do
+					print(tostring((i-1)%10).." - "..stPorte.sCode)
+					if i%10 == 0 and math.ceil(i/10) <= nNbPages then
+						print("Autre - Page suivante")
+						print("--------------------------")
+						sEven,nTouche,bMaintenue = os.pullEvent("key")
+						sTouche = keys.getName(nTouche)
+						if string.len(sTouche) == 7 and string.find(sTouche,"numPad.") ~= nil then
+							nPorte	=	tonumber(string.sub(sTouche,7,7))+1
+							bTrouve	=	true
+							break
+						else
+							term.clear()
+							term.setCursorPos(1,1)
+							term.setTextColor(16)
+							nNumPage = nNumPage+1
+							print("Enregistrer accès, choix porte ("..tostring(nNumPage).."/"..tostring(nNbPages..")"))
+							term.setTextColor(1)
+							print("--------------------------")
+						end
+					end
+				end
+				if not bTrouve then
+					print("Autre - Annuler")
+					print("--------------------------")
+					sEven,nTouche,bMaintenue = os.pullEvent("key")
+					sTouche = keys.getName(nTouche)
+					if string.len(sTouche) == 7 and string.find(sTouche,"numPad.") ~= nil then
+						nPorte = tonumber(string.sub(sTouche,7,7))+1
+						if nPorte+(nNbPages-1)*10 <= #tabstPortes then
+							bTrouve	=	true
+						end
+					end
+				end
+				if not bTrouve then
+					print("Annulation...")
+					break
+				end
+				stPorte = tabstPortes[nPorte+(nNumPage-1)*10]
+				stRetour = Envoyer({stPorte = stPorte,sJoueur = sJoueur,stAdmin = {nID = nPCID,sCode = sPCCode},sPCJoueur = sPCJoueur},8)
+				if stRetour == nil then break end
+				print(stRetour.sMessage)
+				break
+			-- MAJ terminal
+			elseif sTouche == "numPad7" then
+				shell.run("pastebin","run TA1Qfvr3")
+				os.reboot()
+			-- MAJ réseau
+			elseif sTouche == "numPad8" then
+				stRetour = Envoyer({stAdmin = {nID = nPCID,sCode = sPCCode},sPCJoueur = sPCJoueur},10)
+				if stRetour == nil then break end
+				print(stRetour.sMessage)
+				os.sleep(2)
+				break
+			-- Redémarrer réseau
+			elseif sTouche == "numPad9" then
+				stRetour = Envoyer({stAdmin = {nID = nPCID,sCode = sPCCode},sPCJoueur = sPCJoueur},9)
+				if stRetour == nil then break end
+				print(stRetour.sMessage)
+				os.sleep(2)
+				os.reboot()
+				break
+			else
+				os.shutdown()
+			end
+		end
+		os.sleep(2)
+	end
+end
+
+Initialiser()
+parallel.waitForAny(Menu)

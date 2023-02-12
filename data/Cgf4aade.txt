@@ -1,0 +1,235 @@
+-- Startup PC PORTE
+
+rednet.open("top")
+
+-- Variables globales
+local nPCID				=	os.getComputerID()
+local sPCCode			=	os.getComputerLabel()
+local tabsHotes			=	{"PCSECURITE","DOPP","DOPA","DRDM","DMAJ","DOPAP"}
+local tabnIDHotes		=	{0,0,0,0,0,0}
+
+local function RechercherHotes()
+	while true do
+		while true do
+			local tabnHotes
+			local i
+			local sHote
+			local fenTest
+			local nX
+			local nY
+			local bErreur
+			
+			bErreur = false
+			term.clear()
+			term.setCursorPos(1,1)
+			term.setTextColor(16)
+			print("PC : "..sPCCode)
+			print("Vérification de la disponibilité des serveurs...")
+			term.setTextColor(1)
+			print("--------------------------")
+			nX,nY = term.getCursorPos()
+			fenTest = window.create(term.current(),23,nY,4,#tabsHotes)
+			fenTest.setBackgroundColor(256)
+			fenTest.clear()
+			term.setCursorPos(1,nY)
+			for i,sHote in ipairs(tabsHotes) do
+				print("Serveur "..sHote)
+			end
+			print("--------------------------")
+			for i,sHote in ipairs(tabsHotes) do
+				tabnHotes = {rednet.lookup(sHote)}
+				fenTest.setCursorPos(1,i)
+				if #tabnHotes == 1 then
+					tabnIDHotes[i] = tabnHotes[1]
+					fenTest.setBackgroundColor(8192)
+					fenTest.write(" OK ")
+				else
+					fenTest.setBackgroundColor(16384)
+					fenTest.write(" KO ")
+					bErreur = true
+				end
+			end
+			term.setCursorPos(1,nY+#tabsHotes+1)
+			if bErreur then
+				print("Erreur lors de la détection de serveurs. Redémarrage en cours...")
+				os.sleep(2)
+				break
+			else
+				print("Réseau opérationnel.")
+				os.sleep(300)
+			end
+		end
+	end
+end
+
+local function Porte()
+	redstone.setOutput("front",true)
+	sleep(0.2)
+	redstone.setOutput("front",false)
+	os.sleep(5)
+	redstone.setOutput("front",true)
+	sleep(0.2)
+	redstone.setOutput("front",false)
+end
+
+local function Verouillage()
+	
+end
+
+local function DOPP()
+	while true do
+		while true do
+			local sEven
+			local sPeriphES
+			local nX
+			local nY
+			local sSens
+			local sCote
+			local sCoteM
+			local sCoteD
+			local sDetecteur
+			local DETECTEUR
+			local tabsJoueurs
+			local sJoueur
+			local tabsPeriphs
+			local nIDOrigine
+			local stRetour
+			local sProtocole
+			local i
+			local sPeriph
+			
+			sEven,sPeriphES,nX,nY = os.pullEvent("monitor_touch")
+			if tabnIDHotes[2] == 0 then break end
+			tabsPeriphs = peripheral.getNames()
+			for i,sPeriph in ipairs(tabsPeriphs) do
+				if sPeriph == "top" or sPeriph == "bottom" or sPeriph == "left" or sPeriph == "right" or sPeriph == "front" or sPeriph == "back" then
+					sCote = sPeriph
+				else
+					if peripheral.getType(sPeriph) == "playerDetector" then
+						sDetecteur	=	sPeriph
+						sCoteD		=	sCote
+					end
+					if sPeriph == sPeriphES then
+						sCoteM = sCote
+						break
+					end
+				end
+			end
+			if sCoteM == "left" then sSens = "S" end
+			if sCoteM == "right" then sSens = "E" end
+			if not ((sSens == "E" or sSens == "S") and sCoteD == sCoteM) then break end
+			DETECTEUR = peripheral.wrap(sDetecteur)
+			tabsJoueurs = DETECTEUR.getPlayersInRange(3)
+			if #tabsJoueurs ~= 1 then break end
+			sJoueur = tabsJoueurs[1]
+			rednet.send(tabnIDHotes[2],{stPorte = {nID = nPCID,sCode = sPCCode},sJoueur = sJoueur,sSens = sSens},tabsHotes[2])
+			nIDOrigine,stRetour,sProtocole = rednet.receive("R"..tabsHotes[2],10)
+			if nIDOrigine ~= tabnIDHotes[2] then break end
+			if stRetour.sCode ~= "1" then break end
+			Porte()
+			break
+		end
+	end
+end
+
+local function DOPA()
+	while true do
+		while true do
+			local nIDOrigineD
+			local sProtocole
+			local bRetour
+			
+			nIDOrigineD,bRetour,sProtocole = rednet.receive("R"..tabsHotes[3])
+			if nIDOrigineD ~= tabnIDHotes[3] then break end
+			Porte()
+			break
+		end
+	end
+end
+
+local function DOPAP()
+	while true do
+		while true do
+			local nIDOrigineD
+			local sProtocole
+			local stDemande
+			local tabsPeriphs
+			local i
+			local sPeriph
+			local sCote
+			local sDetecteur
+			local DETECTEUR
+			local tabsJoueurs
+			
+			nIDOrigineD,stDemande,sProtocole = rednet.receive(tabnIDHotes[6])
+			if nIDOrigineD ~= tabnIDHotes[6] then break end
+			tabsPeriphs = peripheral.getNames()
+			for i,sPeriph in ipairs(tabsPeriphs) do
+				if sPeriph == "top" or sPeriph == "bottom" or sPeriph == "left" or sPeriph == "right" or sPeriph == "front" or sPeriph == "back" then
+					sCote = sPeriph
+				else
+					if sCote == "bottom" and peripheral.getType(sPeriph) == "playerDetector" then
+						sDetecteur = sPeriph
+						break
+					end
+				end
+			end
+			if sDetecteur == nil then break end
+			DETECTEUR = peripheral.wrap(sDetecteur)
+			tabsJoueurs = DETECTEUR.getPlayersInRange(6)
+			if #tabsJoueurs ~= 1 then break end
+			sJoueur = tabsJoueurs[1]
+			if sJoueur ~= stDemande.sPCJoueur then break end
+			rednet.send(nIDOrigineD,true,"R"..tabsHotes[6])
+			Porte()
+			break
+		end
+	end
+end
+
+local function PING()
+	while true do
+		while true do
+			local nIDOrigineD
+			local sProtocole
+			local sMessage
+			
+			nIDOrigineD,sMessage,sProtocole = rednet.receive("PING")
+			rednet.send(nIDOrigineD,"","RPING")
+			break
+		end
+	end
+end
+
+local function DRDM()
+	while true do
+		while true do
+			local nIDOrigineD
+			local sProtocole
+			local sMessage
+			
+			nIDOrigineD,sMessage,sProtocole = rednet.receive(tabsHotes[4])
+			if nIDOrigineD ~= tabnIDHotes[4] then break end
+			os.reboot()
+			break
+		end
+	end
+end
+
+local function DMAJ()
+	while true do
+		while true do
+			local nIDOrigineD
+			local sProtocole
+			local sMessage
+			
+			nIDOrigineD,sMessage,sProtocole = rednet.receive(tabsHotes[5])
+			if nIDOrigineD ~= tabnIDHotes[5] then break end
+			shell.run("pastebin","run Vr1SWrdV")
+			os.reboot()
+			break
+		end
+	end
+end
+
+parallel.waitForAny(RechercherHotes,DOPP,DOPA,DOPAP,PING,DRDM,DMAJ)

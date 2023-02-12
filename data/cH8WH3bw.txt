@@ -1,0 +1,103 @@
+-- API de gestion des clefs de communication
+
+-- APIs externes
+local DIVERS	=	require("DIVERS")
+local SALSA20	=	require("salsa20")
+
+-- Variables globales
+local tabstClefsCom		=	{}
+local sClefsCom			=	"rsClefsCom"
+
+function RechercherClefCom(nID)
+	local i
+	local stClefCom
+	for i,stClefCom in ipairs(tabstClefsCom) do
+		if stClefCom.nID == nID then return stClefCom.sClef end
+	end
+	return nil
+end
+
+function RechercherIndClefCom(nID)
+	local i
+	local stClefCom
+	for i,stClefCom in ipairs(tabstClefsCom) do
+		if stClefCom.nID == nID then return i end
+	end
+	return nil
+end
+
+function LireRegClefsCom()
+	local sLigne	=	""
+	local nID		=	0
+	local sClef		=	""
+	local sNonce	=	""
+	local fClefsCom	=	nil
+	tabstClefsCom	=	{}
+	if not fs.exists(sClefsCom) then return false end
+	fClefsCom	=	fs.open(sClefsCom,"r")
+	if fClefsCom == nil then return false end
+	sLigne	=	fClefsCom.readLine()
+	sLigne	=	fClefsCom.readLine()
+	while sLigne ~= nil and sLigne ~= "" do
+		nID		=	tonumber(DIVERS.ExtraitChaine(sLigne,1,";"))
+		sClef	=	DIVERS.ExtraitChaine(sLigne,2,";")
+		sNonce	=	DIVERS.ExtraitChaine(sLigne,3,";")
+		table.insert(tabstClefsCom,{nID = nID,sClef = sClef,sNonce = sNonce})
+		sLigne	=	fClefsCom.readLine()
+	end
+	fClefsCom.close()
+	return true
+end
+
+local function EcrireRegClefsCom()
+	local sLigne	=	""
+	local fClefsCom	=	nil
+	local stClefCom
+	local i
+	fClefsCom = fs.open(sClefsCom,"w")
+	fClefsCom.writeLine("-- ID;CLEF;NONCE")
+	for i,stClefCom in ipairs(tabstClefsCom) do
+		sLigne = tostring(stClefCom.nID)..";"..stClefCom.sClef..";"..stClefCom.sNonce
+		fClefsCom.writeLine(sLigne)
+	end
+	fClefsCom.close()
+	return true
+end
+
+function AjouterClefCom(stClefCom)
+	table.insert(tabstClefsCom,{nID = stClefCom.nID,sClef = stClefCom.sClef,sNonce = stClefCom.sNonce})
+	EcrireRegClefsCom()
+end
+
+local function Chiffrer(stMessage,nID,bIncNonce)
+	local sMessage
+	local sTemp
+	local nIndClefCom
+	nIndClefCom = RechercherIndClefCom(nID)
+	if nIndClefCom == nil then return nil end
+	sTemp = textutils.serialise(stMessage)
+	sMessage = SALSA20.encrypt(DIVERS.Complete(tabstClefsCom[nIndClefCom].sClef,"0",32,"D",true),tabstClefsCom[nIndClefCom].sNonce,sTemp,12)
+	if bIncNonce then
+		tabstClefsCom[nIndClefCom].sNonce = DIVERS.Complete(tostring(tonumber(tabstClefsCom[nIndClefCom].sNonce)+1),"0",8,"G",false)
+		EcrireRegClefsCom()
+	end
+	return sMessage
+end
+
+function Dechiffrer(sMessage,nID,bIncNonce)
+	local stMessage
+	local sTemp
+	local nIndClefCom
+	nIndClefCom = RechercherIndClefCom(nID)
+	if nIndClefCom == nil then return nil end
+	sTemp = SALSA20.decrypt(DIVERS.Complete(tabstClefsCom[nIndClefCom].sClef,"0",32,"D",true),tabstClefsCom[nIndClefCom].sNonce,sMessage,12)
+	stMessage = textutils.unserialise(sTemp)
+	if stMessage == nil then return nil end
+	if bIncNonce then
+		tabstClefsCom[nIndClefCom].sNonce = DIVERS.Complete(tostring(tonumber(tabstClefsCom[nIndClefCom].sNonce)+1),"0",8,"G",false)
+		EcrireRegClefsCom()
+	end
+	return stMessage
+end
+
+return {RechercherClefCom = RechercherClefCom,LireRegClefsCom = LireRegClefsCom;EcrireRegClefsCom = EcrireRegClefsCom,AjouterClefCom = AjouterClefCom,Chiffrer = Chiffrer,Dechiffrer = Dechiffrer}

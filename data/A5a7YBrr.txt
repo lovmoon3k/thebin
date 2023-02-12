@@ -1,0 +1,459 @@
+-- Startup PC SECURITE
+
+-- APIs externes
+local BN		=	require("BigNum")
+local SECURITE	=	require("SECURITE")
+
+-- Variables globales
+local nPCID				=	os.getComputerID()
+local sPCCode			=	os.getComputerLabel()
+local tabsProtocoles	=	{"PCSECURITE","DOPP","DOPA","DRDM","DMAJ","DOPAP","DRPORTES","DRJOUEURS","DAPORTE","DAJOUEUR","DAACCES"}
+local tabsHotes			=	{"PCGRS","DVPORTE","DVJOUEUR","DVACCES","DVADMIN","DRPORTESR","DRJOUEURSR","DAPORTER","DAJOUEURR","DAACCESR"}
+local tabnIDHotes		=	{0,0,0,0,0,0,0,0,0,0}
+local sCotePCGRS		=	"top"
+local sCoteReseau		=	"back"
+local sCoteWIFI			=	"left"
+
+local function Initialiser()
+	local i
+	local sProtocole
+	
+	rednet.open(sCotePCGRS)
+	rednet.open(sCoteReseau)
+	rednet.open(sCoteWIFI)
+	term.clear()
+	term.setCursorPos(1,1)
+	print("Initialisation...")
+	for i,sProtocole in ipairs(tabsProtocoles) do
+		rednet.host(sProtocole,sPCCode)
+		print("Protocole "..sProtocole.." hébergé")
+	end
+	SECURITE.LireRegClefsCom()
+	print("Initialisation terminée")
+	os.sleep(2)
+end
+
+local function RechercherHotes()
+	while true do
+		while true do
+			local tabnHotes
+			local i
+			local sHote
+			local fenTest
+			local nX
+			local nY
+			local bErreur
+			
+			bErreur = false
+			term.clear()
+			term.setCursorPos(1,1)
+			term.setTextColor(16)
+			print("PC : "..sPCCode)
+			print("Vérification de la disponibilité des serveurs...")
+			term.setTextColor(1)
+			print("--------------------------")
+			nX,nY = term.getCursorPos()
+			fenTest = window.create(term.current(),23,nY,4,#tabsHotes)
+			fenTest.setBackgroundColor(256)
+			fenTest.clear()
+			term.setCursorPos(1,nY)
+			for i,sHote in ipairs(tabsHotes) do
+				print("Serveur "..sHote)
+			end
+			print("--------------------------")
+			for i,sHote in ipairs(tabsHotes) do
+				tabnHotes = {rednet.lookup(sHote)}
+				fenTest.setCursorPos(1,i)
+				if #tabnHotes == 1 then
+					tabnIDHotes[i] = tabnHotes[1]
+					fenTest.setBackgroundColor(8192)
+					fenTest.write(" OK ")
+				else
+					fenTest.setBackgroundColor(16384)
+					fenTest.write(" KO ")
+					bErreur = true
+				end
+			end
+			term.setCursorPos(1,nY+#tabsHotes+1)
+			if bErreur then
+				print("Erreur lors de la détection de serveurs. Redémarrage en cours...")
+				os.sleep(2)
+				break
+			else
+				print("Réseau opérationnel.")
+				os.sleep(300)
+			end
+		end
+	end
+end
+
+local function VerifierStructure(stDemande,bPorte,bJoueur,bAcces,bAdmin)
+	if stDemande == nil then return false end
+	if bPorte or bAcces then
+		if stDemande.stPorte == nil then return false end
+		if stDemande.stPorte.nID == nil then return false end
+		if stDemande.stPorte.sCode == nil then return false end
+	end
+	if bJoueur or bAcces then
+		if stDemande.sJoueur == nil then return false end
+	end
+	if bAdmin then
+		if stDemande.stAdmin == nil then return false end
+		if stDemande.stAdmin.nID == nil then return false end
+		if stDemande.stAdmin.sCode == nil then return false end
+		if stDemande.sPCJoueur == nil then return false end
+	end
+	return true
+end
+
+function AppelGRS(stDemande,nIDOrigine,nIndProtocole,nIndHote,bChiffrerRetour)
+	local nIDOrigineRDR
+	local stRetour
+	local sRetour
+	local stMessage
+	local sMessage
+	if tabnIDHotes[nIndHote] == 0 then
+		stMessage = {sCode = "-1",sMessage = "Serveur "..tabsHotes[nIndHote].." introuvable"}
+		if bChiffrerRetour then
+			sMessage = SECURITE.Chiffrer(stMessage,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sMessage,"R"..tabsProtocoles[nIndProtocole])
+			rednet.open(sCoteReseau)
+		else
+			rednet.close(sCoteWIFI)
+			rednet.send(nIDOrigine,stMessage,"R"..tabsProtocoles[nIndProtocole])
+			rednet.open(sCoteWIFI)
+		end
+		return nil
+	end
+	rednet.close(sCoteReseau)
+	rednet.close(sCoteWIFI)
+	rednet.send(tabnIDHotes[nIndHote],stDemande,tabsHotes[nIndHote])
+	rednet.open(sCoteReseau)
+	rednet.open(sCoteWIFI)
+	nIDOrigineRDR,stRetour,sProtocole = rednet.receive("R"..tabsHotes[nIndHote],2)
+	if nIDOrigineRDR ~= tabnIDHotes[nIndHote] then
+		stMessage = {sCode = "-1",sMessage = "Serveur "..tabsHotes[nIndHote].." timed out"}
+		if bChiffrerRetour then
+			sMessage = SECURITE.Chiffrer(stMessage,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sMessage,"R"..tabsProtocoles[nIndProtocole])
+			rednet.open(sCoteReseau)
+		else
+			rednet.close(sCoteWIFI)
+			rednet.send(nIDOrigine,stMessage,"R"..tabsProtocoles[nIndProtocole])
+			rednet.open(sCoteWIFI)
+		end
+		return nil
+	end
+	if stRetour.sCode ~= "1" then
+		if bChiffrerRetour then
+			sRetour = SECURITE.Chiffrer(stRetour,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sRetour,"R"..tabsProtocoles[nIndProtocole])
+			rednet.open(sCoteReseau)
+		else
+			rednet.close(sCoteWIFI)
+			rednet.send(nIDOrigine,stRetour,"R"..tabsProtocoles[nIndProtocole])
+			rednet.open(sCoteWIFI)
+		end
+		return nil
+	end
+	return stRetour
+end
+
+local function Rechercher(stDemande,nIDOrigine,nIndProtocole,bPorte,bJoueur,bAcces,bAdmin,bChiffrerRetour)
+	if bPorte and AppelGRS(stDemande,nIDOrigine,nIndProtocole,2,bChiffrerRetour) == nil then return false end
+	if bJoueur and AppelGRS(stDemande,nIDOrigine,nIndProtocole,3,bChiffrerRetour) == nil  then return false end
+	if bAcces and AppelGRS(stDemande,nIDOrigine,nIndProtocole,4,bChiffrerRetour) == nil  then return false end
+	if bAdmin and AppelGRS(stDemande,nIDOrigine,nIndProtocole,5,bChiffrerRetour) == nil  then return false end
+	return true
+end
+
+local function DOPP()
+	while true do
+		while true do
+			local stDemande
+			local nIDOrigine
+			local sProtocole
+			
+			nIDOrigine,stDemande,sProtocole = rednet.receive(tabsProtocoles[2])
+			if not VerifierStructure(stDemande,false,false,true,false) then break end
+			if nIDOrigine ~= stDemande.stPorte.nID then break end
+			if not Rechercher(stDemande,nIDOrigine,2,false,false,true,false,false) then break end
+			rednet.send(nIDOrigine,{sCode = "1",sMessage = "Accès autorisé"},"R"..tabsProtocoles[2])
+		end
+	end
+end
+
+local function DOPA()
+	while true do
+		while true do
+			local sDemande
+			local stDemande
+			local nIDOrigine
+			local sProtocole
+			local stMessage
+			local sMessage
+			
+			nIDOrigine,sDemande,sProtocole = rednet.receive(tabsProtocoles[3])
+			stDemande = SECURITE.Dechiffrer(sDemande,nIDOrigine,false)
+			if not VerifierStructure(stDemande,true,false,false,true) then break end
+			if nIDOrigine ~= stDemande.stAdmin.nID then break end
+			if not Rechercher(stDemande,nIDOrigine,3,true,false,false,true,true) then break end
+			stMessage = {sCode = "1",sMessage = "Accès autorisé"}
+			sMessage = SECURITE.Chiffrer(stMessage,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sMessage,"R"..tabsProtocoles[3])
+			rednet.open(sCoteReseau)
+			rednet.close(sCoteWIFI)
+			rednet.send(stDemande.stPorte.nID,"","R"..tabsProtocoles[3])
+			rednet.open(sCoteWIFI)
+		end
+	end
+end
+
+local function DOPAP()
+	while true do
+		while true do
+			local sDemande
+			local stDemande
+			local nIDOrigine
+			local sProtocole
+			local nIDOrigineRP
+			local bRetour
+			local stMessage
+			local sMessage
+			
+			nIDOrigine,sDemande,sProtocole = rednet.receive(tabsProtocoles[6])
+			stDemande = SECURITE.Dechiffrer(sDemande,nIDOrigine,false)
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= stDemande.stAdmin.nID then break end
+			if not Rechercher(stDemande,nIDOrigine,6,false,false,false,true,true) then break end
+			rednet.broadcast({sPCJoueur = stDemande.sPCJoueur},tabsProtocoles[6])
+			nIDOrigineRP,bRetour,sProtocole = rednet.receive("R"..tabsProtocoles[6],2)
+			if nIDOrigineRP ~= nil then
+				stMessage = {sCode = "1",sMessage = "Accès autorisé"}
+			else
+				stMessage = {sCode = "-1",sMessage = "Porte non détectée"}
+			end
+			sMessage = SECURITE.Chiffrer(stMessage,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sMessage,"R"..tabsProtocoles[6])
+			rednet.open(sCoteReseau)
+		end
+	end
+end
+
+local function DRDM()
+	while true do
+		while true do
+			local sDemande
+			local stDemande
+			local nIDOrigine
+			local sProtocole
+			local stMessage
+			local sMessage
+			
+			nIDOrigine,sDemande,sProtocole = rednet.receive(tabsProtocoles[4])
+			stDemande = SECURITE.Dechiffrer(sDemande,nIDOrigine,false)
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= stDemande.stAdmin.nID then break end
+			if not Rechercher(stDemande,nIDOrigine,4,false,false,false,true,true) then break end
+			stMessage = {sCode = "1",sMessage = "Redémarrage en cours.."}
+			sMessage = SECURITE.Chiffrer(stMessage,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sMessage,"R"..tabsProtocoles[4])
+			rednet.open(sCoteReseau)
+			os.sleep(2)
+			rednet.close(sCoteWIFI)
+			rednet.broadcast("",tabsProtocoles[4])
+			rednet.open(sCoteWIFI)
+			os.reboot()
+		end
+	end
+end
+
+local function DMAJ()
+	while true do
+		while true do
+			local sDemande
+			local stDemande
+			local nIDOrigine
+			local sProtocole
+			local stMessage
+			local sMessage
+			
+			nIDOrigine,sDemande,sProtocole = rednet.receive(tabsProtocoles[5])
+			stDemande = SECURITE.Dechiffrer(sDemande,nIDOrigine,false)
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= stDemande.stAdmin.nID then break end
+			if not Rechercher(stDemande,nIDOrigine,5,false,false,false,true,true) then break end
+			stMessage = {sCode = "1",sMessage = "MAJ réseau en cours.."}
+			sMessage = SECURITE.Chiffrer(stMessage,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sMessage,"R"..tabsProtocoles[5])
+			rednet.open(sCoteReseau)
+			os.sleep(2)
+			rednet.close(sCoteWIFI)
+			rednet.broadcast("",tabsProtocoles[5])
+			rednet.open(sCoteWIFI)
+			shell.run("pastebin","run vUK7U8Mt")
+			os.reboot()
+		end
+	end
+end
+
+local function DRPORTES()
+	while true do
+		while true do
+			local sDemande
+			local stDemande
+			local nIDOrigine
+			local sProtocole
+			local stRetour
+			local sRetour
+			
+			nIDOrigine,sDemande,sProtocole = rednet.receive(tabsProtocoles[7])
+			stDemande = SECURITE.Dechiffrer(sDemande,nIDOrigine,false)
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= stDemande.stAdmin.nID then break end
+			if not Rechercher(stDemande,nIDOrigine,7,false,false,false,true,true) then break end
+			stRetour = AppelGRS(stDemande,nIDOrigine,7,6,true)
+			if stRetour == nil then break end
+			sRetour = SECURITE.Chiffrer(stRetour,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sRetour,"R"..tabsProtocoles[7])
+			rednet.open(sCoteReseau)
+		end
+	end
+end
+
+local function DRJOUEURS()
+	while true do
+		while true do
+			local sDemande
+			local stDemande
+			local nIDOrigine
+			local sProtocole
+			local stRetour
+			local sRetour
+			
+			nIDOrigine,sDemande,sProtocole = rednet.receive(tabsProtocoles[8])
+			stDemande = SECURITE.Dechiffrer(sDemande,nIDOrigine,false)
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= stDemande.stAdmin.nID then break end
+			if not Rechercher(stDemande,nIDOrigine,8,false,false,false,true,true) then break end
+			stRetour = AppelGRS(stDemande,nIDOrigine,8,7,true)
+			if stRetour == nil then break end
+			sRetour = SECURITE.Chiffrer(stRetour,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sRetour,"R"..tabsProtocoles[8])
+			rednet.open(sCoteReseau)
+		end
+	end
+end
+
+local function DAPORTE()
+	while true do
+		while true do
+			local sDemande
+			local stDemande
+			local nIDOrigine
+			local sProtocole
+			local stRetour
+			local sRetour
+			
+			nIDOrigine,sDemande,sProtocole = rednet.receive(tabsProtocoles[9])
+			stDemande = SECURITE.Dechiffrer(sDemande,nIDOrigine,false)
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= stDemande.stAdmin.nID then break end
+			if not Rechercher(stDemande,nIDOrigine,9,false,false,false,true,true) then break end
+			stRetour = AppelGRS(stDemande,nIDOrigine,9,8,true)
+			if stRetour == nil then break end
+			sRetour = SECURITE.Chiffrer(stRetour,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sRetour,"R"..tabsProtocoles[9])
+			rednet.open(sCoteReseau)
+		end
+	end
+end
+
+local function DAJOUEUR()
+	while true do
+		while true do
+			local sDemande
+			local stDemande
+			local nIDOrigine
+			local sProtocole
+			local stRetour
+			local sRetour
+			
+			nIDOrigine,sDemande,sProtocole = rednet.receive(tabsProtocoles[10])
+			stDemande = SECURITE.Dechiffrer(sDemande,nIDOrigine,false)
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= stDemande.stAdmin.nID then break end
+			if not Rechercher(stDemande,nIDOrigine,10,false,false,false,true,true) then break end
+			stRetour = AppelGRS(stDemande,nIDOrigine,10,9,true)
+			if stRetour == nil then break end
+			sRetour = SECURITE.Chiffrer(stRetour,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sRetour,"R"..tabsProtocoles[10])
+			rednet.open(sCoteReseau)
+		end
+	end
+end
+
+local function DACCES()
+	while true do
+		while true do
+			local sDemande
+			local stDemande
+			local nIDOrigine
+			local sProtocole
+			local stRetour
+			local sRetour
+			
+			nIDOrigine,sDemande,sProtocole = rednet.receive(tabsProtocoles[11])
+			stDemande = SECURITE.Dechiffrer(sDemande,nIDOrigine,false)
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= stDemande.stAdmin.nID then break end
+			if not Rechercher(stDemande,nIDOrigine,11,false,false,false,true,true) then break end
+			stRetour = AppelGRS(stDemande,nIDOrigine,11,10,true)
+			if stRetour == nil then break end
+			sRetour = SECURITE.Chiffrer(stRetour,nIDOrigine,true)
+			rednet.close(sCoteReseau)
+			rednet.send(nIDOrigine,sRetour,"R"..tabsProtocoles[11])
+			rednet.open(sCoteReseau)
+		end
+	end
+end
+
+local function PCSECURITE()
+	while true do
+		while true do
+			local sClefCalcA
+			local nIDOrigine
+			local sProtocole
+			
+			nIDOrigine,stDemande,sProtocole = rednet.receive(tabsProtocoles[1])
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= stDemande.stAdmin.nID then break end
+			if not Rechercher(stDemande,nIDOrigine,1,false,false,false,true,false) then break end
+			if SECURITE.RechercherClefCom(nIDOrigine) ~= nil then break end
+			local bnumClefPublique	=	BigNum.new("2")
+			local bnumModuleClef	=	BigNum.new("411376139330301510538742295639337626245683966408394965837151833")
+			local bnumCalcA			=	BigNum.new(stDemande.sClefCalcA)
+			local bnumClefB			=	BigNum.new(math.random(10,100000000000))
+			local bnumCalcB			=	BigNum.new()
+			local bnumClefAB		=	BigNum.new()
+			BigNum.modpow(bnumClefPublique,bnumClefB,bnumModuleClef,bnumCalcB)
+			BigNum.modpow(bnumCalcA,bnumClefB,bnumModuleClef,bnumClefAB)
+			rednet.send(nIDOrigine,BigNum.tostring(bnumCalcB),"R"..tabsProtocoles[1])
+			SECURITE.AjouterClefCom({nID = nIDOrigine,sClef = BigNum.tostring(bnumClefAB),sNonce = "00000001"})
+		end
+	end
+end
+
+Initialiser()
+parallel.waitForAll(RechercherHotes,DOPP,DOPA,DOPAP,DRDM,DMAJ,DRPORTES,DRJOUEURS,DAPORTE,DAJOUEUR,DACCES,PCSECURITE)
