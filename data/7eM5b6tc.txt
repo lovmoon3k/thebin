@@ -1,0 +1,184 @@
+#pragma GCC optimzize("Ofast,no-stack-protector")
+#include<bits/stdc++.h>
+#define int long long
+#define quick ios::sync_with_stdio(0);cin.tie(0);
+#define rep(x,a,b) for(int x=a;x<=b;x++)
+#define repd(x,a,b) for(int x=a;x>=b;x--)
+#define lowbit(x) (x&-x)
+#define sz(x) (int)(x.size())
+#define F first
+#define S second
+#define all(x) x.begin(),x.end()
+#define mp make_pair
+#define eb emplace_back
+using namespace std;
+typedef complex<int> P;
+#define X real()
+#define Y imag()
+typedef pair<int,int> pii;
+void debug(){
+    cout<<"\n";
+}
+template <class T,class ... U >
+void debug(T a, U ... b){
+    cout<<a<<" ",debug(b...);
+}
+const int N=1e6+7;
+const int INF=1e18;
+
+//bit
+int bit[N];
+void add(int x,int val){
+	for(;x<N;x+=lowbit(x)) bit[x]+=val;
+}
+int query(int x){
+	int ret=0;
+	for(;x>0;x-=lowbit(x)) ret+=bit[x];
+	return ret;
+}
+
+//cdq
+struct event{
+	int t;
+	int x;
+	int pos;
+	int val;//add / query add/minus
+	int querynum;// 0->add, else query
+	event(int t,int x,int pos,int val,int querynum): t(t),x(x),pos(pos),val(val),querynum(querynum){
+	}
+	event(){
+		t=x=pos=val=querynum=0;
+	}
+	bool operator < (event&o) const{
+		if(t!=o.t) return t<o.t;
+		if(x!=o.x) return x<o.x;
+		return pos<o.pos;
+	}
+}v[N];
+struct qry{
+	int c;
+	int x;
+	int l,r;
+}qry[N];
+int ans[N];
+void cdq(int l,int r){
+	if(l==r) return ;
+	int mid=(l+r)>>1;
+	cdq(l,mid);
+	cdq(mid+1,r);
+	vector<pii> undo;
+	vector<event> rcd;
+	int s1=l;
+	int s2=mid+1;
+	while(s1<=mid||s2<=r){
+		if(s2>r||(s1<=mid&&v[s1].x<=v[s2].x)){
+			if(!v[s1].querynum){//add
+				add(v[s1].pos,v[s1].val);
+				undo.eb(v[s1].pos,v[s1].val);
+			}
+			rcd.eb(v[s1++]);
+		}
+		else{
+			if(v[s2].querynum){
+				ans[v[s2].querynum]+=v[s2].val*query(v[s2].pos);
+			}
+			rcd.eb(v[s2++]);
+		}
+	}
+	rep(i,l,r) v[i]=rcd[i-l];
+	for(pii p2:undo){
+		add(p2.F,-p2.S);
+	}
+
+}
+
+
+//dfs tree
+vector<int> e[N];
+int in[N];
+int out[N];
+int t;
+int a[N];
+void dfs(int x,int p=-1){
+	in[x]=t++;
+	for(int i:e[x]){
+		if(i!=p) dfs(i,x);
+	}
+	out[x]=t++;
+}
+signed main(){
+	//quick
+	vector<int> num;
+	int n,q;
+	cin>>n>>q;
+	rep(i,1,n){
+		cin>>a[i];
+		num.eb(a[i]);
+	}
+	rep(i,1,n-1){
+		int b,c;
+		cin>>b>>c;
+		e[b].eb(c);
+		e[c].eb(b);
+	}
+
+	t=1;
+	dfs(1);
+	rep(i,1,q){
+		cin>>qry[i].c;
+		if(qry[i].c==1){
+			cin>>qry[i].x>>qry[i].l;
+			num.eb(qry[i].l);
+		}
+		else{
+			cin>>qry[i].x>>qry[i].l>>qry[i].r; 
+			--qry[i].l;// [l,r] -> (l,r]
+			num.eb(qry[i].l);
+			num.eb(qry[i].r);
+		}
+	}
+	sort(all(num));
+	num.erase(unique(all(num)),num.end());
+	rep(i,1,n){
+		a[i]=upper_bound(all(num),a[i])-num.begin();
+	}
+	rep(i,1,q){
+		if(qry[i].c==1){
+			qry[i].l=upper_bound(all(num),qry[i].l)-num.begin();
+		}
+		else{
+			qry[i].l=upper_bound(all(num),qry[i].l)-num.begin();
+			qry[i].r=upper_bound(all(num),qry[i].r)-num.begin();
+		}
+	}
+	int cnt=0;
+	rep(i,1,n){
+		v[cnt++]=event(0,in[i],a[i],1,0);
+	}
+	int qnum=1;
+	rep(i,1,q){
+		if(qry[i].c==2){
+			int y1=qry[i].l;
+			int x1=in[qry[i].x]-1;
+			int y2=qry[i].r;
+			int x2=out[qry[i].x];
+			v[cnt++]=event(i,x1,y1,1,qnum);
+			v[cnt++]=event(i,x2,y2,1,qnum);
+			v[cnt++]=event(i,x1,y2,-1,qnum);
+			v[cnt++]=event(i,x2,y1,-1,qnum);
+			qnum++;
+		}
+		else{
+			int p=qry[i].x;
+			int last=a[p];
+			v[cnt++]=event(i,in[p],last,-1,0);
+			v[cnt++]=event(i,in[p],qry[i].l,1,0);
+			a[p]=qry[i].l;
+		}	
+	}
+	sort(v,v+cnt);
+	cdq(0,cnt-1);
+	rep(i,1,qnum-1) cout<<ans[i]<<"\n";
+
+	return 0;
+}
