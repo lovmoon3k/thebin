@@ -1,0 +1,112 @@
+using System;
+using System.Collections.Generic;
+using Core.Extensions;
+using Core.Managers;
+using Core.Managers.Interface;
+using CustomAttributes.Headers;
+using UnityEngine;
+
+namespace PlayerSystem.Movement
+{
+    [RequireComponent(typeof(CharacterController))]
+    public class PlayerMovement : MonoBehaviour, ICrossEventSubscriber
+    {
+        [ReferencesHeader]
+        [SerializeField] private Camera playerCamera;
+
+        [SettingsHeader]
+        [SerializeField] private float crouchSpeed = 2.5f;
+        [SerializeField] private float walkingSpeed = 7.5f;
+        [SerializeField] private float runningSpeed = 11.5f;
+
+        [SerializeField] private float jumpSpeed = 8.0f;
+        [SerializeField] private float lookSpeed = 2.0f;
+        [SerializeField] private float lookXLimit = 45.0f;
+
+        private CharacterController _characterController;
+        private Vector3 _moveDirection = Vector3.zero;
+        private const float _gravity = -9.81f;
+        private float _rotationX;
+        private bool _canMove = true;
+        private PlayerHeightState _currentState;
+
+        private void Awake()
+        {
+            _characterController = GetComponent<CharacterController>();
+        }
+
+        private void Start()
+        {
+            // Lock cursor
+            StateTools.ChangeCursorState(false);
+        }
+
+        private bool CanJump()
+        {
+            return Input.GetButton("Jump") &&
+                   _canMove &&
+                   _characterController.isGrounded && _currentState == PlayerHeightState.Default;
+        }
+
+        private void Update()
+        {
+            // We are grounded, so recalculate move direction based on axes
+            var forward = transform.TransformDirection(Vector3.forward);
+            var right = transform.TransformDirection(Vector3.right);
+
+            // Press Left Shift to run
+            var curSpeedX = CurSpeed(Input.GetAxis("Vertical"));
+            var curSpeedY = CurSpeed(Input.GetAxis("Horizontal"));
+            var movementDirectionY = _moveDirection.y;
+
+            _moveDirection = forward * curSpeedX + right * curSpeedY;
+
+            _moveDirection.y = CanJump() ? jumpSpeed : movementDirectionY;
+
+            // Apply gravity. Gravity is multiplied by deltaTime twice (once here, and once below
+            // when the moveDirection is multiplied by deltaTime). This is because gravity should be applied
+            // as an acceleration (ms^-2)
+            if (!_characterController.isGrounded) _moveDirection.y += _gravity * Time.deltaTime;
+
+            // Move the controller
+            _characterController.Move(_moveDirection * Time.deltaTime);
+
+            // Player and Camera rotation
+            if (!_canMove ||
+                !(Time.timeScale > 0))
+                return;
+            _rotationX += -Input.GetAxis("Mouse Y") * lookSpeed;
+            _rotationX = Mathf.Clamp(_rotationX, -lookXLimit, lookXLimit);
+            playerCamera.transform.localRotation = Quaternion.Euler(_rotationX, 0, 0);
+            transform.rotation *= Quaternion.Euler(0, Input.GetAxis("Mouse X") * lookSpeed, 0);
+        }
+
+        private float GetMaxSpeed()
+        {
+            float currentMaxSpeed;
+            if (_currentState == PlayerHeightState.Default)
+                currentMaxSpeed = Input.GetKey(KeyCode.LeftShift) ? runningSpeed : walkingSpeed;
+            else
+                currentMaxSpeed = crouchSpeed;
+
+            return currentMaxSpeed;
+        }
+
+        private float CurSpeed(float value)
+        {
+            return _canMove ? GetMaxSpeed() * value : 0;
+        }
+
+        private void PlayerHeightChanged(PlayerHeightState newState)
+        {
+            _currentState = newState;
+        }
+
+        public IEnumerable<Delegate> GetSubscribers()
+        {
+            var list = new Delegate[] {(CrossEventTypes.PlayerHeightChangedDelegate) PlayerHeightChanged};
+
+            return list;
+        }
+    }
+}
