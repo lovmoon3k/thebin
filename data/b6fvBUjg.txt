@@ -1,0 +1,325 @@
+-- Startup PC GRS
+
+-- APIs externes
+local GRS	=	require("GRS")
+
+-- Variables globales
+local nPCID				=	os.getComputerID()
+local sPCCode			=	os.getComputerLabel()
+local tabsProtocoles	=	{"PCGRS","DVPORTE","DVJOUEUR","DVACCES","DVADMIN","DRPORTESR","DRJOUEURSR","DAPORTER","DAJOUEURR","DAACCESR"}
+local tabsHotes			=	{"PCSECURITE","DRDM","DMAJ"}
+local tabnIDHotes		=	{0,0,0}
+local sCotePCSECURITE	=	"top"
+
+local function Initialiser()
+	local i
+	local sProtocole
+	
+	rednet.open(sCotePCSECURITE)
+	term.clear()
+	term.setCursorPos(1,1)
+	print("Initialisation...")
+	print("Lecture des registres...")
+	GRS.LireRegistres()
+	for i,sProtocole in ipairs(tabsProtocoles) do
+		rednet.host(sProtocole,sPCCode)
+		print("Protocole "..sProtocole.." hébergé")
+	end
+	print("Initialisation terminée")
+	os.sleep(2)
+end
+
+local function RechercherHotes()
+	while true do
+		while true do
+			local tabnHotes
+			local i
+			local sHote
+			local fenTest
+			local nX
+			local nY
+			local bErreur
+			
+			bErreur = false
+			term.clear()
+			term.setCursorPos(1,1)
+			term.setTextColor(16)
+			print("PC : "..sPCCode)
+			print("Vérification de la disponibilité des serveurs...")
+			term.setTextColor(1)
+			print("--------------------------")
+			nX,nY = term.getCursorPos()
+			fenTest = window.create(term.current(),23,nY,4,#tabsHotes)
+			fenTest.setBackgroundColor(256)
+			fenTest.clear()
+			term.setCursorPos(1,nY)
+			for i,sHote in ipairs(tabsHotes) do
+				print("Serveur "..sHote)
+			end
+			print("--------------------------")
+			for i,sHote in ipairs(tabsHotes) do
+				tabnHotes = {rednet.lookup(sHote)}
+				fenTest.setCursorPos(1,i)
+				if #tabnHotes == 1 then
+					tabnIDHotes[i] = tabnHotes[1]
+					fenTest.setBackgroundColor(8192)
+					fenTest.write(" OK ")
+				else
+					fenTest.setBackgroundColor(16384)
+					fenTest.write(" KO ")
+					bErreur = true
+				end
+			end
+			term.setCursorPos(1,nY+#tabsHotes+1)
+			if bErreur then
+				print("Erreur lors de la détection de serveurs. Redémarrage en cours...")
+				os.sleep(2)
+				break
+			else
+				print("Réseau opérationnel.")
+				os.sleep(300)
+			end
+		end
+	end
+end
+
+local function VerifierStructure(stDemande,bPorte,bJoueur,bAcces,bAdmin)
+	if stDemande == nil then return false end
+	if bPorte or bAcces then
+		if stDemande.stPorte == nil then return false end
+		if stDemande.stPorte.nID == nil then return false end
+		if stDemande.stPorte.sCode == nil then return false end
+	end
+	if bJoueur or bAcces then
+		if stDemande.sJoueur == nil then return false end
+	end
+	if bAdmin then
+		if stDemande.stAdmin == nil then return false end
+		if stDemande.stAdmin.nID == nil then return false end
+		if stDemande.stAdmin.sCode == nil then return false end
+		if stDemande.sPCJoueur == nil then return false end
+	end
+	return true
+end
+
+local function Rechercher(stDemande,bPorte,bJoueur,bAcces,bAdmin)
+	if bPorte and GRS.RechercherPorte(stDemande.stPorte) == 0 then return false end
+	if bJoueur and GRS.RechercherJoueur(stDemande.sJoueur) == 0 then return false end
+	if bAcces and GRS.RechercherAcces({stPorte = stDemande.stPorte,sJoueur = stDemande.sJoueur}) == 0 then return false end
+	if bAdmin then
+		if GRS.RechercherAdmin(stDemande.stAdmin) == 0 then return false end
+		if GRS.RechercherJoueur(stDemande.sPCJoueur) == 0 then return false end
+	end
+	return true
+end
+
+local function DVPORTE()
+	while true do
+		while true do
+			local nIDOrigine
+			local stDemande
+			local sProtocole
+			
+			nIDOrigine,stDemande,sProtocole = rednet.receive(tabsProtocoles[2])
+			if not VerifierStructure(stDemande,true,false,false,false) then break end
+			if nIDOrigine ~= tabnIDHotes[1] then break end
+			if not Rechercher(stDemande,true,false,false,false) then
+				rednet.send(nIDOrigine,{sCode = "-1",sMessage = "Porte inconnue"},"R"..tabsProtocoles[2])
+			else
+				rednet.send(nIDOrigine,{sCode = "1",sMessage = ""},"R"..tabsProtocoles[2])
+			end
+		end
+	end
+end
+
+local function DVJOUEUR()
+	while true do
+		while true do
+			local nIDOrigine
+			local stDemande
+			local sProtocole
+			
+			nIDOrigine,stDemande,sProtocole = rednet.receive(tabsProtocoles[3])
+			if not VerifierStructure(stDemande,false,true,false,false) then break end
+			if nIDOrigine ~= tabnIDHotes[1] then break end
+			if not Rechercher(stDemande,false,true,false,false) then
+				rednet.send(nIDOrigine,{sCode = "-1",sMessage = "Joueur inconnu"},"R"..tabsProtocoles[3])
+			else
+				rednet.send(nIDOrigine,{sCode = "1",sMessage = ""},"R"..tabsProtocoles[3])
+			end
+		end
+	end
+end
+
+local function DVACCES()
+	while true do
+		while true do
+			local nIDOrigine
+			local stDemande
+			local sProtocole
+			
+			nIDOrigine,stDemande,sProtocole = rednet.receive(tabsProtocoles[4])
+			if not VerifierStructure(stDemande,false,false,true,false) then break end
+			if nIDOrigine ~= tabnIDHotes[1] then break end
+			if not Rechercher(stDemande,false,false,true,false) then
+				rednet.send(nIDOrigine,{sCode = "-1",sMessage = "Accès refusé"},"R"..tabsProtocoles[4])
+			else
+				rednet.send(nIDOrigine,{sCode = "1",sMessage = ""},"R"..tabsProtocoles[4])
+			end
+		end
+	end
+end
+
+local function DVADMIN()
+	while true do
+		while true do
+			local nIDOrigine
+			local stDemande
+			local sProtocole
+			
+			nIDOrigine,stDemande,sProtocole = rednet.receive(tabsProtocoles[5])
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= tabnIDHotes[1] then break end
+			if not Rechercher(stDemande,false,false,false,true) then
+				rednet.send(nIDOrigine,{sCode = "-1",sMessage = "Administrateur inconnu"},"R"..tabsProtocoles[5])
+			else
+				rednet.send(nIDOrigine,{sCode = "1",sMessage = ""},"R"..tabsProtocoles[5])
+			end
+		end
+	end
+end
+
+local function DRPORTES()
+	while true do
+		while true do
+			local nIDOrigine
+			local stDemande
+			local sProtocole
+			
+			nIDOrigine,stDemande,sProtocole = rednet.receive(tabsProtocoles[6])
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= tabnIDHotes[1] then break end
+			if not Rechercher(stDemande,false,false,false,true) then break end
+			rednet.send(nIDOrigine,{sCode = "1",sMessage = GRS.stabstPortes()},"R"..tabsProtocoles[6])
+		end
+	end
+end
+
+local function DRJOUEURS()
+	while true do
+		while true do
+			local nIDOrigine
+			local stDemande
+			local sProtocole
+			local bRetour
+			
+			nIDOrigine,stDemande,sProtocole = rednet.receive(tabsProtocoles[7])
+			if not VerifierStructure(stDemande,false,false,false,true) then break end
+			if nIDOrigine ~= tabnIDHotes[1] then break end
+			if not Rechercher(stDemande,false,false,false,true) then break end
+			rednet.send(nIDOrigine,{sCode = "1",sMessage = GRS.stabstJoueurs()},"R"..tabsProtocoles[7])
+		end
+	end
+end
+
+local function DAPORTE()
+	while true do
+		while true do
+			local nIDOrigine
+			local stDemande
+			local sProtocole
+			local stMessage
+			
+			nIDOrigine,stDemande,sProtocole = rednet.receive(tabsProtocoles[8])
+			if not VerifierStructure(stDemande,true,false,false,true) then break end
+			if nIDOrigine ~= tabnIDHotes[1] then break end
+			if not Rechercher(stDemande,false,false,false,true) then break end
+			if GRS.AjouterPorte(stDemande.stPorte) then
+				stMessage = {sCode = "1",sMessage = "Porte ajoutée"}
+			else
+				stMessage = {sCode = "-1",sMessage = "Porte existante ou conflit"}
+			end
+			rednet.send(nIDOrigine,stMessage,"R"..tabsProtocoles[8])
+		end
+	end
+end
+
+local function DAJOUEUR()
+	while true do
+		while true do
+			local nIDOrigine
+			local stDemande
+			local sProtocole
+			local bRetour
+			local stMessage
+			
+			nIDOrigine,stDemande,sProtocole = rednet.receive(tabsProtocoles[9])
+			if not VerifierStructure(stDemande,false,true,false,true) then break end
+			if nIDOrigine ~= tabnIDHotes[1] then break end
+			if not Rechercher(stDemande,false,false,false,true) then break end
+			if GRS.AjouterJoueur(stDemande.sJoueur) then
+				stMessage = {sCode = "1",sMessage = "Joueur ajouté"}
+			else
+				stMessage = {sCode = "-1",sMessage = "Joueur existant"}
+			end
+			rednet.send(nIDOrigine,stMessage,"R"..tabsProtocoles[9])
+		end
+	end
+end
+
+local function DAACCES()
+	while true do
+		while true do
+			local nIDOrigine
+			local stDemande
+			local sProtocole
+			local bRetour
+			local stMessage
+			
+			nIDOrigine,stDemande,sProtocole = rednet.receive(tabsProtocoles[10])
+			if not VerifierStructure(stDemande,false,false,true,true) then break end
+			if nIDOrigine ~= tabnIDHotes[1] then break end
+			if not Rechercher(stDemande,false,false,false,true) then break end
+			if GRS.AjouterAcces(stDemande) then
+				stMessage = {sCode = "1",sMessage = "Accès ajouté"}
+			else
+				stMessage = {sCode = "-1",sMessage = "Accès existant ou joueur/porte inconnu(s)"}
+			end
+			rednet.send(nIDOrigine,stMessage,"R"..tabsProtocoles[10])
+		end
+	end
+end
+
+local function DRDM()
+	while true do
+		while true do
+			local nIDOrigineD
+			local sProtocole
+			local sMessage
+			
+			nIDOrigineD,sMessage,sProtocole = rednet.receive(tabsHotes[2])
+			if nIDOrigineD ~= tabnIDHotes[2] then break end
+			os.reboot()
+			break
+		end
+	end
+end
+
+local function DMAJ()
+	while true do
+		while true do
+			local nIDOrigineD
+			local sProtocole
+			local sMessage
+			
+			nIDOrigineD,sMessage,sProtocole = rednet.receive(tabsHotes[3])
+			if nIDOrigineD ~= tabnIDHotes[3] then break end
+			shell.run("InitMAJPCGRS")
+			os.reboot()
+			break
+		end
+	end
+end
+
+Initialiser()
+parallel.waitForAny(RechercherHotes,DVPORTE,DVJOUEUR,DVACCES,DVADMIN,DRPORTES,DRJOUEURS,DAPORTE,DAJOUEUR,DAACCES,DRDM,DMAJ)
