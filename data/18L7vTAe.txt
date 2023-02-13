@@ -1,0 +1,129 @@
+local kt = require "ksm/turtle"
+
+local HOLE_SIZE = tonumber(arg[1]) or 4
+local MINER_CHANNEL = tonumber(arg[2]) or 100
+local HTTP_ADDRESS = arg[3] or "http://ksmsite/minecraft/miner/"
+
+--Turtle label or "turtle + turtle id. "miner" or "turtle0" for example
+id = os.getComputerLabel() or "turtle" .. os.getComputerID()
+id = textutils.urlEncode(id)
+
+--Can access adress or not
+local canSendHTTP = http.checkURL(HTTP_ADDRESS)
+
+--Wrap the modem, if there is one
+modem = peripheral.find("modem")
+
+--Try to send message to MINER_CHANNEL
+function sendToModem(msg)
+	if (modem) then
+		modem.transmit(MINER_CHANNEL, MINER_CHANNEL, msg)
+	end
+end
+
+--Terminate the program with an error output
+function exitWithError(msg)
+	sendToModem({
+		msg = msg,
+		msg_type = "error",
+		id = id, 
+		inventory = kt.getInventoryList()
+	})	
+	
+	--Try to send HTTP request asynchronously (don't care about result)
+	if (canSendHTTP) then
+		local json = textutils.urlEncode(textutils.serialiseJSON(kt.getInventoryList()))
+		http.request(HTTP_ADDRESS, string.format("id=%s&json=%s", id, json))
+	end
+	
+	printError(msg)
+	error()
+end
+
+--Call the function and, in case of an error, terminate the program
+function tryFunc(func)
+	local state, msg = func()	
+	if (not state) then
+		exitWithError(msg)
+	end
+end
+
+--Read file with blacklisted blocks
+local fs_blacklist = fs.open(fs.getDir(shell.getRunningProgram()) .. "/miner_blacklist.json", "r")
+blacklist = textutils.unserialiseJSON(fs_blacklist.readAll())
+
+function inBlacklist(side)
+	--Loop for every blacklisted item
+	for _, item in ipairs(blacklist) do
+	
+		--If Block is blacklisted
+		if (item.type == "name") then
+			--Compare block name and blacklisted block name
+			--If they are the same, then true
+			local state, data = kt.doSide("inspect", side)
+			if (state and data.name == item.data) then
+				return true, item.data  
+			end
+			
+		--If Peripheral is blacklisted
+		elseif (item.type == "peripheral") then
+			--Loop for every peripheral type of this block
+			for _, per in ipairs({peripheral.getType(side)}) do
+				--If the types of peripherals are the same, then true 
+				if (per == item.data) then
+					return true, item.data
+				end
+			end
+		end
+	end
+	
+	return false
+end
+
+--Try to dig, ignore the "Nothing to dig here" error, terminate the program at any other error
+function tryToDig(side)
+	if (kt.getEmptyCount() == 0) then
+		exitWithError("Inventory is full")
+	end
+	
+	local state, data = inBlacklist(side)
+	if (state) then
+		exitWithError(string.format("Met a block from the blacklist: '%s'", data))
+	end
+	
+	local state, msg = kt.doSide("dig", side)
+	if (not state and msg ~= "Nothing to dig here") then
+		exitWithError(msg)
+	end
+end
+
+--If the program is not called on a turtle
+if (not turtle) then
+	exitWithError("This program only supports turtles")
+end
+
+local turnLeft = false
+
+--Dig to the first error
+while true do
+	tryToDig("bottom")
+	tryFunc(turtle.down)
+
+	for i = 1, HOLE_SIZE, 1 do
+		for j = 1, HOLE_SIZE - 1, 1 do
+			tryToDig("front")
+			tryFunc(turtle.forward)
+		end
+		
+		if (i == HOLE_SIZE) then
+			tryFunc(turtle.turnLeft)
+			tryFunc(turtle.turnLeft)
+		else	
+			tryFunc( turnLeft and turtle.turnLeft or turtle.turnRight )	
+			tryToDig("front")
+			tryFunc(turtle.forward)
+			tryFunc( turnLeft and turtle.turnLeft or turtle.turnRight )
+			turnLeft = not turnLeft
+		end
+	end
+end

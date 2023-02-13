@@ -1,0 +1,56 @@
+local MINER_CHANNEL = tonumber(arg[1]) or 100
+
+--Terminate the program with an error output
+function exitWithError(msg)
+	printError(msg)
+	error()
+end
+
+--Clear terminal and set cursor position to the start
+term.clear()
+term.setCursorPos(1, 1)
+
+--Wrap modem or terminate the program
+local modem = peripheral.find("modem") or exitWithError("No modem attached")
+
+--If there is a monitor nearby, send all the information there
+local monitor = peripheral.find("monitor")
+if (monitor) then
+	monitor.setTextScale(0.5)
+	term.redirect(monitor)
+	term.clear()
+	term.setCursorPos(1, 1)
+end
+
+--Find the new name for the log file
+local i = 0
+local log_path
+repeat
+	i = i + 1
+	log_path = fs.getDir(shell.getRunningProgram()) .. "/minerListener_logs/log" .. i .. ".txt"
+until not fs.exists(log_path)
+
+--Create log file
+local log_file = fs.open(log_path, "w")
+
+modem.open(MINER_CHANNEL)
+
+--Listen to the channel endlessly
+while true do
+    local event, side, channel, replyChannel, message, distance = os.pullEvent("modem_message")
+	
+	if (channel == MINER_CHANNEL) then
+		
+		--If the message type is an error, make the text color red
+		if (message.msg_type == "error") then
+			--Output the time first, and then the message
+			printError(os.date("%H:%M:%S: (") .. message.id .. ") " .. message.msg) 
+		else
+			print(os.date("%H:%M:%S: (") .. message.id .. ") " .. message.msg) 
+		end
+		
+		--Output msg to the log file
+		log_file.writeLine(os.date("%d.%m.%Y %H:%M:%S: (") .. message.id .. ") " .. message.msg)
+		log_file.flush()
+	end
+end
