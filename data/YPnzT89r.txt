@@ -1,0 +1,108 @@
+using BenchmarkDotNet.Attributes;
+using NewMath;
+using SixLabors.ImageSharp.Advanced;
+using SixLabors.ImageSharp.Processing;
+using Point = SixLabors.ImageSharp.Point;
+
+namespace ConsoleApp2
+{
+	[MemoryDiagnoser]
+	public class DrawingTest
+	{
+		[Benchmark]
+		public void ImageSharpDraw()
+		{
+			Program.canvas.Mutate(op => op.DrawImage(Program.overlay, new Point(Program.overlayPos.x, Program.overlayPos.y), 1));
+		}
+
+		[Benchmark]
+		public void CustomDraw()
+		{
+			int2 overlayOffset = Math2.Max(-Program.overlayPos, 0);
+			int2 srcOffset = Math2.Max(Program.overlayPos, 0);
+			int2 overlapMin = Math2.Max(Program.overlayPos, 0);
+			int2 overlapMax = Math2.Min(Program.overlayPos + Program.overlaySize, Program.canvasSize);
+			int2 overlapSize = overlapMax - overlapMin;
+
+			//if (overlapSize.x <= 0 || overlapSize.y <= 0) return subimage; // No overlap
+
+			Parallel.For(0, overlapSize.y, y =>
+			{
+				var srcRow = Program.canvas.DangerousGetPixelRowMemory(y + srcOffset.y).Span;
+				var overlayRow = Program.overlay.DangerousGetPixelRowMemory(y + overlayOffset.y).Span;
+
+				var srcSlice = srcRow.Slice(srcOffset.x, overlapSize.x);
+				var overlaySlice = overlayRow.Slice(overlayOffset.x, overlapSize.x);
+
+				for (int x = 0; x < overlapSize.x; x++)
+				{
+					ref var srcPixel = ref srcSlice[x];
+					var overlayPixel = overlaySlice[x];
+
+					if (overlayPixel.A == byte.MinValue) continue; // Overlay pixel is fully transparent
+
+					// Blend colors
+					byte iOverlayAlpha = (byte)(byte.MaxValue - overlayPixel.A);
+					byte alpha = (byte)(overlayPixel.A + srcPixel.A * iOverlayAlpha / byte.MaxValue);
+					srcPixel.R = (byte)((overlayPixel.R * overlayPixel.A + srcPixel.R * srcPixel.A * iOverlayAlpha / byte.MaxValue) / alpha);
+					srcPixel.G = (byte)((overlayPixel.G * overlayPixel.A + srcPixel.G * srcPixel.A * iOverlayAlpha / byte.MaxValue) / alpha);
+					srcPixel.B = (byte)((overlayPixel.B * overlayPixel.A + srcPixel.B * srcPixel.A * iOverlayAlpha / byte.MaxValue) / alpha);
+					srcPixel.A = alpha;
+				}
+			});
+		}
+	}
+}
+
+
+
+// ==================================================================================
+using NewMath;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Advanced;
+using BenchmarkDotNet.Running;
+
+namespace ConsoleApp2
+{
+	internal class Program
+	{
+		public static int2 overlayPos = 50;
+		public static int2 overlaySize = 5000;
+		public static int2 canvasSize = 7000;
+		public static Image<Argb32> canvas = new(canvasSize.x, canvasSize.y);
+		public static Image<Argb32> overlay = new(overlaySize.x, overlaySize.y);
+		public static Random rand = new Random(834275);
+
+		static void Main(string[] args)
+		{
+			Console.WriteLine("Creating overlay");
+			Parallel.For(0, overlaySize.y, y =>
+			{
+				byte[] bytes = new byte[4];
+				var row = overlay.DangerousGetPixelRowMemory(y).Span;
+				for (int x = 0; x < overlaySize.x; x++)
+				{
+					rand.NextBytes(bytes);
+					row[x] = new Argb32(bytes[0], bytes[1], bytes[2], bytes[3]);
+				}
+			});
+
+			Console.WriteLine("Creating canvas");
+			Parallel.For(0, canvasSize.y, y =>
+			{
+				byte[] bytes = new byte[4];
+				var row = canvas.DangerousGetPixelRowMemory(y).Span;
+				for (int x = 0; x < canvasSize.x; x++)
+				{
+					rand.NextBytes(bytes);
+					row[x] = new Argb32(bytes[0], bytes[1], bytes[2], bytes[3]);
+				}
+			});
+
+			Console.WriteLine("Finished init");
+
+			var summary = BenchmarkRunner.Run<DrawingTest>();
+		}
+	}
+}
