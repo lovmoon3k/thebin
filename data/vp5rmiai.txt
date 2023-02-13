@@ -1,0 +1,214 @@
+--//Services\--
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+--\\Services//--
+
+--//Other\\--
+local player = game.Players.LocalPlayer
+local remotes = game:GetService("ReplicatedStorage").Remotes
+local Camera = game.Workspace.CurrentCamera
+local SpaceViewPart = game.Workspace.SpaceViewPart
+local Telescope = game.Workspace.Telescope1.Telescope
+local mouse = player:GetMouse()
+local Controls = require(player.PlayerScripts.PlayerModule):GetControls()
+
+--\\Other//--
+
+--//Lighting\\--
+local DepthOfField = game.Lighting.DepthOfField
+local Blur = game.Lighting.Blur
+--\\Lighting//--
+
+--//User Interface\\--
+local TelescopeGui = script.Parent:WaitForChild("TelescopeGUI")
+local TeleportScreenGUI = script.Parent:WaitForChild("TeleportScreenGUI")
+local TelFocusFrame = TelescopeGui.FocusFrame
+local CurrentFocusDistance = TelFocusFrame.CurrentFocusDistance
+local CurrentDistanceToPlanet = TelFocusFrame.CurrentDistanceToPlanet
+local ExitButton = TelescopeGui.ExitButton
+local BlackScreen = TeleportScreenGUI.BlackScreen
+
+--\\User Interface//--
+
+--//Values\\--
+local InTelescope = false
+local RunOnlyOnce = true
+
+local CameraDistance = nil
+local CameraStartCFrame = nil
+
+local DistanceToPlanet = nil
+local LimitMinX = 100
+local LimitMaxX = -100
+local LimitMinY = -100
+local LimitMaxY = 100
+--\\Values//--
+
+--//Tweens\\--
+local TweenBlurIn = TweenService:Create(Blur, TweenInfo.new(.5, Enum.EasingStyle.Linear,Enum.EasingDirection.In),{Size = 100})
+local TweenBlurOut = TweenService:Create(Blur, TweenInfo.new(2.5, Enum.EasingStyle.Linear,Enum.EasingDirection.Out),{Size = 0})
+
+local TweenScreenIn = TweenService:Create(BlackScreen, TweenInfo.new(.45, Enum.EasingStyle.Linear,Enum.EasingDirection.In),{Transparency = 0})
+local TweenScreenOut = TweenService:Create(BlackScreen, TweenInfo.new(2.5, Enum.EasingStyle.Linear,Enum.EasingDirection.Out),{Transparency = 1})
+
+local TweenBlurExitIn = TweenService:Create(Blur, TweenInfo.new(1, Enum.EasingStyle.Linear,Enum.EasingDirection.In),{Size = 100})
+local TweenBlurExitOut = TweenService:Create(Blur, TweenInfo.new(2.5, Enum.EasingStyle.Linear,Enum.EasingDirection.Out),{Size = 0})
+
+local TweenScreenExitIn = TweenService:Create(BlackScreen, TweenInfo.new(1, Enum.EasingStyle.Linear,Enum.EasingDirection.In),{Transparency = 0})
+local TweenScreenExitOut = TweenService:Create(BlackScreen, TweenInfo.new(2.5, Enum.EasingStyle.Linear,Enum.EasingDirection.Out),{Transparency = 1})
+
+local TweenToTelescope = TweenService:Create(Camera,TweenInfo.new(0.5,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{CFrame = Telescope.Main.CFrame})
+local TweenToPlayer = TweenService:Create(Camera,TweenInfo.new(0.5,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{CFrame = Telescope.Main.CFrame})
+--\\Tweens//--
+
+--//Functions\\--
+local function CheckTarget()
+	local target = mouse.Target
+	if target == nil then
+		TelescopeGui.FocusFrame.CurrentDistanceToPlanet.Text = "Nil"
+		return end
+	if target:IsA("Part") or target:IsA("Model") then
+		DistanceToPlanet = target.Position.Z - SpaceViewPart.Position.Z
+		TelescopeGui.FocusFrame.CurrentDistanceToPlanet.Text = DistanceToPlanet
+		print(target.Name)
+	end
+end
+local function CheckFocusDistance()
+	TelescopeGui.FocusFrame.CurrentFocusDistance.Text = DepthOfField.FocusDistance
+end
+--\\Functions//--
+
+--//First Call\\--
+remotes.TelescopeActivated.OnClientEvent:Connect(function()
+	Controls:Disable()
+	CameraStartCFrame = Camera.CFrame
+	CameraDistance = CameraStartCFrame.Position - player.Character:FindFirstChild("Head").Position
+	Camera.CameraType = Enum.CameraType.Scriptable
+	
+	TweenToTelescope:Play()
+	TweenBlurIn:Play()
+	TweenScreenIn:Play()
+	TweenToTelescope.Completed:Wait()
+	
+	Camera.CFrame = SpaceViewPart.CFrame * CFrame.new(math.random(0,100),0,math.random(0,100))
+	
+	TweenBlurOut:Play()
+	TweenScreenOut:Play()
+
+	DepthOfField.Enabled = true
+	DepthOfField.FocusDistance = math.random(0,500)
+	TelescopeGui.Enabled = true
+	ExitButton.Active = true
+
+	UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+	mouse.Icon = "rbxassetid://12217220621"
+
+	InTelescope = true
+
+	CheckTarget()
+	CheckFocusDistance()
+end)
+--\\First Call//--
+
+--//Main Code\\--
+UserInputService.InputBegan:Connect(function(input)
+	if InTelescope == true then
+		if input.KeyCode == Enum.KeyCode.E then
+			ExitButton.Active = false
+			DepthOfField.Enabled = false
+			TelescopeGui.Enabled = false
+
+			TweenScreenExitIn:Play()
+
+			TweenBlurExitIn:Play()
+
+			TweenBlurExitIn.Completed:Wait()
+			Camera.CFrame = Telescope.Main.CFrame
+
+			local NewPos = player.Character:FindFirstChild("Head").Position + CameraDistance
+			local TweenPositionGoal = CFrame.new(NewPos,NewPos + CameraStartCFrame.LookVector)
+
+			local ToPlayerHeadTween = TweenService:Create(Camera, TweenInfo.new(2,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{CFrame = TweenPositionGoal})
+			TweenScreenExitOut:Play()
+			ToPlayerHeadTween:Play()
+
+			TweenBlurExitOut:Play()
+			Camera.CameraType = Enum.CameraType.Custom
+			mouse.Icon = ""
+			InTelescope = false
+			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+			Controls:Enable()
+		end
+	end
+end)
+ExitButton.Activated:Connect(function()
+	
+end)
+
+mouse.WheelForward:Connect(function()
+	if InTelescope == true then
+		DepthOfField.FocusDistance += 5
+		TelescopeGui.FocusFrame.CurrentFocusDistance.Text = DepthOfField.FocusDistance
+	end
+end)
+mouse.WheelBackward:Connect(function()
+	if InTelescope == true then
+		DepthOfField.FocusDistance -= 5
+		TelescopeGui.FocusFrame.CurrentFocusDistance.Text = DepthOfField.FocusDistance
+	end
+end)
+UserInputService.InputBegan:Connect(function(input)
+	if InTelescope == true then
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			CheckTarget()
+			while UserInputService:IsKeyDown(Enum.KeyCode.W) do
+				CheckTarget()
+				if Camera.CFrame.Y >= LimitMaxY then
+					print("Limit Max Y Reached")
+					return end
+				local goalUp = Camera.CFrame * CFrame.new(0,5,0)
+				local TweenUp = TweenService:Create(Camera, TweenInfo.new(0.125, Enum.EasingStyle.Linear,Enum.EasingDirection.In),{CFrame = goalUp})
+				TweenUp:Play()
+				--print("Telescope Up")
+				TweenUp.Completed:Wait()
+			end
+			while UserInputService:IsKeyDown(Enum.KeyCode.S) do
+				CheckTarget()
+				if Camera.CFrame.Y <= LimitMinY then
+					print("Limit Min Y Reached")
+					return end
+				local goalDown = Camera.CFrame * CFrame.new(0,-5,0)
+				local TweenDown = TweenService:Create(Camera, TweenInfo.new(0.125, Enum.EasingStyle.Linear,Enum.EasingDirection.In),{CFrame = goalDown})
+				TweenDown:Play()
+				--rint("Telescope Down")
+				TweenDown.Completed:Wait()
+			end
+			while UserInputService:IsKeyDown(Enum.KeyCode.D) do
+				CheckTarget()
+				if Camera.CFrame.X <= LimitMaxX then
+					print("Limit Max X Reached")
+					return end
+				local goalRight = Camera.CFrame * CFrame.new(5,0,0)
+				local TweenRight = TweenService:Create(Camera, TweenInfo.new(0.125, Enum.EasingStyle.Linear,Enum.EasingDirection.In),{CFrame = goalRight})
+				TweenRight:Play()
+				--print("Telescope Right")
+				TweenRight.Completed:Wait()
+			end
+			while UserInputService:IsKeyDown(Enum.KeyCode.A) do
+				CheckTarget()
+				if Camera.CFrame.X >= LimitMinX then
+					print("Limit Min X Reached")
+					return end
+				local goalLeft = Camera.CFrame * CFrame.new(-5,0,0)
+				local TweenLeft = TweenService:Create(Camera, TweenInfo.new(0.125, Enum.EasingStyle.Linear,Enum.EasingDirection.In),{CFrame = goalLeft})
+				TweenLeft:Play()
+				--print("Telescope Left")
+				TweenLeft.Completed:Wait()
+			end
+		end
+	end
+end)
+--\\Main Code//--
+
+
+

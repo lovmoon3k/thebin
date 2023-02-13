@@ -1,0 +1,121 @@
+--//Plot selection Script Client\\--
+script.Parent.SelectPlotFrame.Visible = false
+
+local TweenService = game:GetService("TweenService")
+local plots = workspace.Plots
+local plotButton = script.Parent:WaitForChild("PlotButton")
+local selectingPlot = false
+local camera = workspace.CurrentCamera
+local PlayerCamCFrame = nil
+local player = game.Players.LocalPlayer
+
+plotButton.MouseButton1Click:Connect(function()
+	local ownedPlot = nil
+	for i, plot in pairs(plots:GetChildren()) do
+		if tonumber(plot.Owner.Value) == game.Players.LocalPlayer.UserId then
+			ownedPlot = plot
+		end
+	end
+
+	if ownedPlot then
+		game.ReplicatedStorage.Remotes.PlotSystemRemote:FireServer("removePlot")
+		plotButton.Text = "PLOTS"
+		selectingPlot = false
+		script.Parent.SelectPlotFrame.Visible = false
+	else
+		selectingPlot = not selectingPlot
+		if selectingPlot then
+			PlayerCamCFrame = camera.CFrame
+			camera.CameraType = Enum.CameraType.Scriptable
+			local plotsToSelect = {}
+			for i, plot in pairs(plots:GetChildren()) do
+				if plot.Owner.Value == "" then
+					table.insert(plotsToSelect, plot)
+				end
+			end
+			local currentPlot = 1
+			script.Parent.SelectPlotFrame.PlotName.Text = plotsToSelect[currentPlot].Name
+			
+			local PlotGoal1 = CFrame.new(plotsToSelect[currentPlot].plot.Position + Vector3.new(0, 70, 0)+ plotsToSelect[currentPlot].plot.CFrame.LookVector * 50, plotsToSelect[currentPlot].plot.Position)
+			local PlotTween1 = TweenService:Create(camera,TweenInfo.new(1,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{CFrame = PlotGoal1})
+			PlotTween1:Play()
+			
+			script.Parent.SelectPlotFrame.LeftArrow.MouseButton1Click:Connect(function()
+				currentPlot -= 1
+				if currentPlot == 0 then currentPlot = #plotsToSelect end
+				script.Parent.SelectPlotFrame.PlotName.Text = plotsToSelect[currentPlot].Name
+				
+				local PlotGoal2 = CFrame.new(plotsToSelect[currentPlot].plot.Position + Vector3.new(0, 70, 0)+ plotsToSelect[currentPlot].plot.CFrame.LookVector * 50, plotsToSelect[currentPlot].plot.Position)
+				local PlotTween2 = TweenService:Create(camera,TweenInfo.new(1,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{CFrame = PlotGoal2})
+				PlotTween2:Play()
+				
+			end)
+			script.Parent.SelectPlotFrame.RightArrow.MouseButton1Click:Connect(function()
+				currentPlot += 1
+				if currentPlot == #plotsToSelect + 1 then currentPlot = 1 end
+				script.Parent.SelectPlotFrame.PlotName.Text = plotsToSelect[currentPlot].Name
+				
+				local PlotGoal3 = CFrame.new(plotsToSelect[currentPlot].plot.Position + Vector3.new(0, 70, 0)+ plotsToSelect[currentPlot].plot.CFrame.LookVector * 50, plotsToSelect[currentPlot].plot.Position)
+				local PlotTween3 = TweenService:Create(camera,TweenInfo.new(1,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{CFrame = PlotGoal3})
+				PlotTween3:Play()
+			end)
+			script.Parent.SelectPlotFrame.Visible = true
+		else
+			camera.CameraType = Enum.CameraType.Custom
+			script.Parent.SelectPlotFrame.Visible = false
+		end
+	end
+end)
+
+script.Parent.SelectPlotFrame.SelectPlotButton.MouseButton1Click:Connect(function()
+	game.ReplicatedStorage.Remotes.PlotSystemRemote:FireServer("buyPlot", script.Parent.SelectPlotFrame.PlotName.Text)
+end)
+
+game.ReplicatedStorage.Remotes.PlotSystemRemote.OnClientEvent:Connect(function(instruction)
+	plotButton.Text = "SELL PLOT"
+	selectingPlot = false
+	local PlayerGoal1 = CFrame.new(player.Character.Head.Position + PlayerCamCFrame.LookVector)
+	local PlayerTween1 = TweenService:Create(camera,TweenInfo.new(1,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{CFrame = PlayerGoal1})
+	PlayerTween1:Play()
+	PlayerTween1.Completed:Wait()
+	camera.CameraType = Enum.CameraType.Custom
+	script.Parent.SelectPlotFrame.Visible = false
+end)
+
+--//Plot Selection Script Server\\--
+local plots = workspace:WaitForChild("Plots")
+
+for i, plot in pairs(plots:GetChildren()) do
+	local ownerValue = Instance.new("StringValue", plot)
+	ownerValue.Name = "Owner"
+end
+
+local remote = game.ReplicatedStorage.Remotes:WaitForChild("PlotSystemRemote")
+
+remote.OnServerEvent:Connect(function(plr, instruction, plotName)
+	if instruction == "removePlot" then
+		local playerPlot = nil
+		for i, plot in pairs(plots:GetChildren()) do
+			if tonumber(plot.Owner.Value) == plr.UserId then
+				playerPlot = plot
+			end
+		end
+		if playerPlot then
+			playerPlot.Owner.Value = ""
+		end
+	elseif instruction == "buyPlot" then
+		if plots:FindFirstChild(plotName) and plots[plotName].Owner.Value == "" then
+			plots[plotName].Owner.Value = plr.UserId 
+			remote:FireClient(plr)
+			plr.Character.HumanoidRootPart.CFrame = plots[plotName].plot.CFrame + Vector3.new(0, 10, 0)
+		end
+	end
+end)
+
+game.Players.PlayerRemoving:Connect(function(plr)
+	for i, plot in pairs(plots:GetChildren()) do
+		if tonumber(plot.Owner.Value) == plr.UserId then
+			plot.Owner.Value = ""
+		end
+	end
+end)
