@@ -1,0 +1,201 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Maurizio-Ciullo
+
+// breakMaxMinIntraD = (High0/Low0 Maggiore/Minore HighD0/LowD0 Session)                                    
+// breakMaxMinClose = (Close Maggiore/Minore HighD1/LowD1)
+      
+
+//@version=5
+strategy("Indicatore Strategia Grezza Break Out", overlay=true,
+     pyramiding=0,
+     initial_capital=100,
+     commission_type=strategy.commission.cash_per_contract,
+     commission_value=0.0,
+     slippage=0,
+     default_qty_type=strategy.fixed,
+     default_qty_value=100)
+
+
+//inputs
+on_off_breakMaxMinIntraD = input.bool(title='Break Max Min IntraD Activate', defval=true, inline='1', group='Test Selection', tooltip="Testa Break Max Min Intra-Day")
+in_solo_long_breakMaxMinIntraD = input.bool(title='Solo Long Break Max Min IntraD', defval=false, inline='1', group='Direzione Break Max Min IntraD')
+in_solo_short_breakMaxMinIntraD = input.bool(title='Solo Short Break Max Min IntraD', defval=false, inline='1', group='Direzione Break Max Min IntraD')
+
+
+on_off_breakMaxMinClose = input.bool(title='Break Max Min Close Activate', defval=false, inline='1', group='Test Selection', tooltip="Testa Break Max Min Close")
+in_solo_long_breakMaxMinClose = input.bool(title='Solo Long Break Max Min Close', defval=false, inline='1', group='Direzione Break Max Min Close')
+in_solo_short_breakMaxMinClose = input.bool(title='Solo Short Break Max Min Close', defval=false, inline='1', group='Direzione Break Max Min Close')
+
+
+// Calcolo del range del backtest
+startDate = input.int(title="Start Date",
+     defval=17, minval=1, maxval=31, group="Periodo")
+startMonth = input.int(title="Start Month",
+     defval=08, minval=1, maxval=12, group="Periodo")
+startYear = input.int(title="Start Year",
+     defval=2000, minval=1800, maxval=2100, group="Periodo")
+
+endDate = input.int(title="End Date",
+     defval=01, minval=1, maxval=31, group="Periodo")
+endMonth = input.int(title="End Month",
+     defval=01, minval=1, maxval=12, group="Periodo")
+endYear = input.int(title="End Year",
+     defval=2121, minval=1800, maxval=2150, group="Periodo")
+
+
+inDateRange = (time >= timestamp(syminfo.timezone, startYear,
+         startMonth, startDate, 0, 0)) and
+     (time < timestamp(syminfo.timezone, endYear, endMonth, endDate, 0, 0))
+     
+     
+// Start Hour Range Trading Non Attivo /////////////////////
+//hourTrading = input(title='sessione valida di trading', defval='0600-2300:23456')
+//hourRangeTrading = time(timeframe.period, hourTrading)     
+     
+     
+///////////////////  Start Detecting High0 Session  ///////////////////
+
+// Configure session with inputs
+session_high  = input.session("0000-0100", title="Trading Session")
+timeZone_high = input.string("GMT+2", title="Time Zone")
+
+// SessionHigh() returns the highest price during the specified 
+// session, optionally corrected for the given time zone.
+// Returns 'na' when the session hasn't started or isn't on the chart.
+SessionHigh(sessionTime, sessionTimeZone=syminfo.timezone) =>
+    insideSession = not na(time(timeframe.period, sessionTime, sessionTimeZone))
+    var float sessionHighPrice = na
+
+    if insideSession and not insideSession[1]
+        sessionHighPrice := high
+    else if not insideSession and high > sessionHighPrice // Inserito personalmente perchè se fuori sessione e massimo più alto non aggiornava
+        sessionHighPrice := high // // Inserito personalmente perchè se fuori sessione e massimo più alto non aggiornava
+    else if insideSession
+        sessionHighPrice := math.max(sessionHighPrice, high)
+    
+    sessionHighPrice
+
+// InSession() returns 'true' when the current bar happens inside
+// the specified session, corrected for the given time zone (optional).
+// Returns 'false' when the bar doesn't happen in that time period,
+// or when the chart's time frame is 1 day or higher. 
+InSessionHigh(sessionTimes, sessionTimeZone=syminfo.timezone) =>
+    not na(time(timeframe.period, sessionTimes, sessionTimeZone))
+
+// Get the session high
+highd0 = SessionHigh(session_high, timeZone_high)
+
+// Show the session high on the chart
+//plot(highd0, color=color.green, title="Highd0")
+
+// For visual verification, highlight the background of session bars
+bgcolor(InSessionHigh(session_high, timeZone_high) ? color.new(color.orange, 90) : na)
+
+// ///////////////////  End Detecting High0 Session  ///////////////////
+
+
+// ///////////////////  Start Detecting Low0 Session  ///////////////////
+
+// Configure session with inputs
+session_low  = input.session("0000-0100", title="Trading Session")                                  
+timeZone_low = input.string("GMT+2", title="Time Zone") 
+
+// SessionLow() returns the lowest price during the specified 
+// session, optionally corrected for the given time zone.
+// Returns 'na' when the session hasn't started or isn't on the chart.
+SessionLow(sessionTime, sessionTimeZone=syminfo.timezone) =>                                       
+    insideSession = not na(time(timeframe.period, sessionTime, sessionTimeZone))
+    var float sessionLowPrice = na
+
+    if insideSession and not insideSession[1]
+        sessionLowPrice := low
+    else if not insideSession and low < sessionLowPrice // Inserito personalmente perchè se fuori sessione e minimo più basso non aggiornava
+        sessionLowPrice := low // // Inserito personalmente perchè se fuori sessione e minimo più basso non aggiornava
+    else if insideSession
+        sessionLowPrice := math.min(sessionLowPrice, low)
+    
+    sessionLowPrice
+
+// InSession() returns 'true' when the current bar happens inside
+// the specified session, corrected for the given time zone (optional).
+// Returns 'false' when the bar doesn't happen in that time period,
+// or when the chart's time frame is 1 day or higher. 
+InSessionLow(sessionTimes, sessionTimeZone=syminfo.timezone) => 
+    not na(time(timeframe.period, sessionTimes, sessionTimeZone))
+
+// Get the session low
+lowd0 = SessionLow(session_low, timeZone_low)
+
+// Show the session low on the chart
+//plot(lowd0, color=color.red, title="Lowd0")
+
+// For visual verification, lowest the background of session bars
+//bgcolor(InSessionLow(session_low, timeZone_low) ? color.new(color.orange, 90) : na)
+
+// ///////////////////  End Detecting Low0 Session  ///////////////////
+
+
+///////////////////  Start Detecting HighD1 Session  ///////////////////
+
+highd1 = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+plot(highd1, title="highd1")
+
+// ///////////////////  End Detecting HighD1 Session  ///////////////////
+
+
+///////////////////  Start Detecting LowD1 Session  ///////////////////
+     
+lowd1 = request.security(syminfo.tickerid, "D", low[1], lookahead = barmerge.lookahead_on)
+plot(lowd1, title="lowd1")    
+     
+ ///////////////////  End Detecting LowD1 Session  ///////////////////  
+
+                                            
+//-----------------------------------------------------------------------------------------------------------------------------------------------------//
+											   // Inizio Test Break Max Min Intra Day //
+//-----------------------------------------------------------------------------------------------------------------------------------------------------//                                              
+
+// Long e Short Break Max Min Intra Day
+if in_solo_long_breakMaxMinIntraD == false and  in_solo_short_breakMaxMinIntraD == false and on_off_breakMaxMinIntraD and inDateRange
+    strategy.entry('operazioneLong', strategy.long, stop=highd0, alert_message = "Open Long Position")
+    strategy.entry('operazioneShort', strategy.short, stop=lowd0, alert_message = "Open Long Position") 
+
+ 
+// Solo Long Break Max Min Intra Day
+if in_solo_long_breakMaxMinIntraD == true and in_solo_short_breakMaxMinIntraD == false and on_off_breakMaxMinIntraD and inDateRange
+    strategy.entry('operazioneLong', strategy.long, stop=highd0, alert_message = "Open Long Position")
+    strategy.exit('SL e TP', from_entry='operazioneLong', stop=lowd0, alert_message = "Your Long SL-TP Has Been Triggered.")
+
+
+// Solo Short Break Max Min Intra Day
+if in_solo_short_breakMaxMinIntraD == true and in_solo_long_breakMaxMinIntraD == false and on_off_breakMaxMinIntraD and inDateRange
+    strategy.entry('operazioneShort', strategy.short, stop=lowd0, alert_message = "Open Short Position")
+    strategy.exit('SL e TP', from_entry='operazioneShort', stop=highd0, alert_message = "Your Short SL-TP Has Been Triggered.")  
+
+
+//-----------------------------------------------------------------------------------------------------------------------------------------------------//                                    
+                                              // Inizio Test Break Max Min Close //
+//-----------------------------------------------------------------------------------------------------------------------------------------------------//
+
+// Long E Short Insieme Break Max Min Close                              
+if in_solo_long_breakMaxMinClose == false and in_solo_short_breakMaxMinClose == false and on_off_breakMaxMinClose and inDateRange
+    if close > highd1
+        strategy.entry('operazioneLong', strategy.long, alert_message = "Open Long Position")
+    if close < lowd1
+        strategy.entry('operazioneShort', strategy.short, alert_message = "Open Short Position")    
+
+
+// Solo Long Break Max Min Close
+if in_solo_long_breakMaxMinClose == true and in_solo_short_breakMaxMinClose == false and on_off_breakMaxMinClose and inDateRange
+    if close > highd1
+        strategy.entry('operazioneLong', strategy.long, alert_message = "Open Long Position")
+    if close < lowd1
+        strategy.close('operazioneLong', alert_message = "Your Long SL-TP Has Been Triggered.") 
+
+
+// Solo Short Break Max Min Close
+if in_solo_short_breakMaxMinClose == true and in_solo_long_breakMaxMinClose == false and on_off_breakMaxMinClose and inDateRange
+    if close < lowd1
+        strategy.entry('operazioneShort', strategy.short, alert_message = "Open Short Position")
+    if close > highd1
+        strategy.close('operazioneShort', alert_message = "Your Long SL-TP Has Been Triggered.")
