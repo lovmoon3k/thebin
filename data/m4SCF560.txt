@@ -1,0 +1,275 @@
+import re
+from typing import List, Callable
+# from utils.errors import ConsoleError
+from utils.wrappers.tstring import TimingString
+from utils.helpers import is_hex
+from utils.errors import ConsoleError
+from utils.enums import InvelionCommand, InvelionErrorCode
+from utils.structs import InvelionResponse, InvelionInventoryResponse,\
+    InvelionErrorResponse, InvelionFastInventoryStatsResponse,\
+    InvelionRealInventoryStatsResponse, InvelionPortLossResponse,\
+    InvelionTemperatureResponse, InvelionGetAntennaResponse,\
+    InvelionSetAntennaResponse, InvelionWriteResponse
+
+
+# class ParserMeta(type):
+class ParserMeta:
+    def __init__(self, name) -> None:
+        self.__method = re.fullmatch('^decode_[0-9a-f]{2}$', name)
+
+# Валидация на method атрибута --------------------------------------
+    # f-string форматиране за стринговете (да се направя на модерен :))
+
+    @property
+    def __method(self):
+        return self._method
+
+    @__method.setter
+    def __method(self, value):
+        if value is not None:
+            cmd = value[-2:]
+            if InvelionCommand.has_value(cmd):
+                method_name = f'decode_{str(InvelionCommand(cmd))}'
+                if hasattr(InvelionCommand, method_name):
+                    method = getattr(InvelionCommand, method_name)
+                    if callable(method):
+                        self._method = value
+        raise AttributeError(f'InvelionParser класа няма decode метод за команда {(value[-2:])}')
+
+# --------------------------------------------------------------------
+
+    def __getattr__(self):
+        return self.__method
+
+
+class InvelionParser(metaclass=ParserMeta):
+    HEAD = 'a0'
+
+# Без @classmethod, за да не се създават инстанции на InvelionParser класа,
+# а просто да връща резултат от метода...
+
+    def set_work_antenna(self, address: int, ant_id: int) -> bytes:
+        return self._create_packet(InvelionCommand.SET_WORK_ANTENNA, address, ant_id)
+
+    def get_work_antenna(self, address: int) -> bytes:
+        return self._create_packet(InvelionCommand.GET_WORK_ANTENNA, address)
+
+    def get_reader_temperature(self, address: int) -> bytes:
+        return self._create_packet(InvelionCommand.GET_READER_TEMPERATURE, address)
+
+    def get_rf_port_return_loss(self, address: int, frequency: int) -> bytes:
+        return self._create_packet(InvelionCommand.GET_RF_PORT_RETURN_LOSS, address, frequency)
+
+    # TODO ako shte dobavqme dopylnitelni danni da e s otdelen parametyr i za da se
+    #  prochete s inventory nqma da stane shte trqbva cmd read da se implementira
+    def write(self, address: int, new_epc: str, umi: bool) -> bytes:
+        if is_hex(new_epc):
+            if (len(new_epc) % 4) == 0:
+                epc = new_epc
+            else:
+                epc = new_epc.zfill(len(new_epc) + (4 - (len(new_epc) % 4)))
+            epc_word_len = len(epc) // 4
+            if 1 <= epc_word_len <= 8:
+                pc_first_byte = format(int(f"{format(epc_word_len, '05b')}"
+                    f"{int(umi)}00", 2), '02x')
+                pack = [self.HEAD, '??', format(address, '02x'), InvelionCommand
+                        .WRITE.value, '00', '00', '00', '00', '01', '01', format(
+                        epc_word_len + 1, '02x'), pc_first_byte, '00', *re.findall(
+                        '..', epc)]
+                pack[1] = format(len(pack) - 1, '02x')
+                pack.append(self.calculate_crc(pack))
+                return bytes.fromhex(''.join(pack))
+            else:
+                raise ConsoleError('Дължината на чип номера трябва да е от 1 до'
+                    ' 16 байта(или 32 хекс цифри)')
+        else:
+            raise ConsoleError('Чип номера трябва да е хекс стринг')
+
+    def real_time_inventory(self, address: int, repeat: int) -> bytes:
+        return self._create_packet(InvelionCommand.REAL_TIME_INVENTORY, address, repeat)
+
+    def fast_switch_ant_inventory_4p(self, address: int, ant1: int, st1: int,
+            ant2: int, st2: int, ant3: int, st3: int, ant4: int, st4: int,
+            interval: int, repeat: int) -> bytes:
+        return self._create_packet(InvelionCommand.FAST_SWITCH_ANT_INVENTORY,
+            address, ant1, st1, ant2, st2, ant3, st3, ant4, st4, interval, repeat)
+
+    def fast_switch_ant_inventory_8p(self, address: int, ant1: int, st1: int,
+            ant2: int, st2: int, ant3: int, st3: int, ant4: int, st4: int,
+            ant5: int, st5: int, ant6: int, st6: int, ant7: int, st7: int, ant8:
+            int, st8: int, interval: int, repeat: int) -> bytes:
+        return self._create_packet(InvelionCommand.FAST_SWITCH_ANT_INVENTORY,
+            address, ant1, st1, ant2, st2, ant3, st3, ant4, st4, ant5, st5, ant6,
+            st6, ant7, st7, ant8, st8, interval, repeat)
+
+    def decode_set_work_antenna(self, packet_hex: List[str], device_id: str) ->\
+            InvelionResponse:
+        if self.check_crc(packet_hex):
+            if (packet_hex[1] == '04') and (packet_hex[3] == InvelionCommand
+                    .SET_WORK_ANTENNA.value):
+                return InvelionSetAntennaResponse(
+                    device_id=device_id,
+                    time=TimingString.timing_formatted_now(),
+                    success=True if packet_hex[-2] == InvelionErrorCode
+                        .COMMAND_SUCCESS.value else False
+                )
+        return InvelionErrorResponse(
+            device_id=device_id,
+            time=TimingString.timing_formatted_now(),
+            error_code=InvelionErrorCode.COMMAND_FAIL
+        )
+
+    def decode_get_work_antenna(self, packet_hex: List[str], device_id: str) ->\
+            InvelionResponse:
+        if self.check_crc(packet_hex):
+            if (packet_hex[1] == '04') and (packet_hex[3] == InvelionCommand
+                    .GET_WORK_ANTENNA.value):
+                return InvelionGetAntennaResponse(
+                    device_id=device_id,
+                    time=TimingString.timing_formatted_now(),
+                    ant_id=int(packet_hex[-2], 16)
+                )
+        return InvelionErrorResponse(
+            device_id=device_id,
+            time=TimingString.timing_formatted_now(),
+            error_code=InvelionErrorCode.COMMAND_FAIL
+        )
+
+    def decode_get_reader_temperature(self, packet_hex: List[str], device_id:
+            str) -> InvelionResponse:
+        if self.check_crc(packet_hex):
+            if packet_hex[3] == InvelionCommand.GET_READER_TEMPERATURE.value:
+                if packet_hex[1] == '04':
+                    return InvelionErrorResponse(
+                        device_id=device_id,
+                        time=TimingString.timing_formatted_now(),
+                        error_code=InvelionErrorCode(packet_hex[-2])
+                    )
+                elif packet_hex[1] == '05':
+                    # obyrnahme minusa s pliusa, che ne e kakto v protokola???
+                    if packet_hex[-3] == '01':
+                        temp = int(packet_hex[-2], 16)
+                    elif packet_hex[-3] == '00':
+                        temp = -(int(packet_hex[-2], 16))
+                    return InvelionTemperatureResponse(
+                        device_id=device_id,
+                        time=TimingString.timing_formatted_now(),
+                        temperature=temp
+                    )
+        return InvelionErrorResponse(
+            device_id=device_id,
+            time=TimingString.timing_formatted_now(),
+            error_code=InvelionErrorCode.COMMAND_FAIL
+        )
+
+    def decode_get_rf_port_return_loss(self, packet_hex: List[str], device_id:
+            str) -> InvelionResponse:
+        if self.check_crc(packet_hex):
+            if (packet_hex[1] == '04') and (packet_hex[3] == InvelionCommand
+                    .GET_RF_PORT_RETURN_LOSS.value):
+                data = int(packet_hex[-2], 16)
+                # 16 i 87 sa pyrviqt i posledniqt error_code v int
+                # tova se pravi zashtoto i dyljinite i komandite sa ednakvi
+                if 16 <= data <= 87:
+                    return InvelionErrorResponse(
+                        device_id=device_id,
+                        time=TimingString.timing_formatted_now(),
+                        error_code=InvelionErrorCode(packet_hex[-2])
+                    )
+                else:
+                    return InvelionPortLossResponse(
+                        device_id=device_id,
+                        time=TimingString.timing_formatted_now(),
+                        return_loss=data
+                    )
+        return InvelionErrorResponse(
+            device_id=device_id,
+            time=TimingString.timing_formatted_now(),
+            error_code=InvelionErrorCode.COMMAND_FAIL
+        )
+
+    def decode_write(self, packet_hex: List[str], device_id: str) ->\
+            InvelionResponse:
+        if self.check_crc(packet_hex):
+            if packet_hex[1] == '04':
+                return InvelionErrorResponse(
+                    device_id=device_id,
+                    time=TimingString.timing_formatted_now(),
+                    error_code=InvelionErrorCode(packet_hex[-2])
+                )
+            elif packet_hex[3] == InvelionCommand.WRITE.value:
+                return InvelionWriteResponse(
+                    device_id=device_id,
+                    time=TimingString.timing_formatted_now()
+                )
+        return InvelionErrorResponse(
+            device_id=device_id,
+            time=TimingString.timing_formatted_now(),
+            error_code=InvelionErrorCode.COMMAND_FAIL
+        )
+
+    def decode_real_time_inventory(self, packet_hex: List[str], device_id: str)\
+            -> InvelionResponse:
+        if self.check_crc(packet_hex):
+            if packet_hex[1] == '04':
+                return InvelionErrorResponse(
+                    device_id=device_id,
+                    time=TimingString.timing_formatted_now(),
+                    error_code=InvelionErrorCode(packet_hex[-2])
+                )
+            elif packet_hex[1] == '0a':
+                if packet_hex[3] == InvelionCommand.REAL_TIME_INVENTORY.value:
+                    return InvelionRealInventoryStatsResponse(
+                        device_id=device_id,
+                        time=TimingString.timing_formatted_now(),
+                        ant_id=int(packet_hex[4], 16),
+                        read_rate=int(''.join(packet_hex[5:7]), 16),
+                        total_read=int(''.join(packet_hex[7:11]), 16)
+                    )
+                elif packet_hex[3] == InvelionCommand.FAST_SWITCH_ANT_INVENTORY\
+                        .value:
+                    return InvelionFastInventoryStatsResponse(
+                        device_id=device_id,
+                        time=TimingString.timing_formatted_now(),
+                        total_read=int(''.join(packet_hex[4:7]), 16)
+                    )
+            elif packet_hex[3] in (InvelionCommand.REAL_TIME_INVENTORY.value,
+                    InvelionCommand.FAST_SWITCH_ANT_INVENTORY.value):
+                bin_data = format(int(packet_hex[4], 16), '08b')
+                # ant_id na 8 ports platka sa 2x4(2x0-3), toest nqma 4-7 a se
+                # povtarqt 0-3
+                return InvelionInventoryResponse(
+                    device_id=device_id,
+                    time=TimingString.timing_formatted_now(),
+                    pc=''.join(packet_hex[5:7]),
+                    epc=''.join(packet_hex[7:-2]).lstrip('0') or '0',
+                    ant_id=int(bin_data[6:], 2),
+                    rssi=int(packet_hex[-2], 16)
+                )
+        return InvelionErrorResponse(
+            device_id=device_id,
+            time=TimingString.timing_formatted_now(),
+            error_code=InvelionErrorCode.COMMAND_FAIL
+        )
+
+    decode_fast_switch_ant_inventory = decode_real_time_inventory
+
+    @staticmethod
+    def calculate_crc(packet_hex: List[str]) -> str:
+        check_sum = 0x00
+        for byte_hex in packet_hex:
+            check_sum += int(byte_hex, 16)
+        return format(((~check_sum) + 1) & 0xff, '02x')
+
+    def check_crc(self, packet_hex: List[str]) -> bool:
+        return True if self.calculate_crc(packet_hex[:-1]) == packet_hex[-1]\
+            else False
+
+    def _create_packet(self, command: InvelionCommand, address: int, *data: int)\
+            -> bytes:
+        data_str = list(map(lambda x: format(x, '02x'), data))
+        pack_len = len(data_str) + 3
+        pack = [self.HEAD, format(pack_len, '02x'), format(address, '02x'),
+            command.value] + data_str
+        pack.append(self.calculate_crc(pack))
+        return bytes.fromhex(''.join(pack))
