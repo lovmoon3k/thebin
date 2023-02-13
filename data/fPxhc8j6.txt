@@ -1,0 +1,98 @@
+import os, time, json#, shutil
+from pathlib import Path
+from datetime import timedelta, datetime
+from threading import Thread
+# from multiprocessing import Process
+from utils.models import MongoModel, ThreadsModel
+from utils.interfaces.thread import ThreadInterface
+from utils.decorators import catch_errors
+from utils.models import ConsoleModel
+from utils.errors import ConsoleError
+
+
+# TODO moje bi da se dobavi nastroika za vreme i puskane/spirane
+class Backup(ThreadInterface):
+    INTERVAL_IN_SECS = timedelta(minutes=15).total_seconds()
+
+    def __init__(self, event_path: Path, event_start_timestamp: float) -> None:
+        self._event_start_timestamp = event_start_timestamp
+        self._last_backup_timestamp: float
+        self._backups_path = event_path / 'backups'
+        self._terminated = False
+        ThreadsModel.add_threaded_object(self)
+        Thread(target=self._looper).start()
+
+# Валидация на _backups_path -----------------------------------------------------------
+    @property
+    def _backups_path(self):
+        return self._backups_path
+    @_backups_path.setter
+    def _backups_path(self, value):
+        if not value.exists():
+            value.mkdir(parents=True)
+        if value.is_file() or not os.access(value, os.W_OK):
+            raise ConsoleError('Папката на backups-ите съществува като файл или'
+                ' няма достъп до нея!!!')
+        self._backups_path = value
+# ---------------------------------------------------------------------------------------
+
+    def __del__(self) -> None:
+        self._terminated = True
+
+
+# Мисля, че няма нужда от terminated setter-a, -------------------------------------------
+# защото няма "terminated" пропърти в init-a, a "_terminated"
+# а, пък и няма нужда от валидация за "_terminated", защото не приема външен параметър
+
+    # @property
+    # def terminated(self) -> bool:
+    #     return self._terminated
+
+    # @terminated.setter
+    # def terminated(self, state: bool) -> None:
+    #     self._terminated = state
+
+# -----------------------------------------------------------------------------------------
+
+
+    event_start_timestamp = property()
+
+    @event_start_timestamp.setter# type: ignore[no-redef]
+    def event_start_timestamp(self, timestamp: float) -> None:
+        self._event_start_timestamp = timestamp
+
+    # TODO catch_errors ne raboti s process-i, no s thread raboti
+    @catch_errors
+    def _looper(self) -> None:
+        TimingsDoc = MongoModel.get_timings_cls()
+        # self._backup_counter = 0
+        self._last_backup_timestamp = time.time()
+        while not self._terminated:
+            cur_timestamp = time.time()
+            if (cur_timestamp >= self._event_start_timestamp) and ((cur_timestamp
+                    - self._last_backup_timestamp) >= self.INTERVAL_IN_SECS):
+                if self._backups_path.exists():
+                    backup_file = self._find_next_free_backup_file()
+                    # shutil.copyfile(self._event_timings_file, self
+                    #     ._find_free_backup_file())
+                    with backup_file.open('w') as f:
+                        json.dump(json.loads(TimingsDoc.objects().to_json()), f,
+                            ensure_ascii=False, indent=4, sort_keys=True)
+                    self._last_backup_timestamp = cur_timestamp
+                    # TODO ot process nqma da stane, no mi se iska da e process, no s thread e drugo
+                    ConsoleModel.log_message('Създаден е нов backup файл: {}'
+                        .format(backup_file))
+                else:
+                    ConsoleModel.log_error('Пътят "{}" към новият backup файл '
+                        'не съществува!'.format(self._backups_path))
+            time.sleep(1)
+
+    def _find_next_free_backup_file(self) -> Path:
+        while True:
+            free_file = self._backups_path / '{}_event_timings.time.json.bak'\
+                .format(datetime.now().strftime('%Y_%m_%d_%H_%M_%S'))
+            # free_file = Path('{}/{}_event_timings.time.json.bak'.format(self._backups_path,
+            #     datetime.now().strftime('%Y_%m_%d_%H_%M_%S')))
+
+            if not free_file.exists():
+                return free_file
