@@ -1,0 +1,180 @@
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#include <EthernetENC.h>
+
+
+
+#define DEBUG
+
+//===========================================[ETHERNET]===========================================
+#define STATIC
+
+static byte IP_ADDRESS[] = {10,0,0,150};
+//static byte DNS_ADDRESS[] = {10,0,0,1};
+byte MAC_ADDRESS[] = {0x80, 0x7D, 0x3A, 0x11, 0x20, 0xC8};
+
+// Initialize Arduino Ethernet Client
+EthernetClient client;
+
+
+// Variable Setup
+int failedCounter = 0;
+
+
+
+#define WIRE Wire
+Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &WIRE);
+
+#define LED_PIN 3
+
+RF24 radio(9,10); // CE, CSN
+
+const byte address[6] = "00001";
+
+
+struct MyStruct{
+  char node[11];
+  char type[15];
+  float value;
+};
+
+void setup(){
+    Serial.begin(115200);
+    #ifdef DEBUG
+        Serial.println(F("DT:Init;Name:Reciver;"));
+    #endif
+
+    // Ethernet initialization
+    Ethernet.init(4);
+    #ifdef STATIC
+        Ethernet.begin(MAC_ADDRESS,IP_ADDRESS);
+    #else
+        Ethernet.begin(MAC_ADDRESS);
+    #endif
+    delay(1000);
+
+    #ifdef DEBUG
+        Serial.print(F("DT:InitETH;LocalIP:"));
+        Serial.print(Ethernet.localIP());
+        Serial.print(F(";HardwareStatus:"));
+        Serial.print(Ethernet.hardwareStatus());
+        Serial.println(F(";"));
+    #endif
+
+
+
+    pinMode(LED_PIN, OUTPUT);
+
+
+    // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+    display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+
+    if(!radio.begin()) Serial.println(F("DT:InitNRF;Status:NOTOK;"));
+    else Serial.println(F("DT:InitNRF;Status:OK;"));
+    
+
+    radio.openReadingPipe(0, address);
+    radio.setPALevel(RF24_PA_MAX);
+    radio.startListening();
+
+    display.display();
+
+    // Clear the buffer.
+    display.clearDisplay();
+    display.display();
+
+    //display.clearDisplay();
+    //display.setTextSize(1);
+    //display.setTextColor(SSD1306_WHITE);
+    //display.setCursor(0,0);
+    //display.print("CGStudio\n");
+    //display.print("Reciver\n");
+    //display.print("v2 05.02.2023\n");
+    //display.display();
+    //delay(1000);
+}
+
+void loop(){
+    digitalWrite(LED_PIN, HIGH);
+
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0,0);
+    display.print("IP: ");
+    display.print(Ethernet.localIP());
+    display.print(" ");
+    display.print(Ethernet.hardwareStatus());
+
+    if(radio.available()){
+        digitalWrite(LED_PIN, LOW);
+        MyStruct myStruct;
+        radio.read(&myStruct, sizeof(myStruct));
+        #ifdef DEBUG
+            Serial.print(myStruct.node);
+            Serial.print(" - ");
+            Serial.print(myStruct.type);
+            Serial.print(" - ");
+            Serial.println(myStruct.value);
+        #endif
+        
+
+        //display.setCursor(1,1);
+        display.print("\nID: ");
+        display.print(myStruct.node);
+        display.print("\nType:");
+        display.print(myStruct.type);
+        display.print("\nValue:");
+        display.println(myStruct.value);
+        display.display(); // actually display all of the above
+
+        if(myStruct.node == "1;Meteo"){
+            if(myStruct.type == "TEMP_DHT") updateThingSpeak("field1="+String(myStruct.value));
+            if(myStruct.type == "HUMIDITY_DHT") updateThingSpeak("field2="+String(myStruct.value));
+            if(myStruct.type == "PASCAL_BMP") updateThingSpeak("field3="+String(myStruct.value));
+            if(myStruct.type == "LDR") updateThingSpeak("field4="+String(myStruct.value));
+            if(myStruct.type == "PPM_MQ135") updateThingSpeak("field5="+String(myStruct.value));
+            if(myStruct.type == "RAIN") updateThingSpeak("field6="+String(myStruct.value));
+            if(myStruct.type == "TEMP_DMP") updateThingSpeak("field7="+String(myStruct.value));
+            if(myStruct.type == "Temp_Dallas") updateThingSpeak("field8="+String(myStruct.value));
+        }
+    }
+}
+
+void updateThingSpeak(String tsData){
+    if(client.connect("api.thingspeak.com", 80)){         
+        client.print("POST /update HTTP/1.1\n");
+        client.print("Host: api.thingspeak.com\n");
+        client.print("Connection: close\n");
+        client.print("X-THINGSPEAKAPIKEY: XXXXXXXXXXXXX\n");
+        client.print("Content-Type: application/x-www-form-urlencoded\n");
+        client.print("Content-Length: ");
+        client.print(tsData.length());
+        client.print("\n\n");
+
+        client.print(tsData);
+        
+        
+        if(client.connected()){
+            //Serial.println("Connecting to ThingSpeak...");
+            
+            failedCounter = 0;
+        }else{
+            failedCounter++;
+        
+            //Serial.println("Connection to ThingSpeak failed ("+String(failedCounter, DEC)+")");   
+        }
+        
+    }else{
+        failedCounter++;
+        
+        //Serial.println("Connection to ThingSpeak Failed ("+String(failedCounter, DEC)+")");   
+        
+    }
+}
