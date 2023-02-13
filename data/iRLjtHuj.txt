@@ -1,0 +1,67 @@
+from kivy.app import App
+from kivy.lang import Builder
+from kivy.core.audio import SoundLoader
+from kivy.uix.boxlayout import BoxLayout
+from kivy.properties import ObjectProperty, StringProperty
+from kivy.clock import Clock
+from pathlib import Path
+
+kv = """
+RootBoxLayout:
+    orientation: 'vertical'
+    AnchorLayout:
+        ToggleButton:
+            size_hint: None, None
+            size: 200, 48
+            text: {'normal': 'Play', 'down': 'Stop'}[self.state]
+            on_state: root.control(self.state)
+    BoxLayout:
+        size_hint_y: None
+        height: 48
+        padding:25
+        ProgressBar:
+            id:progress
+            max:100
+
+        Label:
+            id: title
+        Label:
+            id: length
+        Label:
+            text: root.current
+"""
+
+
+class RootBoxLayout(BoxLayout):
+    song = ObjectProperty()
+    current = StringProperty()
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.schedule = None
+        self.song = SoundLoader.load('06 Back in Black.mp3')
+
+    def control(self, state):
+        if state == 'down':
+            self.song.play()
+            self.ids.title.text = Path(self.song.source).name
+            self.ids.length.text = f'length: {self.song.length:0.1f} seconds'
+            self.schedule = Clock.schedule_interval(self._update_pos, .1)
+        else:
+            self.song.stop()
+            self.ids.progress.value = 0
+            self.schedule.cancel()
+
+    def _update_pos(self, _):
+        self.current = f'{self.song.get_pos():0.1f} seconds'
+        # current_time/length * 100  value will be 100 at the end...
+        self.ids.progress.value = (self.song.get_pos()/self.song.length) * 100
+
+
+
+class SoundTestApp(App):
+    def build(self):
+        return Builder.load_string(kv)
+
+
+SoundTestApp().run()

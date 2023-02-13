@@ -1,0 +1,443 @@
+### Eclipse Workspace Patch 1.0
+#P aCis_gameserver
+Index: java/net/sf/l2j/gameserver/model/actor/template/NpcTemplate.java
+===================================================================
+--- java/net/sf/l2j/gameserver/model/actor/template/NpcTemplate.java	(revision 20)
++++ java/net/sf/l2j/gameserver/model/actor/template/NpcTemplate.java	(working copy)
+@@ -34,6 +34,7 @@
+ 	private boolean _usingServerSideName;
+ 	private final String _title;
+ 	private boolean _usingServerSideTitle;
++	private final boolean _cantBeChampionMonster;
+ 	private final byte _level;
+ 	private final int _exp;
+ 	private final int _sp;
+@@ -81,6 +82,7 @@
+ 		_usingServerSideName = set.getBool("usingServerSideName", false);
+ 		_title = set.getString("title", "");
+ 		_usingServerSideTitle = set.getBool("usingServerSideTitle", false);
++		_cantBeChampionMonster = _title.equalsIgnoreCase("Quest Monster") || isType("Chest");
+ 		_level = set.getByte("level", (byte) 1);
+ 		_exp = set.getInteger("exp", 0);
+ 		_sp = set.getInteger("sp", 0);
+@@ -195,6 +197,11 @@
+ 		return _usingServerSideTitle;
+ 	}
+ 	
++	public boolean cantBeChampion()
++	{
++		return _cantBeChampionMonster;
++	}
++	
+ 	public byte getLevel()
+ 	{
+ 		return _level;
+Index: java/net/sf/l2j/gameserver/network/serverpackets/AbstractNpcInfo.java
+===================================================================
+--- java/net/sf/l2j/gameserver/network/serverpackets/AbstractNpcInfo.java	(revision 20)
++++ java/net/sf/l2j/gameserver/network/serverpackets/AbstractNpcInfo.java	(working copy)
+@@ -99,7 +99,9 @@
+ 			if (_npc.getTemplate().isUsingServerSideName())
+ 				_name = _npc.getName();
+ 			
+-			if (_npc.getTemplate().isUsingServerSideTitle())
++			if (_npc.isChampion())
++				_title = "Champion";
++			else if (_npc.getTemplate().isUsingServerSideTitle())
+ 				_title = _npc.getTitle();
+ 			
+ 			if (Config.SHOW_NPC_LVL && _npc instanceof Monster)
+Index: config/npcs.properties
+===================================================================
+--- config/npcs.properties	(revision 20)
++++ config/npcs.properties	(working copy)
+@@ -1,4 +1,42 @@
+ ﻿#=============================================================
++#                        Champion mobs
++#=============================================================
++
++# Chance for a mob to became champion (in percent) - 0 to disable
++ChampionFrequency = 0
++
++# Min and max lvl allowed for a mob to be champion.
++ChampionMinLevel = 20
++ChampionMaxLevel = 70
++
++# Hp multiplier
++ChampionHp = 8
++
++# Hp Regen Multiplier
++ChampionHpRegen = 1.
++
++# Rewards multiplier
++ChampionRewards = 8
++
++# Adenas & seal stones rewards multiplier
++ChampionAdenasRewards = 1
++
++# Atk bonus for champion (changes apply on patk & matk)
++ChampionAtk = 1.
++
++# Spd Atk bonus for champion (changes apply on patkspd & matkspd)
++ChampionSpdAtk = 1.
++
++# Chance to obtain a specified reward item from a higher lvl champion (in percents)   default is off using glittering medal as reward
++ChampionRewardItem = 0
++
++# Specified reward item ID
++ChampionRewardItemID = 6393
++
++# Specified reward item rnd qty
++ChampionRewardItemQty = 1
++
++#=============================================================
+ #                          Баффер
+ #=============================================================
+ # Максимальное количество доступных схем на игрока.
+Index: java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminManage.java
+===================================================================
+--- java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminManage.java	(revision 20)
++++ java/net/sf/l2j/gameserver/handler/admincommandhandlers/AdminManage.java	(working copy)
+@@ -4,6 +4,7 @@
+ 
+ import net.sf.l2j.commons.lang.StringUtil;
+ 
++import net.sf.l2j.Config;
+ import net.sf.l2j.gameserver.handler.IAdminCommandHandler;
+ import net.sf.l2j.gameserver.model.World;
+ import net.sf.l2j.gameserver.model.actor.Creature;
+@@ -149,7 +150,7 @@
+ 			return false;
+ 		
+ 		creature.stopAllEffects();
+-		creature.reduceCurrentHp(creature.getStatus().getMaxHp() + creature.getStatus().getMaxCp() + 1, player, null);
++		creature.reduceCurrentHp(creature.isChampion() ? creature.getStatus().getMaxHp() * Config.CHAMPION_HP + 1 : creature.getStatus().getMaxHp() + creature.getStatus().getMaxCp() + 1, player, null);
+ 		return true;
+ 	}
+ 	
+Index: config/en/npcs.properties
+===================================================================
+--- config/en/npcs.properties	(revision 20)
++++ config/en/npcs.properties	(working copy)
+@@ -1,4 +1,42 @@
+ #=============================================================
++#                        Champion mobs
++#=============================================================
++
++# Chance for a mob to became champion (in percent) - 0 to disable
++ChampionFrequency = 0
++
++# Min and max lvl allowed for a mob to be champion.
++ChampionMinLevel = 20
++ChampionMaxLevel = 70
++
++# Hp multiplier
++ChampionHp = 8
++
++# Hp Regen Multiplier
++ChampionHpRegen = 1.
++
++# Rewards multiplier
++ChampionRewards = 8
++
++# Adenas & seal stones rewards multiplier
++ChampionAdenasRewards = 1
++
++# Atk bonus for champion (changes apply on patk & matk)
++ChampionAtk = 1.
++
++# Spd Atk bonus for champion (changes apply on patkspd & matkspd)
++ChampionSpdAtk = 1.
++
++# Chance to obtain a specified reward item from a higher lvl champion (in percents)   default is off using glittering medal as reward
++ChampionRewardItem = 0
++
++# Specified reward item ID
++ChampionRewardItemID = 6393
++
++# Specified reward item rnd qty
++ChampionRewardItemQty = 1
++
++#=============================================================
+ #                          Buffer
+ #=============================================================
+ 
+Index: java/net/sf/l2j/Config.java
+===================================================================
+--- java/net/sf/l2j/Config.java	(revision 20)
++++ java/net/sf/l2j/Config.java	(working copy)
+@@ -298,6 +298,20 @@
+ 	// NPCs / Monsters
+ 	// --------------------------------------------------
+ 	
++	/** Champion Mod */
++	public static int CHAMPION_FREQUENCY;
++	public static int CHAMP_MIN_LVL;
++	public static int CHAMP_MAX_LVL;
++	public static int CHAMPION_HP;
++	public static int CHAMPION_REWARDS;
++	public static int CHAMPION_ADENAS_REWARDS;
++	public static double CHAMPION_HP_REGEN;
++	public static double CHAMPION_ATK;
++	public static double CHAMPION_SPD_ATK;
++	public static int CHAMPION_REWARD;
++	public static int CHAMPION_REWARD_ID;
++	public static int CHAMPION_REWARD_QTY;
++	
+ 	/** Buffer */
+ 	public static int BUFFER_MAX_SCHEMES;
+ 	public static int BUFFER_STATIC_BUFF_COST;
+@@ -1122,6 +1136,19 @@
+ 	{
+ 		final ExProperties npcs = initProperties(NPCS_FILE);
+ 		
++		CHAMPION_FREQUENCY = npcs.getProperty("ChampionFrequency", 0);
++		CHAMP_MIN_LVL = npcs.getProperty("ChampionMinLevel", 20);
++		CHAMP_MAX_LVL = npcs.getProperty("ChampionMaxLevel", 70);
++		CHAMPION_HP = npcs.getProperty("ChampionHp", 8);
++		CHAMPION_HP_REGEN = npcs.getProperty("ChampionHpRegen", 1.);
++		CHAMPION_REWARDS = npcs.getProperty("ChampionRewards", 8);
++		CHAMPION_ADENAS_REWARDS = npcs.getProperty("ChampionAdenasRewards", 1);
++		CHAMPION_ATK = npcs.getProperty("ChampionAtk", 1.);
++		CHAMPION_SPD_ATK = npcs.getProperty("ChampionSpdAtk", 1.);
++		CHAMPION_REWARD = npcs.getProperty("ChampionRewardItem", 0);
++		CHAMPION_REWARD_ID = npcs.getProperty("ChampionRewardItemID", 6393);
++		CHAMPION_REWARD_QTY = npcs.getProperty("ChampionRewardItemQty", 1);
++		
+ 		BUFFER_MAX_SCHEMES = npcs.getProperty("BufferMaxSchemesPerChar", 4);
+ 		BUFFER_STATIC_BUFF_COST = npcs.getProperty("BufferStaticCostPerBuff", -1);
+ 		
+Index: java/net/sf/l2j/gameserver/model/actor/instance/Monster.java
+===================================================================
+--- java/net/sf/l2j/gameserver/model/actor/instance/Monster.java	(revision 20)
++++ java/net/sf/l2j/gameserver/model/actor/instance/Monster.java	(working copy)
+@@ -65,6 +65,8 @@
+ 	private boolean _isRaid;
+ 	private boolean _isMinion;
+ 	
++	private boolean _isChampion;
++	
+ 	public Monster(int objectId, NpcTemplate template)
+ 	{
+ 		super(objectId, template);
+@@ -468,6 +470,13 @@
+ 			sp = sp * pow;
+ 		}
+ 		
++		// Add champion ratio, if any.
++		if (isChampion())
++		{
++			xp *= Config.CHAMPION_REWARDS;
++			sp *= Config.CHAMPION_REWARDS;
++		}
++		
+ 		// If the XP is inferior or equals 0, don't reward any SP. Both XP and SP can't be inferior to 0.
+ 		if (xp <= 0)
+ 		{
+@@ -502,6 +511,17 @@
+ 		return _minionList;
+ 	}
+ 	
++	@Override
++	public final boolean isChampion()
++	{
++		return _isChampion;
++	}
++	
++	public final void setChampion(boolean value)
++	{
++		_isChampion = value;
++	}
++	
+ 	/**
+ 	 * Teleport this {@link Monster} to its master.
+ 	 */
+@@ -565,6 +585,9 @@
+ 		else
+ 			dropChance *= Config.RATE_DROP_ITEMS;
+ 		
++		if (isChampion())
++			dropChance *= Config.CHAMPION_REWARDS;
++		
+ 		// Set our limits for chance of drop
+ 		if (dropChance < 1)
+ 			dropChance = 1;
+@@ -592,6 +615,10 @@
+ 			dropChance -= DropData.MAX_CHANCE;
+ 		}
+ 		
++		if (isChampion())
++			if (drop.getItemId() == 57 || (drop.getItemId() >= 6360 && drop.getItemId() <= 6362))
++				itemCount *= Config.CHAMPION_ADENAS_REWARDS;
++		
+ 		if (itemCount > 0)
+ 			return new IntIntHolder(drop.getItemId(), itemCount);
+ 		
+@@ -634,6 +661,9 @@
+ 		else
+ 			categoryDropChance *= Config.RATE_DROP_ITEMS;
+ 		
++		if (isChampion())
++			categoryDropChance *= Config.CHAMPION_REWARDS;
++		
+ 		// Set our limits for chance of drop
+ 		if (categoryDropChance < 1)
+ 			categoryDropChance = 1;
+@@ -665,6 +695,9 @@
+ 			else
+ 				dropChance *= Config.RATE_DROP_ITEMS;
+ 			
++			if (isChampion())
++				dropChance *= Config.CHAMPION_REWARDS;
++			
+ 			if (dropChance < DropData.MAX_CHANCE)
+ 				dropChance = DropData.MAX_CHANCE;
+ 			
+@@ -691,6 +724,10 @@
+ 				dropChance -= DropData.MAX_CHANCE;
+ 			}
+ 			
++			if (isChampion())
++				if (drop.getItemId() == 57 || (drop.getItemId() >= 6360 && drop.getItemId() <= 6362))
++					itemCount *= Config.CHAMPION_ADENAS_REWARDS;
++			
+ 			if (itemCount > 0)
+ 				return new IntIntHolder(drop.getItemId(), itemCount);
+ 		}
+@@ -887,6 +924,30 @@
+ 			}
+ 		}
+ 		
++		// Apply special item drop for champions.
++		if (isChampion() && Config.CHAMPION_REWARD > 0)
++		{
++			int dropChance = Config.CHAMPION_REWARD;
++			
++			// Apply level modifier, if any/wanted.
++			if (Config.DEEPBLUE_DROP_RULES)
++			{
++				int deepBlueDrop = (levelModifier > 0) ? 3 : 1;
++				
++				// Check if we should apply our maths so deep blue mobs will not drop that easy.
++				dropChance = ((Config.CHAMPION_REWARD - ((Config.CHAMPION_REWARD * levelModifier) / 100)) / deepBlueDrop);
++			}
++			
++			if (Rnd.get(100) < dropChance)
++			{
++				final IntIntHolder item = new IntIntHolder(Config.CHAMPION_REWARD_ID, Math.max(1, Rnd.get(1, Config.CHAMPION_REWARD_QTY)));
++				if (Config.AUTO_LOOT)
++					player.addItem("ChampionLoot", item.getId(), item.getValue(), this, true);
++				else
++					dropItem(player, item);
++			}
++		}
++		
+ 		// Herbs.
+ 		if (getTemplate().getDropHerbGroup() > 0)
+ 		{
+Index: java/net/sf/l2j/gameserver/model/actor/Creature.java
+===================================================================
+--- java/net/sf/l2j/gameserver/model/actor/Creature.java	(revision 20)
++++ java/net/sf/l2j/gameserver/model/actor/Creature.java	(working copy)
+@@ -1683,8 +1683,16 @@
+ 	}
+ 	
+ 	public void reduceCurrentHp(double i, Creature attacker, boolean awake, boolean isDOT, L2Skill skill)
++	{		
++		if (isChampion() && Config.CHAMPION_HP != 0)
++			getStatus().reduceHp(i / Config.CHAMPION_HP, attacker, awake, isDOT, false);
++		else
++			getStatus().reduceHp(i, attacker, awake, isDOT, false);
++	}
++	
++	public boolean isChampion()
+ 	{
+-		getStatus().reduceHp(i, attacker, awake, isDOT, false);
++		return false;
+ 	}
+ 	
+ 	/**
+Index: java/net/sf/l2j/gameserver/model/actor/status/CreatureStatus.java
+===================================================================
+--- java/net/sf/l2j/gameserver/model/actor/status/CreatureStatus.java	(revision 20)
++++ java/net/sf/l2j/gameserver/model/actor/status/CreatureStatus.java	(working copy)
+@@ -622,7 +622,7 @@
+ 	 */
+ 	public double getRegenHp()
+ 	{
+-		return calcStat(Stats.REGENERATE_HP_RATE, _actor.getTemplate().getBaseHpRegen(getLevel()) * (_actor.isRaidRelated() ? Config.RAID_HP_REGEN_MULTIPLIER : Config.HP_REGEN_MULTIPLIER), null, null);
++		return calcStat(Stats.REGENERATE_HP_RATE, _actor.getTemplate().getBaseHpRegen(getLevel()) * (_actor.isRaidRelated() ? Config.RAID_HP_REGEN_MULTIPLIER : Config.HP_REGEN_MULTIPLIER) * ((_actor.isChampion()) ? Config.CHAMPION_HP_REGEN : 1), null, null);
+ 	}
+ 	
+ 	/**
+@@ -640,7 +640,7 @@
+ 	 */
+ 	public int getMAtk(Creature target, L2Skill skill)
+ 	{
+-		return (int) calcStat(Stats.MAGIC_ATTACK, _actor.getTemplate().getBaseMAtk(), target, skill);
++		return (int) calcStat(Stats.MAGIC_ATTACK, _actor.getTemplate().getBaseMAtk() * ((_actor.isChampion()) ? Config.CHAMPION_ATK : 1), target, skill);
+ 	}
+ 	
+ 	/**
+@@ -648,7 +648,7 @@
+ 	 */
+ 	public int getMAtkSpd()
+ 	{
+-		return (int) calcStat(Stats.MAGIC_ATTACK_SPEED, 333.0, null, null);
++		return (int) calcStat(Stats.MAGIC_ATTACK_SPEED, 333.0 * ((_actor.isChampion()) ? Config.CHAMPION_SPD_ATK : 1), null, null);
+ 	}
+ 	
+ 	/**
+@@ -668,7 +668,7 @@
+ 	 */
+ 	public int getPAtk(Creature target)
+ 	{
+-		return (int) calcStat(Stats.POWER_ATTACK, _actor.getTemplate().getBasePAtk(), target, null);
++		return (int) calcStat(Stats.POWER_ATTACK, _actor.getTemplate().getBasePAtk() * ((_actor.isChampion()) ? Config.CHAMPION_ATK : 1), target, null);
+ 	}
+ 	
+ 	/**
+@@ -676,7 +676,7 @@
+ 	 */
+ 	public int getPAtkSpd()
+ 	{
+-		return (int) calcStat(Stats.POWER_ATTACK_SPEED, _actor.getTemplate().getBasePAtkSpd(), null, null);
++		return (int) calcStat(Stats.POWER_ATTACK_SPEED, _actor.getTemplate().getBasePAtkSpd() * ((_actor.isChampion()) ? Config.CHAMPION_SPD_ATK : 1), null, null);
+ 	}
+ 	
+ 	/**
+Index: java/net/sf/l2j/gameserver/model/spawn/Spawn.java
+===================================================================
+--- java/net/sf/l2j/gameserver/model/spawn/Spawn.java	(revision 20)
++++ java/net/sf/l2j/gameserver/model/spawn/Spawn.java	(working copy)
+@@ -6,6 +6,7 @@
+ import net.sf.l2j.commons.pool.ThreadPool;
+ import net.sf.l2j.commons.random.Rnd;
+ 
++import net.sf.l2j.Config;
+ import net.sf.l2j.gameserver.data.xml.NpcData;
+ import net.sf.l2j.gameserver.geoengine.GeoEngine;
+ import net.sf.l2j.gameserver.idfactory.IdFactory;
+@@ -12,6 +13,7 @@
+ import net.sf.l2j.gameserver.model.World;
+ import net.sf.l2j.gameserver.model.actor.Creature;
+ import net.sf.l2j.gameserver.model.actor.Npc;
++import net.sf.l2j.gameserver.model.actor.instance.Monster;
+ import net.sf.l2j.gameserver.model.actor.template.NpcTemplate;
+ import net.sf.l2j.gameserver.model.location.SpawnLocation;
+ 
+@@ -390,6 +392,14 @@
+ 		// Set the HP and MP of the Npc to the max
+ 		_npc.getStatus().setMaxHpMp();
+ 		
++		// when champion mod is enabled, try to make NPC a champion
++		if (Config.CHAMPION_FREQUENCY > 0)
++		{
++			// It can't be a Raid, a Raid minion nor a minion. Quest mobs and chests are disabled too.
++			if (_npc instanceof Monster && !getTemplate().cantBeChampion() && _npc.getStatus().getLevel() >= Config.CHAMP_MIN_LVL && _npc.getStatus().getLevel() <= Config.CHAMP_MAX_LVL && !_npc.isRaidRelated() && !_npc.isMinion())
++				((Monster) _npc).setChampion(Rnd.get(100) < Config.CHAMPION_FREQUENCY);
++		}
++		
+ 		// spawn NPC on new coordinates
+ 		_npc.spawnMe(locX, locY, locZ, (_loc.getHeading() < 0) ? Rnd.get(65536) : _loc.getHeading());
+ 	}
