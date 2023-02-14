@@ -1,0 +1,171 @@
+int BSTC_single_mode_test(unsigned int pat_mode, unsigned int err_print){
+
+    const unsigned int BSTC_bus=32, ATOM=dram_bstlen*dram_dq;
+	unsigned int i, test_size_word, STMA, write_num;
+	unsigned long long bstc_cmd;
+
+	if(IS_2RANK)
+		write_num=2;
+	else
+		write_num=1;
+	
+	STMA=1;
+	test_size_bit = ATOM*STMA*write_num;	//ATOM*STMA
+	test_size_word = test_size_bit/32;
+//	printf("STMA=%d, ATOM=%d, test_size_word=%d, ",STMA, ATOM, test_size_word);
+	
+	//fill random_pat array
+	if(pat_mode==0){
+		fill_random_pat(random_pat, pat_num);
+	}else if(pat_mode==1){
+		unsigned int pat_array[8] = {
+			0x1111EEEE, 0x2222DDDD, 0x4444CCCC, 0x88887777, 0xEEEE1111, 0xDDDD2222, 0xCCCC4444, 0x77778888};
+		for(i=0; i<pat_num; i++)
+			random_pat[i]=pat_array[i%8];
+	}else if(pat_mode==2){
+		for(i=0; i<pat_num; i++)
+			random_pat[i]=0xcafe0000 | i;
+	}
+		
+/* singal or loop mode */
+	//  0. clean register & fifo
+	RVAL(CCR) = (1<<8);	//notice: DON"T" use RMOD(CCR, <field>) to change CCR.field
+//	debug("CCR=0x%x\n", RVAL(CCR));
+	RVAL(BEXPC) = 0;
+
+    //  1. Enter BSTC mode.
+	CSR_idel_mem_bstc(1,0);
+//	debug("CSR=0x%x\n", RVAL(CSR));
+
+	//  2. Flush BSTC all sram counters.
+	RVAL(BCR) = 0xf00;	//0->1 trigger
+//	debug("BCR=0x%x\n", RVAL(BCR));
+	RVAL(BCR) = 0;		//clear
+
+	//  3. Set BCR/BCT/BEXPC for BSTC setting.
+	RMOD(BCR, crr, 1, cmp, 1, dis_msk, 1);
+
+	if(IS_ECC)
+		RMOD(BECC, cmp_mbit, 0x0);	//ecc bit0~1
+	else
+		RMOD(BECC, cmp_mbit, 0xFF);	//no ecc bit
+//	printf("BECC=0x%x\n", RVAL(BECC));
+
+	rd_wr_expc = test_size_bit / BSTC_bus;
+
+	//cmd_expc= write_num * 2(read num) * 2(because 37bit command need 2 words)
+	cmd_expc = write_num*4;
+
+//	printf("rd_wr_expc=%d, cmd_expc=%d\n", rd_wr_expc, cmd_expc);
+	RMOD(BEXPC, rd_expc_cnt, rd_wr_expc, wd_expc_cnt, rd_wr_expc, cmd_expc_cnt, cmd_expc);
+//	printf("BEXPC=0x%x\n", RVAL(BEXPC));
+
+	//  4. Write BSTC cmd sram a write cmd.
+	if(IS_2RANK){
+		//SRAM CMD: 1st
+		bstc_cmd = (WRITE << BSTC_CMD_WRRD_OFS) | (STMA << BSTC_CMD_STMA_OFS) |
+	              (ULL(0) << BSTC_CMD_BANK_OFS) | (0 << BSTC_CMD_ROW_OFS) | (0 << BSTC_CMD_COLU_OFS);
+//		printf("CMD_SRAM(37bit)=0x%llx\n", bstc_cmd);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM    , bstc_cmd & 0xFFFFFFFF);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM + 4, bstc_cmd >> 32);
+//		printf("CMD_SRAM_1 is 0x%x+0x%x\n", BSTC_sram_rd(RXI316_BSTC_CMD_SRAM+4),  BSTC_sram_rd(RXI316_BSTC_CMD_SRAM));
+
+		//SRAM CMD: 2nd
+		bstc_cmd = (WRITE << BSTC_CMD_WRRD_OFS) | (STMA << BSTC_CMD_STMA_OFS) |
+				  (ULL(8) << BSTC_CMD_BANK_OFS) | (0 << BSTC_CMD_ROW_OFS) | (0 << BSTC_CMD_COLU_OFS);
+//		printf("CMD_SRAM(37bit)=0x%llx\n", bstc_cmd);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM + 8 , bstc_cmd & 0xFFFFFFFF);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM + 0xc, bstc_cmd >> 32);
+//		printf("CMD_SRAM_2 is 0x%x+0x%x\n", BSTC_sram_rd(RXI316_BSTC_CMD_SRAM+0xc),	BSTC_sram_rd(RXI316_BSTC_CMD_SRAM+8));
+
+	}else{	//single rank
+		//SRAM CMD: 1st
+		bstc_cmd = (WRITE << BSTC_CMD_WRRD_OFS) | (STMA << BSTC_CMD_STMA_OFS) |
+			  (ULL(0) << BSTC_CMD_BANK_OFS) | (0 << BSTC_CMD_ROW_OFS) | (0 << BSTC_CMD_COLU_OFS);
+//		printf("CMD_SRAM(37bit)=0x%llx\n", bstc_cmd);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM	 , bstc_cmd & 0xFFFFFFFF);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM + 4, bstc_cmd >> 32);
+//		printf("CMD_SRAM_1 is 0x%x+0x%x\n", BSTC_sram_rd(RXI316_BSTC_CMD_SRAM+4),  BSTC_sram_rd(RXI316_BSTC_CMD_SRAM));
+	}
+
+	//  5. Write BSTC cmd sram a read cmd.
+	if(IS_2RANK){
+		//SRAM CMD: 3st
+		bstc_cmd = (READ << BSTC_CMD_WRRD_OFS) | (STMA << BSTC_CMD_STMA_OFS) |
+	    	     (ULL(0) << BSTC_CMD_BANK_OFS) | (0 << BSTC_CMD_ROW_OFS) | (0 << BSTC_CMD_COLU_OFS);
+//		printf("CMD_SRAM(37bit)=0x%llx\n", bstc_cmd);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM + 0x10  , bstc_cmd & 0xFFFFFFFF);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM + 0x14, bstc_cmd >> 32);
+//		printf("CMD_SRAM_3 is 0x%x+0x%x\n", BSTC_sram_rd(RXI316_BSTC_CMD_SRAM+0x14),  BSTC_sram_rd(RXI316_BSTC_CMD_SRAM+0x10));
+
+		//SRAM CMD: 4st
+		bstc_cmd = (READ << BSTC_CMD_WRRD_OFS) | (STMA << BSTC_CMD_STMA_OFS) |
+	    	     (ULL(8) << BSTC_CMD_BANK_OFS) | (0 << BSTC_CMD_ROW_OFS) | (0 << BSTC_CMD_COLU_OFS);
+//		printf("CMD_SRAM(37bit)=0x%llx\n", bstc_cmd);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM + 0x18  , bstc_cmd & 0xFFFFFFFF);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM + 0x1c, bstc_cmd >> 32);
+//		printf("CMD_SRAM_4 is 0x%x+0x%x\n", BSTC_sram_rd(RXI316_BSTC_CMD_SRAM+0x1c),  BSTC_sram_rd(RXI316_BSTC_CMD_SRAM+0x18));
+
+	}else{	//single rank
+		//SRAM CMD: 2st
+		bstc_cmd = (READ << BSTC_CMD_WRRD_OFS) | (STMA << BSTC_CMD_STMA_OFS) |
+	    	     (ULL(0) << BSTC_CMD_BANK_OFS) | (0 << BSTC_CMD_ROW_OFS) | (0 << BSTC_CMD_COLU_OFS);
+//		printf("CMD_SRAM(37bit)=0x%llx\n", bstc_cmd);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM + 8  , bstc_cmd & 0xFFFFFFFF);
+		BSTC_sram_wr(RXI316_BSTC_CMD_SRAM + 0xc, bstc_cmd >> 32);
+//		printf("CMD_SRAM_2 is 0x%x+0x%x\n", BSTC_sram_rd(RXI316_BSTC_CMD_SRAM+0xc),  BSTC_sram_rd(RXI316_BSTC_CMD_SRAM+8));
+	}
+#define pattern(x) (x % (sizeof(random_pat)/sizeof(unsigned int)))
+    //  6. Write BSTC WD sram for the write datas.
+	for(i=0; i<test_size_word; i++){
+		BSTC_sram_wr(RXI316_BSTC_WD_SRAM + i*4, random_pat[pattern(i)]);
+		if(IS_ECC && (i%4)==0)
+			BSTC_sram_wr(RXI316_BSTC_WD_ECC_SRAM + i, random_pat[pattern(i)] & 0xFFFF);
+	}
+
+	//  7. Read  BSTC WD sram for double-check the wdata.
+	for(i=0; i<test_size_word; i++){
+		if(BSTC_sram_rd(RXI316_BSTC_WD_SRAM + i*4) != random_pat[pattern(i)])
+			error("WD_SRAM(0x%x) is 0x%x != 0x%x \n", (RXI316_BSTC_WD_SRAM + i*4), BSTC_sram_rd(RXI316_BSTC_WD_SRAM + i*4), random_pat[pattern(i)]);
+		if(IS_ECC && (i%4)==0){
+			if(BSTC_sram_rd(RXI316_BSTC_WD_ECC_SRAM + i) != (random_pat[pattern(i)] & 0xFFFF))
+				error("WD_ECC_SRAM(0x%x) is 0x%x != 0x%x \n", (RXI316_BSTC_WD_ECC_SRAM + i), BSTC_sram_rd(RXI316_BSTC_WD_ECC_SRAM + i), random_pat[pattern(i)] & 0xFFFF);
+		}
+	}
+
+	//  8. Write BSTC RG sram for the read golden datas.
+	for(i=0; i<test_size_word; i++){
+		BSTC_sram_wr(RXI316_BSTC_RG_SRAM + i*4, random_pat[pattern(i)]);
+		if(IS_ECC && (i%4)==0)
+			BSTC_sram_wr(RXI316_BSTC_RG_ECC_SRAM + i, (random_pat[pattern(i)] & 0xFFFF));
+	}
+
+	//  9. Read  BSTC RG sram for double-check the read golden datas.
+	for(i=0; i<test_size_word; i++){
+		if(BSTC_sram_rd(RXI316_BSTC_RG_SRAM + i*4) != random_pat[pattern(i)])
+			error("RG_SRAM(0x%x) is 0x%x != 0x%x \n", (RXI316_BSTC_RG_SRAM + i*4), BSTC_sram_rd(RXI316_BSTC_RG_SRAM + i*4), random_pat[pattern(i)]);
+
+		if(IS_ECC && (i%4)==0){
+			if(BSTC_sram_rd(RXI316_BSTC_RG_ECC_SRAM + i) != (random_pat[pattern(i)] & 0xFFFF))
+				error("i=%d, RG_ECC_SRAM(0x%x) is 0x%x != 0x%x \n",i ,(RXI316_BSTC_RG_ECC_SRAM + i), BSTC_sram_rd(RXI316_BSTC_RG_ECC_SRAM + i), random_pat[pattern(i)] & 0xFFFF);
+		}
+	}
+
+	// 10. BSTC start.	NOTICE: This is necessary for loop mode
+	RVAL(CCR) = (1<<2);
+	// debug("CCR=0x%x\n", RVAL(CCR));
+
+	// 11. Wait BSTC done.
+	while(RFLD(CCR, bstc)!=1)
+		debug("wait BSTC done bit...CCR=0x%x\n", RVAL(CCR));
+
+	if(RFLD(BST, err_cnt) == 0){
+		return PASS;
+	}else{
+		if(err_print==1){
+			for(i=0; i<test_size_word; i++)
+				error("RD_SRAM(0x%x) is 0x%x != 0x%x \n", (RXI316_BSTC_RD_SRAM + i*4), BSTC_sram_rd(RXI316_BSTC_RD_SRAM + i*4), random_pat[pattern(i)]);
+		}
+		return FAIL;
+	}
+}
