@@ -1,0 +1,91 @@
+int CFart::GetReader(const CHash *const hash, SResourceReader *out) {
+    CellError errorCode;
+    u32 fileIndex = 0xFFFFFFFF;
+
+    bool NoMutex = Mutex == NULL;
+    if (Mutex != NULL) {
+        bool SlowLockAcquired = 0;
+        while (1) {
+            errorCode = sys_lwmutex_lock(Mutex.cs, &sub_1E8480);
+            bool AcquiringLock = SlowLockAcquired == 0;
+            if (errorCode != CELL_ETIMEDOUT) {
+                break;
+            }
+            while (AcquiringLock) {
+                SlowLockAcquired = 1;
+                printf("delay acquiring mutex '%s' %08x retval = %08x\n", Mutex.Name, Mutex.cs.sleep_queue, CELL_ETIMEDOUT);
+                errorCode = sys_lwmutex_lock(Mutex.cs, &sub_1E8480);
+                AcquiringLock = 0;
+                if (errorCode != CELL_ETIMEDOUT) {
+                    goto LockCheck;
+                }
+            }
+        }
+LockCheck:
+        if (!errorCode) {
+            int DEBUGIsLocked = Mutex.DEBUGIsLocked;
+            Mutex.LockLine = 0;
+            Mutex.LockFile = 0;
+            Mutex.DEBUGIsLocked = DEBUGIsLocked + 1;
+            fileIndex = CFart::FindFileByHash(this, hash);
+            if (fileIndex != 0xFFFFFFFF) {
+                goto OpenCachedHandle;
+            }
+            // Close the mutex if we have it.
+            if (!NoMutex) {
+                --Mutex.DEBUGIsLocked;
+                sys_lwmutex_unlock(Mutex.cs);
+            }
+            // Return our failure..
+            return 0;
+        }
+    }
+    fileIndex = CFart::FindFileByHash(this, hash);
+    if (fileIndex == 0xFFFFFFFF) {
+        // Close the mutex if we have it.
+        if (!NoMutex) {
+            --Mutex.DEBUGIsLocked;
+            sys_lwmutex_unlock(Mutex.cs);
+        }
+        // Return our failure..
+        return 0;
+    }
+OpenCachedHandle:
+    FileHandle cacheHandle = fd_read_cache;
+    if (cacheHandle != 0xFFFFFFFF) {
+        out->Handle = cacheHandle;
+        fd_read_cache = 0xFFFFFFFF;
+OpenHandle:
+        FileSeek(out->Handle, FAT.Data[fileIndex].Offset, 0LL);
+        ++FAT.Data[fileIndex].Lock;
+        out->Size = FAT.Data[fileIndex].Size;
+        out->Offset = FAT.Data[fileIndex].Offset;
+        out->Owner = this;
+        out->OwnerData = fileIndex;
+        // Copy the passed hash as our original hash.
+        memcpy(out->OriginalHash.Bytes, hash->Bytes, sizeof(CHash))
+        // Reset our rolling hash to its default state.
+        CSHA1Context::Reset(out->RollingHash);
+        
+        // Close the mutex if we have it.
+        if (!NoMutex) {
+            --Mutex.DEBUGIsLocked;
+            sys_lwmutex_unlock(Mutex.cs);
+        }
+        // Return our success!
+        return 1;
+    }
+    if (FileOpen(FullPath, out->Handle, OPEN_READ)) {
+        goto OpenHandle;
+    }
+    
+    // We failed to open the file and read it. 
+
+    // Close the mutex if we have it.
+    if (!NoMutex) {
+        --Mutex.DEBUGIsLocked;
+        sys_lwmutex_unlock(Mutex.cs);
+    }
+    // Return our failure..
+    return 0;
+}
