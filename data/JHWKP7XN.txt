@@ -1,0 +1,233 @@
+--[[
+    Author: boubou
+    Fixed by: Quetz4l 
+	
+	Desc: Show tps,ms, chunk loaded, entities loaded, Tile entities loaded in all dims	
+	Image: https://ibb.co/YLVjp2C
+	
+	Install: you only need a computer ant the tps card. Download or copy the code and run it!
+]]
+
+os = require("os")
+term = require("term")
+component = require("component")
+tps_card = component.tps_card
+gpu = component.gpu
+
+
+chunksON = true
+tileEntityON = true
+entityON = true
+
+
+-- set all dims or special
+local dims = tps_card.getAllDims()
+
+
+
+
+-- allows the computer to reboot via redstone if it crashes.
+-- Put the tps meter as autorun so players can reboot themselves the computer if it crashes.
+if (#component.list("redstone") > 0) then
+  rs = component.redstone
+  rs.setWakeThreshold(10)
+end
+
+
+delay = 5 -- delay between two refresh
+max_x = 100
+max_y = 50
+gpu.setResolution(max_x, max_y)
+n = 44 -- number of rows
+digital_rounding = 2 -- numbers of decimals
+offset_y = 3
+offset_dim = 6
+offset_ticktime = offset_dim + 32
+offset_chunks = offset_ticktime + 16
+offset_entities = offset_chunks + 16
+offset_te = offset_entities + 18
+
+-- function to format string properly
+function format_str(str, size)
+    s = tostring(str)
+    j = 0
+    
+    while #s < size do
+        if j % 2 == 0 then
+            s = " " .. s
+        else
+            s = s .. " "
+        end
+        j = j+1
+    end
+    return s
+end
+
+-- function to draw the background
+function draw_background()
+      big_line_top = "╔════╦═══════════════════════════════╦═══════════════╦═══════════════╦═════════════════╦═══════════╗"
+       title_line =  "║ #  ║           Dimension           ║ tick time(ms) ║ chunks loaded ║ entities loaded ║ TE loaded ║"  
+       normal_line = "║ff║                               ║               ║               ║                 ║           ║"
+       
+    big_line_middle= "╠════╬═══════════════════════════════╬═══════════════╬═══════════════╬═════════════════╬═══════════╣"
+     normal_line_2 = "║    ║                               ║               ║               ║                 ║           ║"
+       
+      big_line_bot = "╚════╩═══════════════════════════════╩═══════════════╩═══════════════╩═════════════════╩═══════════╝"
+
+  
+    i = 1
+    gpu.set(1, i, big_line_top)
+    i = i+1
+    gpu.set(1, i, title_line)
+    i = i+1
+    gpu.set(1, i, big_line_middle)
+    i = i+1
+    for y=1, n do
+        s = normal_line:gsub("ff", format_str(tostring(y), offset_dim - 2))
+        gpu.set(1, i, s)
+        i = i+1
+    end
+
+    gpu.set(1, i, big_line_middle)
+    i = i+1
+    gpu.set(1, i, normal_line_2)
+    i = i+1
+    gpu.set(1, i, big_line_bot)
+end
+
+-- sorting criteria
+function cust_sort(a, b)
+    return a["tick time"] > b["tick time"]
+end
+
+-- rounding method to reduce size used on screen
+function round(num, numDecimalPlaces)
+    local mult = 10^(numDecimalPlaces or 0)
+    return math.floor(num * mult + 0.5) / mult
+  end
+
+-- preprocessing the data
+function get_data_sorted()
+    dim_list = {}
+    ms_counter = 0
+    dim_counter = 0
+    chunk_counter = 0
+    entity_counter = 0 
+    tile_entity_counter = 0
+    for dim_id, dim_name  in pairs(dims) do
+		if tps ~= nil then 	
+            dim = getDimInfo(dim_id, dim_name, dim_counter)     
+            if dim ~= nil then 
+                dim_list[#dim_list+1] = dim 
+                ms_counter=ms_counter+tps
+                dim_counter=dim_counter+1
+
+                if chunksON then thenchunk_counter= chunk_counter+dim['loaded chunks'] else thenchunk_counter = "-" end
+                if entityON then entity_counter= entity_counter+dim['loaded entities'] else thenchunk_counter = "-" end
+                if entityON then  tile_entity_counter= tile_entity_counter+dim['loaded tile entities']  else thenchunk_counter = "-" end
+            end
+            
+		end
+    end
+    table.sort(dim_list, cust_sort)
+    
+    dim_list["overall"] = {
+        ["tick time"]=round(ms_counter, digital_rounding), 
+        ["loaded dims"]=dim_counter,
+        ["loaded chunks"] = chunk_counter,
+        ["loaded entities"] = entity_counter,
+        ["loaded tile entities"] = tile_entity_counter,
+    
+    }
+    return dim_list
+end
+
+function getCountOfEntity(EntityInDim)
+    local count = 0
+    if entityON then
+        if EntityInDim ~= nil then
+            for _entity, _count in pairs(EntityInDim) do
+                count = count+_count
+            end
+        end
+    end
+    return count
+end
+
+function getDimInfo(dim_id, dim_name, dim_counter)
+    tps = tps_card.getTickTimeInDim(dim_id)
+    if tps ~= nil then
+
+        dim = {
+            ["name"]=dim_name.." ("..dim_id..")", 
+            ["tick time"]=round(tps, digital_rounding), 
+            ["dim id"]=dim_id
+        }
+
+        if chunksON then dim["loaded chunks"] = tps_card.getChunksLoadedForDim(dim_id)
+        else dim["loaded chunks"] = "-" end
+
+        if entityON then dim["loaded entities"] = getCountOfEntity(tps_card.getEntitiesListForDim(dim_id))
+        else dim["loaded entities"] = "-" end
+
+        if tileEntityON then dim["loaded tile entities"] = getCountOfEntity(tps_card.getTileEntitiesListForDim(dim_id))
+        else dim["loaded tile entities"] = "-" end
+    
+        return dim
+    end
+
+end
+
+-- function refreshing the screen
+function update(offset_y, offset_dim, offset_ticktime, offset_chunks, offset_entities, offset_te)
+    tps = get_data_sorted()
+    term.clear()
+    draw_background()
+
+    for y = 1, n do    
+        if tps[y] ~= nil then --checking for nil in case the amount of rows is bigger than the amount of dim loaded.
+        
+            gpu.set(offset_dim+1, offset_y + y, format_str(tps[y]["name"], offset_ticktime - offset_dim - 1))
+            gpu.set(offset_ticktime+1, offset_y + y, format_str(tps[y]["tick time"], offset_chunks - offset_ticktime - 1))
+            gpu.set(offset_chunks+1, offset_y + y, format_str(tps[y]["loaded chunks"], offset_entities - offset_chunks - 1))
+            gpu.set(offset_entities+1, offset_y + y, format_str(tps[y]["loaded entities"], offset_te - offset_entities - 1))
+            gpu.set(offset_te+1, offset_y + y, format_str(tps[y]["loaded tile entities"], max_x - offset_te - 1))
+        else
+            gpu.set(offset_dim+1, offset_y + y, format_str("", offset_ticktime - offset_dim - 1))
+            gpu.set(offset_ticktime+1, offset_y + y, format_str("", offset_chunks - offset_ticktime - 1))
+            gpu.set(offset_chunks+1, offset_y + y, format_str("", offset_entities - offset_chunks - 1))
+            gpu.set(offset_entities+1, offset_y + y, format_str("", offset_te - offset_entities - 1))
+            gpu.set(offset_te+1, offset_y + y, format_str("", max_x - offset_te - 1))   
+        end
+    end
+    
+    -- overall
+    ticktime = tps["overall"]["tick time"]
+    str_tps = format_str(tostring(ticktime).." ("..tostring(math.ceil(tps_card.convertTickTimeIntoTps(ticktime), 0)).." tps)", offset_chunks - offset_ticktime - 1)
+    gpu.set(2, offset_y + n + 2, format_str(tostring(tps["overall"]["loaded dims"]), 4))
+    gpu.set(offset_dim+1, offset_y + n + 2, format_str("overall: "..tostring(tps["overall"]["loaded dims"]).." dims loaded", offset_ticktime - offset_dim - 1))
+    gpu.set(offset_ticktime+1, offset_y + n + 2, str_tps)
+    gpu.set(offset_chunks+1, offset_y + n + 2, format_str(tps["overall"]["loaded chunks"], offset_entities - offset_chunks - 1))
+    gpu.set(offset_entities+1, offset_y + n + 2, format_str(tps["overall"]["loaded entities"], offset_te - offset_entities - 1))
+    gpu.set(offset_te+1, offset_y + n + 2, format_str(tps["overall"]["loaded tile entities"], max_x - offset_te - 1))
+
+
+end
+
+-- wrapper function to be used in pcall
+function run()
+    update(offset_y, offset_dim, offset_ticktime, offset_chunks, offset_entities, offset_te)
+    os.sleep(delay)
+end
+
+-- Start of the program
+function main()
+        term.clear()
+    draw_background()
+    while true do   
+        run()
+    end
+end
+
+--pcall(main) -- to avoid any user from terminating it, as it catch the keyboard interrupt and does nothing with it
+main()
