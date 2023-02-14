@@ -1,0 +1,103 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
+#define TRIGGER_PIN D1
+#define ECHO_PIN D2
+
+  long duration, waterlevel;
+
+  // INSERT WIFI CREDENTIALS
+  const char* ssid = "WIFI USER";
+  const char* password = "WIFI PASS";
+  // Your Domain name with URL path or IP address with path
+  const char* serverName = "WEBSITE URL";
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(TRIGGER_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  // CONNECTING TO WIFI
+  WiFi.begin(ssid, password);
+  Serial.println("Connecting");
+  while(WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to WiFi network with IP Address: ");
+  Serial.println(WiFi.localIP());
+ 
+
+}
+
+void loop() {
+  //INSERT DEVICEID AND LATITUDE AND LONGITUDE (NO LAT AND LONG SINCE NO GPS MODULE IS USED)
+  int deviceID = 5;
+  String lat = "14.627656";
+  String longitude = "121.070773";
+  String flooded = "";
+
+  // GETTING LEVEL OF FLOOD
+  waterlevel = ultrasonic_distance();
+  Serial.print("Flood Level: ");
+  Serial.println(waterlevel);
+
+  //  CHANGE VALUE TO DETERMINE HOW HIGH IF ITS FLOODED OR NOT
+  bool flood = (waterlevel >= 50);
+  if (flood == 1) {
+  Serial.println("The Area is Flooded.");
+  flooded = "true";
+  } else {
+  Serial.println("The Area is not Flooded.");
+    flooded = "false";
+  }
+
+
+  HTTPClient http;
+  WiFiClientSecure client;
+  client.setInsecure();
+      
+  // Your Domain name with URL path or IP address with path
+  http.begin(client,serverName);
+
+      
+  // HTTP POST (SEND JSON TO DATABASE)
+  http.addHeader("Content-Type", "application/json");
+  String payload = "{\"deviceId\":\"" + String(deviceID) + "\",\"lat\":\"" + String(lat) + "\",\"long\":\"" + String(longitude) + "\",\"waterLevel\":\"" + String(waterlevel) + "\",\"flooded\":\"" + String(flooded) + "\"}"; ;
+  int httpResponseCode = http.POST(payload);
+     
+  // IF RESPONSE CODE IS LESS THAN 0 THEN DATA IS NOT BEING SENT   
+  Serial.print("HTTP Response code: ");
+  Serial.println(httpResponseCode);
+
+  Serial.print("Data Being Sent: ");
+  Serial.println(payload);
+        
+  // Free resources
+  http.end();
+
+  delay(60000);
+}
+
+long ultrasonic_distance() {
+  // Send a 10 microsecond pulse to the trigger pin
+  // HC-SR04 VCC -> NodeMCU 5V
+  // HC-SR04 GND -> NodeMCU GND
+  // HC-SR04 TRIG -> NodeMCU D1
+  // HC-SR04 ECHO -> NodeMCU D2
+  digitalWrite(TRIGGER_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIGGER_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIGGER_PIN, LOW);
+
+  // Measure the duration of the echo pulse
+  duration = pulseIn(ECHO_PIN, HIGH);
+
+  // Convert the duration to a distance
+  waterlevel = duration * 0.034 / 2;
+
+  // Return the distance measurement
+  return waterlevel;
+}
