@@ -1,0 +1,271 @@
+---Module which handles decoding of the image format "GIF" specified by https://www.w3.org/Graphics/GIF/spec-gif89a.txt
+local gif = {}
+local bitutils = require('bitutils')
+
+local fixedValues = {
+  imageSeparator = 0x2C,
+  extensionIntroducer = 0x21,
+  commentLabel = 0xFE,
+  graphicControlLabel = 0xF9,
+  plainTextLabel = 0x01,
+  applicationExtensionLabel = 0xFF,
+  trailer = 0x3B
+}
+
+---Extracts the Header as specified in section 17 by the GIF89a specification
+---@param gifData string
+local function extractHeader (gifData)
+  local headerBlock = gifData:sub(1, 6)
+  return {
+    signature = headerBlock:sub(1, 3),
+    version = headerBlock:sub(4, 6)
+  }
+end
+
+---Extracts the Logical Screen Descriptor as specified in section 18 by the GIF89a specification
+---@param gifData string
+local function extractLogicalScreenDescriptor (gifData)
+  local logicalScreenDescriptorBlock = gifData:sub(7, 7 + 7 - 1)
+  local packedFields = logicalScreenDescriptorBlock:byte(5)
+
+  return {
+    logicalScreenWidth = bit32.lshift(logicalScreenDescriptorBlock:byte(2), 8) + logicalScreenDescriptorBlock:byte(1),
+    logicalScreenHeight = bit32.lshift(logicalScreenDescriptorBlock:byte(4), 8) + logicalScreenDescriptorBlock:byte(3),
+    globalColorTableFlag = bit32.extract(packedFields, 7),
+    colorResolution = bit32.extract(packedFields, 4, 3),
+    sortFlag = bit32.extract(packedFields, 3),
+    sizeOfGlobalColorTable = bit32.extract(packedFields, 0, 3),
+    backgroundColorIndex = logicalScreenDescriptorBlock:byte(6),
+    pixelAspectRatio = logicalScreenDescriptorBlock:byte(7)
+  }
+end
+
+---Extracts the <Logical Screen> as specified in Appendix B GIF Grammar by the GIF89a specification
+---@param gifData string
+---@return table logicalScreen, integer logicalScreenEndByte
+local function extractLogicalScreen (gifData)
+  local logicalScreenDescriptor = extractLogicalScreenDescriptor(gifData)
+  if logicalScreenDescriptor.globalColorTableFlag == 1 then
+    error('Global Color Table not implemented')
+  end
+
+  local logicalScreen = {
+    logicalScreenDescriptor = logicalScreenDescriptor,
+    globalColorTable = nil
+  }
+  return logicalScreen, 14 -- We don't implement Global Color Table so we always know that datas (can) begin at byte 14
+end
+
+---Extracts an Image Descriptor as specified in section 20 by the GIF89a specification, also returns the index of the byte after
+---@param gifData string
+---@param index integer The n:th byte to start parsing an Image Descriptor in the gifData
+local function extractImageDescriptor (gifData, index)
+  local imageDescriptorBlock = gifData:sub(index, index + 9)
+  local packedFields = imageDescriptorBlock:byte(10)
+
+  local imageDescriptor = {
+    imageSeparator = imageDescriptorBlock:byte(1),
+    imageLeftPosition = bit32.lshift(imageDescriptorBlock:byte(3), 8) + imageDescriptorBlock:byte(2),
+    imageTopPosition = bit32.lshift(imageDescriptorBlock:byte(5), 8) + imageDescriptorBlock:byte(4),
+    imageWidth = bit32.lshift(imageDescriptorBlock:byte(7), 8) + imageDescriptorBlock:byte(6),
+    imageHeight = bit32.lshift(imageDescriptorBlock:byte(9), 8) + imageDescriptorBlock:byte(8),
+    localColorTableFlag = bit32.extract(packedFields, 7),
+    interlaceFlag = bit32.extract(packedFields, 6),
+    sortFlag = bit32.extract(packedFields, 5),
+    reserved = bit32.extract(packedFields, 3, 2),
+    sizeOfLocalColorTable = bit32.extract(packedFields, 0, 3)
+  }
+
+  return imageDescriptor, index + 10
+end
+
+---Extracts a Local Color Table as specified in section 21 by the GIF89a specification, also returns the index of the byte after
+---@param gifData string
+---@param index integer The n:th byte to start parsing a Local Color Table in the gifData
+---@param sizeOfLocalColorTable integer The size of the Local Color Table from related Image Descriptor
+local function extractLocalColorTable (gifData, index, sizeOfLocalColorTable)
+  local localColorTableBytes = 3 * math.pow(2, sizeOfLocalColorTable + 1)
+  local localColorTable = {}
+  for i = index, index + localColorTableBytes - 1,3 do
+    table.insert(localColorTable, {
+      red = gifData:byte(i),
+      green = gifData:byte(i + 1),
+      blue = gifData:byte(i + 2)
+    })
+  end
+  return localColorTable, index + localColorTableBytes
+end
+
+---Extracts Data Sub-Blocks as specified in section 15 by the GIF89a specification, also returns the index of the byte after
+---@param gifData string
+---@param index integer The n:th byte to start parsing Data Sub-Blocks in the gifData
+local function extractDataSubBlocks (gifData, index)
+  local subBlocks = {}
+  while true do
+    local subBlock = {
+      blockSize = gifData:byte(index),
+      dataValues = {}
+    }
+
+    for i = 1, subBlock.blockSize do
+      table.insert(subBlock.dataValues, gifData:byte(index + i))
+    end
+
+    index = index + subBlock.blockSize + 1
+    table.insert(subBlocks, subBlock)
+
+    if subBlock.blockSize == 0 then
+      break
+    end
+  end
+  return subBlocks, index
+end
+
+---LZW Decoding stuff
+---@param imageDataBytes string
+---@param lzwMinimumCodeSize integer
+local function lzwDecode (imageDataBytes, lzwMinimumCodeSize)
+  local dictionary = {}
+
+  local function generateDictionary ()
+    local newDictionary = {}
+    -- + 1 to reserve the clearCode and endOfInformationCode
+    for i = 0, math.pow(2, lzwMinimumCodeSize) + 1 do
+      newDictionary[i] = { i }
+    end
+    return newDictionary
+  end
+
+  local function flattenToTable (...)
+    local newTable = {}
+    for _, v in ipairs(arg) do
+      if type(v) == 'table' then
+        for _,v2 in ipairs(v) do table.insert(newTable, v2) end
+      else
+        table.insert(newTable, v)
+      end
+    end
+    return newTable
+  end
+
+  local bitIndex = 0
+  local clearCode = math.pow(2, lzwMinimumCodeSize)
+  local endOfInformationCode = clearCode + 1
+  local currentCodeSize = lzwMinimumCodeSize + 1
+
+  local decoded = {}
+  local previousCode = nil
+  while true do
+    local currentCode = bitutils.extractBits(imageDataBytes, currentCodeSize, bitIndex)
+    bitIndex = bitIndex + currentCodeSize
+
+    if currentCode == endOfInformationCode then
+      break
+    elseif currentCode == clearCode then
+      -- Hacky way to make sure ComputerCraft doesn't terminate this program due to it taking too long without yielding
+      os.queueEvent('fakeEvent')
+      os.pullEvent()
+      dictionary = generateDictionary()
+      currentCodeSize = lzwMinimumCodeSize + 1
+    elseif previousCode == clearCode then
+      table.insert(decoded, currentCode)
+    elseif dictionary[currentCode] == nil then
+      local K = dictionary[previousCode][1]
+      local combined = flattenToTable(dictionary[previousCode], K)
+      for _,v in ipairs(combined) do table.insert(decoded, v) end
+      table.insert(dictionary, combined)
+    else
+      for _,v in ipairs(dictionary[currentCode]) do table.insert(decoded, v) end
+      local K = dictionary[currentCode][1]
+      local combined = flattenToTable(dictionary[previousCode], K)
+      table.insert(dictionary, combined)
+    end
+
+    if #dictionary == math.pow(2, currentCodeSize) - 1 and currentCodeSize < 12 then
+      currentCodeSize = currentCodeSize + 1
+    end
+
+    previousCode = currentCode
+  end
+
+  return decoded
+end
+
+---Extracts Table Based Image Data as specified in section 22 and Appendix F by the GIF89a specification, also returns the index of the byte after
+---@param gifData string
+---@param index integer The n:th byte to start parsing Table Based Image Data in the gifData
+local function extractTableBasedImageData (gifData, index)
+  local tableBasedImageData = {}
+
+  tableBasedImageData.lzwMinimumCodeSize = gifData:byte(index)
+  index = index + 1
+  tableBasedImageData.imageData, index = extractDataSubBlocks(gifData, index)
+
+  local imageDataByteChars = {}
+  for _, subBlock in ipairs(tableBasedImageData.imageData) do
+    for _, dataValue in ipairs(subBlock.dataValues) do
+      table.insert(imageDataByteChars, string.char(dataValue))
+    end
+  end
+  local imageDataBytes = table.concat(imageDataByteChars)
+  tableBasedImageData.pixelsColorIndexes = lzwDecode(imageDataBytes, tableBasedImageData.lzwMinimumCodeSize)
+
+  return tableBasedImageData, index
+end
+
+---Extracts a <Table-Based Image> as specified in Appendix B GIF Grammar by the GIF89a specification
+---@param gifData string
+---@param index integer The n:th byte to start parsing <Table-Based Image> in the gifData
+local function extractTableBasedImage (gifData, index)
+  local tableBasedImage = {}
+
+  tableBasedImage.imageDescriptor, index = extractImageDescriptor(gifData, index)
+
+  if tableBasedImage.imageDescriptor.localColorTableFlag == 1 then
+    tableBasedImage.localColorTable, index = extractLocalColorTable(gifData, index, tableBasedImage.imageDescriptor.sizeOfLocalColorTable)
+  end
+
+  tableBasedImage.imageData = extractTableBasedImageData(gifData, index)
+
+  return tableBasedImage
+end
+
+---Extracts the <Data>s as specified in Appendix B GIF Grammar by the GIF89a specification
+---@param gifData string
+---@param index integer The n:th byte to start searching for <Data> in the gifData
+local function extractDatas (gifData, index)
+  local datas = {}
+  while true do
+    local nextByte = gifData:byte(index)
+    if nextByte == fixedValues.trailer then
+      break
+    elseif nextByte == fixedValues.extensionIntroducer then
+      error('No extensions are implemented')
+    elseif nextByte == fixedValues.imageSeparator then
+      local graphicBlock = {
+        graphicControlExtension = nil,
+        graphicRenderingBlock = extractTableBasedImage(gifData, index)
+      }
+      table.insert(datas, graphicBlock)
+    else
+      error(string.format('Unknown data type beginning with %d at index %d', nextByte, index))
+    end
+
+    break -- TODO Fix this loop
+  end
+
+  return datas
+end
+
+---Decodes GIF data
+---@param gifData string GIF bytes. Don't be fooled by the string type, string.byte is used to check the byte value of each char in the string
+function gif.decode (gifData)
+  local logicalScreen, logicalScreenEndByte = extractLogicalScreen(gifData)
+  return {
+    header = extractHeader(gifData),
+    logicalScreen = logicalScreen,
+    datas = extractDatas(gifData, logicalScreenEndByte)
+  }
+end
+
+return gif
