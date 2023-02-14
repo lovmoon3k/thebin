@@ -1,0 +1,200 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClientSecureBearSSL.h>
+#include <ArduinoJson.h>
+#include <SoftwareSerial.h>
+#include <FirebaseESP8266.h>
+
+
+// konfigurasi WiFi
+#define WIFI_SSID "BLANGKRUENG"
+#define WIFI_PASSWORD "indonesia77"
+
+//konfigurasi firebase
+#define FIREBASE_HOST "monitoring-solar-tracker-3-dof-default-rtdb.asia-southeast1.firebasedatabase.app/"
+#define FIREBASE_AUTH "pgrhEn6QFOoNnIMdDUe5OTlpKwoRZH58ojZBsHJV"
+
+FirebaseData firebaseData; //firebase function
+
+//buat variabel untuk software serial (Rx, Tx)
+SoftwareSerial DataSerial_2(12, 13);
+
+
+//millis sebagai pengganti delay
+unsigned long previousMillis = 0;
+unsigned long lastTime = 0;
+const long interval = 3000;
+const int waktu_diUpdate = 30; // 30 menit 1x
+
+String arrData_2[7];
+int detik, menit;
+String waktu = "";
+String tanggal = "";
+String datetimes = "";
+
+void setup() {
+  //
+  Serial.begin(9600);
+  DataSerial_2.begin(9600);
+
+  // setup wifi connection
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting....");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print("....");
+    delay(500);
+  }
+  Serial.println();
+  Serial.println("Connected!");
+  // Setup firebase auth & host link
+  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
+  Firebase.setReadTimeout(firebaseData, 1000 * 60);
+
+}
+
+void loop() {
+  // konfigurasi millis 
+  unsigned long currentMillis = millis(); //baca waktu saat ini
+  if(currentMillis - previousMillis >= interval)
+  {
+    //update previousMillis
+    previousMillis = currentMillis;
+
+    //prioritaskan pembacaan data dari arduino uno (hasil kiriman data)
+    //baca data serial
+    
+    String data_2 = "";
+    while(DataSerial_2.available()>0)
+    {
+      data_2 += char(DataSerial_2.read());
+    }
+    //uji data Arduino 2
+    if(data_2 != "")
+    {
+      //format data "nilai dari semua sensor dibatasi dengan tanda #" (bentuk data nya dalam array)
+      //parsing data (pecah data)
+      int index_2 = 0;
+      for(int i=0; i<= data_2.length(); i++)
+      {
+        char delimiter_2 = '#';
+        if(data_2[i] != delimiter_2)
+           arrData_2[index_2] += data_2[i];
+        else
+           index_2++; //variabel index bertambah 1
+      }
+
+      // pastikan bahwa data yang dikirim lengkap 
+      // urutannya
+      if(index_2 == 6)
+      {
+        //tampilkan nilai sensor ke serial monitor
+        // buat variabel baru untuk menampung nilai data
+        
+        Serial.println("Sudut X :" + arrData_2[0]); // sudutX
+        String sudutX = arrData_2[0];
+        Serial.println("Sudut Y :" + arrData_2[1]); // sudutY
+        String sudutY = arrData_2[1];
+        Serial.println("Intesitas Cahaya :" + arrData_2[2]); // intensitas_cahaya
+        String cahaya = arrData_2[2];
+        Serial.println("Tegangan :" + arrData_2[3]); // tegangan
+        String tegangan = arrData_2[3];
+        Serial.println("Arus :" + arrData_2[4]); // arus
+        String arus = arrData_2[4];
+        Serial.println("Daya :" + arrData_2[5]); // daya
+        String daya = arrData_2[5];
+        Serial.println("Suhu :" + arrData_2[6]); //suhu
+        String suhu = arrData_2[6];
+
+        // ambil tanggal dan waktu setiap 5 detik
+        DateTime(5000);
+        datetimes = String(tanggal) + "(" + String(waktu) +")"; 
+
+        if (menit%waktu_diUpdate == 0 && detik == 0) {
+          Firebase.setString(firebaseData, "data_arduino_uno/waktu/"+ datetimes, waktu);
+          delay(5);
+          Firebase.setString(firebaseData, "data_arduino_uno/tanggal/"+ datetimes, tanggal);
+          delay(5);
+          Firebase.setString(firebaseData, "data_arduino_uno/sudut_x/"+ datetimes, sudutX);
+          delay(5);
+          Firebase.setString(firebaseData, "data_arduino_uno/sudut_y/"+ datetimes, sudutY);
+          delay(5);
+          Firebase.setString(firebaseData, "data_arduino_uno/intensitas_cahaya/"+ datetimes, cahaya);
+          delay(5);
+
+          Firebase.setString(firebaseData, "data_panel_surya_tanpa_st/waktu/"+ datetimes, waktu);
+          delay(5);
+          Firebase.setString(firebaseData, "data_panel_surya_tanpa_st/tanggal/"+ datetimes, tanggal);
+          delay(5);
+          Firebase.setString(firebaseData, "data_panel_surya_tanpa_st/tegangan/"+ datetimes, tegangan);
+          delay(5);
+          Firebase.setString(firebaseData, "data_panel_surya_tanpa_st/arus/"+ datetimes, arus);
+          delay(5);
+          Firebase.setString(firebaseData, "data_panel_surya_tanpa_st/daya/"+ datetimes, daya);
+          delay(5);
+          Firebase.setString(firebaseData, "data_arduino_uno/suhu/"+ datetimes, suhu);
+          delay(10);
+        }
+      }
+      
+      arrData_2[0] = "";
+      arrData_2[1] = "";
+      arrData_2[2] = "";
+      arrData_2[3] = "";
+      arrData_2[4] = "";
+      arrData_2[5] = "";
+      arrData_2[6] = "";
+    }
+    //minta data ke arduino uno
+    DataSerial_2.println("Ya");  
+  }  
+}
+
+void DateTime(long pending) {
+  unsigned long currentTime = millis();
+  if((unsigned)(currentTime - lastTime) >= pending){
+    lastTime = currentTime;
+    if (WiFi.status() == WL_CONNECTED) {
+      std::unique_ptr<BearSSL::WiFiClientSecure>client(new BearSSL::WiFiClientSecure);
+
+      // Ignore SSL certificate validation
+      client->setInsecure();
+
+      // Create an HTTPClient instance
+      HTTPClient https;
+
+      // Initializing an HTTPS communication using the secure client
+      if (https.begin(*client, "https://datetime.basyair7.repl.co/")) { // HTTPS
+        int httpsCode = https.GET();
+        // httpCode will be negative on error
+        if (httpsCode > 0) {
+          // HTTP header has been send and Server response header has been handled
+          // file found at server
+          if (httpsCode == HTTP_CODE_OK || httpsCode == HTTP_CODE_MOVED_PERMANENTLY) {
+            String val = https.getString();
+            DynamicJsonBuffer jsonBuffer;
+            JsonObject& data = jsonBuffer.parseObject(val);
+            if (data == JsonObject::invalid()){
+              jsonBuffer.clear();
+              Serial.println(F("Data Invalid"));
+              return;
+            }
+
+            String clock = data["waktu"];
+            String date = data["tanggal"];
+            int minute = data["menit"];
+            int seconds = data["detik"];
+            waktu = clock;
+            tanggal = date;
+            menit = minute;
+            detik = seconds;
+            // Serial.println(val);
+            // Serial.printf("Waktu : %s\n", waktu);
+            // Serial.printf("Tanggal : %s\n", tanggal);
+          }
+        }
+      }
+    } else {
+      Serial.println(F("WiFi Disconnected..."));
+    }
+  }
+}

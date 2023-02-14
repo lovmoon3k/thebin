@@ -1,0 +1,388 @@
+import { HtmlElementTexture } from '@babylonjs/core/Materials/Textures/htmlElementTexture';
+import { ThinEngine } from '@babylonjs/core/Engines/thinEngine';
+import { EffectRenderer } from '@babylonjs/core/Materials/effectRenderer';
+import { Constants } from '@babylonjs/core/Engines/constants';
+
+import type { VideoOrientation } from '../../../../types/CameraProps';
+import {
+  IWasmCV,
+  IWasmCVSegmentation,
+  IBackdropProvider,
+  ILogger,
+  IBackdropEffectType,
+  IBackdropTelemetryCallbacks,
+} from './IBackdropProvider';
+import { WindowObjectType } from '../../../../types/WindowObject';
+
+export const emptyLogger = {
+  createChild: () => emptyLogger,
+  debug: () => {},
+  warn: () => {},
+  info: () => {},
+  error: () => {},
+  log: () => {},
+} as ILogger;
+
+export const consoleLogger = {
+  ...console,
+  createChild: () => consoleLogger,
+} as ILogger;
+
+/**
+ * Class that handles all the backdrop functions for wasmcv
+ * https://skype.visualstudio.com/SCC/_git/media_intelligence_misc?path=/SlimCV/WasmCV/src/wasmcv
+ *
+ * Steps:
+ *   - setup
+ *   - setInputStream
+ *   - enable
+ *   - disable
+ *   - setEffect
+ */
+export class WASMBackdropProvider implements IBackdropProvider {
+  engine?: ThinEngine;
+  effectRenderer?: EffectRenderer;
+  logger?: ILogger;
+
+  debug = false;
+  enabled = false;
+  currentEffect: IBackdropEffectType = IBackdropEffectType.Off;
+
+  // WASMCV
+  cv?: IWasmCV;
+
+  // WASMCV Segmentation instance
+  segmentation?: IWasmCVSegmentation;
+
+  // Input user input stream
+  inputStream?: MediaStream;
+  inputVideoOrientation?: VideoOrientation = 'landscape';
+  // Video element used to
+  inputVideo?: HTMLVideoElement;
+
+  // Segmentation output stream
+  outputStream?: MediaStream;
+  // Video element used to
+  outputVideo?: HTMLVideoElement;
+  // Babylon texture
+  outputTexture?: HtmlElementTexture;
+
+  host?: WindowObjectType;
+
+  telemetryCallbacks?: IBackdropTelemetryCallbacks;
+
+  isRunningInit = false;
+
+  // Play promises for async workarounds
+  inputVideoPlayPromise?: Promise<void>;
+  outputVideoPlayPromise?: Promise<void>;
+
+  /**
+   * Setup function to prepare requirements
+   * @param { ThinEngine } engine
+   * @param wasmCV // @skype/wasmcv
+   * @param { EffectRenderer } effectRenderer
+   * @param { IBackdropTelemetryCallbacks } telemetryCallbacks
+   * @param { boolean } debug
+   * @param { ILogger } logger
+   */
+  public setup(
+    engine: ThinEngine,
+    wasmCV: IWasmCV,
+    effectRenderer: EffectRenderer,
+    host: WindowObjectType,
+    telemetryCallbacks?: IBackdropTelemetryCallbacks,
+    debug = false,
+    logger?: ILogger,
+  ): void {
+    this.engine = engine;
+    this.cv = wasmCV;
+    this.effectRenderer = effectRenderer;
+    this.telemetryCallbacks = telemetryCallbacks;
+    this.host = host;
+    this.debug = debug;
+    this.logger = debug ? logger || consoleLogger : emptyLogger;
+  }
+
+  /**
+   * Inits the wasmcv if needed and sets the given inputStream
+   * @param { MediaStream } inputStream
+   * @returns { Promise<void> }
+   */
+  public async enable(inputStream?: MediaStream): Promise<void> {
+    this.logger?.log('WASMCV enable >', { inputStream });
+
+    if (!inputStream?.active) return;
+    if (inputStream?.active) await this.setInputStream(inputStream);
+    await this.initIfNeeded();
+    this.enabled = true;
+  }
+
+  /**
+   * Disables and disposes wasmcv
+   */
+  public disable(): void {
+    this.logger?.log('WASMCV disable');
+    this.enabled = false;
+    this.dispose();
+  }
+
+  /**
+   * Replaces the inputStream and disposes the Segmentation if needed
+   * @param { MediaStream } inputStream
+   * @param { VideoOrientation } videoOrientation
+   * @returns { Promise<void> }
+   */
+  public async setInputStream(
+    inputStream: MediaStream,
+    videoOrientation: VideoOrientation = 'landscape',
+  ): Promise<void> {
+    this.logger?.log('WASMCV setInputStream >', {
+      enabled: this.enabled,
+      isRunningInit: this.isRunningInit,
+      inputStream,
+      oldInputStream: this.inputStream,
+    });
+
+    if (!inputStream?.active) return;
+
+    if (this.inputStream !== inputStream) {
+      this.inputStream = inputStream;
+      this.inputVideoOrientation = videoOrientation;
+
+      if (this.debug && this.host) {
+        if (this.inputVideo) this.disposeInputVideo();
+
+        this.inputVideo = this.host.document.createElement('video');
+        this.inputVideo.srcObject = this.inputStream;
+        this.inputVideoPlayPromise = this.inputVideo.play();
+        this.host.document.body.appendChild(this.inputVideo);
+      }
+
+      if (this.isRunningInit) return;
+      if (this.segmentation && this.inputStream?.active) {
+        this.outputStream = await this.segmentation.processStream(this.inputStream);
+        if (this.outputVideo && this.outputStream) {
+          this.outputVideo.srcObject = this.outputStream;
+          this.outputVideoPlayPromise = this.outputVideo.play();
+        }
+      } else if (this.enabled && !this.segmentation) {
+        await this.init();
+      }
+    }
+  }
+
+  /**
+   * Disables & disposes before removing the required inputStream
+   */
+  public clearInputStream() {
+    this.logger?.log('WASMCV clearInputStream');
+    this.disable();
+    delete this.inputStream;
+  }
+
+  /**
+   * Sets the segmentation effect
+   * @param { IBackdropEffectType } mode
+   */
+  public setEffect(mode: IBackdropEffectType = IBackdropEffectType.MaskOnly): void {
+    if (this.segmentation) {
+      switch (mode) {
+        case IBackdropEffectType.BackgroundReplacement:
+        case IBackdropEffectType.MaskOnly:
+          this.segmentation.setEffect('maskOnly');
+          break;
+        case IBackdropEffectType.BackgroundBlur:
+          this.segmentation.setEffect('blur');
+          break;
+        default:
+          this.segmentation.setEffect('off');
+      }
+    }
+    this.currentEffect = mode;
+  }
+
+  /**
+   * Update fn called on frame
+   */
+  public update(): void {
+    if (this.enabled && this.inputStream?.active && this.outputTexture) {
+      this.outputTexture.update();
+    }
+  }
+
+  /**
+   * Init fn to start segmentation
+   * @returns { Promise<void> }
+   */
+  private async init(): Promise<void> {
+    const initStart = performance.now();
+
+    if (!this.outputVideo) {
+      this.createOutputVideo();
+    }
+
+    if (this.cv && this.inputStream) {
+      this.isRunningInit = true;
+
+      this.segmentation = new this.cv.Segmentation(this.logger) as IWasmCVSegmentation;
+
+      if (this.segmentation.settings)
+        this.segmentation.settings.gravity = this.inputVideoOrientation === 'landscape' ? 0 : 1;
+
+      await this.segmentation.init();
+      let timePassed = Math.ceil(performance.now() - initStart) / 1000;
+      this.logger?.log('WASMCV init >', timePassed, 'sec', {
+        inputStream: this.inputStream,
+      });
+      this.telemetryCallbacks?.onInitDone(timePassed);
+
+      this.segmentation.setEffect(this.currentEffect);
+
+      const processingTS = performance.now();
+
+      if (this.inputStream?.active) this.outputStream = await this.segmentation.processStream(this.inputStream);
+      timePassed = Math.ceil(performance.now() - processingTS) / 1000;
+      this.logger?.log('WASMCV processStream >', timePassed, 'sec');
+      this.telemetryCallbacks?.onProcessedStream(timePassed);
+
+      if (this.outputVideo && this.outputStream) {
+        this.outputVideo.srcObject = this.outputStream;
+        this.outputVideoPlayPromise = this.outputVideo.play();
+      }
+      this.isRunningInit = false;
+    }
+  }
+
+  /**
+   * Calls init if segmentation doesn't exist yet
+   * @returns { Promise<void> }
+   */
+  private async initIfNeeded(): Promise<void> {
+    if (!this.segmentation) await this.init();
+  }
+
+  /**
+   * Creates the needed <video>
+   * @returns { HTMLVideoElement }
+   */
+  private createOutputVideo(): HTMLVideoElement {
+    const hostWindow = this.host || window;
+    this.outputVideo = hostWindow.document.createElement('video');
+    this.createOutputTexture();
+    if (this.debug) {
+      hostWindow.document.body.appendChild(this.outputVideo);
+    }
+    return this.outputVideo;
+  }
+
+  /**
+   * Creates the Babylon.HtmlElementTexture if needed
+   * @returns { HtmlElementTexture | undefined }
+   */
+  private createOutputTexture(): HtmlElementTexture | undefined {
+    if (this.engine && this.outputVideo) {
+      if (this.outputTexture) this.outputTexture.dispose();
+      this.outputTexture = new HtmlElementTexture('outputTexture', this.outputVideo, {
+        engine: this.engine,
+        scene: null,
+        samplingMode: Constants.TEXTURE_LINEAR_LINEAR,
+        generateMipMaps: false,
+      });
+      this.outputTexture.wrapV = Constants.TEXTURE_CLAMP_ADDRESSMODE;
+      this.outputTexture.wrapU = Constants.TEXTURE_CLAMP_ADDRESSMODE;
+    }
+
+    return this.outputTexture;
+  }
+
+  /**
+   * Dispose
+   */
+  public dispose(): void {
+    this.disposeInputVideo();
+    this.disposeOutputStream();
+    this.disposeOutputVideo();
+    this.disposeOutputTexture();
+    this.disposeSegmentation();
+    this.logger?.log('WASMCV disposed');
+  }
+
+  /**
+   * Disposes a <video>
+   * @param { HTMLVideoElement } videoElement
+   */
+  private disposeVideo(videoElement: HTMLVideoElement): void {
+    if (videoElement) {
+      videoElement.pause();
+      videoElement.srcObject = null;
+      videoElement.load();
+      videoElement.parentElement?.removeChild(videoElement);
+    }
+  }
+
+  /**
+   * Disposes inputVideo
+   */
+  private disposeInputVideo(): void {
+    if (this.inputVideo) {
+      if (this.inputVideoPlayPromise) {
+        this.inputVideoPlayPromise
+          .then(() => {
+            if (this.inputVideo) this.disposeVideo(this.inputVideo);
+            delete this.inputVideo;
+          })
+          .catch(() => {});
+      } else {
+        this.disposeVideo(this.inputVideo);
+        delete this.inputVideo;
+      }
+    }
+  }
+
+  /**
+   * Disposes outputStream
+   */
+  private disposeOutputStream(): void {
+    this.outputStream?.getTracks().forEach(track => track.stop());
+    delete this.outputStream;
+  }
+
+  /**
+   * Disposes outputVideo
+   */
+  private disposeOutputVideo(): void {
+    if (this.outputVideo) {
+      if (this.outputVideoPlayPromise) {
+        this.outputVideoPlayPromise
+          .then(() => {
+            if (this.outputVideo) this.disposeVideo(this.outputVideo);
+            delete this.outputVideo;
+          })
+          .catch(() => {});
+      } else {
+        this.disposeVideo(this.outputVideo);
+        delete this.outputVideo;
+      }
+    }
+  }
+
+  /**
+   * Disposes outputTexture
+   */
+  private disposeOutputTexture(): void {
+    if (this.outputTexture) {
+      this.outputTexture.dispose();
+      delete this.outputTexture;
+    }
+  }
+
+  /**
+   * Dispose segmentation
+   */
+  private disposeSegmentation(): void {
+    if (this.segmentation) this.segmentation.dispose();
+    delete this.segmentation;
+    this.logger?.log('WASMCV disposeSegmentation');
+  }
+}
