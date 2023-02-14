@@ -1,0 +1,513 @@
+const {SlashCommandBuilder} = require('@discordjs/builders');
+const { stripIndent } = require('common-tags');
+const {EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits} = require('discord.js')
+const config = require('../../config.json')
+const emojis = require('../../util/emojis.json')
+const {buildEmbed} = require('../../functions/errorEmbed')
+const {checkManager} = require('../../functions/isManager')
+
+exports.run = async (client, interaction) => {
+    const {options, member, guild} = interaction
+    const {rclient} = client
+    let subcommand = options.getSubcommand()
+    
+    let manager = await checkManager(client, guild, member)
+    if(!manager) return interaction.reply({ephemeral: true, embeds: [buildEmbed('You are not authorized to run this command.')]})
+
+    
+    switch(subcommand) {
+        case 'offer' : {
+            const type = options.getString('type')
+            const pid = options.getString('server-id')
+            if(!await client.guilds.fetch(pid)) 
+            return interaction.reply({embeds: [buildEmbed('That guild doesn\'t have shero bot.')], ephemeral: true})
+            
+            let partner = await client.guilds.fetch(pid)
+            let channelid 
+            let channel = await partner.channels.fetch()
+            break;
+        }
+
+        //partner info command -> options are server id {string} (optional) 
+        //if no id give then id = current server id 
+        case 'info': {
+            await interaction.deferReply()
+            let id = options.getString('server-id')
+            if(!id) id = interaction.guild.id
+            
+            try {
+                const partner = await client.guilds.fetch(id)
+                const owner = await client.users.fetch(partner.ownerId)
+                if(!owner) owner = 'couldn\'t fetch at the moment'
+            
+                let db = await client.rclient.hGetAll(`guild${partner.id}`)
+                if(!db) db = await client.rclient.hSet(`guild${partner.id}`, "prefix", config.prefix)
+                let invite = partner.vanityURLCode ? `[here](https://discord.gg/${partner.vanityURLCode})` : `${db.invitelink ? `[here](${formatInvite(db.invitelink)})` : 'no data'}`
+    
+                let members = partner.memberCount
+                let bots = partner.members.cache.filter((x) => x.user.bot).size
+                let humans = members - bots
+
+                let online = 0
+                let offline = 0
+                let idle = 0
+                let dnd = 0
+                let invis = 0
+
+                //here ping -> presence counts validations
+                partner.members.cache.forEach(async (x) => {
+                    try {
+                        if (!x.presence || x.presence.status === "offline") offline++
+                        else if (x.presence.status === "dnd") dnd++
+                        else if (x.presence.status === "idle") idle++
+                        else if (x.presence.status === "invisible") invis++
+                        else if (x.presence.status === "online") online++
+                    }
+                    catch(e) {console.log(e)}
+                })
+                let here = humans - offline
+                let ee = stripIndent`
+                here: ${here}
+                ${emojis.status.online} ${online} ${emojis.status.dnd} ${dnd}
+                ${emojis.status.idle} ${idle} ${emojis.status.offline} ${offline}
+                `
+
+                //per guild settings 
+                let amount = db.minheistamount ? `**${format(db.minheistamount)}**` : 'no data'
+                let cooldown = db.heistadscd  ? `**${db.heistadscd/60/60}** hour(s)`  : 'no data'
+                let manager = db.managerrole ? `${await partner.roles.fetch(db.managerrole)}` : 'no data'
+                let logs = db.heistlogs ? `${await partner.channels.fetch(db.heistlogs)}` : 'no data'
+                let def = db.defaultHeistAdsChannel ? `${await partner.channels.fetch(db.defaultHeistAdsChannel)}` : 'no data'
+                let v = stripIndent`
+                • posting cooldown: ${cooldown}
+                • minimum amount : ${amount}
+                • logging channel : ${logs}
+                • partnership manager role : ${manager}
+                • default posting channel: ${def}
+                `
+
+                let rolesinfo = ''
+                partner.roles.cache.forEach(async (role) => {
+                    if (/(heist|partner|giveaway|event).*ping/i.test(role.name)) {
+                        rolesinfo += `• [${role.name}](${config.supportserver.Invite}) - ${role.members.size.toLocaleString('en-US', {timezone: 'UTC'})}\n`
+                    }
+                })
+                if(rolesinfo.limit >= 1000) rolesinfo = rolesinfo.slice(0, 990)
+
+                //check if #interaction.guild is partner of entered server id
+                //case-1 get data of partdeal between message.guild and sent guild server
+                let deal = ''
+                let channel
+                let chd= ''
+                
+                if(!await rclient.HEXISTS(`partdeals${guild.id}`, partner.id)) {
+                    deal += 'This guild haven\'t partnered with **' + partner.name + ' **'
+                }
+                else {
+                    let selfdata = await rclient.hGet(`partdeals${guild.id}`, partner.id) //part deal data between interaction.guild and guild id (referred as partner variable) sent in option.
+                    let partnerdata = await rclient.hGet(`partdeals${partner.id}`, guild.id) //part deal data between guild id (referred as partner variable) sent in option and interaction.guild.
+
+                    //#2 details
+                    let partnerpings = partnerdata.split('/')[1]
+                    let fch = partnerdata.split('/')[0]
+                    console.log(fch)
+
+                    //#1 details
+                    const ch = selfdata.split('/')[0]
+                    let selfpings = selfdata.split('/')[1]
+                    
+                    channel = await partner.channels.cache.get(ch)
+                    if(!channel) {chd += 'I couldn\'t find heist posting channel'}
+                    else {
+                        chd += stripIndent`
+                        ${emojis.replycont} **Channel Id:** \` ${channel.id} \`
+                        ${emojis.greyreply} **Read messages:** ${channel.permissionsFor(client.user.id).has(PermissionFlagsBits.ViewChannel) ? emojis.success : emojis.fail}
+                        ${emojis.greyreply} **Send messages:** ${channel.permissionsFor(client.user.id).has(PermissionFlagsBits.SendMessages) ? emojis.success : emojis.fail}
+                        ${emojis.greyreply} **Mention roles and everyone:** ${channel.permissionsFor(client.user.id).has(PermissionFlagsBits.MentionEveryone) ? emojis.success : emojis.fail}
+                        `               
+                    }
+
+                    let ypings = ''
+                    let ymap = new Map()
+                    let ymembers=0
+                    let yreach=0
+                    if(selfpings) {
+                        let total=0
+                        let reached=0
+                        if(selfpings.toString().match(/\d{18,19}/g)) {
+                            for(const ping of selfpings.toString().match(/\d{19}|\d{18}/g)) {
+                                const role = await partner.roles.cache.get(ping)
+                                if(!role) ypings += 'deleted role with `0` reach'
+                                partner.members.cache.forEach((pmember) => {
+                                    if(!ymap.has(pmember.id) && pmember.roles.cache.has(role.id)) {
+                                        total++
+                                        ymembers++
+                                        ymap.set(pmember.id, 1)
+                                    }
+                                    if(partner.channels.cache.has(ch) && 
+                                    partner.channels.cache.get(ch).permissionsFor(pmember.id).has(PermissionFlagsBits.ViewChannel)) {
+                                        reached++
+                                        yreach++
+                                    }
+                                })
+
+                                console.log(`reached: ${reached}\ntotal members: ${total}`)
+                                let rch = Math.floor(reached / total * 100)
+                                ypings += `${role.name} with ${role.members.size.toLocaleString('en-US', {timezone: 'UTC'})} members has a reach of \`${rch}%\``
+                            }
+                        }
+                        else if(/everyone/g.test(selfpings)) {
+                            ypings += `@everyone\n`
+                        }
+                        else if(/here/g.test(selfpings)) {
+                            ypings += `@here\n`
+                        }
+                    }
+                    else {
+                        ypings += 'This guild doesnt ping for your server.'
+                    }
+                    
+                    let ppings = ''
+                    if(partnerpings) {
+                        if(partnerpings.toString().match(/\d{18,19}/g)) {
+                            for(const ping of partnerpings.toString().match(/\d{19}|\d{18}/g)) {
+                                const role = await guild.roles.cache.get(ping)
+                                ppings += `\` ${role.name} \` with ${role.members.size} members\n`
+                            }
+                        }
+                        else if(/everyone/g.test(partnerpings)) {
+                            ppings += `@everyone\n`
+                        }
+                        else if(/here/g.test(partnerpings)) {
+                            ppings += `@here\n`
+                        }
+                    }
+                    else {
+                        ppings += 'You arent pinging for that server.'
+                    }
+
+                    deal += stripIndent`
+                    ${channel ? `**channel details:**\n${channel}\n${chd}` : ''}
+                    
+                    **Your pings:**
+                    ${ypings}
+
+                    **Their pings:**
+                    ${ppings}
+                    `
+                }
+
+                const e = new EmbedBuilder()
+                .setTitle(`${partner.name}`)
+                .setColor(config.embedHex)
+                .setDescription(`**• owner:** [${owner.tag}](https://discordapp.com/users/${owner.id})\n• **invite:** ${invite}`)
+                .addFields([
+                    {name: '__members stats__:', value: `• total: ${members}\n• humans: ${humans}\n• bots: ${bots}`},
+                    {name: '__ping stats__:', value: `${ee}`},
+                    {name: '__partnership settings__:', value: `${v}`},
+                ])
+                //.setThumbnail(guild.iconURL({dynamic: true}))
+                .setImage("https://media.discordapp.net/attachments/883293909093068833/1044666862170030160/Picsart_22-11-22_18-32-52-233.jpg")
+                if(rolesinfo.length) e.addFields({name: '__roles info:__', value: `${rolesinfo}`, inline: false})
+                if(guild.id != partner.id) 
+                e.addFields({name: '__partnership deal info:__', value: `${deal}`, inline: false})
+                return interaction.editReply({embeds: [e]})
+            }
+            catch(e) {
+                console.log(e)
+                await interaction.reply({ephemeral: true, embeds: [buildEmbed(`I couldn't find that server, please make sure **${client.user.username}** is in that server.`)]})
+            }
+            break;
+        }
+        case 'list' : {
+            const type = options.getString('type')
+            switch(type) {
+                case 'heist' : {
+                    if(!await rclient.EXISTS(`partdeals${guild.id}`)) {
+                        return interaction.reply({ephemeral: true, embeds: [buildEmbed('This server donot have any heist partners.')]})
+                    }
+                    else {
+                        const deals = await client.rclient.hGetAll(`partdeals${guild.id}`)
+                        const p = []
+                        let i=0
+                        for(const deal in deals) {
+                            i+=1
+                            try {
+                                const guild = await client.guilds.fetch(deal)
+                                p.push(`\` ${i} \` ${guild.name}\n${emojis.replycont} members: ${guild.memberCount}\n${emojis.greyreply} id: ${guild.id}`)
+                            }
+                            catch(e) {
+                                console.log(e)
+                                if(!await rclient.EXISTS(`guild${deal}`)) {
+                                    p.push(`\` ${i} \` I couldn't find details of this guild\n${emojis.replycont} members: no data\n${emojis.greyreply} id: ${deal}`)
+                                }
+                                else {
+                                    let d = await rclient.hGetAll(`guild${deal}`)
+                                    p.push(` \`${i} \` ${d.name}\n${emojis.replycont} members: ${d.memberCount}\n${emojis.greyreply} id: ${deal}`)
+                                }
+                            }
+                        }
+
+                        if(p.length <= 5) {
+                            const e = new EmbedBuilder()
+                            .setColor(config.embedHex)
+                            .setTitle(`Heist Partners for: ${interaction.guild.name}`)
+                            .setDescription(p.join('\n'))
+                            .setImage("https://media.discordapp.net/attachments/883293909093068833/1044666862170030160/Picsart_22-11-22_18-32-52-233.jpg")
+                            interaction.reply({embeds: [e]})
+                        }
+                        else {
+                            let split = chunk(p, 4) 
+                            let all = []
+                            for(i=0;i<split.length;i++) {
+                                let e = new EmbedBuilder()
+                                .setColor(config.embedHex)
+                                .setDescription(split[i])
+                                .setTitle(`Heist partners for: ${interaction.guild.name}`)
+                                .setImage("https://media.discordapp.net/attachments/883293909093068833/1044666862170030160/Picsart_22-11-22_18-32-52-233.jpg")
+                                all.push(e)
+                            }
+
+                            let menu = new ActionRowBuilder()
+                            .addComponents(
+                                new ButtonBuilder()
+                                .setLabel('first')
+                                .setCustomId(`${interaction.id}-partners_first`)
+                                .setStyle(ButtonStyle.Secondary),
+                                
+                                new ButtonBuilder()
+                                .setLabel('prev')
+                                .setCustomId(`${interaction.id}-partners_prev`)
+                                .setStyle(ButtonStyle.Secondary),
+
+                                new ButtonBuilder()
+                                .setLabel('stop')
+                                .setCustomId(`${interaction.id}-partners_stop`)
+                                .setStyle(ButtonStyle.Danger),
+
+                                new ButtonBuilder()
+                                .setLabel('next')
+                                .setCustomId(`${interaction.id}-partners_next`)
+                                .setStyle(ButtonStyle.Secondary),
+
+                                new ButtonBuilder()
+                                .setLabel('last')
+                                .setCustomId(`${interaction.id}-partners_last`)
+                                .setStyle(ButtonStyle.Secondary)
+                            )
+
+                            let mm = await interaction.reply({embeds: [all[0]], components: [menu], fetchReply: true})
+                            const filter = async res => {
+                                if (res.user.id !== interaction.user.id) {
+                                    await res.followUp({
+                                        content: "That is not your help menu.", 
+                                        ephemeral: true
+                                    });
+                                    return false
+                                } else {
+                                    await res.deferUpdate()
+                                    return true
+                                }
+                            };
+                            const collector = await mm.createMessageComponentCollector({filter, time: 45000})
+                            collector.on('end', () => {
+                                menu.components.forEach(bt => bt.setDisabled(true))
+                                mm.editReply({components: [menu]})
+                            })
+                            
+                            let f=0
+                            collector.on('collect', async int => {
+                                let customid = int.customid
+                                customid = customid.split('-')[1]
+                                customid = customid.split('_')[1]
+                                console.log(customid)
+
+                                if(customid === 'stop') {
+                                    await collector.stop()
+                                }
+                                else if(customid === 'first') {
+                                    f=0
+                                    await mm.editReply({embeds: [all[f]]})
+                                }
+                                else if(customid === 'last') {
+                                    f=all.length-1
+                                   await mm.editReply({embeds: [all[f]]})
+                                }
+                                else if(customid === 'next') {
+                                    f++
+                                    if(f>all.length) f=all.length
+                                    await mm.editReply({embeds: [all[f]]})
+                                }
+                                else if(customid === 'last') {
+                                    f--
+                                    if(f<0) f=0
+                                    await mm.editReply({embeds: [all[f]]})
+                                }
+                            })
+                        }
+
+                    }
+                    break;
+                }
+                case 'broheist' : {
+                    if(!await rclient.EXISTS(`partdeals${guild.id}/events`)) {
+                        return interaction.reply({ephemeral: true, embeds: [buildEmbed('This server donot have any event partners.')]})
+                    }
+                    else {
+                        const deals = await client.rclient.hGetAll(`partdeals${guild.id}/events `)
+                        await interaction.reply('check console')
+                    }
+                }
+                case 'minigame' : {
+                    if(!await rclient.EXISTS(`partdeals${guild.id}/minigame`)) {
+                        return interaction.reply({ephemeral: true, embeds: [buildEmbed(client, 'This server donot have any minigame partners.')]})
+                    }
+                    else {
+                        const deals = await client.rclient.hGetAll(`partdeals${guild.id}/minigame`)
+                        for(const deal in deals) {
+                            console.log(deal)
+                        }
+                        return interaction.reply('check console')
+                    }
+                }
+            }
+            break;
+        }
+        case 'stats' : {
+            if(!await client.rclient.EXISTS(`heistadcd${guild.id}`)) return interaction.reply({ephemeral: true, })
+            else {
+                console.log(client.rclient.hGetAll(`heistadcd${guild.id}`))
+                return interaction.reply('check console')
+            }
+
+        }
+    }
+}
+
+exports.help = {
+    name: "partner",
+    description: "manage your partnerships",
+    usage: ["partner"],
+    example: ["partner"]
+};
+
+exports.conf = {
+    cooldown: 8,
+    data: new SlashCommandBuilder()
+    .setName(exports.help.name)
+    .setDescription(exports.help.description)
+    
+    //sub command-1 #offer
+    .addSubcommand(cmd => {
+        return cmd
+        .setName('offer')
+        .setDescription('offers a partnership deal.')
+        .addStringOption(opt => opt
+            .setName('adtype')
+            .setDescription('Select your partnership type')
+            .addChoices(
+                {name: 'Dankmemer Heists', value: 'heist'},
+                {name: 'Brobot Heists', value: 'bro'},
+                {name: 'Minigames', value: 'minigame'}
+            )
+            .setRequired(true))
+        .addStringOption(opt => opt
+            .setName('server-id')
+            .setDescription('please input the server id you are offering partnership to')
+            .setRequired(true))
+        .addChannelOption(opt => opt 
+            .setName('channel')
+            .setDescription('please enter the channel you want send heist advertisements to')
+            .setRequired(true))    
+    })
+
+    //sub command-2 #accept
+    .addSubcommand(cmd => {
+        return cmd 
+        .setName('accept')
+        .setDescription('accepts a partnership deal.')
+        .addStringOption(opt => opt
+            .setName('adtype')
+            .setDescription('Select your partnership type')
+            .addChoices(
+                {name: 'Dankmemer Heists', value: 'heist'},
+                {name: 'Brobot Heists', value: 'broheist'},
+                {name: 'Minigames', value: 'minigame'}
+            )
+            .setRequired(true))
+        .addStringOption(opt => opt
+            .setName('server-id')
+            .setDescription('please input the server id you are accepting partnership with')
+            .setRequired(true))
+        .addChannelOption(opt => opt 
+            .setName('channel')
+            .setDescription('please enter the channel you want send heist advertisements to')
+            .setRequired(true))
+    })
+
+    //sub command-3 #info
+    .addSubcommand(cmd => {
+        return cmd 
+        .setName('info')
+        .setDescription('overview details about a server')
+        .addStringOption(opt => opt
+         .setName('server-id')
+         .setDescription('please enter server id'))
+    })
+
+    //sub command-4 #list
+    .addSubcommand(opt => {
+        return opt
+        .setName('list')
+        .setDescription('view all your partnerships')
+        .addStringOption(opt => {
+            return opt 
+            .setName('type')
+            .setDescription('select a partnership type to see your partners')
+            .setRequired(true)
+            .addChoices(
+                {name: 'Dankmemer Heists', value: 'heist'},
+                {name: 'Brobot Heists', value: 'broheist'},
+                {name: 'Minigames', value: 'minigame'}
+            )
+        })
+    })
+
+    .addSubcommand(opt => {
+        return opt 
+        .setName('stats')
+        .setDescription('check your server cooldown among your partners')
+    })
+}
+
+function format(number) {
+    let num = new Intl.NumberFormat('en-US', {
+        notation: 'compact',  
+    }).format(number)
+    return num.toLocaleLowerCase();
+}
+
+function formatInvite(invite) {
+    let formated
+    if(invite.includes('https://')) {
+        formated = invite
+    }
+    else {
+        invite = invite.split('/')[1]
+        formated = `https://discord.gg/${invite}`
+    }
+    return formated
+}
+
+function chunk(items, size) {
+    const chunks = []
+    items = [].concat(...items)
+
+    while (items.length) {
+        chunks.push(
+            items.splice(0, size)
+        )
+    }
+
+    return chunks
+}
