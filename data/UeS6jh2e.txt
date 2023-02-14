@@ -1,0 +1,62 @@
+public abstract class QueryGenerationExperiment
+{
+    internal enum QueryOutputType
+    {
+        Object,
+        Id,
+        None
+    }
+
+    private static List<Type> DefaultPermittedPropertyTypes = new()
+    {
+        typeof(bool), typeof(byte), typeof(Guid), typeof(int), typeof(long), typeof(byte[]), typeof(double),
+        typeof(decimal), typeof(DateTimeOffset), typeof(DateTime), typeof(char), typeof(string), typeof(float), 
+        typeof(short), typeof(TimeSpan), 
+    };
+
+    internal string ProvideInsertQuery<T> (T instance, 
+                                        QueryOutputType outputType=QueryOutputType.Object,
+                                        List<string>? omittedPropertyNames=null,
+                                        List<Type>? permittedPropertyTypes=null) 
+                                        where T : Entity
+    {
+        List<string> defaultOmittedPropertyNames = new() { nameof(Entity.Id) };
+
+        omittedPropertyNames ??= defaultOmittedPropertyNames;
+        permittedPropertyTypes ??= DefaultPermittedPropertyTypes;
+
+        var tableName = nameof(T);
+        var propertyNames = typeof(T).GetProperties()
+                                     .Where(p => permittedPropertyTypes.Contains(p.PropertyType))
+                                     .Select(p => p.Name)
+                                     .Except(omittedPropertyNames);
+        var columnNames = propertyNames.Select(p => p.Length == 1 ? char.ToLower(p[0]).ToString() : char.ToLower(p[0]) + p[1..]);
+
+        return $@"
+            INSERT INTO [dbo].[{tableName}] 
+            ({
+                String.Join(", ", columnNames.Select(c => $"[{c}]"))
+            }) 
+            {
+                () =>
+                {
+                    switch (outputType)
+                    {
+                        case QueryOutputType.Object:
+                            return "OUTPUT INSERTED.*";
+                        case QueryOutputType.Id:
+                            return $"OUTPUT INSERTED.{nameof(Entity.Id)}";
+                        default:
+                        case QueryOutputType.None:
+                            return "";
+                    }
+                }
+            }
+            VALUES 
+            ({
+                String.Join(", ", propertyNames.Select(p => $"@{p}"))
+            })
+            ;
+        ";
+    }
+}
