@@ -1,0 +1,119 @@
+<?php
+declare(strict_types=1);
+
+namespace Pim\Adapter\DataHandler;
+
+use Deliveryportal\Article\Domain\Repository\ArticleimagesRepository;
+use Deliveryportal\Article\Domain\Repository\ArticleRepository;
+use TYPO3\CMS\Core\Configuration\Exception\ExtensionConfigurationExtensionNotConfiguredException;
+use TYPO3\CMS\Core\Configuration\Exception\ExtensionConfigurationPathDoesNotExistException;
+use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
+use TYPO3\CMS\Core\DataHandling\DataHandler;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
+
+/**
+ * Class to store & update Records in the Database
+ */
+class ObjectDataHandler
+{
+
+    protected int $pid;
+
+    protected DataHandler $dataHandler;
+    protected ArticleRepository $articleRepository;
+    protected ArticleimagesRepository $articleimagesRepository;
+
+    protected array $extensionConfiguration;
+
+    /**
+     * @param $value
+     * @param $status
+     * @param null $id
+     * @throws ExtensionConfigurationExtensionNotConfiguredException
+     * @throws ExtensionConfigurationPathDoesNotExistException
+     */
+    public function handleData($value, $status, $id = null)
+    {
+        // Get the DataHandler
+        $this->dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+
+        // Get the Extension Configuration From PIM-Extension
+        $this->extensionConfiguration = GeneralUtility::makeInstance(ExtensionConfiguration::class)->get('pim');
+
+        // Get the Repository from DeliveryPortal-Extension
+        $this->articleRepository = GeneralUtility::makeInstance(ArticleRepository::class);
+
+
+        // Get the Repository from DeliveryPortal-Extension Images
+        $this->articleimagesRepository = GeneralUtility::makeInstance(ArticleimagesRepository::class);
+
+        // Define the variables from Extension-Configuration-Array
+        $this->pid = (int)$this->extensionConfiguration['pid'];
+
+
+        if ($status == 'NEW' || $status == 'UPDATE') {
+            // Initialisation of variables
+            $language = null;
+            $parent = null;
+
+            // Define the Languages
+            if ($value->lang == 'de') {
+                $language = 0;
+            } elseif ($value->lang == 'en') {
+                $language = 1;
+                $parentObject = $this->articleRepository->findByArtnr($value->parent);
+                $parent = $parentObject[0]->getUid();
+            }
+        }
+
+        // Declare the Status NEW
+        if ($status == 'NEW') {
+            $data['tx_article_domain_model_article']['NEW12345'] = [
+                'sys_language_uid' => $language,
+                'artnr' => $value->artnr,
+                'title' => $value->title,
+                'pid' => $this->pid,
+                'l10n_parent' => $parent,
+                'articleimages' => 9999
+            ];
+            foreach ($value->images as $key => $image) {
+                $data['tx_article_domain_model_articleimages']['NEW' . $key] = [
+                    'sys_language_uid' => $language,
+                    'pid' => $this->pid,
+                    'parent' => 'NEW12345',
+                    'articleimage' => $image
+                ];
+            }
+			// HIER IST DAS PROBLEM
+            $this->dataHandler->start($data, []);
+            $this->dataHandler->process_datamap();
+
+            // Declare the Status UPDATE
+        } elseif ($status == 'UPDATE') {
+            if ($this->articleimagesRepository->deleteImages($id)) {
+                $data['tx_article_domain_model_article'][$id] = [
+                    'title' => $value->title,
+                    'articleimages' => 9999,
+                    'pid' => $this->pid
+                ];
+                foreach ($value->images as $key => $image) {
+                    $data['tx_article_domain_model_articleimages']['NEW' . $key] = [
+                        'pid' => $this->pid,
+                        'parent' => $id,
+                        'articleimage' => $image
+                    ];
+                }
+                $this->dataHandler->start($data, []);
+                $this->dataHandler->process_datamap();
+            }
+
+            // Declare the Status DELETE
+        } elseif ($status == 'DELETE') {
+            if ($this->articleimagesRepository->deleteImages($id)) {
+                $cmd['tx_article_domain_model_article'][$id]['delete'] = 1;
+                $this->dataHandler->start([], $cmd);
+                $this->dataHandler->process_cmdmap();
+            }
+        }
+    }
+}
