@@ -1,0 +1,829 @@
+SET @start_date = DATE_SUB(CURDATE(), INTERVAL 10 DAY);
+SET @end_date = DATE_SUB(CURDATE(), INTERVAL 1 DAY);
+
+DROP TEMPORARY TABLE IF EXISTS
+	tmp_junior_sales_managers;
+
+CREATE TEMPORARY TABLE
+	tmp_junior_sales_managers
+		(KEY (user_id, `date`))
+SELECT
+	umd.`date`,
+	umd.user_id,
+	IFNULL(u.name_eng, u.nickname) AS junior_sales_manager
+FROM
+	rabota_db.npm_user_manager_by_date umd
+		JOIN rabota_db.`user` u
+			ON u.user_id = umd.manager_id 
+WHERE
+	umd.`type` = 'junior_sales_manager'
+	AND umd.`date` BETWEEN DATE(@start_date) AND DATE(@end_date);
+
+DROP TEMPORARY TABLE IF EXISTS
+	tmp_sales_managers;
+
+CREATE TEMPORARY TABLE
+	tmp_sales_managers
+		(KEY (user_id, `date`))
+SELECT
+	umd.`date`,
+	umd.user_id,
+	IFNULL(u.name_eng, u.nickname) AS sales_manager
+FROM
+	rabota_db.npm_user_manager_by_date umd
+		JOIN rabota_db.`user` u
+			ON u.user_id = umd.manager_id 
+WHERE
+	umd.`type` = 'sales_manager'
+	AND umd.`date` BETWEEN DATE(@start_date) AND DATE(@end_date);
+
+DROP TEMPORARY TABLE IF EXISTS
+	tmp_account_managers;
+
+CREATE TEMPORARY TABLE
+	tmp_account_managers
+		(KEY (user_id, `date`))
+SELECT
+	umd.`date`,
+	umd.user_id,
+	IFNULL(u.name_eng, u.nickname) AS account_manager
+FROM
+	rabota_db.npm_user_manager_by_date umd
+		JOIN rabota_db.`user` u
+			ON u.user_id = umd.manager_id
+WHERE
+	umd.`type` = 'account_manager'
+	AND umd.`date` BETWEEN DATE(@start_date) AND DATE(@end_date);
+
+DROP TEMPORARY TABLE IF EXISTS tmp_user_country;
+CREATE TEMPORARY TABLE tmp_user_country (KEY(`user_id`))
+SELECT u.user_id, ccr.`country_short_name` AS user_country
+FROM rabota_db.`user` u
+LEFT JOIN tablo.`country_commercial_region` ccr
+ON u.`country` = ccr.`country_code`;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_adserver_unfilled;
+CREATE TEMPORARY TABLE tmp_adserver_unfilled (KEY (`date`, sa_site_id, demand_id))
+SELECT
+  a.`date`,
+  b.sa_site_id,
+  a.network_id,
+  SUM(
+    a.ad_server_unfilled_impressions
+  ) AS unfilled_impressions,
+  (
+    CASE
+      WHEN network_id = 45470634
+      THEN 64
+      WHEN network_id = 21779055067
+      THEN 85
+    END
+  ) AS demand_id
+FROM
+  tablo.gam_ad_server_data a
+  JOIN rabota_db.site_area_design_24 b
+    ON a.ad_unit_id = b.dfp_adunit_id
+WHERE a.`date` BETWEEN DATE(@start_date) AND DATE(@end_date)
+GROUP BY a.`date`,
+  b.sa_site_id,
+  a.network_id;
+
+DROP TEMPORARY TABLE IF EXISTS
+	tmp_demand_stat;
+
+CREATE TEMPORARY TABLE
+	tmp_demand_stat
+		(KEY (`date`))
+SELECT
+	sc.`date`,
+	sc.user_id,
+	sc.site_id,
+	IFNULL(s.url_domain, s.url) AS url,
+	IFNULL(sm.sales_manager, 'None') AS sales_manager,
+	IFNULL(am.account_manager, 'None') AS account_manager,
+	IFNULL(jsm.junior_sales_manager, 'None') AS junior_sales_manager,
+	sc.adv_net_id AS demand_id,
+	SUM(sc.external_view_count) AS impressions,
+	SUM(sc.external_first_view_count) AS first_impressions,
+	SUM(sc.external_viewability_measured_impressions) AS viewability_measured,
+	SUM(sc.external_viewability_viewed_impressions) AS viewability_viewed,
+	SUM(sc.adv_expense_gbp) AS adv_expense_gbp,
+	SUM(sc.partner_gain_gbp) AS partner_gain_gbp,
+	SUM(sc.adv_expense_base) AS adv_expense_rub,
+	SUM(sc.partner_gain_base) AS partner_gain_rub,
+	SUM(sc.hit_count) AS clicks,
+	SUM(sc.external_first_request_count) AS requests,
+	unf.unfilled_impressions AS unfilled_impressions,
+	uc.user_country
+FROM
+	rabota_db.npm_site_area_stat_cache sc
+		JOIN rabota_db.`site` s
+			ON s.site_id = sc.site_id
+		LEFT JOIN tmp_sales_managers sm
+			ON sm.user_id = sc.user_id
+			AND sm.`date` = sc.`date`
+		LEFT JOIN tmp_account_managers am
+			ON am.user_id = sc.user_id
+			AND am.`date` = sc.`date`
+		LEFT JOIN tmp_junior_sales_managers jsm
+			ON jsm.user_id = sc.user_id
+			AND jsm.date = sc.date
+		LEFT JOIN tmp_user_country uc
+			ON uc.user_id = sc.user_id
+		LEFT JOIN tmp_adserver_unfilled unf
+			ON sc.date = unf.date
+			AND sc.site_id = unf.sa_site_id
+			AND sc.adv_net_id = unf.demand_id
+WHERE
+	sc.`date` BETWEEN DATE(@start_date) AND DATE(@end_date)
+GROUP BY
+	sc.`date`,
+	sc.site_id,
+	sc.adv_net_id
+HAVING
+	SUM(sc.adv_expense) > 0;
+
+DROP TEMPORARY TABLE IF EXISTS
+	tmp_usd_rate;
+
+CREATE TEMPORARY TABLE
+	tmp_usd_rate
+		(KEY (`date`))
+SELECT
+	e.`date`,
+	AVG(e.exrate) AS exrate
+FROM
+	rabota_db.exchange_rate e
+WHERE
+	e.`date` BETWEEN DATE(@start_date) AND DATE(@end_date)
+	AND e.source_cur_id = 6
+	AND e.destination_cur_id = 2
+GROUP BY
+	e.`date`;
+
+DROP TEMPORARY TABLE IF EXISTS
+	tmp_eur_rate;
+
+CREATE TEMPORARY TABLE
+	tmp_eur_rate
+		(KEY (`date`))
+SELECT
+	e.`date`,
+	AVG(e.exrate) AS exrate
+FROM
+	rabota_db.exchange_rate e
+WHERE
+	e.`date` BETWEEN DATE(@start_date) AND DATE(@end_date)
+	AND e.source_cur_id = 6
+	AND e.destination_cur_id = 4
+GROUP BY
+	e.`date`;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_rub_rate;
+CREATE TEMPORARY TABLE tmp_rub_rate (KEY (`date`))
+SELECT
+e.`date`,
+AVG(e.exrate) AS exrate
+FROM rabota_db.exchange_rate e
+WHERE e.`date` BETWEEN DATE(@start_date) AND DATE(@end_date)
+AND e.source_cur_id = 6
+AND e.destination_cur_id = 1
+GROUP BY e.`date`;
+
+DROP TEMPORARY TABLE IF EXISTS
+	tmp_site_create_date;
+
+CREATE TEMPORARY TABLE
+	tmp_site_create_date
+		(KEY (site_id))
+SELECT
+	sc.site_id,
+	MIN(sc.`date`) AS site_create_date
+FROM
+	tablo.activation_dates sc
+GROUP BY
+	sc.site_id;
+
+DROP TEMPORARY TABLE IF EXISTS
+	tmp_user_create_date;
+
+CREATE TEMPORARY TABLE
+	tmp_user_create_date
+		(KEY (user_id))
+SELECT
+	sc.user_id,
+	MIN(sc.`date`) AS user_create_date
+FROM
+	tablo.activation_dates sc
+GROUP BY
+	sc.user_id;
+
+#user_segment
+DROP TEMPORARY TABLE IF EXISTS bob_date_pub;
+CREATE TEMPORARY TABLE bob_date_pub
+SELECT
+  `date`,
+  IFNULL(u.`moved_to_user_id`,r.`publisher_id`) AS publisher_id,
+  SUM(r.`adv_expense_gbp`) AS adv_expense_gbp
+FROM
+  bi.book_of_business_report r
+  JOIN rabota_db.`user` u
+    ON (r.`publisher_id` = u.`user_id`)
+GROUP BY IFNULL(u.`moved_to_user_id`,r.`publisher_id`),
+  `date`
+HAVING SUM(r.`adv_expense_gbp`)>1;
+
+#summary for each publisher, no date filtering
+DROP TEMPORARY TABLE IF EXISTS bob_pub_summary; 
+CREATE TEMPORARY TABLE bob_pub_summary (KEY (publisher_id))
+SELECT
+  r.publisher_id, 
+  CASE 
+   WHEN AVG(`adv_expense_gbp`)>=0 AND AVG(`adv_expense_gbp`)<50 THEN '[1] <50'  
+   WHEN AVG(`adv_expense_gbp`)>=50 AND AVG(`adv_expense_gbp`)<500 THEN '[2] 50-500'
+   WHEN AVG(`adv_expense_gbp`)>=500 AND AVG(`adv_expense_gbp`)<1000 THEN '[3] 500-1000'
+   WHEN AVG(`adv_expense_gbp`)>=1000 AND AVG(`adv_expense_gbp`)<5000 THEN '[4] 1000-5000'
+   WHEN AVG(`adv_expense_gbp`)>=5000 AND AVG(`adv_expense_gbp`)<10000 THEN '[5] 5000-10000'
+   WHEN AVG(`adv_expense_gbp`)>=10000 THEN '[6] 10000+'
+   ELSE 'error'
+  END AS revenue_segment
+FROM
+  bob_date_pub r
+  JOIN rabota_db.`user` u
+    ON (r.`publisher_id` = u.`user_id`)
+  WHERE r.`adv_expense_gbp`>1 AND u.`billing_source`!='nobilling' AND r.`publisher_id`>0
+GROUP BY r.`publisher_id`;
+
+#site_segment
+DROP TEMPORARY TABLE IF EXISTS bob_date_site;
+CREATE TEMPORARY TABLE bob_date_site
+SELECT
+  `date`,
+  site_id,
+  IFNULL(u.`moved_to_user_id`,r.`publisher_id`) AS publisher_id,
+  SUM(r.`adv_expense_gbp`) AS adv_expense_gbp
+FROM
+  bi.book_of_business_report r
+  JOIN rabota_db.`user` u
+    ON (r.`publisher_id` = u.`user_id`)
+GROUP BY IFNULL(u.`moved_to_user_id`,r.`publisher_id`),
+  `date`,
+  site_id
+HAVING SUM(r.`adv_expense_gbp`)>1;
+
+#summary for each publisher, no date filtering
+DROP TEMPORARY TABLE IF EXISTS bob_site_summary; 
+CREATE TEMPORARY TABLE bob_site_summary (KEY (site_id))
+SELECT
+  r.site_id, 
+  CASE 
+   WHEN AVG(`adv_expense_gbp`)>=0 AND AVG(`adv_expense_gbp`)<50 THEN '[1] <50'  
+   WHEN AVG(`adv_expense_gbp`)>=50 AND AVG(`adv_expense_gbp`)<500 THEN '[2] 50-500'
+   WHEN AVG(`adv_expense_gbp`)>=500 AND AVG(`adv_expense_gbp`)<1000 THEN '[3] 500-1000'
+   WHEN AVG(`adv_expense_gbp`)>=1000 AND AVG(`adv_expense_gbp`)<5000 THEN '[4] 1000-5000'
+   WHEN AVG(`adv_expense_gbp`)>=5000 AND AVG(`adv_expense_gbp`)<10000 THEN '[5] 5000-10000'
+   WHEN AVG(`adv_expense_gbp`)>=10000 THEN '[6] 10000+'
+   ELSE 'error'
+  END AS revenue_segment
+FROM
+  bob_date_site r
+  JOIN rabota_db.`user` u
+    ON (r.`publisher_id` = u.`user_id`)
+  WHERE r.`adv_expense_gbp`>1 AND u.`billing_source`!='nobilling' AND r.`publisher_id`>0
+GROUP BY r.`site_id`;
+
+# list of dates for sites when adv_expense_gbp > 0.2
+DROP TEMPORARY TABLE IF EXISTS site_date_expense_02;
+CREATE TEMPORARY TABLE site_date_expense_02 (KEY (site_id))
+SELECT
+  sc.`site_id`,
+  sc.`date`,
+  SUM(sc.`adv_expense_gbp`) AS adv_expense_gbp
+FROM
+  rabota_db.`npm_site_area_stat_cache` sc
+WHERE sc.date BETWEEN DATE(@start_date)
+  AND DATE(@end_date)
+GROUP BY sc.`site_id`,
+  sc.`date`
+HAVING SUM(sc.`adv_expense_gbp`) > 0.2;
+
+#copy of site_date_expense_02 for Update
+DROP TEMPORARY TABLE IF EXISTS site_date_expense_02_b;
+CREATE TEMPORARY TABLE site_date_expense_02_b (KEY (site_id))
+SELECT
+  sc.`site_id`,
+  sc.`date`,
+  SUM(sc.`adv_expense_gbp`) AS adv_expense_gbp
+FROM
+  rabota_db.`npm_site_area_stat_cache` sc
+WHERE sc.date BETWEEN DATE(@start_date)
+  AND DATE(@end_date)
+GROUP BY sc.`site_id`,
+  sc.`date`
+HAVING SUM(sc.`adv_expense_gbp`) > 0.2;
+
+# list of sites with last date when adv_expense_gbp > 1, excluding yesterday; in other words, deactivated sites
+# logic: if yesterday adv_expense_gbp is > 1, then site is active, otherwise it is deactivated
+DROP TEMPORARY TABLE IF EXISTS site_deactiv_1;
+CREATE TEMPORARY TABLE site_deactiv_1 (KEY (site_id))
+SELECT
+  sde02.site_id,
+  MAX(sde02.date) AS site_deactivation_date
+FROM
+  site_date_expense_02 sde02
+WHERE
+  sde02.adv_expense_gbp > 1
+GROUP BY sde02.site_id
+HAVING MAX(sde02.date) < DATE_SUB(CURDATE(), INTERVAL 1 DAY);
+
+# list of sites with last date when adv_expense_gbp > 0.2, excluding yesterday; in other words, deactivated sites
+# logic: if yesterday adv_expense_gbp is > 0.2, then site is active, otherwise it is deactivated
+DROP TEMPORARY TABLE IF EXISTS site_deactiv_02;
+CREATE TEMPORARY TABLE site_deactiv_02 (KEY (site_id))
+SELECT
+  sde02.site_id,
+  MAX(sde02.date) AS site_deactivation_date
+FROM
+  site_date_expense_02 sde02
+GROUP BY sde02.site_id
+HAVING MAX(sde02.date) < DATE_SUB(CURDATE(), INTERVAL 1 DAY);
+
+# list of dates for users when adv_expense_gbp > 1
+DROP TEMPORARY TABLE IF EXISTS user_date_expense_1;
+CREATE TEMPORARY TABLE user_date_expense_1 (KEY (user_id))
+SELECT
+  sc.`user_id`,
+  sc.`date`,
+  SUM(sc.`adv_expense_gbp`) AS adv_expense_gbp
+FROM
+  rabota_db.`npm_site_area_stat_cache` sc
+WHERE sc.date BETWEEN DATE(@start_date)
+  AND DATE(@end_date)
+GROUP BY sc.`user_id`,
+  sc.`date`
+HAVING SUM(sc.`adv_expense_gbp`) > 1;
+
+DROP TEMPORARY TABLE IF EXISTS user_date_expense_1_move;
+CREATE TEMPORARY TABLE user_date_expense_1_move (KEY (real_user))
+SELECT
+  ude1.`user_id`,
+  ude1.`date`,
+  ude1.`adv_expense_gbp`,
+  IFNULL(u.moved_to_user_id, ude1.user_id) AS real_user
+FROM
+  user_date_expense_1 ude1
+  JOIN rabota_db.`user` u ON ude1.user_id = u.user_id;
+
+# list of users with last date when adv_expense_gbp > 1, excluding yesterday; in other words, deactivated users
+# logic: if yesterday adv_expense_gbp is > 1, then user is active, otherwise it is deactivated
+DROP TEMPORARY TABLE IF EXISTS user_deactiv_1;
+CREATE TEMPORARY TABLE user_deactiv_1 (KEY (real_user))
+SELECT
+  ude1m.real_user,
+  MAX(ude1m.date) AS user_deactivation_date
+FROM
+  user_date_expense_1_move ude1m
+GROUP BY ude1m.real_user
+HAVING MAX(ude1m.date) < DATE_SUB(CURDATE(), INTERVAL 1 DAY);
+
+# current status for newly inserted sites
+# otherwise adv_expense_gbp < 1 will remain Null when they may already have deactivation dates
+DROP TEMPORARY TABLE IF EXISTS site_deactiv_current;
+CREATE TEMPORARY TABLE site_deactiv_current (KEY (site_id))
+SELECT DISTINCT
+  c.site_id,
+  c.site_deactivation_date
+FROM
+  tablo.commercial_regions_daily_revenue c;
+
+# current status for newly inserted users
+# otherwise adv_expense_gbp < 1 will remain Null when they may already have deactivation dates
+DROP TEMPORARY TABLE IF EXISTS user_deactiv_current;
+CREATE TEMPORARY TABLE user_deactiv_current (KEY (user_id))
+SELECT DISTINCT
+  c.user_id,
+  c.user_deactivation_date
+FROM
+  tablo.commercial_regions_daily_revenue c
+WHERE demand_id <> -1
+;
+
+# list of current account managers
+DROP TEMPORARY TABLE IF EXISTS curr_acc_manager;
+CREATE TEMPORARY TABLE curr_acc_manager (KEY (user_id))
+SELECT
+	umd.user_id,
+	IFNULL(u.name_eng, u.nickname) AS account_manager
+FROM
+	rabota_db.npm_user_manager_by_date umd
+		JOIN rabota_db.`user` u
+			ON u.user_id = umd.manager_id
+WHERE
+	umd.`type` = 'account_manager'
+	AND umd.`date` = DATE(@end_date);
+
+DELETE FROM
+	tablo.commercial_regions_daily_revenue
+WHERE
+	`date` BETWEEN DATE(@start_date) AND DATE(@end_date);
+
+INSERT INTO
+	tablo.commercial_regions_daily_revenue
+(
+	`date`,
+	user_id,
+	site_id,
+	url,
+	sales_manager,
+	account_manager,
+	junior_sales_manager,
+	demand_id,
+	impressions,
+	first_impressions,
+	viewability_measured,
+	viewability_viewed,
+	adv_expense_gbp,
+	partner_gain_gbp,
+	adv_expense_rub,
+	partner_gain_rub,
+	adv_expense_usd,
+	partner_gain_usd,
+	adv_expense_eur,
+	partner_gain_eur,
+	clicks,
+	requests,
+	unfilled_impressions,
+	user_country
+)
+SELECT
+	d.`date`,
+	d.user_id,
+	d.site_id,
+	d.url,
+	d.sales_manager,
+	d.account_manager,
+	d.junior_sales_manager,
+	d.demand_id,
+	d.impressions,
+	d.first_impressions,
+	d.viewability_measured,
+	d.viewability_viewed,
+	d.adv_expense_gbp,
+	d.partner_gain_gbp,
+	d.adv_expense_rub,
+	d.partner_gain_rub,
+	ROUND(d.adv_expense_gbp * u.exrate, 8),
+	ROUND(d.partner_gain_gbp * u.exrate, 8),
+	ROUND(d.adv_expense_gbp * e.exrate, 8),
+	ROUND(d.partner_gain_gbp * e.exrate, 8),
+	clicks,
+	requests,
+	unfilled_impressions,
+	user_country
+FROM
+	tmp_demand_stat d
+		JOIN tmp_usd_rate u
+			ON u.`date` = d.`date`
+		JOIN tmp_eur_rate e
+			ON e.`date` = d.`date`;
+
+# temporary solution; dioguinho.pt moved to dioguinho.com with old site_id, new site_id is useless, has some residual stats
+DELETE FROM
+	tablo.commercial_regions_daily_revenue
+WHERE
+	site_id = 221255;
+
+
+DROP TEMPORARY TABLE IF EXISTS tmp_reactivation_sites;
+CREATE TEMPORARY TABLE tmp_reactivation_sites (KEY(reactivation_date, site_id))
+SELECT site_id, MAX(reactivation_date) AS reactivation_date
+FROM tablo.`reactivation_sites`
+GROUP BY site_id;
+
+#custom for akket.com
+UPDATE tablo.`commercial_regions_daily_revenue`
+SET site_create_date = '2022-03-18'
+WHERE site_id = 210511;
+
+UPDATE
+    tablo.commercial_regions_daily_revenue c
+        LEFT JOIN rabota_db.demand_source d
+            ON d.cmf_system_id = c.demand_id
+SET
+    c.demand_name = IFNULL(d.name, 'Unknown');
+
+# determine top sites of users
+
+# for active users
+
+# temp tables are created here, because updated user deactivation date is used
+# last 30 days stats of active users by site
+DROP TEMPORARY TABLE IF EXISTS
+	active_user_site_a;
+CREATE TEMPORARY TABLE
+	active_user_site_a
+		(KEY (user_id, url))
+SELECT
+	t.user_id, t.`url`, SUM(t.`adv_expense_gbp`) AS total_adv_expense_gbp
+FROM
+	tablo.commercial_regions_daily_revenue t
+WHERE
+	t.user_deactivation_date IS NULL
+	AND t.date BETWEEN DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND DATE(@end_date)
+GROUP BY
+	t.user_id, t.`url`
+HAVING
+	SUM(t.`adv_expense_gbp`) > 0;
+
+# last 30 days stats of active users by site; copy of previous temp table, because temp tables cannot be used twice in one query
+DROP TEMPORARY TABLE IF EXISTS
+	active_user_site_b;
+CREATE TEMPORARY TABLE
+	active_user_site_b
+		(KEY (user_id, url))
+SELECT
+	t.user_id, t.`url`, SUM(t.`adv_expense_gbp`) AS total_adv_expense_gbp
+FROM
+	tablo.commercial_regions_daily_revenue t
+WHERE
+	t.user_deactivation_date IS NULL
+	AND t.date BETWEEN DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND DATE(@end_date)
+GROUP BY
+	t.user_id, t.`url`
+HAVING
+	SUM(t.`adv_expense_gbp`) > 0;
+
+# top sites of active users based on last 30 days
+DROP TEMPORARY TABLE IF EXISTS
+	top_user_site_activ;
+CREATE TEMPORARY TABLE
+	top_user_site_activ
+		(KEY (user_id, url))
+SELECT
+	a.user_id, a.url
+FROM
+	active_user_site_a a
+WHERE
+	a.total_adv_expense_gbp = (SELECT MAX(total_adv_expense_gbp) FROM active_user_site_b b WHERE b.user_id = a.user_id);
+
+# for deactivated users
+
+# all time stats of deactivated users by site
+DROP TEMPORARY TABLE IF EXISTS
+	bob_top_user_site_a;
+CREATE TEMPORARY TABLE
+	bob_top_user_site_a
+		(KEY (publisher_id, site_url))
+SELECT
+	t.publisher_id, t.`site_url`, SUM(t.`adv_expense_gbp`) AS total_adv_expense_gbp
+FROM
+	bi.`book_of_business_report` t
+GROUP BY
+	t.publisher_id, t.`site_url`
+HAVING
+	SUM(t.`adv_expense_gbp`) > 0;
+
+# all time stats of deactivated users by site; copy of previous temp table, because temp tables cannot be used twice in one query
+DROP TEMPORARY TABLE IF EXISTS
+	bob_top_user_site_b;
+CREATE TEMPORARY TABLE
+	bob_top_user_site_b
+		(KEY (publisher_id, site_url))
+SELECT
+	t.publisher_id, t.`site_url`, SUM(t.`adv_expense_gbp`) AS total_adv_expense_gbp
+FROM
+	bi.`book_of_business_report` t
+GROUP BY
+	t.publisher_id, t.`site_url`
+HAVING
+	SUM(t.`adv_expense_gbp`) > 0;
+
+# top sites of deactivated users based on all time stats
+DROP TEMPORARY TABLE IF EXISTS
+	top_user_site_deactiv;
+CREATE TEMPORARY TABLE
+	top_user_site_deactiv
+		(KEY (publisher_id, site_url))
+SELECT
+	a.publisher_id, a.site_url
+FROM
+	bob_top_user_site_a a
+WHERE
+	a.total_adv_expense_gbp = (SELECT MAX(total_adv_expense_gbp) FROM bob_top_user_site_b b WHERE b.publisher_id = a.publisher_id);
+
+
+DROP TEMPORARY TABLE IF EXISTS tmp_final_update;
+CREATE TEMPORARY TABLE tmp_final_update (KEY(site_id))
+SELECT 
+s.`site_id`, 
+s.`user_id`,
+IFNULL(am.account_manager, 'None') AS account_manager_current,
+user_activ.user_create_date,
+u.`email` AS user_email,
+IFNULL(u.commercial_region, 'other') AS commercial_region,
+bob_pub.revenue_segment AS user_segment,
+bob_site.revenue_segment AS site_segment,
+site_activ.site_create_date,
+r.`reactivation_date` AS reactivation_month,
+CASE
+WHEN site_deac_curr.site_id IS NOT NULL THEN site_deac_curr.site_deactivation_date
+WHEN 
+(bob_site.revenue_segment = '[1] <50' OR 
+((bob_site.revenue_segment != '[1] <50' OR bob_site.revenue_segment IS NULL)
+AND site_02_b.site_id IS NOT NULL)) THEN NULL 
+WHEN (bob_site.revenue_segment != '[1] <50' OR bob_site.revenue_segment IS NULL) THEN sd1.site_deactivation_date
+WHEN (bob_site.revenue_segment = '[1] <50') THEN sd02.site_deactivation_date
+END AS site_deactivation_date,
+CASE 
+WHEN user_deac_curr.user_id IS NOT NULL THEN user_deac_curr.user_deactivation_date
+WHEN ude1.real_user IS NOT NULL THEN NULL
+WHEN ud1.real_user IS NOT NULL THEN ud1.user_deactivation_date 
+END AS user_deactivation_date,
+IF( 
+CASE 
+WHEN user_deac_curr.user_id IS NOT NULL THEN user_deac_curr.user_deactivation_date
+WHEN ude1.real_user IS NOT NULL THEN NULL
+WHEN ud1.real_user IS NOT NULL THEN ud1.user_deactivation_date 
+END IS NOT NULL, u.`stopping_reason`, NULL) AS user_stop_reason,
+IF( 
+CASE 
+WHEN user_deac_curr.user_id IS NOT NULL THEN user_deac_curr.user_deactivation_date
+WHEN ude1.real_user IS NOT NULL THEN NULL
+WHEN ud1.real_user IS NOT NULL THEN ud1.user_deactivation_date 
+END IS NULL, top_activ.url, top_deac.site_url) AS user_top_site
+FROM rabota_db.`site` s
+JOIN rabota_db.`user` u
+	ON u.`user_id` = s.`user_id`
+LEFT JOIN bob_pub_summary bob_pub
+	ON bob_pub.publisher_id = s.user_id
+LEFT JOIN tmp_user_create_date user_activ
+	ON user_activ.user_id = s.user_id
+LEFT JOIN curr_acc_manager am
+	ON am.user_id = s.user_id
+LEFT JOIN bob_site_summary bob_site
+	ON bob_site.site_id = s.site_id
+LEFT JOIN tmp_site_create_date site_activ
+	ON site_activ.site_id = s.site_id
+LEFT JOIN tmp_reactivation_sites r
+	ON r.`site_id` = s.`site_id`
+LEFT JOIN (SELECT DISTINCT site_id FROM site_date_expense_02) site_02
+	ON site_02.site_id = s.`site_id`
+LEFT JOIN (SELECT DISTINCT site_id FROM site_date_expense_02_b WHERE adv_expense_gbp > 1) site_02_b
+	ON site_02_b.site_id = s.`site_id`
+LEFT JOIN site_deactiv_1 sd1
+	ON sd1.site_id = s.site_id
+LEFT JOIN site_deactiv_02 sd02
+	ON sd02.site_id = s.site_id
+LEFT JOIN (SELECT DISTINCT real_user FROM user_date_expense_1_move) ude1
+	ON ude1.real_user = s.user_id
+LEFT JOIN user_deactiv_1 ud1
+	ON ud1.real_user = s.user_id 
+LEFT JOIN top_user_site_activ top_activ
+	ON top_activ.user_id = s.user_id
+LEFT JOIN top_user_site_deactiv top_deac
+	ON top_deac.publisher_id = s.user_id
+LEFT JOIN site_deactiv_current site_deac_curr
+	ON site_deac_curr.site_id = s.site_id
+LEFT JOIN user_deactiv_current user_deac_curr
+	ON user_deac_curr.user_id = s.user_id
+;
+
+UPDATE tablo.`commercial_regions_daily_revenue` c
+LEFT JOIN tmp_final_update tmp
+ON c.`site_id` = tmp.site_id
+SET 
+c.`account_manager_current` = tmp.account_manager_current,
+c.user_create_date = tmp.user_create_date,
+c.`user_email` = tmp.user_email,
+c.commercial_region = tmp.commercial_region,
+c.user_segment = tmp.user_segment,
+c.site_segment = tmp.site_segment,
+c.`site_create_date` = tmp.site_create_date,
+c.reactivation_month = tmp.reactivation_month,
+c.site_deactivation_date = tmp.site_deactivation_date,
+c.user_deactivation_date = tmp.user_deactivation_date,
+c.user_stop_reason = tmp.user_stop_reason,
+c.user_top_site = tmp.user_top_site
+;
+
+
+
+DELETE FROM
+	tablo.commercial_regions_daily_revenue_no_ds
+WHERE
+	`date` BETWEEN DATE(@start_date) AND DATE(@end_date);
+
+INSERT INTO
+	tablo.commercial_regions_daily_revenue_no_ds
+(
+	`date`,
+	user_id,
+	site_id,
+	url,
+	sales_manager,
+	account_manager,
+	impressions,
+	viewability_measured,
+	viewability_viewed,
+	adv_expense_gbp,
+	partner_gain_gbp,
+	adv_expense_rub,
+	partner_gain_rub,
+	adv_expense_usd,
+	partner_gain_usd,
+	adv_expense_eur,
+	partner_gain_eur,
+	unfilled_impressions
+)
+SELECT
+	c.`date`,
+	c.user_id,
+	c.site_id,
+	c.url,
+	c.sales_manager,
+	c.account_manager,
+	SUM(c.impressions),
+	SUM(c.viewability_measured),
+	SUM(c.viewability_viewed),
+	SUM(c.adv_expense_gbp),
+	SUM(c.partner_gain_gbp),
+	SUM(c.adv_expense_rub),
+	SUM(c.partner_gain_rub),
+	SUM(c.adv_expense_usd),
+	SUM(c.partner_gain_usd),
+	SUM(c.adv_expense_eur),
+	SUM(c.partner_gain_eur),
+	SUM(c.unfilled_impressions)
+FROM
+	tablo.commercial_regions_daily_revenue c
+WHERE
+	c.`date` BETWEEN DATE(@start_date) AND DATE(@end_date)
+        AND c.demand_id <> -1
+GROUP BY
+	c.`date`,
+	c.site_id;
+
+
+UPDATE
+	tablo.commercial_regions_daily_revenue_no_ds c
+		LEFT JOIN rabota_db.`user` u
+			ON u.user_id = c.user_id
+		LEFT JOIN tmp_site_create_date s
+			ON s.site_id = c.site_id
+SET
+	c.commercial_region = IFNULL(u.commercial_region, 'other'),
+	c.site_create_date = s.site_create_date;
+
+UPDATE
+	tablo.commercial_regions_daily_revenue a
+		LEFT JOIN rabota_db.site s
+			ON s.site_id = a.site_id
+		LEFT JOIN rabota_db.site_category c
+			ON c.category_id = s.category_id
+SET
+	a.site_category = IFNULL(c.name, 'Unknown')
+WHERE a.`date` BETWEEN @start_date AND @end_date;
+
+DROP TEMPORARY TABLE IF EXISTS pipedrive_data;
+CREATE TEMPORARY TABLE pipedrive_data (KEY(publisher_id))
+SELECT po.organization_custom_clickio_user_id AS publisher_id,
+GROUP_CONCAT(poa.label) AS 'pd_org_lead_channel'
+FROM rabota_db.pipedrive_organization po
+JOIN rabota_db.pipedrive_organization_attrs poa
+ON po.organization_id = poa.organization_id AND poa.attr_name = 'lead_channel'
+WHERE po.organization_custom_clickio_user_id IS NOT NULL
+GROUP BY po.organization_id;
+
+UPDATE tablo.`commercial_regions_daily_revenue` r
+LEFT JOIN pipedrive_data pd
+ON pd.publisher_id = r.user_id
+SET r.lead_channel = pd.pd_org_lead_channel
+WHERE r.`date` BETWEEN @start_date AND @end_date;
+
+#user_bu_id,user_billing_country,user_payment_method
+UPDATE tablo.`commercial_regions_daily_revenue` r USE INDEX (DATE)
+    JOIN bi.user u ON (r.user_id=u.user_id)
+SET
+    r.user_bu_id=IF(u.user_subnet_id=19,13,IF(u.user_subnet_id=21,15,0)),
+    r.user_billing_country = u.user_billing_country,
+    r.user_payment_method=u.payment_method,
+    r.user_tag=u.user_tag
+WHERE r.`date` BETWEEN @start_date AND @end_date;
+
+
+#demand_bu_id
+UPDATE tablo.`commercial_regions_daily_revenue` r USE INDEX (DATE)
+    JOIN rabota_db.cmf_system cs ON (r.demand_id=cs.cmf_system_id)
+SET r.demand_bu_id=cs.business_unit_id
+WHERE r.`date` BETWEEN @start_date AND @end_date;
+
+
+#Jacopo asked to remove publisher deactivation date for these publishers temporarily
+UPDATE tablo.`commercial_regions_daily_revenue`
+SET user_deactivation_date = NULL
+WHERE user_id IN (145101, 146953);
+
+
+SELECT
+	1 AS STATUS,
+	'OK' AS message;
