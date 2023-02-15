@@ -1,0 +1,111 @@
+#!/bin/bash
+set -e
+#set -x
+PATH=$PATH:/usr/bin:/usr/sbin
+
+export PVE_PUBLIC_IFNAME=${PVE_PUBLIC_IFNAME-"vmbr0"}
+export PVE_PUBLIC_VM_HOST=${PVE_PUBLIC_VM_HOST-"cherepanov.co"}
+export PVE_HOSTNAME=$(/usr/bin/hostname --short)
+
+write_iptables_rule () {
+    export VM_ID=$1
+    export RULE_NAME=$2
+    export VM_BRIDGE=$3
+    export VM_IP=$4
+    export HOST_PORT=$5
+    export VM_PORT=$6
+    export RULE_COMMENT=${VM_BRIDGE}_pve_${RULE_NAME}_${VM_ID}
+
+    IPTABLES_RULES=`cat <<'END_IPTABLES_RULES'
+# Remove outdated rules ${RULE_NAME}
+iptables -t nat -S | grep "_pve_${RULE_NAME}_${VM_ID}" | grep -v "${RULE_COMMENT}" | awk '{for (i=1; i<=NF; i++) printf $i " "; print ""}' | sed -e 's/[\|]/\\|/g' | cut -c 4- | xargs -I{} bash -c "iptables -t nat -D {}"
+
+# Add ${RULE_NAME} rule if not exists
+iptables -t nat -S | grep "${RULE_COMMENT}" || iptables -t nat -A PREROUTING -i ${PVE_PUBLIC_IFNAME} -p tcp --dport "${HOST_PORT}" -j DNAT --to "${VM_IP}:${VM_PORT}" -m comment --comment "${RULE_COMMENT}"
+END_IPTABLES_RULES`
+
+    echo "${IPTABLES_RULES}" | envsubst | tee -a /etc/network/${VM_BRIDGE}/up-iptables.sh.tmp | bash
+}
+
+write_vm_configs () {
+    export VM_ID=$1;
+    export VM_HOST=$2;
+    export VM_BRIDGE=$3;
+    export VM_IP=$4;
+    export VM_MAC=$5;
+    export FQDN="${VM_HOST}.${PVE_PUBLIC_VM_HOST}"
+    if [[ ! -d /etc/dnsmasq/${VM_BRIDGE} ]]; then mkdir -p /etc/dnsmasq/${VM_BRIDGE}; fi
+    if [[ ! -z ${MAC} ]] && [[ ! -z ${HOST} ]]; then
+      echo "${VM_MAC},${VM_IP},${VM_HOST}" | /usr/bin/tee -a /etc/dnsmasq/${VM_BRIDGE}/dhcp-hosts.conf.tmp
+      echo "${VM_IP} ${VM_HOST} ${VM_HOST}.cherepanov.local" | /usr/bin/tee -a /etc/dnsmasq/${VM_BRIDGE}/hosts.conf.tmp
+
+      write_iptables_rule $VM_ID ssh $VM_BRIDGE $VM_IP "${ID}22" 22
+      write_iptables_rule $VM_ID vnc $VM_BRIDGE $VM_IP "${ID}59" 5900
+      write_iptables_rule $VM_ID apprange $VM_BRIDGE $VM_IP "${ID}01:${ID}99" "${ID}01-${ID}99"
+
+      if [[ -f /etc/traefik/vm.tpl.toml ]]; then
+        if echo $FQDN | grep -P '(?=^.{1,254}$)(^(?>(?!\d+\.)[a-zA-Z0-9_\-]{1,63}\.?)+(?:[a-zA-Z]{2,})$)' > /dev/null; then
+          if [[ ! -e "/etc/traefik/conf.d/$VM_ID.toml" ]] || [[ ! -L "/etc/traefik/conf.d/$VM_ID.toml" ]]; then
+            ID=$ID envsubst < "/etc/traefik/vm.tpl.toml" > "/etc/traefik/conf.d/$VM_ID.toml"
+          fi
+        fi
+      fi
+    fi
+}
+
+# Cleanup
+rm -f /etc/dnsmasq/dnsmasq_need_reload
+rm -f /etc/dnsmasq/*/*.conf.tmp
+rm -f /etc/network/*/*.sh.tmp
+
+# Setup lxc rules
+if [[ -d /etc/pve/nodes/${PVE_HOSTNAME}/lxc ]]; then
+  /usr/bin/find /etc/pve/nodes/${PVE_HOSTNAME}/lxc/ -name '*.conf' | awk -F/ '{print $(NF)}' | awk -F. '{print $1}' | while read ID; do
+    if [[ $ID -gt 99 ]] && [[ $ID -lt 255 ]]; then
+      cat /etc/pve/nodes/${PVE_HOSTNAME}/lxc/${ID}.conf | grep '^net' | egrep 'bridge=[a-z0-9]+' -o | awk -F= '{print $2}' | grep -v $PVE_PUBLIC_IFNAME | while read BRIDGE; do
+        BRIDGE_NETWORK=$(ip addr show ${BRIDGE} | grep 'inet\b' | awk '{print $2}' | awk -F. '{print $1 "." $2 "." $3 "."}' | head -1)
+        MAC=$(cat /etc/pve/nodes/${PVE_HOSTNAME}/lxc/${ID}.conf | grep '^net' | grep "bridge=${BRIDGE}" | head -n 1 | egrep '([a-fA-F0-9]{2}\:+)+[a-fA-F0-9]{2}' -o | awk '{print tolower($0)}')
+        HOST=$(cat /etc/pve/nodes/${PVE_HOSTNAME}/lxc/${ID}.conf | grep '^hostname' | head -n 1 | awk -F: '{print $2}' | xargs echo)
+        FQDN="${HOST}.${PVE_PUBLIC_VM_HOST}"
+        IP="${BRIDGE_NETWORK}${ID}"
+
+        write_vm_configs ${ID} ${HOST} ${BRIDGE} ${IP} ${MAC}
+      done
+    fi
+  done
+fi
+
+# Setup qemu rules
+if [[ -d /etc/pve/nodes/${PVE_HOSTNAME}/qemu-server ]]; then
+  /usr/bin/find /etc/pve/nodes/${PVE_HOSTNAME}/qemu-server/ -name '*.conf' | awk -F/ '{print $(NF)}' | awk -F. '{print $1}' | while read ID; do
+    if [[ $ID -gt 99 ]] && [[ $ID -lt 255 ]]; then
+      cat /etc/pve/nodes/${PVE_HOSTNAME}/qemu-server/${ID}.conf | grep '^net' | egrep 'bridge=[a-z0-9]+' -o | awk -F= '{print $2}' | grep -v $PVE_PUBLIC_IFNAME | while read BRIDGE; do
+        BRIDGE_NETWORK=$(ip addr show ${BRIDGE} | grep 'inet\b' | awk '{print $2}' | awk -F. '{print $1 "." $2 "." $3 "."}' | head -1)
+        MAC=$(cat /etc/pve/nodes/${PVE_HOSTNAME}/qemu-server/${ID}.conf | grep '^net' | grep "bridge=${BRIDGE}" | head -n 1 | egrep '([a-fA-F0-9]{2}\:+)+[a-fA-F0-9]{2}' -o | awk '{print tolower($0)}')
+        HOST=$(cat /etc/pve/nodes/${PVE_HOSTNAME}/qemu-server/${ID}.conf | grep '^name:' | head -n 1 | awk -F: '{print $2}' | xargs echo)
+        FQDN="${HOST}.${PVE_PUBLIC_VM_HOST}"
+        IP="${BRIDGE_NETWORK}${ID}"
+
+        write_vm_configs ${ID} ${HOST} ${BRIDGE} ${IP} ${MAC}
+
+        # If MacOS
+        VM_CONFIG_PATH=/etc/pve/nodes/${PVE_HOSTNAME}/qemu-server/${ID}.conf
+        if sed -n '1,/\[[a-z0-9\-\_]\+\]/ p' ${VM_CONFIG_PATH} | grep -i 'name:.*macos'; then
+          # remove media=cdrom
+          sed -n '1,/\[[a-z0-9\-\_]\+\]/ p' ${VM_CONFIG_PATH} | grep --line-number -i 'media=cdrom' | grep -i 'opencore\|clover\|macos' | awk -F: '{print $1}' | xargs -I {} sed -i '{}s/,media=cdrom//' ${VM_CONFIG_PATH}
+
+          # add extra cpu params if nothing found
+          if ! sed -n '1,/\[[a-z0-9\-\_]\+\]/ p' ${VM_CONFIG_PATH} | grep -i 'args:'; then
+            if lscpu | grep 'Vendor ID:' | grep 'AMD'; then
+              CPU_ARGS="Penryn,kvm=on,vendor=GenuineIntel,+kvm_pv_unhalt,+kvm_pv_eoi,+hypervisor,+invtsc,+pcid,+ssse3,+sse4.2,+popcnt,+avx,+avx2,+aes,+fma,+bmi1,+bmi2,+xsave,+xsaveopt,check"
+            else
+              CPU_ARGS="host,kvm=on,vendor=GenuineIntel,+kvm_pv_unhalt,+kvm_pv_eoi,+hypervisor,+invtsc"
+            fi
+            # sed '0,/args:.\+/{s//args: -device isa-applesmc,osk="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc" -smbios type=2 -device usb-kbd,bus=ehci.0,port=2 -cpu '${CPU_ARGS}'/}' /etc/pve/nodes/${PVE_HOSTNAME}/qemu-server/${ID}.conf | sponge /etc/pve/nodes/${PVE_HOSTNAME}/qemu-server/${ID}.conf
+            echo 'args: -device isa-applesmc,osk="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc" -smbios type=2 -device usb-kbd,bus=ehci.0,port=2 -cpu '${CPU_ARGS} | cat - /etc/pve/nodes/${PVE_HOSTNAME}/qemu-server/${ID}.conf | sponge /etc/pve/nodes/${PVE_HOSTNAME}/qemu-server/${ID}.conf
+          fi
+        fi
+      done
+    fi
+  done
+fi

@@ -1,0 +1,579 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <cstdlib>
+#include <stdio.h>
+#include <sstream> //for istringstream constructors
+
+using namespace std;
+
+string filenamefasta;
+string filenamequal;
+int prog;
+int dlugosc_podciagu;
+int licznik_par_grafu = 0; // liczy krawedzie
+vector<vector<char>>wczytane_fasta;//(ruleNum); //start with a vector of size ruleNum to can use (wczytane_fasta[i]).push_back();
+vector<int>temp_vector_int;
+vector<char>temp_vector_char;
+vector<vector<int>>wczytane_qual;
+vector<string>nazwy_instancji; // tutaj zapisywane s� nazwy kolejnych instancji
+
+int licznik_wierzcholkow = 1; //licznik dla numeracji kolejnych wierzcholkow grafu
+vector<int>wierzcholki_kliki; //do wpisania numerow wierzcholkow kliki
+
+struct Wierzcholek //deklaracja struktury dla przechowywania podciagow - wierzcholkow grafu
+{ //opis struktury
+	int id; //narastajaco w ka�dej strukturze
+	int id_globalne; //narastajaco
+    string nazwa_instancji; //nazwa instancji, z kt�rej pochodzi wierzcholek
+    int miejsce_w_sekwencji_wejsciowej; //dotyczy pierwszego znaku podciagu w sekwencji
+    vector<char> podciag_sekwencji;
+    int numer_wierzcholka_grafu;//je�li podciag zostanie wierzcholkiem grafu
+}w;
+
+vector<Wierzcholek> vecWierzcholkow;
+vector<vector<Wierzcholek>>vec_vec_Wierzcholkow;
+vector<vector<Wierzcholek>>vec_vec_Struktura_z_wierzcholkami;
+
+void odczyt_fasta(string filename){
+fstream plik;
+string linia;
+string nazwa_instancji;
+
+int pozycja_spacji = 0;
+char temp_char;
+plik.open(filename);
+if(plik.good()) {
+	int numer_instancji = 0;
+	while (getline(plik,linia)){
+		//cout << linia << endl;
+		int pozycja = linia.find(">"); //znajduje pozycje wystapienia w linii ">"
+    	if (pozycja!=string::npos){ //jeżeli znak ">" występuje
+    		//cout << "Identyfikator" << endl;
+    		nazwa_instancji.clear();
+    		pozycja_spacji = linia.find(" "); //wyszukaj nazwę instacji (od > do pierwszej spacji)
+    		nazwa_instancji.insert(0,linia,pozycja + 1,pozycja_spacji); //wstaw do nazwa.instancji tekst przed pozycj� 0, od pozycji pozycja liczba znak�w do spacji
+			nazwy_instancji.push_back(nazwa_instancji); //dodaj nazw� tej instancji do wektora przechowuj�cego nazwy instancji
+
+    		if (numer_instancji > 0){
+    			wczytane_fasta.push_back(temp_vector_char);// zapisz fasta do vector<vector<char>>
+    			temp_vector_char.clear();//czyszczenie vectora tymczasowego fasta
+			}
+			numer_instancji =+ 1; //kolejna instancja otrzyma kolejny numer
+		}
+		else {
+		 //je�eli linia nie jest lini� zawiaraj�c� odentyfikator - wczytaj dane
+			int poz_fasta = filename.find("fasta"); //czy w nazwie pliku wyst�puje "fasta"?
+			if (poz_fasta != string::npos){
+				istringstream iss(linia);
+				for (int a = 0; a<linia.size(); a++){
+					iss >> temp_char;
+					temp_vector_char.push_back(temp_char);
+
+				}
+		    }
+		}
+	}
+	wczytane_fasta.push_back(temp_vector_char);
+	temp_vector_char.clear();
+}
+else if (plik.fail()){
+	cout<<"ERROR 1 \n B��d otwarcia pliku :("<<endl;
+	exit (1);
+}
+plik.close();
+}
+
+void odczyt_qual(string filename){
+	fstream plik;
+	string linia;
+	string nazwa_instancji;
+	int pozycja_spacji = 0;
+	int ocena_wiarygodnosci_int = 0;
+	char temp_char;
+	plik.open(filename);
+	if(plik.good()) {
+		int numer_instancji = 0;
+		while (getline(plik,linia)){
+			int pozycja = linia.find(">"); //znajduje pozycj� wystapienia w linii ">"
+	    	if (pozycja!=string::npos){ //je�eli znak ">" wyst�puje
+	    		nazwa_instancji.clear();
+	    		pozycja_spacji = linia.find(" "); //wyszukaj nazw� instacji (od > do pierwszej spacji)
+	    		nazwa_instancji.insert(0,linia,pozycja + 1,pozycja_spacji); //wstaw do nazwa.instancji tekst przed pozycj� 0, od pozycji pozycja liczba znak�w do spacji
+	    	//sprawdz, czy fasta mia� instancj� o takiej nazwie na tej pozycji
+
+
+	    		if (numer_instancji > 0){ //wczytuj zaczynaj�c od drugiego przej�cia - w pierwszym temp_vector_int jest jeszcze puste
+					wczytane_qual.push_back(temp_vector_int);
+					temp_vector_int.clear();
+				}
+				if (nazwa_instancji == nazwy_instancji[numer_instancji]){
+	    			numer_instancji =+ 1;
+	    		}
+
+	    	}
+	    	else{
+
+		    // liczba spacji + 1 okre�la liczb� int�w w stringu (mo�na te� pobra� d�ugo�� jako parametr z linii z indetyfikatorem)
+			int liczba_spacji = 0;
+			for (string::iterator it=linia.begin(); it!=linia.end(); ++it){
+				if (*it == ' '){
+					liczba_spacji++;
+				}
+			}
+			istringstream iss(linia);
+			for (int q = 0; q < liczba_spacji+1; q++){ // dla wszystkich int w linii
+				iss >> ocena_wiarygodnosci_int;
+				temp_vector_int.push_back(ocena_wiarygodnosci_int);
+			}
+			}
+
+	}
+	//zapis danych z ostatniej instancji i wyczyszczenie zmiennych tymczasowych
+	wczytane_qual.push_back(temp_vector_int);
+	//cout << "wczytane_qual.push_back(temp_vector_int); " << endl;
+	temp_vector_int.clear();
+	}
+	else if (plik.fail()){
+	    cout<<"ERROR 1 \n B��d otwarcia pliku :("<<endl;
+	    exit (1); // zako�cz program, je�li wyst�pi b��d otwarcia
+	}
+	plik.close();
+	}
+
+void tworzenie_wierzcholkow(int prog, int dlugosc_podciagu, vector<vector<int>>wczytane_qual){
+	int id = 1;
+	int id_globalne = 1;
+	int usuniete = 0; //licznik usunietych
+	vector<char> podciag;
+	string niepelny_podciag;
+
+	for (int i = 0; i < nazwy_instancji.size(); i++){ //dla ka�dej instancji
+        id = 1;
+        int pozycja = 0; // pozycja pierwszego elementu podciagu w instancji wejsciowej
+		for (int j = 0; j < wczytane_qual[i].size(); j++){//cout << "wczytane qual   "<< wczytane_qual[i][j] << endl;
+				if (podciag.size() == 0){
+					pozycja = j+1;//pozycja pierwszego elementu podciagu w sekwencji wejsciowej (poniewa� j jest liczone od 0, a numeracj� miejsc w sekwencji wejsiowej nalezy rozpoczac od 1)
+				}
+				int r = j;
+				int licznik_podciagu = 0; //warto�ci od 0 (pusty podciag) do d�ugosci_podciagu (pe�en podciag)
+				if (wczytane_qual[i][j] >= prog){
+					while (licznik_podciagu<dlugosc_podciagu){
+						if (wczytane_qual[i][r] >= prog){
+							podciag.push_back(wczytane_fasta[i][r]);
+							licznik_podciagu +=1;
+						}
+						r++;
+						if (wczytane_qual[i][r] < prog){
+						r++;
+						}
+					}
+				}
+				if (licznik_podciagu == dlugosc_podciagu){
+
+					w.id=id; //narastajaco
+					w.id_globalne=id_globalne;
+    				w.nazwa_instancji=nazwy_instancji[i]; //nazwa instancji, z kt�rej pochodzi wierzcholek
+    				w.miejsce_w_sekwencji_wejsciowej=pozycja; //dotyczy pierwszego znaku podciagu w sekwencji
+    				w.podciag_sekwencji=podciag;
+    				w.numer_wierzcholka_grafu=0;//pocz�tkowo wszytkie ustawiamy na 0
+					id_globalne+=1;
+					vecWierzcholkow.push_back(w);
+					id += 1;
+					pozycja = 0;
+					podciag.clear();
+
+					licznik_podciagu = 0;
+				}
+				else {
+					//cout<< "Podciag jest za ktotki." <<endl;
+				}
+				if (r > wczytane_qual[i].size()-1){
+					break;
+				}
+		}
+		podciag.clear();
+		vec_vec_Wierzcholkow.push_back(vecWierzcholkow);
+		vecWierzcholkow.clear();
+	}
+}
+
+void odczyt_z_pliku(string filename){
+
+	int poz_qual = filename.find("qual"); //czy w nazwie pliku wyst�puje "qual"?
+	if (poz_qual != string::npos){
+		odczyt_qual(filename);
+	}
+	else{
+		int poz_fasta = filename.find("fasta"); //czy w nazwie pliku wyst�puje "fasta"?
+		if (poz_fasta != string::npos){
+			odczyt_fasta(filename);
+		}
+		else {
+			cout << "Nie rozpoznano pliku. Upewnij sie, ze wskazany plik zawiera w nazwie fasta lub qual."<< endl;
+		}
+	}
+}
+
+void wypisz_struktury_do_pilku(vector<vector<Wierzcholek>>vec_vec_Wierzcholkow){//wypisuje wszystkie struktury do pliku o nazwie Wypisz_struktury.txt
+ofstream outfile("Wypisz_struktury.txt");
+    for (int i = 0; i<vec_vec_Wierzcholkow.size();i++){
+	    for(int j = 0; j<vec_vec_Wierzcholkow[i].size();j++){
+		    outfile << "ID "<< vec_vec_Wierzcholkow[i][j].id <<" ID_GLOBALNE "<<vec_vec_Wierzcholkow[i][j].id_globalne<< " Nazwa instancji "<<vec_vec_Wierzcholkow[i][j].nazwa_instancji<< " Miejsce w sekwencji wejsciowej "<< vec_vec_Wierzcholkow[i][j].miejsce_w_sekwencji_wejsciowej<< " Podciag: ";
+		    for(int k = 0;k<vec_vec_Wierzcholkow[i][j].podciag_sekwencji.size();k++){
+			    outfile << vec_vec_Wierzcholkow[i][j].podciag_sekwencji[k];
+		    }
+		    outfile<<" Numer wierzcholka grafu "<<vec_vec_Wierzcholkow[i][j].numer_wierzcholka_grafu;
+		    outfile<<endl;
+	    }
+    }
+}
+
+void tworzenie_wierzcholkow_grafu(vector<vector<Wierzcholek>>vec_vec_Wierzcholkow){
+	string a; //pierwszy podciag do porownania
+	string b; //drugi podciag do porownania
+	ofstream outfile("wierzcholki_grafu.txt");
+	for (int i = 0; i < vec_vec_Wierzcholkow.size()-1;i++){
+		for (int j = 0; j<vec_vec_Wierzcholkow[i].size();j++){
+			for (int l = 0; l < vec_vec_Wierzcholkow[i][j].podciag_sekwencji.size();l++ ){
+					a=a+vec_vec_Wierzcholkow[i][j].podciag_sekwencji[l];
+				}
+			for(int y = i+1;y<vec_vec_Wierzcholkow.size();y++){ //sprawdzam dla ka�dej kolejnej instancji zaczynaj�c od i+1
+
+			for (int k = 0; k< vec_vec_Wierzcholkow[y].size();k++){
+				for (int m = 0; m < vec_vec_Wierzcholkow[y][k].podciag_sekwencji.size();m++ ){
+					b=b+vec_vec_Wierzcholkow[y][k].podciag_sekwencji[m];
+				}
+				if (a==b){
+					licznik_par_grafu +=1;
+					if (vec_vec_Wierzcholkow[i][j].numer_wierzcholka_grafu == 0){
+						vec_vec_Wierzcholkow[i][j].numer_wierzcholka_grafu = licznik_wierzcholkow;
+						licznik_wierzcholkow+=1;
+					}
+					if (vec_vec_Wierzcholkow[y][k].numer_wierzcholka_grafu==0){
+						vec_vec_Wierzcholkow[y][k].numer_wierzcholka_grafu = licznik_wierzcholkow;
+						licznik_wierzcholkow+=1;
+					}
+
+				outfile << vec_vec_Wierzcholkow[i][j].numer_wierzcholka_grafu<<" "<<vec_vec_Wierzcholkow[y][k].numer_wierzcholka_grafu<<endl;
+				}
+				b.clear();
+				}
+		    }
+			a.clear();
+		}
+	}
+	//wypisz_struktury_do_pilku(vec_vec_Wierzcholkow);
+	vec_vec_Struktura_z_wierzcholkami = vec_vec_Wierzcholkow;//przepisuje do vec_vec_Struktura_z_wierzcholkami;
+}
+
+void zapis_macierzy_do_pliku(){ ////https://eduinf.waw.pl/inf/utils/002_roz/ol011.php
+	const int MAX_N = licznik_wierzcholkow; // maksymalna liczba wierzcho�k�w w grafie
+	//ifstream infile("plik_do_tworzenia_macierzy.txt");
+	ifstream infile("wierzcholki_grafu.txt");
+	ofstream outfile("macierz_wyjscie.txt");
+
+  int i,j,wmax,n,x,y;
+  char A[MAX_N][MAX_N]; // macierz s�siedztwa
+
+  for(i = 0; i < MAX_N; i++)
+    for(j = 0; j < MAX_N; j++) A[i][j] = 0;
+  wmax = 0;
+  n = licznik_wierzcholkow-1;//podaje liczbe wierzcholkow
+    outfile << n << endl;
+   string linia;
+  while (getline(infile,linia)){
+
+   	istringstream iss(linia);
+	for (int q = 0; q < 2; q++){ // w ka�dej linii s� po dwa wierzcholki
+		iss >> x >> y;
+
+        wmax = (x > wmax) ? x : wmax;
+        wmax = (y > wmax) ? y : wmax;
+        A[x-1][y-1] = 1;
+    A[y-1][x-1] = 1;
+    }
+  }
+  cout << endl;
+  for(i = 0; i < wmax; i++)
+  {
+    for(j = 0; j < wmax; j++){
+    	cout << (int)A[i][j] << " ";
+    	outfile << (int)A[i][j] << " ";
+	}
+    cout << endl;
+    outfile << endl;
+  }
+  char s[1];
+}
+
+int znajdz_klike(){ //https://www.sanfoundry.com/cpp-program-find-all-cliques-given-size-k/
+
+    bool removable(vector<int> neighbor, vector<int> cover);
+    int max_removable(vector<vector<int> > neighbors, vector<int> cover);
+    vector<int> procedure_1(vector<vector<int> > neighbors, vector<int> cover);
+    vector<int> procedure_2(vector<vector<int> > neighbors, vector<int> cover, int k);
+    int cover_size(vector<int> cover);
+
+    ifstream infile("macierz_wyjscie.txt");
+    ofstream outfile("cliques.txt");
+        //Read Graph (note we work with the complement of the input graph)
+        cout << "Clique Algorithm." << endl;
+        int n, i, j, k, K, p, q, r, s, min, edge, counter = 0;
+        infile >> n;
+        vector<vector<int> > graph;
+        for (i = 0; i < n; i++)
+        {
+            vector<int> row;
+            for (j = 0; j < n; j++)
+            {
+                infile >> edge;
+                if (edge == 0)
+                    row.push_back(1);
+                else
+                    row.push_back(0);
+            }
+            graph.push_back(row);
+        }
+        //Find Neighbors
+        vector<vector<int> > neighbors;
+        for (i = 0; i < graph.size(); i++)
+        {
+            vector<int> neighbor;
+            for (j = 0; j < graph[i].size(); j++)
+                if (graph[i][j] == 1)
+                    neighbor.push_back(j);
+            neighbors.push_back(neighbor);
+        }
+        cout << "Graph has n = " << n << " vertices." << endl;
+        K = nazwy_instancji.size();//rozmiar kliki odpowiada liczbie sekwencji w instancji;
+        k = n - K;
+        //Find Cliques
+        bool found = false;
+        cout << "Finding Cliques..." << endl;
+        min = n + 1;
+        vector<vector<int> > covers;
+        vector<int> allcover;
+        for (i = 0; i < graph.size(); i++)
+            allcover.push_back(1);
+        for (i = 0; i < allcover.size(); i++)
+        {
+            if (found)
+                break;
+            counter++;
+            cout << counter << ". ";
+            outfile << counter << ". ";
+            vector<int> cover = allcover;
+            cover[i] = 0;
+            cover = procedure_1(neighbors, cover);
+            s = cover_size(cover);
+            if (s < min)
+                min = s;
+            if (s <= k)
+            {
+                outfile << "Clique (" << n - s << "): ";
+                for (j = 0; j < cover.size(); j++)
+                    if (cover[j] == 0)
+                        outfile << j + 1 << " ";
+                outfile << endl;
+                cout << "Clique Size: " << n - s << endl;
+                covers.push_back(cover);
+                found = true;
+                break;
+            }
+            for (j = 0; j < n - k; j++)
+                cover = procedure_2(neighbors, cover, j);
+            s = cover_size(cover);
+            if (s < min)
+                min = s;
+            outfile << "Clique (" << n - s << "): ";
+            for (j = 0; j < cover.size(); j++)
+                if (cover[j] == 0)
+                    outfile << j + 1 << " ";
+            outfile << endl;
+            cout << "Clique Size: " << n - s << endl;
+            covers.push_back(cover);
+            if (s <= k)
+            {
+                found = true;
+                break;
+            }
+        }
+        if (found) {
+            cout << "Found Clique of size at least " << K << "." << endl;
+        }
+        else {
+            cout << "Could not find Clique of size at least " << K << "." << endl
+                 << "Maximum Clique size found is " << n - min << "." << endl;
+        }
+        cout << "See cliques.txt for results." << endl;
+        return 0;
+    }
+    bool removable(vector<int> neighbor, vector<int> cover)
+    {
+        bool check = true;
+        for (int i = 0; i < neighbor.size(); i++) {
+            if (cover[neighbor[i]] == 0) {
+                check = false;
+                break;
+            }
+        }
+        return check;
+    }
+    int max_removable(vector<vector<int> > neighbors, vector<int> cover)
+    {
+        int r = -1, max = -1;
+        for (int i = 0; i < cover.size(); i++)
+        {
+            if (cover[i] == 1 && removable(neighbors[i], cover) == true)
+            {
+                vector<int> temp_cover = cover;
+                temp_cover[i] = 0;
+                int sum = 0;
+                for (int j = 0; j < temp_cover.size(); j++)
+                    if (temp_cover[j] == 1 && removable(neighbors[j], temp_cover) == true)
+                        sum++;
+                if (sum > max)
+                {
+                    max = sum;
+                    r = i;
+                }
+            }
+        }
+        return r;
+    }
+    vector<int> procedure_1(vector<vector<int> > neighbors, vector<int> cover)
+    {
+        vector<int> temp_cover = cover;
+        int r = 0;
+        while (r != -1)
+        {
+            r = max_removable(neighbors, temp_cover);
+            if (r != -1)
+                temp_cover[r] = 0;
+        }
+        return temp_cover;
+    }
+    vector<int> procedure_2(vector<vector<int> > neighbors, vector<int> cover, int k)
+    {
+        int count = 0;
+        vector<int> temp_cover = cover;
+        int i = 0;
+        for (int i = 0; i < temp_cover.size(); i++)
+        {
+            if (temp_cover[i] == 1)
+            {
+                int sum = 0, index;
+                for (int j = 0; j < neighbors[i].size(); j++)
+                    if (temp_cover[neighbors[i][j]] == 0)
+                    {
+                        index = j;
+                        sum++;
+                    }
+                if (sum == 1 && cover[neighbors[i][index]] == 0)
+                {
+                    temp_cover[neighbors[i][index]] = 1;
+                    temp_cover[i] = 0;
+                    temp_cover = procedure_1(neighbors, temp_cover);
+                    count++;
+                }
+                if (count > k)
+                    break;
+            }
+        }
+        return temp_cover;
+    }
+    int cover_size(vector<int> cover)
+    {
+        int count = 0;
+        for (int i = 0; i < cover.size(); i++)
+            if (cover[i] == 1)
+                count++;
+        return count;
+    }
+
+void odczytaj_klike_z_pliku(){
+fstream plik;
+string linia;
+string rozmiar_kliki;
+int rozmiar;
+string wierzcholki; //wierzcholki kliki oddzielone spacja
+int pozycja_zamkniecia_nawiasu = 0;
+int pozycja_spacji = 0;
+string temp;
+int temp_wierzcholek;
+plik.open("cliques.txt");
+    if(plik.good()) {
+	    int numer_instancji = 0;
+        while (getline(plik,linia)){
+		    int pozycja = linia.find("("); //znajduje pozycj� wystapienia w linii "("
+                if (pozycja!=string::npos) { //je�eli znak "(" wyst�puje
+                    rozmiar_kliki.clear();
+                    pozycja_zamkniecia_nawiasu = linia.find(")"); //wyszukaj liczbe (od "(" do ")")
+                    rozmiar_kliki.insert(0, linia, pozycja + 1,
+                                         pozycja_zamkniecia_nawiasu); //wstaw do nazwa.instancji tekst przed pozycj� 0, od pozycji pozycja liczba znak�w do spacji
+                    rozmiar = atoi(rozmiar_kliki.c_str());
+                }
+                if (rozmiar == nazwy_instancji.size()){ //sprawdzamy tylko takie, gdzie ka�da sekwencja wejsciowa b�dzie reprezentowana dok�adnie jednym wierzcho�kiem
+                    wierzcholki.insert(0,linia,pozycja_zamkniecia_nawiasu+3,linia.size());//+3 �eby nie zapisywac pierwszej spacji
+                    while(wierzcholki.size()!=0){
+                        pozycja_spacji = wierzcholki.find(" ");
+                        temp.insert(0,wierzcholki,0,pozycja_spacji);//pobierz numer wierzcholka jako string
+                        temp_wierzcholek=atoi(temp.c_str());//zamien na int
+                        wierzcholki_kliki.push_back(temp_wierzcholek); //dodaj wierzcholek do vectora
+                        temp.clear();
+                        wierzcholki.erase( 0, pozycja_spacji + 1 ); //kasujemy wierzcholek ze stringa
+                    }
+
+                }
+
+        }
+    }
+}
+void wypisz_rezultat(){
+
+	for (int w = 0; w<wierzcholki_kliki.size();w++){
+		for (int i =0;i<vec_vec_Struktura_z_wierzcholkami.size();i++){
+			for (int j = 0; j< vec_vec_Struktura_z_wierzcholkami[i].size();j++){
+				if (wierzcholki_kliki[w]==vec_vec_Struktura_z_wierzcholkami[i][j].numer_wierzcholka_grafu){
+					cout <<"Numer sekwencji wejsciowej: "<<vec_vec_Struktura_z_wierzcholkami[i][j].nazwa_instancji<<" "<<" Numer pozycji w tej sekwencji "<<vec_vec_Struktura_z_wierzcholkami[i][j].miejsce_w_sekwencji_wejsciowej<<" "<<endl;
+					cout<<"          Sekwencja nukleotydowa podciagu ";
+					for (int k=0;k<vec_vec_Struktura_z_wierzcholkami[i][j].podciag_sekwencji.size();k++){
+						cout<<vec_vec_Struktura_z_wierzcholkami[i][j].podciag_sekwencji[k];
+					}
+					 cout<<endl;
+				}
+			}
+		}
+	}
+}
+
+
+int main()
+{
+  	filenamefasta = "sample.fasta.1.txt";
+	odczyt_z_pliku(filenamefasta);	// algorytm czyta z pliku
+    filenamequal = "sample.qual.1.txt";
+	odczyt_z_pliku(filenamequal);	// algorytm czyta z pliku
+
+    cout << "Podaj prog. Sekwencje nukleotydowych pozycji ponizej tego progu zostana usuniete: "<< endl; //popro� u�ytkownika o podanie progu
+    cin >> prog;
+
+    cout << "Okresl dlugosc kilkuliterowych podciagow sekwencji: "<< endl; //popro� u�ytkownika o podanie int
+    cin >> dlugosc_podciagu;
+
+    while ((dlugosc_podciagu > 9) || (dlugosc_podciagu < 4)){
+    	cout << "Dlugosc podsiagow musi by� wi�ksza od 3 i mniejsza od 10: "<< endl; //popro� u�ytkownika o podanie int
+    	cin >> dlugosc_podciagu;
+	}
+
+tworzenie_wierzcholkow(prog,dlugosc_podciagu,wczytane_qual);
+tworzenie_wierzcholkow_grafu(vec_vec_Wierzcholkow);
+wypisz_struktury_do_pilku(vec_vec_Struktura_z_wierzcholkami);
+zapis_macierzy_do_pliku();
+znajdz_klike();
+odczytaj_klike_z_pliku();
+wypisz_rezultat();
+return 0;
+}
