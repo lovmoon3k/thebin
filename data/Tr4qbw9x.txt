@@ -1,0 +1,191 @@
+#include <SPI.h>
+#include <Wire.h>
+#include <DMD.h>
+#include <TimerOne.h>
+#include "OneButton.h"
+#include <EEPROM.h>
+
+#include "SystemFont5x7.h"
+#include "Arial_black_16.h"
+#include "Arial14.h"
+
+unsigned long Counter = 0;
+
+String str;
+String str2;
+String str3;
+#define DISPLAYS_ACROSS 1
+#define DISPLAYS_DOWN 3
+DMD dmd(DISPLAYS_ACROSS, DISPLAYS_DOWN);
+
+const int e18_sensor = 3;
+
+int next = 4;
+int prev = 5;
+int menu = 1;
+
+byte a;
+byte c;
+byte d;
+String msg;
+
+// set
+OneButton b1(12, true);
+
+void ScanDMD(){
+  dmd.scanDisplayBySPI();
+}
+
+void setup() {
+  EEPROM.begin();
+  Serial.begin(115200);
+  Wire.begin();
+
+  b1.attachClick(click1);
+  b1.attachDoubleClick(doubleclick1);
+  b1.attachLongPressStart(longPressStart1);
+  b1.attachLongPressStop(longPressStop1);
+  b1.attachDuringLongPress(longPress1);
+  
+  pinMode (e18_sensor, INPUT);
+
+  pinMode(next, INPUT_PULLUP);
+  pinMode(prev, INPUT_PULLUP);
+
+  Timer1.initialize(5000);
+  Timer1.attachInterrupt(ScanDMD);
+  dmd.clearScreen(true);
+
+  updateMenu();
+  
+  msg = "Data yang Tersimpan";
+  a = EEPROM.read(0);
+  c = EEPROM.read(1);
+  d = EEPROM.read(2);
+}
+
+void loop() {
+  if (!digitalRead(next)){
+    menu++;
+    updateMenu();
+    delay(100);
+    while (!digitalRead(next));
+  }
+  if (!digitalRead(prev)){
+    menu--;
+    updateMenu();
+    delay(100);
+    while(!digitalRead(prev));
+  }
+}
+
+void updateMenu() {
+  switch (menu) {
+    case 0:
+      menu = 1;
+      break;
+    case 1:
+      int slen = 0;
+      int state = digitalRead(e18_sensor);
+      Serial.println(state);
+      dmd.clearScreen( true );
+      dmd.selectFont(SystemFont5x7);
+  
+      // eeprom read
+      for (byte x=0;x<DISPLAYS_ACROSS;x++) {
+        for (byte y=0;y<DISPLAYS_DOWN;y++) {
+          String text = "PLAN";
+          str = a;
+          String texting = text + " " + str;
+          dmd.drawString(  2+(32*x),  8+(16*y), texting.c_str(), 5, GRAPHICS_NORMAL );
+        }
+      }
+
+      // Starter detection
+      if(state == HIGH) {
+        Counter++;
+        Serial.println("Object Detected"); 
+        if(Counter >= a) { // above the limit will be 0
+          for (byte x=0;x<DISPLAYS_ACROSS;x++) {
+            for (byte y=0;y<DISPLAYS_DOWN;y++) {
+              String text2 = "REAL";
+              str2 = a;
+              c = a;
+              String texting2 = text2 + " " + str2;
+              dmd.drawString(  2+(32*x),  17+(16*y), texting2.c_str(), 5, GRAPHICS_NORMAL );
+              EEPROM.write(1, c);
+              
+              String text3 = "DIFF";
+              str3 = "0";
+              d = 0;
+              String texting3 = text3 + " " + str3;
+              dmd.drawString(  2+(32*x),  34+(16*y), texting3.c_str(), 5, GRAPHICS_NORMAL );
+              EEPROM.write(2, d);
+            }
+          }
+        } else if(Counter <= a) { // below the limit will still run arithmetic
+          for (byte x=0;x<DISPLAYS_ACROSS;x++) {
+            for (byte y=0;y<DISPLAYS_DOWN;y++) {
+              String text2 = "REAL";
+              str2 = Counter++;
+              c = Counter++;
+              String texting2 = text2 + " " + str2;
+              dmd.drawString(  2+(32*x),  17+(16*y), texting2.c_str(), 5, GRAPHICS_NORMAL );
+              EEPROM.write(1, c);
+              
+              String text3 = "DIFF";
+              str3 = a - Counter++;
+              d = a - Counter++;
+              String texting3 = text3 + " " + str3;
+              dmd.drawString(  2+(32*x),  34+(16*y), texting3.c_str(), 5, GRAPHICS_NORMAL );
+              EEPROM.write(2, d);
+            }
+          }
+        }
+      } else {
+        Serial.println("Object No Detected");
+      }
+      break;
+    case 2:
+      b1.tick();
+      dmd.clearScreen( true );
+      dmd.selectFont(SystemFont5x7);                                     
+      for (byte x=0;x<DISPLAYS_ACROSS;x++) {
+        for (byte y=0;y<DISPLAYS_DOWN;y++) {
+          str = msg;
+          dmd.drawString(  2+(32*x),  1+(16*y), str.c_str(), 5, GRAPHICS_NORMAL );
+          EEPROM.write(1, c);
+          
+          str2 = a;
+          dmd.drawString(  2+(32*x),  8+(16*y), str2.c_str(), 5, GRAPHICS_NORMAL );
+          EEPROM.write(2, d);
+        }
+      }
+      break;
+    case 3:
+      menu = 2;
+      break;
+  }
+}
+
+void click1() {
+  a = 0;
+  EEPROM.write(0, a);
+  msg = "Data Sukses Disimpan";
+}
+void doubleclick1() {
+  a++;
+  EEPROM.write(0, a);
+  msg = "Reset Data Sukses Disimpan";
+}
+void longPressStart1() {
+  a++;
+}
+void longPress1() {
+  a++;
+}
+void longPressStop1() {
+  a++;
+  EEPROM.write(0, a);
+  msg = "Data Sukses Disimpan";
+}
