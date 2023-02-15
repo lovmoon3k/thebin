@@ -1,0 +1,136 @@
+# tk_quick_indent.py ZZZ
+
+from tkinter import *
+
+root = Tk()
+root.title('tk Quick-Indent')
+root.geometry("1280x640+-10+0")
+
+def default_indent(code, tabs=0, indent_char='\t'):
+	def tab():
+		tabbed_code.append(indent_char * tabs + line)
+
+	keywordsA = "def class".split()
+	keywordsB = "return continue break yield".split()
+	lines = code.split("\n") + ['\n']
+	tabbed_code = []
+	prev = []
+	for i in range(len(lines) - 1):
+		line = lines[i].lstrip()
+		if '#!t' in line: # custom indent
+			tabs = int(line[line.index('#!t') + 3])
+			tab()
+		elif any(line.startswith(keyword) for keyword in keywordsA):
+			tabs = 0
+			tab()
+			tabs = 1
+		else:
+			if line.endswith(':'):
+				tab()
+				tabs += 1
+			elif any(line.startswith(keyword) for keyword in keywordsB):
+				if lines[i + 1].strip():
+					tab()
+					tabs -= 1
+				else:
+					tabs = 1
+					tab()
+					tabs = 0
+			elif not lines[i + 1].strip():
+				tab()
+				tabs = 0
+		if prev == tabbed_code:
+			tab()
+		prev = tabbed_code[:]
+	tabbed_code = "\n".join(tabbed_code)
+	return tabbed_code
+
+frame = Frame(root)
+frame.pack(fill=BOTH, expand=1)
+
+textbox = Text(frame, height=40, width=140, wrap=WORD)
+textbox.pack(fill=BOTH, expand=1)
+
+# Add a scrollbar to the Text widget
+scrollbar = Scrollbar(frame)
+scrollbar.pack(side=RIGHT, fill=Y)
+scrollbar.config(command=textbox.yview)
+textbox.config(yscrollcommand=scrollbar.set)
+
+untabbed_test_code = '''
+def complex_operation(a, b, c):
+try:
+result = a / b
+result = result ** c
+result = result * (b + c)
+return result
+except ZeroDivisionError:
+return "division by zero"
+except TypeError as e:
+if "unsupported operand type" in str(e):
+return "unsupported operand type for operation"
+else:
+raise e
+
+input_a = 10
+input_b = 5
+input_c = 2
+output = complex_operation(input_a, input_b, input_c)
+print("output:", output)
+
+def calculate_result(data):
+result = 0
+for i in range(len(data)):
+for j in range(i+1, len(data)):
+sub_result = 0
+for k in range(j, len(data)):
+sub_result += data[k]
+if sub_result == 0:
+result += 1
+return result
+
+data = [1, -1, 2, 3, -2, -3, 4, -4]
+output = calculate_result(data)
+print("output:", output)
+'''[1:-1]
+
+test_code = default_indent(untabbed_test_code, tabs=0)
+
+textbox.insert(INSERT, test_code)
+
+line_numbers = ()
+
+def select(event):
+	global line_numbers
+	sel = textbox.tag_ranges("sel")
+	if not sel:
+		return
+	start_line, end_line = map(lambda x: int(str(x).split('.')[0]), sel)
+	if start_line % 2 == 0:
+		start_line += 1
+	if end_line % 2 == 0:
+		end_line -= 1
+	line_numbers = range(start_line - 1, end_line)
+
+def arrowkey_indent(event):
+	if line_numbers and event.state == 262148:
+		if "Left" in event.keysym:
+			def f():
+				if line.startswith('\t'):
+					return line[1:]
+		elif "Right" in event.keysym:
+			def f():
+				return '\t' + line
+		else:
+			return
+		for line_number in line_numbers:
+			line = textbox.get(f"{line_number}.0", f"{line_number}.end")
+			line = f()
+			try:
+				textbox.replace(f"{line_number}.0", f"{line_number}.end", line)
+			except:
+				0
+
+textbox.bind("<KeyPress>", arrowkey_indent)
+textbox.bind("<ButtonRelease-1>", select)
+root.mainloop()
