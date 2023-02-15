@@ -1,0 +1,73 @@
+#include "fb_url_init.bas"
+
+#include once "crt.bi"
+ 
+#ifdef __FB_WIN32__
+  #include once "windows.bi"
+  function _InternalPlay( sUrl as string ) as uinteger
+    dim as STARTUPINFO tInfo = type(sizeof(STARTUPINFO))
+    dim as PROCESS_INFORMATION tProc  
+    dim as string sPlay 
+	sPlay = "ffplay -nodisp -i -loglevel error """+sUrl+""""
+    if CreateProcess(null,sPlay,null,null,true,CREATE_NEW_PROCESS_GROUP,null,null,@tInfo,@tProc) = 0 then
+      return 0
+    end if
+    CloseHandle(tProc.hProcess) : CloseHandle(tProc.hThread)
+    return tProc.dwProcessId        
+  end function  
+  sub StopAudioUrl( uAudioUrl as uinteger )
+    if uAudioUrl = 0 then exit sub
+    GenerateConsoleCtrlEvent( CTRL_BREAK_EVENT , uAudioUrl )
+  end sub
+#else
+  #include once "crt/unistd.bi"
+  #include once "crt/sys/types.bi"  
+  function _InternalPlay( sUrl as string ) as uinteger
+    var child_pid = fork()
+    select case child_pid
+    case -1: return 0 
+    case  0: execlp("ffplay","ffplay","-nodisp","-loglevel","error","-i",sUrl,cptr(any ptr,0))
+    end select
+    return child_pid    
+  end function    
+  declare function _killpid cdecl alias "kill" (pid as pid_t, sig as uinteger) as uinteger  
+  sub StopAudioUrl( uAudioUrl as uinteger )
+    #ifndef SIGINT
+      const SIGINT = 2 , SIGTERM = 15   
+    #endif
+    _killpid(uAudioUrl,SIGINT)
+  end sub
+#endif
+ 
+function PlayAudioUrl( sUrl as string ) as uinteger
+  var f = freefile()
+  dim as string sDirectUrl 
+  sDirectUrl = ""
+  dim as string sTemp 
+  sTemp = ""
+  #ifdef __FB_WIN32__
+  const sDevNul = "nul"
+  #else
+  const sDevNul = "/dev/null"
+  #endif  
+  dim as string sCom 
+  sCom = "youtube-dl -f worstaudio -g "+sUrl+" 2>"+sDevNul 
+  open pipe sCom for input as #f
+  while not eof(f)
+    line input #f, sTemp
+    if lcase(left(sTemp,8))="https://" then sDirectUrl = sTemp
+  wend
+  close #f
+  if len(sDirectUrl)=0 then return 0 
+  #ifdef __fb_win32__
+	return _InternalPlay( sDirectUrl )
+  #else
+	return _InternalPlay( "async: "+sDirectUrl )
+  #endif
+end function
+#undef _InternalPlay
+
+randomize() 
+
+var uMusic = PlayAudioUrl(music(int(rnd*(ubound(music)+1))) )                                                       '"https://www.youtube.com/watch?v=AkPcNCnQU70" )
+sleep : stopAudioUrl(uMusic)
