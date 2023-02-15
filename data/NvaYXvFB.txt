@@ -1,0 +1,196 @@
+// LOGIN LOGIC
+
+var API_LOGIN_ENDPOINT = "http://localhost:8080/api/login"
+var API_GET_USERS_ENDPOINT = "http://localhost:8080/api/user";
+
+function login(userName, pwd){
+    var jqxhr = jQuery.post(API_LOGIN_ENDPOINT, {username:userName, password:pwd})
+    .done(function (data, statusText, xhr){
+        if(xhr.status == 200){
+            sessionStorage.setItem("access_token", data.access_token);
+            sessionStorage.setItem("current_user_id", data.user_id);
+            sessionStorage.setItem("role", data.role);
+            loginRedirect();
+        }})
+    .fail(function (xhr, status){
+        if(xhr.status == 403){
+            alert("Authentication unsuccessful. Bad username or password.");
+        }
+    });
+}
+
+function loginRedirect(){
+
+    let redirectUrl = "login.html";
+    if (isLoggedIn()) {
+        redirectUrl = "index.html";
+    }
+    else if(isAdminLoggedIn()){
+        redirectUrl = "admin_dashboard.html";
+    }
+    window.location.replace(redirectUrl);
+}
+
+function isLoggedIn(){
+    if(sessionStorage.getItem("role") == "ROLE_USER") return true;
+    return false;
+}
+
+function isAdminLoggedIn(){
+    if(sessionStorage.getItem("role") == "ROLE_ROOT" || sessionStorage.getItem("role") == "ROLE_ADMIN") return true;
+    return false;
+}
+
+
+
+// EXAMPLE API CALL TO GET USER LIST
+
+function getUserList(){
+
+    let auth_header = 'Bearer '+sessionStorage.getItem("access_token");
+    let jqxhr = jQuery.ajax({
+        url: API_GET_USERS_ENDPOINT,
+        type: 'GET',
+        dataType: 'json',
+        beforeSend: function(xhr){xhr.setRequestHeader('Authorization', auth_header);},
+        contentType: 'application/json; charset=utf-8',
+        success: function (result) {
+            updateUserList(result.data);
+        },
+        error: function (error) {
+            console.log(error.error_message);
+        }
+    });
+}
+
+
+//CUSTOM LOGIC TO UPDATE A D3 CHART IF THE CONTENT OF A DATATABLE CHANGES DUE TO FILTERING
+
+function updateTestResultsTable(data){
+
+    let table = jQuery("<table id='test-resuts-table'/>");
+    table.addClass("table table-data3");
+    table.append(createTableHeaderHTML(data));
+    table.append(createTableBodyHTML(data));
+
+    applyColours(table.find('tr'), 70, 30);
+
+    let div = jQuery("#test_results_table_div");
+    div.empty();
+    div.append(table);
+    table.DataTable({"drawCallback": function( settings ) {
+            updateStackedBarChart();
+        }});
+}
+
+function updateStackedBarChart(){
+    let animals = getDisplayedAnimalNamesFromDataTable("test-resuts-table");
+    let filtered_herd_test_scores = getFilteredHerdTestScores(animals, herd_test_scores);
+    insertStackedBarChart(filtered_herd_test_scores);
+}
+
+
+function getDisplayedAnimalNamesFromDataTable(tableId){
+
+    let animals = [];
+    let table = jQuery("#"+tableId);
+    $("#test-resuts-table > tbody > tr").each(function () {
+        animals.push($(this).find("td:eq(1)").text());
+    });
+    return animals;
+}
+
+
+function insertStackedBarChart(data){
+    //d3.select("#test-scores-chart-svg").remove();
+    d3.select("#test-chart-div").select("svg").remove();
+    var series = d3.stack()
+        .keys(["productionscore", "fatscore", "proteinscore"])
+        .offset(d3.stackOffsetDiverging)
+        (data);
+
+    var margin = {top: 20, right: 30, bottom: 30, left: 60},
+        width = 900,
+        height = 300,
+        legendh = 100, //determines the height of the legend below the chart
+        padding = 40,
+        svg = d3.select("#test-chart-div").append('svg').attr('height', height).attr('width',width).attr("id","test-scores-chart-svg");
+
+    var x = d3.scaleBand()
+        .domain(data.map(function(d){return d.animalname;}))
+        .rangeRound([margin.left, width-margin.right])
+        .padding(0.1);
+
+    var y = d3.scaleLinear()
+        .domain([d3.min(series, stackMin), d3.max(series, stackMax)])
+        .rangeRound([height - margin.bottom - legendh, margin.top]);
+
+    var colors = ["#1f77b4", "#17becf", "#9467bd"];
+    //["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"]
+    var z = d3.scaleOrdinal(colors);
+
+    //create and call the axes
+    const xAxis = d3.axisBottom(x);
+    const yAxis = d3.axisLeft(y);
+
+
+    var chart = svg.append('g').attr('id','chart'); //make a chart group inside the svg
+
+    chart.append('g')
+        .selectAll('g')
+        .data(series)
+        .enter().append('g')
+        .attr('fill', function (d,i) { //because the legend is based on i this should also be based on i
+            return z(i);
+        })
+        .selectAll('rect')
+        .data(function(d){ return d; })
+        .enter().append('rect')
+        .attr('width', x.bandwidth)
+        .attr('x', function(d){ return x(d.data.animalname)})
+        .attr("y", function(d) { return y(d[1]); })
+        .attr("height", function(d) { return y(d[0]) - y(d[1]); })
+
+
+    chart.append("g")
+        .attr("transform", "translate(0," + y(0) + ")")
+        .call(d3.axisBottom(x));
+
+    chart.append("g")
+        .attr("transform", "translate(" + margin.left + ",0)")
+        .call(d3.axisLeft(y));
+
+    var legend = svg.append('g')
+        .attr('class', 'legend')
+        .attr('transform', 'translate(' + (padding + 12) + ','+ (height - legendh)  + ')');
+
+    legend.selectAll('rect')
+        .data(series)
+        .enter()
+        .append('rect')
+        .attr('x', 0)
+        .attr('y', function(d,i){
+            return i * 18;
+        })
+        .attr('width', 16)
+        .attr('height', 16)
+        .attr('fill', function(d,i){
+            return z(i);
+        });
+
+    legend.selectAll('text')
+        .data(series)
+        .enter()
+        .append('text')
+        .text(function(d){
+            return d.key;
+        })
+        .attr('x', 20)
+        .attr('y', function(d, i){
+            return (i * 18)+10;
+        })
+        .attr('text-anchor', 'start')
+        .attr('alignment-baseline', 'hanging');
+
+}
+
