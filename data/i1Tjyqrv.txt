@@ -1,0 +1,156 @@
+```local module = {}
+
+
+local function VecSnap(norm : Vector3)
+	if math.abs(norm.X) > math.max(math.abs(norm.Y), math.abs(norm.Z)) then
+		return Vector3.xAxis * math.sign(norm.X)
+	elseif math.abs(norm.Y) > math.abs(norm.Z) then
+		return Vector3.yAxis * math.sign(norm.Y)
+	else
+		return Vector3.zAxis * math.sign(norm.Z)
+	end
+end
+
+function module.GridPlacer()
+	local placer = {}
+	
+
+	placer.GridSize = 1.0
+	
+	
+	placer.CylinderSnapOptions = {}
+	placer.UseCylinderAngleSnap = true
+	
+	
+	local fineRotation = CFrame.new()
+	local snapGridTransform = CFrame.new()
+	
+
+	local normalToUpArbitrary = {
+		[Vector3.xAxis] = Vector3.yAxis,
+		[-Vector3.xAxis] = Vector3.yAxis,
+		[Vector3.zAxis] = Vector3.yAxis,
+		[-Vector3.zAxis] = Vector3.yAxis,
+		[Vector3.yAxis] = Vector3.zAxis,
+		[-Vector3.yAxis] = Vector3.zAxis
+	}
+
+
+	function placer.RotateUpMapping()
+		for input, up in pairs(normalToUpArbitrary) do
+			normalToUpArbitrary[input] = input:Cross(up)
+		end
+	end
+	
+	
+	function placer.SetFineRotation(rot : CFrame)
+		fineRotation = rot
+	end
+	
+	
+	function placer.SetGridTransform(rot : CFrame)
+		snapGridTransform = rot
+	end
+	
+
+	function placer.SetEvenRadialSnapping(numberOfSnaps : number)
+		for i = 1, numberOfSnaps do
+			local angle = 2 * math.pi * (i - 1) / numberOfSnaps
+			table.insert(placer.CylinderSnapOptions, Vector3.new(0, math.cos(angle), math.sin(angle)))
+		end
+	end
+	
+	
+	placer.SetEvenRadialSnapping(8)
+	
+
+	function placer.SnapSurfaceCFrame(result : RaycastResult)
+		if result == nil then
+			error("RaycastResult input must not be nil")
+		end
+		
+	
+		local target = result.Instance
+		local position = target.Position
+		local normal = result.Normal
+		local aimpoint = result.Position
+		
+
+		local partLocalNormal = target.CFrame:VectorToObjectSpace(normal)
+		
+
+		if placer.UseCylinderAngleSnap and target:IsA("Part") and target.Shape == Enum.PartType.Cylinder then
+		
+			if math.abs(VecSnap(partLocalNormal).X) ~= 1 then
+				
+				
+				local bestNormal = nil
+				local bestDot = -1
+				
+				
+				for _, snapNormal in ipairs(placer.CylinderSnapOptions) do
+					local dot = snapNormal:Dot(partLocalNormal)
+					
+					if bestNormal == nil or dot > bestDot then
+						bestDot = dot
+						bestNormal = snapNormal
+					end
+				end
+				
+				
+				partLocalNormal = bestNormal
+
+			
+				local targetLocalPosition = target.CFrame:PointToObjectSpace(aimpoint)
+				local yzMask = (Vector3.one - Vector3.xAxis)
+				local newLocalAimpoint = targetLocalPosition.X * Vector3.xAxis + yzMask * partLocalNormal
+				
+				
+				aimpoint = target.CFrame:PointToWorldSpace(newLocalAimpoint)
+			end
+		end
+		
+		
+		local up = normalToUpArbitrary[VecSnap(partLocalNormal)]
+		
+		local localSurfaceCFrame = CFrame.lookAt(Vector3.zero, partLocalNormal, up)
+		
+		local surfaceCFrame = (target.CFrame - position):ToWorldSpace(localSurfaceCFrame) + position
+
+		local surfaceLocalPosition = surfaceCFrame:PointToObjectSpace(aimpoint)
+		
+		local gridLocalPosition = snapGridTransform * surfaceLocalPosition
+		
+		
+		local normalComponent = gridLocalPosition * Vector3.zAxis
+
+		if placer.GridSize ~= 0 then
+			gridLocalPosition -= normalComponent
+
+	
+			local function Elw(vec, func)
+				return Vector3.new(func(vec.X), func(vec.Y), func(vec.Z))
+			end
+
+			gridLocalPosition = Elw(gridLocalPosition, function(v) 
+				return math.round(v / placer.GridSize) * placer.GridSize
+			end)
+
+		
+			gridLocalPosition += normalComponent
+		end
+		
+		surfaceLocalPosition = snapGridTransform:Inverse() * gridLocalPosition
+		
+		
+		surfaceCFrame = (surfaceCFrame - position) * fineRotation + surfaceCFrame:PointToWorldSpace(surfaceLocalPosition)
+		
+
+		return surfaceCFrame, surfaceLocalPosition
+	end
+	
+	return placer
+end
+
+return module
+```
