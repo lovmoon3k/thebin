@@ -1,0 +1,112 @@
+#include <iostream>
+#include <cmath>
+#include <algorithm>
+#include <vector>
+#include <thread>
+#include <array>
+#include <functional>
+#include <mutex>
+#include <chrono>
+#include <ctime>
+#include <condition_variable>
+#include <list>
+
+struct Parametre {
+    const double div1_min = 11300;
+    const double div1_max = 11200;
+    const double div1_step = 1;
+    const double div1_target = 11250;
+    const double div2_min = 150000;
+    const double div2_max = 300000;
+    const double div2_step = 1000;
+    const double div2_target = 250000;
+    const double div_time_min = 1;
+    const double div_time_max = 1800000000;
+    const uint8_t max_results = 10;
+    const uint8_t results_run = 20;
+    const uint8_t max_threads = 4;
+};
+
+// stockage des données de calcul
+struct Resultat {
+    int index;
+    double div1;
+    double div2;
+    double div_time;
+    double div1et2;
+};
+
+std::vector<Resultat> results;
+std::mutex mtx_results;
+std::condition_variable cv_results;
+bool is_results_full = false;
+
+void calculate_collision_time(double div1, double div2, int index, Parametre params) {
+    for (double div_time = params.div_time_min; div_time <= params.div_time_max; div_time++) {
+        if (fmod(div_time, div1) == 0 && fmod(div_time, div2) == 0) {
+            Resultat result;
+            result.index = index;
+            result.div1 = div1;
+            result.div2 = div2;
+            result.div_time = div_time;
+            result.div1et2 = sqrt(pow(div1 - params.div1_target, 2) + pow(div2 - params.div2_target, 2));
+
+            std::unique_lock<std::mutex> lock(mtx_results);
+            results.push_back(result);
+            lock.unlock();
+            cv_results.notify_one();
+            break;
+        }
+    }
+}
+
+int main() {
+    int index = 0;
+    std::vector<std::thread> threads;
+    Parametre params;
+
+    for (double div1 = params.div1_min; div1 <= params.div1_max; div1 += params.div1_step) {
+        for (double div2 = params.div2_min; div2 <= params.div2_max; div2 += params.div2_step) {
+            while (threads.size() >= params.max_threads) {
+                std::unique_lock<std::mutex> lock(mtx_results);
+                cv_results.wait(lock, [params] { return results.size() >= params.results_run || is_results_full; });
+
+                lock.unlock();
+
+                if (results.size() >= params.results_run) {
+                    for (int i = 0; i < params.results_run; i++) {
+                        Resultat result = results[i];
+                        double time_microseconds = fmod(result.div_time, 1000000);
+                        double time_milliseconds = (fmod(result.div_time, 1000)) / 1000;
+                        double time_seconds = result.div_time / 1000000;
+                        std::cout << result.index << ": div1=" << result.div1 << " div2=" << result.div2
+                            << " time=" << time_seconds << "s " << time_milliseconds << "ms "
+                            << time_microseconds << "us div1et2=" << result.div1et2 << std::endl;
+                    }
+                    results.clear();
+                }
+            }
+
+            threads.push_back(std::thread(calculate_collision_time, div1, div2, index, params));
+            index++;
+        }
+    }
+
+    for (std::thread& thread : threads) {
+        thread.join();
+    }
+
+    if (results.size() > 0) {
+        for (const Resultat& result : results) {
+            double time_microseconds = fmod(result.div_time, 1000000);
+            double time_milliseconds = (fmod(result.div_time, 1000)) / 1000;
+            double time_seconds = result.div_time / 1000000;
+            std::cout << result.index << ": div1=" << result.div1 << " div2=" << result.div2 << "\n time="
+                << time_seconds << "s " << time_milliseconds << "ms " << time_microseconds << "us div1et2="
+                << result.div1et2 << std::endl;
+        }
+
+    }
+
+    return 0;
+}
