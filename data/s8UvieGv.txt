@@ -1,0 +1,100 @@
+from datetime import datetime
+from typing import List
+
+from pydantic import BaseModel
+
+
+class SuppInqOrder(BaseModel):
+    """供应商单据头"""
+    code: str
+    create_date: datetime
+
+
+class SuppInqOrderDetail:
+    parent_id: int
+    supp_id: int
+
+
+class SummaryHeader(BaseModel):
+    """汇总头信息"""
+    supp_id: int
+    total: int
+    sent: int
+    status: str
+
+
+class SummaryData(BaseModel):
+    """汇总数据体"""
+    # 产品信息
+    prd_id: int
+    prd_info: str
+    # ... 其他产品信息
+
+    # 一下供应商报价明细信息
+    # 动态key，内容为供应商报价
+    # 如：
+    # 1324: {price: 6534, tax: 13}
+    # 1123: {price: 2000, tax: 13}
+    # 3454: {price: 1000, tax: 13}
+
+
+class SummaryResponse(SuppInqOrder):
+    summary_headers: List[SummaryHeader]
+    summary_data: List[SummaryData]
+
+
+code = 'XXX20210216'
+
+
+def get_summary(code: str, limit: int = 500, offset: int = 0):
+    # 查询数据库，获取供应商询价单头
+    supp_inq_order = SuppInqOrder.select().filter(code=code).first()
+    # 查询数据库，取供应商询价单明细表，可能需要窗口函数去重，某产品，某供应商最新有效报价
+    supp_inq_details = SuppInqOrderDetail.select().filter(
+        parent_id=supp_inq_order.id
+    ).orderby("""没想好""").limit(limit).offset(offset)
+
+    d_headers = dict()  # 汇总头信息, dict类似java的hashmap，此为 Map<供应商ID, 汇总头>
+    d_data = dict()  # 汇总明细, 此为 Map<产品ID, 汇总体>
+    for item in supp_inq_details:
+        # 处理汇总头
+        if item.supp_id not in d_headers:
+            d_headers[item.supp_id] = SummaryHeader(supp_id=item.supp_id, total=0, sent=0)
+        d_headers[item.supp_id].total += 1
+        if item.sent:
+            d_headers[item.supp_id].sent += 1
+
+        # 处理汇总体
+        if item.prd_id not in d_data:
+            d_data[item.supp_id] = SummaryData(prd_id=item.prd_id, **{item.supp_id: item})
+
+    # 将hashmap的headers和data处理为列表, 可能需要分别考虑排序问题
+    headers = to_list(d_headers)
+    data = to_list(d_data)
+    return SummaryResponse(
+        code=supp_inq_order.code,
+        summary_headers=headers,
+        summary_data=data
+    )
+
+
+"""
+返回样例
+{
+code: "XXX202302160005",
+date: "2023-02-16 15:10:32.4531",
+summary_headers: [
+{supp_id: 1234, supp_name: 公司1, total: 3, sent: 1},
+{supp_id: 1235, supp_name: 公司2, total: 3, sent: 3},
+{supp_id: 1236, supp_name: 公司3, total: 4, sent: 3},
+],
+summary_data: [
+    {prd_id: 132, prd_info: ..., 1234: {price: 5666, tax: 13}, 1235: {price: 5666, tax: 13}, 1236: {price: 5666, tax: 13}},
+    {prd_id: 118, prd_info: ..., 1234: {price: 5666, tax: 13}, 1236: {price: 5666, tax: 13}},
+    {prd_id: 128, prd_info: ..., 1234: {price: 5666, tax: 13}, 1235: {price: 5666, tax: 13}, },
+]
+}
+"""
+
+if __name__ == '__main__':
+    print(SummaryResponse.schema())
