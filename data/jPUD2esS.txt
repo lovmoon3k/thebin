@@ -1,0 +1,156 @@
+/**
+ * @file lock.c
+ * @author Wazuh, Inc (info@wazuh.com)
+ * @brief Producer-consumer PoC
+ * @version 0.1
+ * @date 2023-02-16
+ *
+ * @copyright Copyright (c) 2023
+ *
+ * Schema:
+ *
+ * - The producer writes a random number in the range [1, 1000], then waits for
+ *   the consumer gets it and sleeps one second.
+ *
+ * - The consumer waits for the producer to write a value, then prints it and
+ *   resets the data to 0.
+ *
+ * - When the user presses Ctrl+C or terminates the process with `kill`, the
+ *   program should close in ~1 second. If we terminate the process again, it
+ *   closes immediately.
+ *
+ * Build and run:
+ *
+ *   gcc -O2 -o shared-data shared-data.c
+ *   ./shared-data
+ *
+ * Known bug symptom:
+ *
+ * - The program hangs after printing the first value.
+ *   Hint: this does not happen if we don't optimize (-O2).
+ *
+ */
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <time.h>
+#include <signal.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define COUNTER_MODULO  1000
+#define DELAY_SECONDS   1
+
+static void set_signal_handler();
+static void signal_handler(int signo);
+
+////////////////////////////////////////////////////////////////////////////////
+// Shared variables ////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+static int active = 1;
+static long shared_data;
+
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t data_produced = PTHREAD_COND_INITIALIZER;
+
+////////////////////////////////////////////////////////////////////////////////
+// Producer thread /////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+void * start_producer() {
+    while (active) {
+        pthread_mutex_lock(&mutex);
+
+        shared_data = random() % COUNTER_MODULO + 1;
+        pthread_cond_signal(&data_produced);
+
+        pthread_mutex_unlock(&mutex);
+
+        // Wait for data consumed (spin-lock)
+        while (shared_data != 0);
+
+        sleep(DELAY_SECONDS);
+    }
+
+    return NULL;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Consumer thread /////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+void * start_consumer() {
+    pthread_mutex_lock(&mutex);
+
+    while (active) {
+        if (shared_data == 0) {
+            struct timespec timeout = { .tv_sec = time(NULL) + DELAY_SECONDS + 1 };
+            pthread_cond_timedwait(&data_produced, &mutex, &timeout);
+
+            // Check again whether the program is active
+            continue;
+        }
+
+        printf("Data = %ld\n", shared_data);
+
+        shared_data = 0;
+    }
+
+    pthread_mutex_unlock(&mutex);
+
+    return NULL;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Main function ///////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+int main() {
+    pthread_t producer_thread;
+    pthread_t consumer_thread;
+
+    pthread_create(&producer_thread, NULL, start_producer, NULL);
+    pthread_create(&consumer_thread, NULL, start_consumer, NULL);
+
+    pthread_join(producer_thread, NULL);
+    pthread_join(consumer_thread, NULL);
+
+    return EXIT_SUCCESS;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Helper functions ////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+// Global initializer
+
+__attribute__ ((constructor)) void init_random() {
+    srandom(time(NULL));
+    set_signal_handler();
+}
+
+// Set the signal handlers
+
+void set_signal_handler() {
+    struct sigaction action = { .sa_handler = signal_handler };
+
+    sigaction(SIGINT, &action, NULL);
+    sigaction(SIGTERM, &action, NULL);
+}
+
+// Exit signal handler
+
+void signal_handler(int signo) {
+    switch (signo) {
+    case SIGINT:
+    case SIGTERM:
+        if (active) {
+            fprintf(stderr, "\nClosing program, waiting for threads to stop.\n");
+            active = 0;
+        } else {
+            fprintf(stderr, "\nForcing exit.\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+}

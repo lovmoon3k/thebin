@@ -1,0 +1,316 @@
+local title = "Dwarv.IO"
+local version = "1.2"
+local titleString = title.." v"..version
+
+local arc = peripheral.find("arController")
+local environment = peripheral.find("environmentDetector")
+local monitor = peripheral.find("monitor")
+local bridge = peripheral.find("rsBridge")
+local colony = peripheral.find("colonyIntegrator")
+local storage = "ironchest:diamond_chest_0"
+local logFile = "RSWarehouse.log"
+
+monitor.setTextScale(0.5)
+monitor.clear()
+monitor.setCursorPos(1, 1)
+monitor.setCursorBlink(false)
+arc.setRelativeMode(true, 1600, 900)
+
+
+--frequently used colors
+local blue = colors.blue
+local blue_hex = 0x0000ff
+
+local green = colors.green
+local green_hex = 0x008000
+
+local red = colors.red
+local red_hex = 0xff0000
+
+local orange = colors.orange
+local orange_hex = 0xff8000
+
+local yellow = colors.yellow
+local yellow_hex = 0xffff00
+
+local white = colors.white
+local white_hex = 0xffffff
+
+local black = colors.black
+local black_hex = 0x000000
+
+local purple = colors.purple
+local purple_hex = 0x800080
+
+--monitor print function
+function printRow(mon, y, pos, text, ...)
+    w, h = mon.getSize()
+    fg = mon.getTextColor()
+    bg = mon.getBackgroundColor()
+
+    if pos == "left" then 
+		x = 1 
+	elseif pos == "center" then 
+		x = math.floor((w - #text) / 2) 
+    elseif pos == "right" then 
+		x = w - #text 
+	end
+
+    if #arg > 0 then mon.setTextColor(arg[1]) end
+    if #arg > 1 then mon.setBackgroundColor(arg[2]) end
+    mon.setCursorPos(x, y)
+    mon.write(text)
+    mon.setTextColor(fg)
+    mon.setBackgroundColor(bg)
+end
+
+--AR draw function
+function drawRow(ar, xpos, ypos, ydiff, text, ...)
+	b, w, h = ar.isRelativeMode()
+	fg = 0xffffff
+	bg = 0x000000
+	
+	if #arg > 0 then fg =arg[1] end
+    if #arg > 1 then bg = arg[2] end
+	
+	if ypos == "top" then
+		ypos = h/10 + 10*ydiff
+	elseif ypos == "middle" then
+		ypos = h/2 + 10*(ydiff-1)
+	elseif ypos == "bottom" then
+		ypos = -h/10 + 10*(ydiff-3)
+	end
+	
+	if xpos == "left" then
+		drawString(text, w/10, ypos, fg)
+	elseif xpos == "center" then
+		drawCenteredString(text, w/2, ypos, fg)
+	elseif xpos == "right" then
+		drawRightboundString(text, -w/10, ypos, fg)
+	end
+end
+
+function displayUI(mon, ar, env, t)
+--title
+	printRow(mon, 1, "center", titleString, purple)
+	drawRow(ar, "right", "bottom", 0, titleString, purple_hex)
+	
+--weather
+	weather = "clear"
+	weather_color = yellow
+	weather_hex = yellow_hex
+	
+	if env.isThunder() then
+		weather = "storm"
+		weather_color = red
+		weather_hex = red_hex
+	elseif env.isRaining() then
+		weather = "rain"
+		weather_color = orange
+		weather_hex = orange_hex
+	else
+		weather = "clear"
+		weather_color = yellow
+		weather_hex = yellow_hex
+	end
+	
+	printRow(mon, 2, "left", "Weather: "..weather, weather_color)
+	drawRow(ar, "left", "bottom", 2, "Weather: "..weather, weather_hex)
+
+--time + timer
+    now = os.time()
+
+    cycle = "day"
+    cycle_color = orange
+	cycle_hex = orange_hex
+	
+	if now < 4 then
+        cycle = "night"
+        cycle_color = red
+		cycle_hex = red_hex
+    elseif now < 6 then
+        cycle = "sunrise"
+        cycle_color = orange
+		cycle_hex = orange_hex
+    elseif now < 18 then
+        cycle = "day"
+        cycle_color = yellow
+		cycle_hex = yellow_hex
+    elseif now < 19.5 then
+        cycle = "sunset"
+        cycle_color = orange
+		cycle_hex = orange_hex
+	elseif now >= 19.5 then
+		cycle = "night"
+        cycle_color = red
+		cycle_hex = red_hex
+    end
+
+    timer_color = colors.orange
+    if t < 15 then timer_color = yellow end
+    if t < 5 then timer_color = red end
+
+    printRow(mon, 3, "left", string.format("Time: %s [%s]    ", textutils.formatTime(now, false), cycle), cycle_color)
+	drawRow(ar, "left", "bottom", 1, "Time: "..cycle, cycle_hex)
+    if cycle ~= "night" then 
+		printRow(mon, 3, "right", string.format("    Refresh: %ss", t), timer_color)
+    else 
+		printRow(mon, 3, "right", "    Refresh: PAUSED", red) 
+	end
+end
+
+function scanWorkRequests(mon, ar, rs, chest)
+    file = fs.open(logFile, "w")
+    print("\nScan starting at", textutils.formatTime(os.time(), false) .. " (" .. os.time() ..").")
+
+    request_list = {}
+
+    items = rs.listItems()
+    item_array = {}
+    for index, item in ipairs(items) do
+        if not item.nbt then
+            item_array[item.name] = item.amount
+        end
+    end
+
+    workRequests = colony.getRequests()
+    file.write(textutils.serialize(workRequests))
+	automated = 1
+	
+    for w in pairs(workRequests) do
+        name = workRequests[w].name
+        item = workRequests[w].items[1].name
+        desc = workRequests[w].desc
+        needed = workRequests[w].count
+        provided = 0
+
+        useRS = 1
+        if string.find(desc, "Tool of class") then useRS = 0 end
+        if string.find(name, "Hoe") then useRS = 0 end
+        if string.find(name, "Shovel") then useRS = 0 end
+        if string.find(name, "Axe") then useRS = 0 end
+        if string.find(name, "Pickaxe") then useRS = 0 end
+        if string.find(name, "Bow") then useRS = 0 end
+        if string.find(name, "Sword") then useRS = 0 end
+        if string.find(name, "Shield") then useRS = 0 end
+        if string.find(name, "Helmet") then useRS = 0 end
+        if string.find(name, "Leather Cap") then useRS = 0 end
+        if string.find(name, "Chestplate") then useRS = 0 end
+        if string.find(name, "Tunic") then useRS = 0 end
+        if string.find(name, "Pants") then useRS = 0 end
+        if string.find(name, "Leggings") then useRS = 0 end
+        if string.find(name, "Boots") then useRS = 0 end
+        if name == "Rallying Banner" then useRS = 0 end
+        if name == "Crafter" then useRS = 0 end
+        if name == "Compostable" then useRS = 0 end
+        if name == "Fertilizer" then useRS = 0 end
+        if name == "Flowers" then useRS = 0 end
+        if name == "Food" then useRS = 0 end
+        if name == "Fuel" then useRS = 0 end
+        if name == "Smeltable Ore" then useRS = 0 end
+        if name == "Stack List" then useRS = 0 end
+
+        color = blue
+		
+        if useRS == 1 then
+            if item_array[item] then
+                provided = rs.exportItemToPeripheral({name=item, count=needed}, chest)
+            end
+            color = green
+            if provided < needed then
+                if rs.isItemCrafting(item) then
+                    color = yellow
+                    print("[Crafting]", item)
+                else
+                    if rs.craftItem({name=item, count=needed}) then
+                        color = yellow
+                        print("[Scheduled]", needed, "x", item)
+                    else
+                        color = red
+                        print("[Failed]", item)
+						automated = 0
+                    end
+                end
+            end
+        else
+            print("[Skipped]", name)
+			automated = 0
+        end
+
+        if string.find(desc, "of class") then
+            level = "Any Level"
+            if string.find(desc, "with maximal level:Leather") then level = "Leather" end
+            if string.find(desc, "with maximal level:Gold") then level = "Gold" end
+            if string.find(desc, "with maximal level:Chain") then level = "Chain" end
+            if string.find(desc, "with maximal level:Wood or Gold") then level = "Wood or Gold" end
+            if string.find(desc, "with maximal level:Stone") then level = "Stone" end
+            if string.find(desc, "with maximal level:Iron") then level = "Iron" end
+            if string.find(desc, "with maximal level:Diamond") then level = "Diamond" end
+            new_name = level .. " " .. name
+            if level == "Any Level" then new_name = name .. " of any level" end
+            equipment = { name=new_name, needed=needed, provided=provided, color=color, typ="equipment"}
+            table.insert(request_list, equipment)
+        else
+            general = { name=name, item=item, needed=needed, provided=provided, color=color, typ="general"}
+            table.insert(request, general)
+        end
+    end
+
+    row = 4
+    mon.clear()
+	ar.clear()
+
+    header_shown = 0
+    for r in pairs(request_list) do
+        request = request_list[e]
+        if header_shown == 0 then
+            printRow(mon, row, "center", "Item Requests")
+            header_shown = 1
+            row = row + 1
+        end
+        text = string.format("%d %s", request.needed, request.name)
+		if request.typ == "general" then
+			if tonumber(request.name:sub(1,1)) ~= nil then
+				text = string.format("%d/%s", request.provided, request.name)
+        printRow(mon, row, "left", text, request.color)
+        printRow(mon, row, "right", " " .. request.typ, request.color)
+        row = row + 1
+    end
+
+    if row == 4 then 
+		printRow(mon, row, "center", "No Open Requests")
+	end
+	if automated == 0 then
+		drawRow(ar, "left", "bottom", 0, "ITEMS MISSING", red)
+	end
+    print("Scan completed at", textutils.formatTime(os.time(), false) .. " (" .. os.time() ..").")
+    file.close()
+end
+
+local time_between_runs = 30
+local current_run = time_between_runs
+scanWorkRequests(monitor, bridge, storage)
+displayUI(monitor, environment, current_run)
+local TIMER = os.startTimer(1)
+
+while true do
+    local e = {os.pullEvent()}
+    if e[1] == "timer" and e[2] == TIMER then
+        now = os.time()
+        if now >= 5 and now < 19.5 then
+            current_run = current_run - 1
+            if current_run <= 0 then
+                scanWorkRequests(monitor, bridge, storage)
+                current_run = time_between_runs
+            end
+        end
+        displayUI(monitor, environment, current_run)
+        TIMER = os.startTimer(1)
+    elseif e[1] == "monitor_touch" then
+        os.cancelTimer(TIMER)
+        scanWorkRequests(monitor, bridge, storage)
+        current_run = time_between_runs
+        displayUI(monitor, environment, current_run)
+        TIMER = os.startTimer(1)
+    end
+end
