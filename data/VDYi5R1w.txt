@@ -1,0 +1,161 @@
+local BASE = {
+	x = -75,
+	y = 64,
+	z = -252
+}
+
+local GROUND_HEIGHT = 64
+
+--posZ = 0, posX = 1, negZ = 2, negX = 3
+local CURRENT_ANGLE = nil
+
+function turnOnce(direction)
+	local success = false
+	if(direction == 1) then
+		success = turtle.turnLeft()
+	elseif(direction == -1) then
+		success = turtle.turnRight()
+	end
+
+	if(success) then
+		CURRENT_ANGLE = (CURRENT_ANGLE + direction) % 4
+	end
+
+	return success
+end
+
+function turn(angle)
+	local success = true
+	local absoluteAngle = math.abs(angle)
+	local direction = angle / absoluteAngle
+	for _ = 1, absoluteAngle do
+		success = success and turnOnce(direction)
+	end
+	return success
+end
+
+function turnTo(angle)
+	diffAngle = (angle - CURRENT_ANGLE) % 4
+	diffAngle = diffAngle > 2 and diffAngle - 4 or diffAngle
+	return turn(diffAngle)
+end
+
+function goTo(x, y, z)
+	local currX, currY, currZ = gps.locate()
+	local stepsX = x - currX
+	local stepsY = y - currY
+	local stepsZ = z - currZ
+
+	if(stepsY ~= 0) then
+		local units = math.abs(stepsY)
+		local direction = stepsY / units
+		if(direction > 0) then
+			for _ = 1, units do
+				if(not turtle.up()) then
+					return false
+				end
+			end
+		else
+			for _ = 1, units do
+				if(not turtle.down()) then
+					return false
+				end
+			end
+		end
+	end
+
+	if(stepsX ~= 0) then
+		local units = math.abs(stepsX)
+		local direction = stepsX / units
+
+		if(direction > 0) then
+			if(not turnTo(1)) then
+				return false
+			end
+		else
+			if(not turnTo(3)) then
+				return false
+			end
+		end
+
+		for _ = 1, units do
+			if(not turtle.forward()) then
+				return false
+			end
+		end
+	end
+
+	if(stepsZ ~= 0) then
+		local units = math.abs(stepsZ)
+		local direction = stepsZ / units
+
+		if(direction > 0) then
+			if(not turnTo(0)) then
+				return false
+			end
+		else
+			if(not turnTo(2)) then
+				return false
+			end
+		end
+
+		for _ = 1, units do
+			if(not turtle.forward()) then
+				return false
+			end
+		end
+	end
+end
+
+function findFacing()
+	local currX, currY, currZ = gps.locate()
+	local moved = false
+	local blocked = false
+	local up = 0
+
+	repeat
+		local turnCount = 0
+		while((not moved) and (turnCount < 4)) do
+			if(turtle.forward()) then
+				moved = true
+			else
+				turtle.turnLeft()
+				turnCount = turnCount + 1
+			end
+		end
+
+		if(not moved) then
+			blocked = blocked or (not turtle.up())
+			if(not blocked) then
+				up = up + 1
+			end
+		end
+	until(moved or blocked)
+
+	local newX, newY, newZ = gps.locate()
+
+	for _ = 1,up do
+		turtle.down()
+	end
+
+	if(not moved) then
+		return false
+	end
+
+	local diffX = newX - currX
+	local diffZ = newZ - currZ
+
+	if(diffZ > 0) then
+		CURRENT_ANGLE = 0
+	elseif(diffX > 0) then
+		CURRENT_ANGLE = 1
+	elseif(diffZ < 0) then
+		CURRENT_ANGLE = 2
+	else
+		CURRENT_ANGLE = 3
+	end
+
+	return true
+end
+
+findFacing()
