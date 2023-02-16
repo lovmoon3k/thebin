@@ -1,0 +1,224 @@
+-- by bvthxry : copy script
+-- u obv need $$ for this, btw ceiling sign texts cant be copied sorry
+
+--settings
+target = 'playername'
+copyWorkers = true
+copyTycoonProperties = true
+
+--~~~~
+local ltycoon = workspace.Functions.GetTycoon:InvokeServer()
+local ptycoon
+for i = 1, 6 do
+    local t = workspace['Tycoon'..i]
+    ptycoon = not nil and ptycoon or t.Info.Owner.Value==target and t
+end
+
+function notify(msg)
+    game.Players.LocalPlayer.PlayerGui.Notifications.NotifyFunction:Invoke(msg, Color3.new(1,1,1))
+end
+
+function makeFurni(FurniParent_AkaTileModel, Rotation, Type, Color)
+    workspace.Functions.Furniture:FireServer(ltycoon, FurniParent_AkaTileModel, Rotation, Type, Color);
+end
+
+function deleteFurni(furniModel)
+    workspace.Functions.SellFurniture:FireServer(furniModel)
+end
+
+function makeCeiling(CeilingParent_AkaTileModel, Type, Color)
+    workspace.Functions.Ceiling:FireServer(true, CeilingParent_AkaTileModel, Type, false, Color);
+end
+
+function deleteCeiling(ceilingModel)
+    deleteFurni(ceilingModel)
+end
+
+function makeWall(Type, Pos, Color) -- GlassWall22 / CFrame / Color3
+    workspace.Functions.Wall:FireServer(true, ltycoon.Walls, Type, Pos, Color);
+end
+
+function deleteWall(wallmodel)
+    workspace.Functions.Wall:FireServer(false, wallmodel);
+end
+
+if copyWorkers then
+    for i, v in pairs(ptycoon.WorkerList:GetChildren()) do
+        workspace.Functions.SetWorker:FireServer(ltycoon, v.Name, v.Value)
+    end
+end
+
+if copyTycoonProperties then
+    for i, v in pairs(ptycoon.Info:GetChildren()) do
+        local exclusions = {'Origin', 'Owner', 'Autosave'}
+        if not table.find(exclusions, v.Name) then
+            workspace.Functions.EditTycoon:FireServer(ltycoon, v.Name, v.Value)
+        end
+    end
+end
+
+local PTiles, LTiles = {}, {} -- [TileModel] = Vector3
+
+for i, tile in pairs(ptycoon.Tiles:GetChildren()) do -- PTiles
+    local base = ptycoon.TycoonBase
+    local delta = (base.Position - tile.Tile.Position)
+    if base.Position.x < 0 then
+		delta = Vector3.new(-delta.x,0,-delta.z)
+    end
+    PTiles[tile] = Vector3.new(delta.X,0,delta.Z)
+end
+
+for i, tile in pairs(ltycoon.Tiles:GetChildren()) do -- LTiles
+    local base = ltycoon.TycoonBase
+    local delta = (base.Position - tile.Tile.Position)
+    if base.Position.x < 0 then
+		delta = Vector3.new(-delta.x,0,-delta.z)
+    end
+    LTiles[tile] = Vector3.new(delta.X,0,delta.Z)
+end
+
+local Flooring = {
+    Concrete = 'Concrete',
+    Cobblestone = 'Stone',
+    Fabric = 'Carpet',
+    WoodPlanks = 'Wood',
+    Marble = 'Marble'
+}
+
+getLTile = function(ptile)
+    for ltile, ltilepos in pairs(LTiles) do
+        local ptilepos = PTiles[ptile]
+        if ltilepos == ptilepos then
+            return ltile
+        end
+    end
+end
+
+local detectedtiles = 0
+local amountOfPTiles = 0
+local amountOfLTiles = 0
+
+for i, ppos in pairs(PTiles) do 
+    amountOfPTiles = amountOfPTiles + 1
+    amountOfLTiles = 0 -- only starts counting at the last loop
+    for i, lpos in pairs(LTiles) do 
+        amountOfLTiles = amountOfLTiles + 1
+        if ppos == lpos then
+            detectedtiles = detectedtiles + 1
+        end
+    end
+end
+
+if math.min(amountOfLTiles, amountOfPTiles) == detectedtiles then
+    notify'preparing to copy'
+else
+    notify'error, buy more land'
+    return
+end
+
+--wipe everything
+for ltile, _ in pairs(LTiles) do
+    for _, model in pairs(ltile:children()) do
+        if model:isA'Model' then --we dont want to delete everything o.0
+            deleteFurni(model)
+        end
+    end
+end
+
+for ltile, _ in pairs(LTiles) do
+    workspace.Functions.Flooring:FireServer(false, ltile)
+end
+
+for _, wall in pairs(ltycoon.Walls:GetChildren()) do
+    deleteWall(wall)
+end
+
+--start building
+wait(2)
+
+for i = 1, 5 do -- parking / sign
+    if ptycoon:FindFirstChild('Lot'..i) then
+        workspace.Functions.NewParking:InvokeServer(ltycoon, i)
+    end
+    if ptycoon:FindFirstChild('Sign'..i) then
+        workspace.Functions.NewSign:InvokeServer(ltycoon, i)
+    end
+end
+
+for ptile, _ in pairs(PTiles) do -- flooring
+    local ltile = getLTile(ptile)
+    if ptile.Tile.Material ~= ltile.Tile.Material and ptile.Tile.Material.Name ~= 'Grass' then
+        workspace.Functions.Flooring:FireServer(true, ltile, Flooring[ptile.Tile.Material.Name])
+    end
+end
+
+local Ceilings = {
+    'Skylight20',
+    'Speaker20',
+    'LargeLight20',
+    'SmallSign20',
+    'LargeSign20',
+    'SmallLight20',
+    'Default20',
+    'SmallSign12',
+    'Default12',
+    'SmallLight12',
+    'Speaker12',
+    'Skylight12'
+}
+
+for ptile, _ in pairs(PTiles) do -- furnitures / ceilings
+    local ltile = getLTile(ptile)
+    for i, v in pairs(ptile:GetChildren()) do
+        if v:isA'Model' and v.Name ~= 'Spill' then
+            
+            local Color = Color3.new(.8, 0, .8)
+            if v:FindFirstChild'ColorPart' then
+                Color = v.ColorPart.Color
+            end
+            
+            if table.find(Ceilings, v.Name) then
+                makeCeiling(ltile, v.Name, false, Color)
+            else
+                local Rot = v:FindFirstChild'Rotation'
+                makeFurni(ltile, Rot and Rot.Value or 0, v.Name, Color)
+                
+                if v:FindFirstChild'Item' then -- if its a display item
+                    if v.Item.Value ~= 'Empty' then -- if its empty ignore
+                        local furni = ltile:WaitForChild(v.Name)
+                        spawn(function()
+                            workspace.Functions.NewStock:InvokeServer(ltycoon, furni, v.Item.Value)
+                        end)
+                    end
+                end
+            end
+        end
+    end
+end
+
+for i, wall in pairs(ptycoon.Walls:GetChildren()) do --walls
+    local pbase, lbase = ptycoon.TycoonBase, ltycoon.TycoonBase
+    local pdelta = (wall.PrimaryPart.Position - pbase.Position)
+    
+    if pbase.Position.x < 0 then
+		pdelta = Vector3.new(-pdelta.x,7,-pdelta.z)
+    else
+        pdelta = Vector3.new(pdelta.x,7,pdelta.z)
+    end
+    
+    local newpos
+    if lbase.Position.x > 0 then
+        newpos = (lbase.CFrame + pdelta)
+    else
+        newpos = (lbase.CFrame - pdelta) * CFrame.new(0,14,0)
+    end
+    newpos = newpos * CFrame.Angles(0, math.rad(wall.PrimaryPart.Rotation.Y+90), 0) -- why +90 tho
+    
+    local Color = Color3.new(.8, 0, .8)
+    if wall:FindFirstChild'ColorPart' then
+        Color = wall.ColorPart.Color
+    end
+    makeWall(wall.Name, newpos, Color)
+end
+
+notify'done'
