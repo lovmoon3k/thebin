@@ -1,0 +1,48 @@
+# this is a reference file that serves as an example, it is not something that will necessarily work for you. 
+# This will require interpretations and updates based on your own environment and situation. You will need 
+# to use your own judgement and be prepared to make changes if you are going to build off of this.
+
+# This file is based on my video: https://www.youtube.com/watch?v=v15ac5ssoco
+
+# --- /etc/nftables.conf
+#!/usr/sbin/nft -f
+#local = enp2s0
+#wan = enp1s0
+#
+#
+flush ruleset
+
+table inet filter {
+chain input {
+type filter hook input priority 0;
+iif enp1s0 tcp dport {ssh} counter accept comment "allow ssh"
+iif enp2s0 accept comment "allow local packets"
+iif enp1s0 ct state {established, related} counter accept comment "allow esablished wan packets"
+iif enp1s0 drop
+}
+chain forward {
+type filter hook forward priority 0;
+iif enp1s0 oif enp2s0 ct state {established, related} counter accept comment "allow wan est, relat"
+iif enp2s0 oif enp1s0 counter accept comment "allow lan to wan"
+iif enp1s0 ip daddr 192.168.100.190 tcp dport {https} counter accept comment "forward https"
+iif enp1s0 drop
+}
+chain output {
+type filter hook output priority 0;
+}
+}
+
+table nat {
+chain output {
+type nat hook output priority -100;
+}
+chain prerouting {
+type nat hook prerouting priority -100;
+iif enp1s0 tcp dport {https} counter dnat to 192.168.100.190 comment "forward https to 190"
+}
+chain postrouting {
+type nat hook postrouting priority 100;
+oif enp1s0 counter masquerade comment "masquerade"
+#ip saddr 191.168.100.0/24 oif enp1s0 counter snat 0.0.0.0 comment "snat - no dynamic ips!!!!"
+}
+}
