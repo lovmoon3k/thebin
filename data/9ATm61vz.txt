@@ -1,0 +1,51 @@
+struct SideEffectVisitor {
+  virtual void visit(MetakeysSideEffect&) {}
+  virtual void visit(SortedResultsSideEffect&) {}
+  virtual void visit(UnsortedResultsSideEffect&) {}
+  virtual void visit(FullHistorySideEffect&) {}
+  virtual void visit(NativeResultsSideEffect&) {}
+  virtual void visit(PathsSideEffect&) {}
+
+  virtual ~SideEffectVisitor() = default;
+};
+
+template<class T>
+struct VisitableSideEffect : SideEffect
+{
+  using SideEffect::SideEffect;
+  void visit(SideEffectVisitor& visitor) override
+  {
+    visitor.visit(static_cast<T&>(*this));
+  }
+};
+
+template<typename T, template<typename> typename Behaviour>
+struct SingleBehaviourSideEffectVisitor : virtual SideEffectVisitor
+{
+  using SideEffectVisitor::visit;
+  void visit(T& t) override{
+    static_cast<Behaviour<T>*>(this)->visit_impl(t);
+  }
+};
+
+template<typename T>
+struct DoNothingBehaviour : SingleBehaviourSideEffectVisitor<T, DoNothingBehaviour> {
+  void visit_impl(T&) {}
+};
+ 
+template<template<typename, template<typename> typename> typename T, template<typename> typename Behaviour, typename... Ts>
+struct MultipleBehaviourSideEffectVisitor : public T<Ts, Behaviour>...
+{
+  using T<Ts, Behaviour>::visit...;
+};
+ 
+// strong typedef
+struct DoNothingSideEffectVisitor 
+  : public MultipleBehaviourSideEffectVisitor<SingleBehaviourSideEffectVisitor, DoNothingBehaviour, 
+    MetakeysSideEffect,
+    SortedResultsSideEffect,
+    UnsortedResultsSideEffect,
+    FullHistorySideEffect,
+    NativeResultsSideEffect,
+    PathsSideEffect>
+{};
