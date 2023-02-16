@@ -1,0 +1,53 @@
+class WCFM_Vendor_Login_Status {
+    private static $instance;
+    private $logged_in_vendors;
+    public static function get_instance() {
+        if (null === self::$instance) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+    private function __construct() {
+        global $wpdb;
+
+        $sql = 'SELECT wp_users.ID, wp_usermeta.meta_value FROM wp_users';
+        $sql .= ' INNER JOIN wp_usermeta ON ( wp_users.ID = wp_usermeta.user_id )';
+        $sql .= ' INNER JOIN wp_usermeta AS mt1 ON ( wp_users.ID = mt1.user_id )';
+        $sql .= ' WHERE 1=1 ';
+        $sql .= ' AND (wp_usermeta.meta_key = "session_tokens") AND ( mt1.meta_key = "wp_capabilities" AND mt1.meta_value LIKE "%\"wcfm\\_vendor\"%" ) ORDER BY user_login ASC';
+        $result = $wpdb->get_results($sql);
+        
+        $now = current_time('timestamp');
+        $online_vendors = array();
+        foreach($result as $vendor) {
+            $id = $vendor->ID;
+            $session_tokens = end(maybe_unserialize($vendor->meta_value));
+            if(isset($session_tokens['expiration']) && isset($session_tokens['login']) && $now < $session_tokens['expiration']) {
+                $online_vendors[] = $id;
+            }
+        }
+        $this->logged_in_vendors = $online_vendors;
+        add_filter('wcfmmp_store_title', array($this, 'add_online_status_info'), 10, 2);
+        add_filter('wcfm_vendor_store_name', array($this, 'add_online_status_info'), 10, 2);
+        add_filter('wcfm_vendor_store', array($this, 'add_online_status_info_in_sold_by'), 10, 2);
+    }
+    public function add_online_status_info($store_name, $store_id) {
+        if(in_array((int)$store_id, $this->logged_in_vendors)) {
+            $store_name .= '<span class="online-status logged-in">●</span>';
+        } else {
+            $store_name .= '<span class="online-status logged-out">●</span>';
+        }
+        return $store_name;
+    }
+    public function add_online_status_info_in_sold_by($store_name, $store_id) {
+        if(in_array((int)$store_id, $this->logged_in_vendors)) {
+            $store_name = str_replace('</a>','<span class="online-status logged-in">●</span></a>', $store_name);
+        } else {
+            $store_name = str_replace('</a>','<span class="online-status logged-out">●</span></a>', $store_name);
+        }
+        return $store_name;
+    }
+}
+add_action('wcfm_init', function() {
+    WCFM_Vendor_Login_Status::get_instance();
+});
