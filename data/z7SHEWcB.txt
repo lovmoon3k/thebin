@@ -1,0 +1,79 @@
+class MetakeysSideEffect;
+class SortedResultsSideEffect;
+class UnsortedResultsSideEffect;
+class NativeResultsSideEffect;
+class PathsSideEffect;
+class FullHistorySideEffect;
+
+struct SideEffectVisitor {
+  virtual void visit(MetakeysSideEffect&) {}
+  virtual void visit(SortedResultsSideEffect&) {}
+  virtual void visit(UnsortedResultsSideEffect&) {}
+  virtual void visit(FullHistorySideEffect&) {}
+  virtual void visit(NativeResultsSideEffect&) {}
+  virtual void visit(PathsSideEffect&) {}
+
+  virtual ~SideEffectVisitor() = default;
+};
+
+template<class T>
+struct VisitableSideEffect : SideEffect
+{
+  using SideEffect::SideEffect;
+  void visit(SideEffectVisitor& visitor) override
+  {
+    visitor.visit(static_cast<T&>(*this));
+  }
+};
+
+template<typename T, template<typename> typename Behaviour>
+struct SingleBehaviourSideEffectVisitor : virtual SideEffectVisitor
+{
+  using SideEffectVisitor::visit;
+  void visit(T& t) override{
+    static_cast<Behaviour<T>*>(this)->visit_impl(t);
+  }
+};
+ 
+template<typename T>
+struct DefaultBehaviour : SingleBehaviourSideEffectVisitor<T, DefaultBehaviour> {
+  void visit_impl(T&) {}
+};
+ 
+template<template<typename, template<typename> typename> typename T, template<typename> typename Behaviour, typename... Ts>
+struct MultipleBehaviourSideEffectVisitor : public T<Ts, Behaviour>...
+{
+  using T<Ts, Behaviour>::visit...;
+};
+
+// single point of listing all side effect types
+template<template<typename> typename Behaviour>
+struct BehaviourSideEffectVisitor
+  : public MultipleBehaviourSideEffectVisitor<SingleBehaviourSideEffectVisitor, Behaviour, 
+    MetakeysSideEffect,
+    SortedResultsSideEffect,
+    UnsortedResultsSideEffect,
+    FullHistorySideEffect,
+    NativeResultsSideEffect,
+    PathsSideEffect>
+{};
+
+// strong typedef
+struct DefaultSideEffectVisitor 
+  : public BehaviourSideEffectVisitor<DefaultBehaviour>
+{};
+
+////////////////////////////////////
+
+template<typename T>
+struct GetFilterSideEffectsBehaviour {
+  GetFilterSideEffectsBehaviour(std::vector<FilterSideEffect*>& vec) : m_sef{ vec } {}
+
+  void visit_impl(T& t) {
+    if constexpr (std::is_base_of_v<FilterSideEffect, T::LocalSideEffectT>) {
+      m_sef.push_back(t);
+    }
+  }
+private:
+  std::vector<FilterSideEffect*>& m_sef;
+};
