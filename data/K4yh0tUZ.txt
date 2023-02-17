@@ -1,0 +1,57 @@
+from venmo_api import Client
+from datetime import datetime
+import os
+import smtplib
+from email.message import EmailMessage
+
+def send_status_email(success:bool, status=None):
+    s= smtplib.SMTP_SSL('smtp.gmail.com', 465)
+    s.login(os.getenv("GMAIL_USER"), os.getenv("GMAIL_PASS"))
+    
+    msg = EmailMessage()
+    msg['Subject'] = f'{"Successful" if success else "Failed"} Verizon Request for Bob'
+    msg['From']= os.getenv("GMAIL_USER")
+    msg['To']= os.getenv("GMAIL_USER")
+
+    content = f'''Venmo Payment Schedule Status Message
+
+    Verizon Fios Payment Request {"Sent" if success else "Failed"}
+    {"Status: "+status if status else ""}
+    '''
+    msg.set_content(content)
+    s.send_message(msg)
+    s.quit()
+
+
+if __name__=="__main__":
+    message = "Verizon Fios Internet Payment for {ts}"
+    amount = 37.50
+    uuid= "123412341234"
+
+    template_values = {
+        "ts":datetime.now().strftime("%B %Y")
+    }
+
+    try:
+        access_token = Client.get_access_token(username=os.getenv("VENMO_USER"), 
+                                               password=os.getenv("VENMO_PASS"))
+        client = Client(access_token=access_token)
+
+    except Exception as e:
+        print(e)
+        send_status_email(success=False, status=str(e))
+        exit()
+
+    try:
+        ok = client.payment.request_money(amount=amount,
+                                      note=message.format(**template_values),
+                                      target_user_id=uuid)
+        if not ok:
+            send_status_email(success=False, status="Payment request failed during request")
+        else:
+            send_status_email(success=True, status=f"Transaction Value of ${amount} requested")
+
+    except Exception as e:
+        send_status_email(success=False, status=str(e)) 
+    finally:
+        client.log_out(access_token=access_token)
