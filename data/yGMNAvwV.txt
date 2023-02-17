@@ -1,0 +1,117 @@
+from venmo_api import Client
+from datetime import datetime
+import os
+import smtplib
+from email.message import EmailMessage
+import imaplib
+import email
+from email.utils import parsedate_to_datetime
+
+def send_status_email(success:bool, status=None):
+    s= smtplib.SMTP_SSL('smtp.gmail.com', 465)
+    s.login(os.getenv("GMAIL_USER"), os.getenv("GMAIL_PASS"))
+    
+    msg = EmailMessage()
+    msg['Subject'] = f'{"Successful" if success else "Failed"} Electric Bill Request for NAMEHERE'
+    msg['From']= os.getenv("GMAIL_USER")
+    msg['To']= os.getenv("GMAIL_USER")
+
+    content = f'''Venmo Payment Schedule Status Message
+
+    Electric Bill Payment Request {"Sent" if success else "Failed"}
+    {"Status: "+status if status else ""}
+    '''
+    msg.set_content(content)
+    s.send_message(msg)
+    s.quit()
+
+def find_latest_electric_bill():
+    folder = '"_Finance/labelinsert/Electric Bill"'
+    mail = imaplib.IMAP4_SSL("imap.gmail.com")
+    ret, _ = mail.login(os.getenv("GMAIL_USER"),os.getenv("GMAIL_PASS"))
+    if(ret !="OK"):
+        print("Could not log in to gmail")
+        return None
+
+    ret, _ = mail.select(folder)
+
+    if(ret !="OK"):
+        print(f"Could not select {folder}, {ret}")
+        return None
+    
+    ret, mail_ids = mail.search(None,"ALL")
+
+    mail_id= mail_ids[0].decode().split()[-2:][-1]
+    try:
+
+        ret, mail_data = mail.fetch(mail_id, '(RFC822)') ## Fetch mail data.
+        
+        if ret != "OK":
+            print(f"Could not fetch mail data with mail id: ", mail_id)
+            return None
+        
+        message = email.message_from_bytes(mail_data[0][1]) ## Construct Message from mail data
+        date = parsedate_to_datetime(message.get("Date"))
+        now = datetime.now()
+        if(date.month == now.month and date.year == now.year):
+            for part in message.walk():
+                if part.get_content_type() == "text/plain":
+                    body = part.as_string().split("\n")        
+    except Exception as e:
+        print(e)
+        return None
+
+    mail.close()
+    mail.logout()
+
+    return body
+
+def parse_amount_from_bill(email_body)-> float:
+    for line in email_body:
+        if "Amount Due: " in line:
+            return float(line[line.index("$")+1:].strip())
+    return 0.0
+
+if __name__=="__main__":
+
+    message = "Electric Payment for {ts}"
+    uuid= "1955261740744704289" #connor
+
+    template_values = {
+        "ts":datetime.now().strftime("%B %Y")
+    }
+
+    bill = find_latest_electric_bill()
+    if bill is None:
+        send_status_email(success=False, status="Failed to fetch this month's email body")
+
+    amount= parse_amount_from_bill(bill) 
+    if amount == 0.0:
+        send_status_email(success=False, status="Failed to parse amount due from email body")
+
+    amount/= 2.0
+    amount = round(amount,2)
+  
+    try:
+        access_token = Client.get_access_token(username=os.getenv("VENMO_USER"), 
+                                               password=os.getenv("VENMO_PASS"))
+        client = Client(access_token=access_token)
+
+    except Exception as e:
+        print(e)
+        send_status_email(success=False, status=str(e))
+        exit()
+
+    try:
+        ok = client.payment.request_money(amount=amount,
+                                      note=message.format(**template_values),
+                                      target_user_id=uuid)
+        if not ok:
+            send_status_email(success=False, status="Payment request failed during request")
+        else:
+            send_status_email(success=True, status=f"Transaction Value of ${amount} requested")
+
+    except Exception as e:
+        send_status_email(success=False, status=str(e)) 
+    finally:
+        client.log_out(access_token=access_token)
