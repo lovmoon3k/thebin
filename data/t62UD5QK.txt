@@ -1,0 +1,95 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_LINES 1000
+#define MAX_LINE_LENGTH 200
+void print_usage(char * program_name) {
+  printf("Usage: %s <input_file> <search_query> <new_string> <output_file>\n", program_name);
+}
+int open_files(char * input_filename, char * output_filename, FILE ** input_file, FILE ** output_file) {
+  * input_file = fopen(input_filename, "r");
+  if (! * input_file) {
+    printf("Error opening input file\n");
+    return 1;
+  }
+  * output_file = fopen(output_filename, "w");
+  if (! * output_file) {
+    printf("Error opening output file\n");
+    fclose( * input_file);
+    return 1;
+  }
+  return 0;
+}
+void close_files(FILE * input_file, FILE * output_file) {
+  fclose(input_file);
+  fclose(output_file);
+}
+int read_file(char ** lines, int * line_count, FILE * input_file) {
+  char buffer[MAX_LINE_LENGTH];
+  while (fgets(buffer, MAX_LINE_LENGTH, input_file)) {
+    char * newline_pos = strchr(buffer, '\n');
+    if (newline_pos) {
+      * newline_pos = '\0';
+    }
+    lines[ * line_count] = malloc(strlen(buffer) + 1);
+    strcpy(lines[ * line_count], buffer);
+    if ((lines[ * line_count][0] == '1' && isspace(lines[ * line_count][1])) || (isspace(lines[ * line_count][0]) && lines[ * line_count][1] == '1')) {
+      ( * line_count) ++;
+    }
+  }
+  return 0;
+}
+int search_and_replace(char ** lines, int line_count, char * search_query, char * new_string, int * num_replacements) {
+  for (int i = 0; i < line_count; i++) {
+    if (strstr(lines[i], search_query)) {
+      printf("%s\n", lines[i]);
+    }
+  }
+  for (int i = 0; i < line_count; i++) {
+    for (char * pos = lines[i];
+      (pos = strstr(pos, search_query)) != NULL;) {
+      int index = pos - lines[i];
+      memmove( & lines[i][index + strlen(new_string)], & lines[i][index + strlen(search_query)], strlen( & lines[i][index + strlen(search_query)]) + 1);
+      memcpy( & lines[i][index], new_string, strlen(new_string));
+      pos = & lines[i][index + strlen(new_string)];
+      printf("%s\n", lines[i]);
+      ( * num_replacements) ++;
+    }
+  }
+  return 0;
+}
+int main(int argc, char * argv[]) {
+  char input_filename[MAX_LINE_LENGTH], output_filename[MAX_LINE_LENGTH];
+  FILE * input_file, * output_file;
+  char * lines = malloc(MAX_LINES * sizeof(char));
+  char search_query[MAX_LINE_LENGTH], new_string[MAX_LINE_LENGTH];
+  int line_count = 0, num_replacements = 0;
+  if (argc != 5) {
+    print_usage(argv[0]);
+    return 1;
+  }
+  strncpy(input_filename, argv[1], MAX_LINE_LENGTH);
+  strncpy(search_query, argv[2], MAX_LINE_LENGTH);
+  strncpy(new_string, argv[3], MAX_LINE_LENGTH);
+  strncpy(output_filename, argv[4], MAX_LINE_LENGTH);
+  if (open_files(input_filename, output_filename, & input_file, & output_file) != 0) {
+    return 1;
+  }
+  if (read_file(lines, & line_count, input_file) != 0) {
+    close_files(input_file, output_file);
+    return 1;
+  }
+  printf("Lines containing '%s':\n", search_query);
+  if (search_and_replace(lines, line_count, search_query, new_string, & num_replacements) != 0) {
+    close_files(input_file, output_file);
+    return 1;
+  }
+  for (int i = 0; i < line_count; i++) {
+    fprintf(output_file, "%s", lines[i]);
+  }
+  close_files(input_file, output_file);
+  printf("\nNumber of replacements made: %d\n", num_replacements);
+  return 0;
+}
