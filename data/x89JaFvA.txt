@@ -1,0 +1,141 @@
+public $apiKey = '******';
+public $apiSec = '***************************************';
+public $apiUrl = 'http://gw.api.taobao.com/router/rest';
+protected $signMethod = "sha256";
+protected $sdkVersion = "iop-sdk-php-20220608";
+
+public function get_all()
+    {
+
+        $method = "aliexpress.affiliate.product.query";
+        $httpMethod = "POST";
+
+        $headers = array(
+            'Content-Type' => 'application/x-www-form-urlencoded;charset=utf-8',
+            'User-Agent' => $this->sdkVersion,
+        );
+
+        $sysParams["keywords"] = "ssd";
+        $sysParams["page_no"] = "1";
+        $sysParams["page_size"] = "12";
+        $sysParams["target_currency"] = "USD";
+        $sysParams["target_language"] = "EN";
+
+        // ------------------------------
+
+        $sysParams["app_key"] = $this->apiKey;
+        $sysParams["sign_method"] = $this->signMethod;
+        $sysParams["timestamp"] = $this->msectime();
+        $sysParams["method"] = $method;
+        $sysParams["partner_id"] = $this->sdkVersion;
+        // $sysParams["simplify"] = $request->simplify;
+        $sysParams["format"] = "json";
+        $sysParams["v"] = "2.0";
+
+        // if (null != $accessToken)
+        // {
+        // 	$sysParams["session"] = $accessToken;
+        // }
+
+        $requestUrl = $this->apiUrl;
+
+        if ($this->endWith($requestUrl, "/")) {
+            $requestUrl = substr($requestUrl, 0, -1);
+        }
+
+        $requestUrl .= '?';
+
+        $sysParams["sign"] = $this->generateSign($method, $sysParams);
+
+        foreach ($sysParams as $sysParamKey => $sysParamValue) {
+            $requestUrl .= "$sysParamKey=" . urlencode($sysParamValue) . "&";
+        }
+
+        $requestUrl = substr($requestUrl, 0, -1);
+
+        $resp = $this->sendPostReq($requestUrl, $httpMethod, $headers);
+
+        $resp["sysParams"] = $sysParams;
+        return $resp;
+
+    }
+
+function sendPostReq($url, $httpMethod, $headers = [], $postFields = null, $fileFields = null)
+    {
+
+        $client = new Client();
+        $reqArgm = [];
+
+        $delimiter = '-------------' . uniqid();
+        $data = '';
+        if ($postFields != null) {
+            foreach ($postFields as $name => $content) {
+                $data .= "--" . $delimiter . "\r\n";
+                $data .= 'Content-Disposition: form-data; name="' . $name . '"';
+                $data .= "\r\n\r\n" . $content . "\r\n";
+            }
+            unset($name, $content);
+        }
+
+        if ($fileFields != null) {
+            foreach ($fileFields as $name => $file) {
+                $data .= "--" . $delimiter . "\r\n";
+                $data .= 'Content-Disposition: form-data; name="' . $name . '"; filename="' . $file['name'] . "\" \r\n";
+                $data .= 'Content-Type: ' . $file['type'] . "\r\n\r\n";
+                $data .= $file['content'] . "\r\n";
+            }
+            unset($name, $file);
+        }
+        $data .= "--" . $delimiter . "--";
+
+
+        // $headers['Content-Type'] = 'multipart/form-data; boundary=' . $delimiter;
+        // $headers['Content-Length'] = strlen($data);
+
+        $reqArgm['headers'] = $headers;
+
+        $response = $client->request($httpMethod, $url, $reqArgm);
+        $responseBody = $response->getBody()->getContents();
+        $response = json_decode($responseBody, true);
+
+		unset($data);
+
+        return $response;
+    }
+
+    protected function generateSign($apiName, $params)
+    {
+        ksort($params);
+
+        $stringToBeSigned = '';
+        if (str_contains($apiName, '/')) { //rest服务协议
+            $stringToBeSigned .= $apiName;
+        }
+        foreach ($params as $k => $v) {
+            $stringToBeSigned .= "$k$v";
+        }
+        unset($k, $v);
+
+        return strtoupper($this->hmac_sha256($stringToBeSigned, $this->apiSec));
+    }
+
+
+    function hmac_sha256($data, $key)
+    {
+        return hash_hmac('sha256', $data, $key);
+    }
+
+    function msectime()
+    {
+        list($msec, $sec) = explode(' ', microtime());
+        return $sec . '000';
+    }
+
+    function endWith($haystack, $needle)
+    {
+        $length = strlen($needle);
+        if ($length == 0) {
+            return false;
+        }
+        return (substr($haystack, -$length) === $needle);
+    }
