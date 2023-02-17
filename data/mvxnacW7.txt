@@ -1,0 +1,151 @@
+# for Ronald Coeyman
+
+from dataclasses import dataclass, field
+from enum import Enum, auto
+
+# common ways in English to say yes or no
+AFFIRMATION: frozenset[str] = frozenset(('y', 'yes', 'yup', 'yeh', 'ok', '1'))
+REJECTION = frozenset(('n', 'no', 'nah', 'nope', '0'))
+
+TAB = "\t"  # can't use a backslash inside an f-string
+NL = "\n"
+
+def is_yes(prompt: str = "Yes or No?", default: bool | None = None) -> bool:
+    """ prompt user and only accept answer that is in AFFIRMATION or REJECTION sets
+    and return True or False accordingly; return alone can be accepted if default
+    set to either True or False in which case the default is returned"""
+    while True:
+        response = input(prompt).strip().casefold()
+        if not response and default is not None:
+            return default
+        if response in AFFIRMATION:
+            return True
+        if response in REJECTION:
+            return False
+        print('Sorry, I did not understand that')
+
+
+class Dirs(Enum):  # defining the only allowed cardinal direction terms
+    def _generate_next_value_(name, start, count, last_values):
+        return name[0]
+
+    NORTH = auto()
+    SOUTH = auto()
+    EAST = auto()
+    WEST = auto()
+
+
+@dataclass
+class Item:
+    name: str
+    status: str = ""
+
+    def __str__(self):
+        return (
+            f"{self. name}(status: {self.status})"
+        )
+
+
+class Direction:
+    pass  # so we can include Direction type in definition of Room
+
+@dataclass
+class Room:
+    name: str
+    desc: str = ""
+    directions: list[Direction] = field(default_factory=list)  # empty list default
+    items: list[Item] = field(default_factory=list)  # empty list default
+
+    def __str__(self):
+        # as there can be multiple entries of directions and items
+        # will create string versions of these first to including in return
+        dirs = f'{NL}{TAB}{TAB}'.join(str(dir) for dir in self.directions)
+        items = f'{NL}{TAB}{TAB}'.join(str(item) for item in self.items)
+        return (
+            f"{NL}Room: {self.name}{NL}"
+            f"{'{TAB}{self.desc}' if self.desc else ''}"
+            f"{TAB}Directions: {NL}{TAB}{TAB}{dirs}{NL}"
+            f"{TAB}Items:  {NL}{TAB}{TAB}{items}{NL}"
+            f"{NL}"
+        )
+
+@dataclass
+class Direction:  # now redefining as we can reference Room type
+    direction: Dirs
+    room: Room
+
+    def __str__(self):
+        return (
+            f"{self.direction.name} leads to room {self.room.name}"
+        )
+
+
+roomList = {
+    'the Crew Quarters': {'East': 'Pod B1'},
+    'Pod A1': {'Item': Item(name='Helmet', status='your Protective Helmet hanging on a hook by your desk'),
+               'South': 'Pod B1',
+               'East': 'Pod A2'},
+    'Pod A2': {'Item': Item(name='Shock Gun', status='a Shock Gun just inside the weapon\'s locker'),
+               'South': 'Pod B2',
+               'East': 'Pod A3', 'West': 'Pod A1'},
+    'Pod A3': {'Item': Item(name='C.C.Remote',
+                            status='the Contamination Control Remote laying on a desk, covered by loose papers and dust'),
+               'South': 'Pod B3',
+               'West': 'Pod A2'},
+    'Pod B1': {'Item': Item(name='Lucky Boots',
+                            status='your Lucky Boots which you remember throwing off last night right outside of your '),
+               'North': 'Pod A1',
+               'East': 'Pod B2',
+               'West': 'the Crew Quarters',
+               'South': 'Pod C1'},
+    'Pod B3': {'Item': Item(name='Vest',
+                            status='your Standard Issue Protective Vest sticking out from '
+                                   'behind the improperly closed clothing locker door'),
+               'North': 'Pod A3',
+               'West': 'Pod B2',
+               'South': 'Pod C3'},
+    'Pod C1': {'Item': Item(name='O2 Tank',
+                            status='a Spare Oxygen Tank in an auxiliary cabinet'),
+               'North': 'Pod B1',
+               'East': 'Pod C2'},
+    'Pod C2': {'Item': Item(name='E.C. Remote',
+                            status='the Environmental Control Remote placed on a console beside a couple of flashing screens'),
+               'North': 'Pod B2',
+               'East': 'Pod C3',
+               'West': 'Pod C1'},
+    'Pod C3': {'Item': Item(name='Explosives',
+                            status='a pack of Explosives in a locker. Just looking at them causes you to nervously sweat..'),
+               'North': 'Pod B3',
+               'West': 'Pod C2'}
+}
+
+directions = {
+            Dirs.NORTH: ('North', 'N', 'Up', 'U'),
+            Dirs.SOUTH: ('South', 'S', 'Down', 'D'),
+            Dirs.EAST: ('East', 'E', 'Right', 'R'),
+            Dirs.WEST: ('West', 'W', 'Left', 'L')
+            }
+commands = directions | {'p_exit': ('Exit', 'Quit')}
+command_lookup = {possible: dir for dir, possibles in commands.items() for possible in possibles}
+
+# let's create our dictionary of rooms
+# firstly basic Room object entries
+rooms: dict[str, Room] = {room_name: Room(room_name) for room_name in roomList}
+# and now convert and add the original Item and direction fields to new objects
+for room_name, info in roomList.items():
+    if 'Item' in info:
+        rooms[room_name].items = [info['Item']]
+    for key, value in info.items():
+        if key == 'Item':
+            continue
+        command = command_lookup.get(key, None)
+        if command in Dirs:
+            if value not in rooms:
+                rooms[value] = Room(value)
+            rooms[room_name].directions.append(Direction(command, rooms[value]))
+
+# just to see what we have, let's output all of the room output
+# note that this depends on the __str__ (human readable representation) definitions
+# written for some of the classes
+for room in rooms.values():  # only looking at the Room objects
+    print(room)
