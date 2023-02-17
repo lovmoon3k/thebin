@@ -1,0 +1,54 @@
+template<typename... Ts>
+struct TypeList{};
+
+template<template<typename> typename, typename>
+struct MultipleBehaviourSEVisitor;
+ 
+template<template<typename> typename T, typename... Ts>
+struct MultipleBehaviourSEVisitor<T, TypeList<Ts...>> : public T<Ts>...
+{
+  template<typename... Tts>
+  MultipleBehaviourSEVisitor(Tts&&... ts) : T<Ts>{ std::forward<Tts>(ts)... }... {}
+  using T<Ts>::visit...;
+};
+
+// single point of listing all side effect types
+using SETypeList = TypeList<
+    MetakeysSideEffect,
+    SortedResultsSideEffect,
+    UnsortedResultsSideEffect,
+    FullHistorySideEffect,
+    NativeResultsSideEffect,
+    PathsSideEffect>;
+
+template<template<typename> typename Single>
+struct BehaviourSEVisitor
+  : public MultipleBehaviourSEVisitor<Single, SETypeList>
+{
+  using MultipleBehaviourSEVisitor<Single, SETypeList>::MultipleBehaviourSEVisitor;
+};
+
+template<typename T>
+struct SingleFilterSideEffectVisitor : virtual SideEffectVisitor
+{
+  SingleFilterSideEffectVisitor(std::vector<FilterSideEffect*>& vec) : m_ref{ vec } {}
+  using SideEffectVisitor::visit;
+  void visit(T& t) override{
+    if constexpr (std::is_base_of_v<FilterSideEffect, typename T::LocalSideEffectT>) {
+      m_ref.push_back(t);
+    }
+  }
+private:
+  std::vector<FilterSideEffect*>& m_ref;
+};
+
+////////////////////
+
+          struct ShittyVisitor : public BehaviourSEVisitor<SingleFilterSideEffectVisitor> {
+            using BehaviourSEVisitor<SingleFilterSideEffectVisitor>::BehaviourSEVisitor;
+          } visitor{ vec }; 
+
+// error: member 'SingleFilterSideEffectVisitor' found in multiple base classes of different types
+//            using BehaviourSEVisitor<SingleFilterSideEffectVisitor>::BehaviourSEVisitor;
+
+BehaviourSEVisitor<SingleFilterSideEffectVisitor> visitor{ vec }; // OK
