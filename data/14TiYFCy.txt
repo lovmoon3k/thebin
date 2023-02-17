@@ -1,0 +1,179 @@
+using System;
+using System.Dynamic;
+using System.IO;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
+namespace NoahFxManifestConverter
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Console.WriteLine("Welcome to Noah FxManifest Converter!");
+            Console.Write("Please enter the path of the source file: ");
+            string sourceFilePath = Console.ReadLine();
+
+            if (string.IsNullOrEmpty(sourceFilePath))
+            {
+                Console.WriteLine("You must enter a valid source file path.");
+                Console.ReadLine();
+                return;
+            }
+
+            if (!File.Exists(sourceFilePath))
+            {
+                Console.WriteLine("The specified source file does not exist.");
+                Console.ReadLine();
+                return;
+            }
+
+            // Load the source file
+            string sourceFileContents;
+            try
+            {
+                sourceFileContents = File.ReadAllText(sourceFilePath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to load the source file: " + ex.Message);
+                Console.ReadLine();
+                return;
+            }
+
+            // Parse the source file contents as JSON
+            dynamic fxManifest;
+            try
+            {
+                fxManifest = JsonSerializer.Deserialize<ExpandoObject>(sourceFileContents);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to parse the source file contents as JSON: " + ex.Message);
+                Console.ReadLine();
+                return;
+            }
+
+            // Build the output object
+            dynamic output = new ExpandoObject();
+            output.resources = new object[] { };
+            output.dependencies = new object[] { };
+
+            if (fxManifest.ContainsKey("client_scripts"))
+            {
+                output.resources = BuildResourcesArray(fxManifest.client_scripts, "client_script");
+            }
+
+            if (fxManifest.ContainsKey("server_scripts"))
+            {
+                output.resources = output.resources.Concat(BuildResourcesArray(fxManifest.server_scripts, "server_script")).ToArray();
+            }
+
+            if (fxManifest.ContainsKey("files"))
+            {
+                output.resources = output.resources.Concat(BuildResourcesArray(fxManifest.files, "file")).ToArray();
+            }
+
+            if (fxManifest.ContainsKey("data_file"))
+            {
+                output.resources = output.resources.Concat(BuildResourcesArray(new object[] { fxManifest.data_file }, "data_file")).ToArray();
+            }
+
+            if (fxManifest.ContainsKey("dependencies"))
+            {
+                output.dependencies = BuildDependenciesArray(fxManifest.dependencies);
+            }
+
+            // Serialize the output object as JSON
+            string outputJson = JsonSerializer.Serialize(output, new JsonSerializerOptions { WriteIndented = true });
+
+            // Write the output file
+            string outputFilePath = Path.Combine(Path.GetDirectoryName(sourceFilePath), Path.GetFileNameWithoutExtension(sourceFilePath) + "_converted" + Path.GetExtension(sourceFilePath));
+            try
+            {
+                File.WriteAllText(outputFilePath, outputJson);
+                Console.WriteLine("Conversion complete. Output file written to: " + outputFilePath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to write the output file: " + ex.Message);
+            }
+
+            Console.ReadLine();
+        }
+
+        static dynamic[] BuildResourcesArray(dynamic input, string type)
+        {
+            dynamic[] output = new dynamic[input.Length];
+            for (int i = 0; i < input.Length; i++)
+            {
+                output[i] = new
+                {
+                    type = type,
+                    name = input[i]
+                };
+            }
+            return output;
+        }
+
+        static dynamic[] BuildDependenciesArray(dynamic input)
+        {
+            dynamic[] output = new dynamic[input.Length];
+            for (int i = 0; i < input.Length; i++)
+            {
+                output[i] = new
+                {
+                    name = input[i].name,
+                    version = input[i].version,
+                    version_disabled = input[i].version_disabled ?? ""
+                };
+
+
+                // Convert the JSON object to a C# object
+                var fxManifest = JsonConvert.DeserializeObject<dynamic>(json);
+
+                // Check if the `__resource.lua` file exists
+                string resourceFilePath = Path.Combine(path, "__resource.lua");
+                if (!File.Exists(resourceFilePath))
+                {
+                    Console.WriteLine("The __resource.lua file does not exist in the specified path.");
+                    return;
+                }
+
+                // Read the contents of the `__resource.lua` file
+                string resourceFileContent = File.ReadAllText(resourceFilePath);
+
+                // Replace the resource metadata in the `__resource.lua` file with the data from the `fxmanifest.json` file
+                string pattern = @"(?<=^--\s*@).+?(?=\n)";
+                string replacement = string.Format("@{0} {1}", fxManifest.resource_type, fxManifest.name);
+                resourceFileContent = Regex.Replace(resourceFileContent, pattern, replacement, RegexOptions.Multiline);
+
+                // Write the modified `__resource.lua` file
+                File.WriteAllText(resourceFilePath, resourceFileContent);
+
+                // Build the `fxmanifest.lua` file
+                dynamic fxManifestLua = new
+                {
+                    fx_version = fxManifest.fx_version,
+                    game = fxManifest.game,
+                    name = fxManifest.name,
+                    description = fxManifest.description ?? "",
+                    version = fxManifest.version ?? "1.0.0",
+                    author = fxManifest.author ?? "",
+                    server_scripts = fxManifest.server_scripts ?? new dynamic[] { },
+                    client_scripts = fxManifest.client_scripts ?? new dynamic[] { },
+                    dependencies = BuildDependenciesArray(fxManifest.dependencies ?? new dynamic[] { })
+                };
+
+                // Serialize the `fxmanifest.lua` object to a Lua file
+                string fxManifestLuaPath = Path.Combine(path, "fxmanifest.lua");
+                string fxManifestLuaContent = LuaTableConverter.ToLuaTable(fxManifestLua).Replace(" = ", " ");
+
+                // Write the `fxmanifest.lua` file
+                File.WriteAllText(fxManifestLuaPath, fxManifestLuaContent);
+
+                Console.WriteLine("The fxmanifest.lua file has been created successfully.");
+            }
+        }
+    }
+}
