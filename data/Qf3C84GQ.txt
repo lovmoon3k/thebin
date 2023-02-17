@@ -1,0 +1,118 @@
+substitutions:
+  name_1: main
+  friendly_name_1: "Licznik główny"
+  name_2: garden
+  friendly_name_2: "Licznik ogrodowy"
+
+esphome:
+  name: esp-woda
+  comment: Odczyt liczników wody
+  on_boot:
+    then:
+      - script.execute: restore_states
+  on_shutdown:
+    then:
+      - script.execute: backup_states
+      
+# Enable Home Assistant API
+api:
+  services:
+    - service: backup_data
+      then:
+        - script.execute: backup_states
+    - service: restore_data
+      then:
+        - script.execute: restore_states
+    - service: set_${name_1}_water_counter
+      variables:
+        new_total: int
+      then:
+        - pulse_counter.set_total_pulses:
+            id: ${name_1}_water_pulse_counter
+            value: !lambda 'return new_total;'
+    - service: set_${name_2}_water_counter
+      variables:
+        new_total: int
+      then:
+        - pulse_counter.set_total_pulses:
+            id: ${name_2}_water_pulse_counter
+            value: !lambda 'return new_total;'
+            
+#################################################################
+# Globals
+globals:
+  - id: ${name_1}_water_total_backup
+    type: int
+    restore_value: true
+  - id: ${name_2}_water_total_backup
+    type: int
+    restore_value: true
+
+#################################################################
+# Scripts
+script:
+- id: backup_states
+  then:
+    - globals.set:
+        id: ${name_1}_water_total_backup
+        value: !lambda 'return id(${name_1}_water_total).state;'
+    - globals.set:
+        id: ${name_2}_water_total_backup
+        value: !lambda 'return id(${name_2}_water_total).state;'
+- id: restore_states
+  then:
+    - pulse_counter.set_total_pulses:
+        id: ${name_1}_water_pulse_counter
+        value: !lambda 'return id(${name_1}_water_total_backup);'
+    - pulse_counter.set_total_pulses:
+        id: ${name_2}_water_pulse_counter
+        value: !lambda 'return id(${name_2}_water_total_backup);'
+
+#################################################################
+# Buttons
+button:
+  - platform: template
+    name: "Backup counters"
+    icon: "mdi:content-save-all"
+    on_press:
+      - script.execute: backup_states
+
+  - platform: template
+    name: "Restore backup"
+    icon: "mdi:backup-restore"
+    on_press:
+      - script.execute: restore_states
+#################################################################
+# Sensors
+sensor:
+  - platform: pulse_counter
+    name: '${friendly_name_1} - przepływ'
+    id: ${name_1}_water_pulse_counter
+    pin: GPIO13
+    unit_of_measurement: "L/min" 
+    accuracy_decimals: 0
+    update_interval: 1min
+    total:
+      name: '${friendly_name_1}'
+      id: ${name_1}_water_total
+      unit_of_measurement: 'L'
+      accuracy_decimals: 0
+      icon: "mdi:water"
+      device_class: water
+      state_class: total
+
+  - platform: pulse_counter
+    name: '${friendly_name_2} - przepływ'
+    id: ${name_2}_water_pulse_counter
+    pin: GPIO14
+    unit_of_measurement: "L/min"
+    accuracy_decimals: 0
+    update_interval: 1min
+    total:
+      name: '${friendly_name_2}'
+      id: ${name_2}_water_total
+      unit_of_measurement: 'L'
+      accuracy_decimals: 0
+      icon: "mdi:water"
+      device_class: water
+      state_class: total
