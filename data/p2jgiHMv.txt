@@ -1,0 +1,73 @@
+template<typename T, template<typename> typename Behaviour>
+struct SingleDefaultSideEffectVisitor : virtual SideEffectVisitor
+{
+  using SideEffectVisitor::visit;
+  void visit(T& t) override{
+    static_cast<Behaviour<T>*>(this)->visit_impl(t);
+  }
+};
+ 
+template<typename T>
+struct DefaultBehaviour : SingleDefaultSideEffectVisitor<T, DefaultBehaviour> {
+  void visit_impl(T&) {}
+};
+ 
+template<template<typename, template<typename> typename> typename T, template<typename> typename Behaviour, typename... Ts>
+struct MultipleBehaviourSideEffectVisitor : public T<Ts, Behaviour>...
+{
+  template<typename... Tts>
+  MultipleBehaviourSideEffectVisitor(Tts&&... ts) : T<Ts, Behaviour>{ std::forward<Tts>(ts)... }... {}
+  using T<Ts, Behaviour>::visit...;
+};
+
+// single point of listing all side effect types
+template<template<typename, template<typename> typename> typename Single, template<typename> typename Behaviour>
+struct BehaviourSideEffectVisitor
+  : public MultipleBehaviourSideEffectVisitor<Single, Behaviour, 
+    MetakeysSideEffect,
+    SortedResultsSideEffect,
+    UnsortedResultsSideEffect,
+    FullHistorySideEffect,
+    NativeResultsSideEffect,
+    PathsSideEffect>
+{};
+
+// strong typedef
+struct DefaultSideEffectVisitor 
+  : public BehaviourSideEffectVisitor<SingleDefaultSideEffectVisitor, DefaultBehaviour>
+{};
+
+template<typename T, template<typename> typename Behaviour>
+struct SingleFilterSideEffectVisitor : virtual SideEffectVisitor
+{
+  SingleFilterSideEffectVisitor(std::vector<typename Behaviour<T>::ElemT> vec) : m_ref{ vec } {}
+  using SideEffectVisitor::visit;
+  void visit(T& t) override{
+    static_cast<Behaviour<T>*>(this)->visit_impl(t, m_ref);
+  }
+private:
+  std::vector<typename Behaviour<T>::ElemT> m_ref;
+};
+
+template<typename T>
+struct GetFilterSideEffectsBehaviour : public SingleFilterSideEffectVisitor<T, GetFilterSideEffectsBehaviour> {
+//error: base class has incomplete type
+//struct GetFilterSideEffectsBehaviour : public SingleFilterSideEffectVisitor<T, GetFilterSideEffectsBehaviour> {
+// note: in instantiation of template class 'GetFilterSideEffectsBehaviour<PathsSideEffect>' requested here
+//SingleFilterSideEffectVisitor(std::vector<typename Behaviour<T>::ElemT> vec) : m_ref{ vec } {}
+//note: in instantiation of template class 'SingleFilterSideEffectVisitor<PathsSideEffect, GetFilterSideEffectsBehaviour>' //requested here
+//struct MultipleBehaviourSideEffectVisitor : public T<Ts, Behaviour>...
+
+
+
+  using ElemT = FilterSideEffect*;
+  void visit_impl(T& t, std::vector<ElemT>& vec) {
+    if constexpr (std::is_base_of_v<FilterSideEffect, typename T::LocalSideEffectT>) {
+      vec.push_back(t);
+    }
+  }
+};
+
+struct GetFiltersSideEffectVisitor 
+  : public BehaviourSideEffectVisitor<SingleFilterSideEffectVisitor, GetFilterSideEffectsBehaviour>
+{};
