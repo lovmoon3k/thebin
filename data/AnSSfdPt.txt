@@ -1,0 +1,96 @@
+select distinct 
+                            (
+                                (
+                                    SUM(
+                                        CASE
+                                            WHEN
+                                                penjualan_pembayaran_details.nominal IS NOT NULL
+                                            THEN
+                                                penjualan_pembayaran_details.nominal
+                                            ELSE 0
+                                        END
+                                    ) * COUNT(DISTINCT penjualan_pembayaran_details.no)
+                                ) / COUNT(0)
+                            ) AS bayar,
+
+                            (
+                                (
+                                    (
+                                        SUM(
+                                            ROUND((ROUND(penjualan_details.harga * ((100-penjualan_details.diskon)/100),2)
+                                            * penjualan_details.jumlah)
+                                            * ((100+penjualans.margin)/100),2)
+                                        ) * COUNT(DISTINCT penjualan_details.no)
+                                    ) / COUNT(0)
+                                )
+                                +
+                                (
+                                    (
+                                        SUM(
+                                            ROUND((ROUND(ROUND(penjualan_details.harga * ((100-penjualan_details.diskon)/100),2)
+                                            * (penjualan_details.pph/100),2)
+                                            * penjualan_details.jumlah)
+                                            * ((100+penjualans.margin)/100),2)
+                                        ) * COUNT(DISTINCT penjualan_details.no)
+                                    ) / COUNT(0)
+                                )
+                                -
+                                (
+                                    (
+                                        SUM(
+                                            penjualans.diskon - penjualans.ongkos_kirim
+                                        ) * COUNT(DISTINCT penjualans.no)
+                                    ) / COUNT(0)
+                                )
+                            ) AS faktur,
+
+                            (
+                                SUM(
+                                    CASE WHEN (penjualans.tanggal + INTERVAL penjualans.top_hari DAY) < CURDATE() THEN 1 ELSE 0 END
+                                ) * COUNT(DISTINCT penjualans.no)
+                            ) / COUNT(0) AS limit_top
+                         from `penjualans` inner join `penjualan_details` on `penjualan_details`.`penjualan_no` = `penjualans`.`no` left join `penjualan_pembayaran_details` on `penjualan_pembayaran_details`.`penjualan_no` = `penjualans`.`no` left join `penjualan_pembayarans` on `penjualan_pembayarans`.`no` = `penjualan_pembayaran_details`.`penjualan_pembayaran_no` and `penjualan_pembayarans`.`validasi` = ? where `penjualans`.`validasi` in (?, ?, ?) and `penjualans`.`pelanggan_kode` = ? group by `penjualans`.`pelanggan_kode` having 
+                        (
+                            (
+                                SUM(
+                                    CASE
+                                        WHEN
+                                            penjualan_pembayaran_details.nominal IS NOT NULL
+                                        THEN
+                                            penjualan_pembayaran_details.nominal
+                                        ELSE 0
+                                    END
+                                ) * COUNT(DISTINCT penjualan_pembayaran_details.no)
+                            ) / COUNT(0)
+                        )
+                        <
+                        (
+                            (
+                                (
+                                    SUM(
+                                        ROUND((ROUND(penjualan_details.harga * ((100-penjualan_details.diskon)/100),2)
+                                        * penjualan_details.jumlah)
+                                        * ((100+penjualans.margin)/100),2)
+                                    ) * COUNT(DISTINCT penjualan_details.no)
+                                ) / COUNT(0)
+                            )
+                            +
+                            (
+                                (
+                                    SUM(
+                                        ROUND((ROUND(ROUND(penjualan_details.harga * ((100-penjualan_details.diskon)/100),2)
+                                        * (penjualan_details.pph/100),2)
+                                        * penjualan_details.jumlah)
+                                        * ((100+penjualans.margin)/100),2)
+                                    ) * COUNT(DISTINCT penjualan_details.no)
+                                ) / COUNT(0)
+                            )
+                            -
+                            (
+                                (
+                                    SUM(
+                                        penjualans.diskon - penjualans.ongkos_kirim
+                                    ) * COUNT(DISTINCT penjualans.no)
+                                ) / COUNT(0)
+                            )
+                        )
