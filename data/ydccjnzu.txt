@@ -1,0 +1,104 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+
+namespace EntornosMultijugador2023.Tema2.EjersSemaforos
+{
+    class E11Semaforos
+    {
+        volatile static int producto = 0;
+        volatile static bool avisoProxy = false;
+        volatile static bool avisoServer = false;
+        static Random r = new Random();
+
+        static SemaphoreSlim semServer = new SemaphoreSlim(0);
+        static SemaphoreSlim semProxy = new SemaphoreSlim(0);
+        static SemaphoreSlim semProxy2 = new SemaphoreSlim(1);
+        static SemaphoreSlim semCliente = new SemaphoreSlim(1);
+        static SemaphoreSlim semCliente2 = new SemaphoreSlim(0);
+
+        static void Servidor()
+        {
+            semServer.Wait();
+            if (avisoServer)
+            {
+                producto++;
+                WriteLine("Servidor: " + producto);
+            }
+
+            semProxy2.Release();
+
+        }
+        static void Proxy()
+        {
+            semProxy.Wait();
+            WriteLine("Proxy: " + producto);
+
+            semProxy2.Wait();
+            if (avisoProxy)
+            {
+                producto++;
+                WriteLine("Proxy actualiza: " + producto);
+                avisoServer = true;
+                semServer.Release();
+                semProxy2.Wait();
+                WriteLine("Proxy: " + producto);
+
+            }
+            else //Para que no se quede esperando activamente en el wait sin cerrar el programa,
+                 //realmente ni debería pasar por el server
+            {
+                semServer.Release();
+            }
+
+            semCliente2.Release();
+            semProxy2.Release();
+            semCliente.Release();
+        }
+        static void Cliente()
+        {
+            semCliente.Wait();
+            producto = r.Next();
+            WriteLine("Cliente: " + producto);
+            avisoProxy = randBool();
+            semProxy.Release();
+
+
+            semCliente2.Wait();
+            WriteLine("Cliente: " + producto);
+            semCliente2.Release();
+
+        }
+        static void Main()
+        {
+            Thread h1 = new Thread(Cliente);
+            h1.Name = new string('\t', 0);
+            h1.Start();
+
+            Thread h2 = new Thread(Proxy);
+            h2.Name = new string('\t', 2);
+            h2.Start();
+
+            Thread h3 = new Thread(Servidor);
+            h3.Name = new string('\t', 4);
+            h3.Start();
+        }
+        static void WriteLine(string s)
+        {
+            Thread.Sleep(r.Next(10));
+            Console.WriteLine(Thread.CurrentThread.Name + s);
+            Thread.Sleep(r.Next(10));
+        }
+
+        static bool randBool()
+        {
+            var random = r.Next(2);
+            WriteLine("EL RANDOM DIO " + (random == 1));
+            return random == 1;
+
+        }
+
+    }
+}
