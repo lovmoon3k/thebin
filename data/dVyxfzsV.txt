@@ -1,0 +1,6 @@
+pastebin_link = ""
+file_name = "program.lua"
+
+shell.execute("rm",file_name)
+shell.execute("pastebin","get",pastebin_link,file_name)
+shell.execute("shell",file_name)
