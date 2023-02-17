@@ -1,0 +1,176 @@
+dim sIntIteration1 , sIntIteration2
+dim sStrVariables
+dim sArVariables
+dim sVarFlag1 , sVarFlag2 , sVarFlag3
+dim sArResultPosition()
+dim sArCodeStructure()
+dim sStrArIProcedure
+dim sStrArOProcedure
+dim sIntPointeurOProcedure, sIntPointeurIProcedure
+dim sIntVariableLength
+dim sObjFSO,sObjScriptPath,sObjScript,sObjRegExp
+dim sColResultat
+dim sIntResultat
+dim sStrCode
+dim sIntPositionPointeurCaractere
+dim sStrLigne2Code
+dim sIntPositionVBCRLF
+
+call initialiser()
+call rechercher_declaration("dim","(\( *\d* *\))|\(|\)| ")
+call rechercher_declaration("const","= *(\d*)| *")
+call rechercher_procedure("function")
+call rechercher_procedure("sub")
+call changer_position()
+call changer_variable()
+call changer_casse()
+call appliquer()
+
+sub initialiser()
+redim sArCodeStructure(1,0)
+set sObjRegExp = new regexp
+sObjRegExp.ignorecase = true
+sObjRegExp.global = true
+set sObjFSO = createobject("scripting.filesystemobject")
+set sObjScriptPath = sObjFSO.getfile(wscript.scriptfullname)
+set sObjScript = sObjFSO.opentextfile(sObjScriptPath, 1)
+sStrCode = sObjScript.readall
+sObjScript.close
+sStrCode = remplacer(sStrCode,"\n\r","")
+end sub
+
+sub appliquer()
+set sObjScript = sObjFSO.opentextfile(sObjScriptPath, 2)
+sObjScript.write sStrCode
+sObjScript.close
+end sub
+
+sub changer_variable()
+sStrVariables = remplacer("," & sStrVariables & ",",",+",",")
+sArVariables = split(sStrVariables,",")
+for sIntIteration1 = 1 to ubound(sArVariables)-1
+	sStrCode = remplacer(sStrCode,"\b" & sArVariables(sIntIteration1) & "\b",creer_variable & sIntIteration1)
+next
+end sub
+
+sub changer_casse()
+sVarFlag3 = empty
+for sIntIteration1 = 1 to len(sStrCode)
+	sVarFlag1 = mid(sStrCode, sIntIteration1, 1)
+	if (asc(sVarFlag1) = 92) then
+		sVarFlag2 = true
+	else
+		if sVarFlag2 then
+			sVarFlag2 = false	
+		else
+			randomize
+			if cint(rnd * 1) = 1 then
+				sVarFlag1 = lcase(sVarFlag1)
+			else
+				sVarFlag1 = ucase(sVarFlag1)
+			end if
+		end if
+	end if
+sVarFlag3 = sVarFlag3 & sVarFlag1
+next
+sStrCode = sVarFlag3
+end sub
+
+function remplacer(pStrStr,pStrMotif2Recherche,pStrMotif2Remplacement)
+sObjRegExp.pattern = pStrMotif2Recherche
+remplacer = sObjRegExp.replace(pStrStr,pStrMotif2Remplacement)
+end function
+
+sub rechercher_procedure(procedure_type)
+call get_all_position_after_str(procedure_type)
+for sIntIteration1=1 to ubound(sArResultPosition)
+	redim preserve sArCodeStructure(1,ubound(sArCodeStructure,2) + 1)
+	sIntPositionPointeurCaractere = sArResultPosition(sIntIteration1)
+	sArCodeStructure(1,ubound(sArCodeStructure,2)) = sIntPositionPointeurCaractere - len(procedure_type)
+	sIntPositionVBCRLF = instr(sIntPositionPointeurCaractere,sStrCode,vbcr,1)
+	sStrLigne2Code = mid(sStrCode,sIntPositionPointeurCaractere, sIntPositionVBCRLF - sIntPositionPointeurCaractere)
+	sStrLigne2Code = remplacer( sStrLigne2Code , "(\( *\d* *\))|\(|\)| " , "," )
+	sStrVariables = sStrVariables & "," & sStrLigne2Code
+	sIntIteration1 = sIntIteration1+1
+	sArCodeStructure(0,ubound(sArCodeStructure,2)) =  sArResultPosition(sIntIteration1) + 4
+next
+end sub
+
+function creer_variable()
+randomize
+sIntVariableLength = int((20 * rnd) + 10)
+creer_variable = chr(int((25 * rnd) + 97))
+for sIntIteration2 = 1 to sIntVariableLength
+	randomize
+	if cint(rnd * 1) = 1 then
+		creer_variable = creer_variable & chr(int((25 * rnd) + 97))
+	else
+		creer_variable = creer_variable & chr(int((10 * rnd) + 48))
+	end if
+next
+end function
+
+sub rechercher_declaration(pStrType2Declaration,pStrMotif2Recherche)
+call get_all_position_after_str(pStrType2Declaration)
+for sIntIteration1=1 to ubound(sArResultPosition)
+	sIntPositionPointeurCaractere = sArResultPosition(sIntIteration1) 
+	sIntPositionVBCRLF = instr(sIntPositionPointeurCaractere,sStrCode,vbcr,1)
+	sStrLigne2Code = mid(sStrCode,sIntPositionPointeurCaractere, sIntPositionVBCRLF - sIntPositionPointeurCaractere)
+	sStrLigne2Code = remplacer(sStrLigne2Code,pStrMotif2Recherche,",")
+	sStrVariables = sStrVariables & "," & sStrLigne2Code
+next
+end sub
+
+sub get_all_position_after_str(pStrSrch)
+redim sArResultPosition(0)
+sObjRegExp.Pattern ="(\b" & pStrSrch & " +\w)|(end " & pStrSrch & ")"
+Set sColResultat = sObjRegExp.Execute(sStrCode)
+For each sIntResultat in sColResultat
+	redim preserve sArResultPosition((ubound(sArResultPosition))+1)
+	sArResultPosition(ubound(sArResultPosition)) = sIntResultat.FirstIndex + len(pStrSrch) + 1
+next
+end sub
+
+sub changer_position()
+redim sStrArIProcedure(ubound(sArCodeStructure,2)-1,1)
+for  sIntIteration1 = 0 to ubound(sStrArIProcedure,1)
+	sStrArIProcedure(sIntIteration1,0) = mid(sStrCode,sArCodeStructure(1,sIntIteration1+1),sArCodeStructure(0,sIntIteration1+1)-sArCodeStructure(1,sIntIteration1+1))
+	randomize
+	sStrArIProcedure(sIntIteration1,1) = rnd
+next
+for sIntIteration1 = 0 to ubound(sStrArIProcedure,1)
+	for sIntIteration2 = sIntIteration1  to ubound(sStrArIProcedure,1)
+		if (sStrArIProcedure(sIntIteration2,1) < sStrArIProcedure(sIntIteration1,1)) then
+			sVarFlag1 = sStrArIProcedure(sIntIteration2,0)
+			sVarFlag2 = sStrArIProcedure(sIntIteration2,1)
+			sStrArIProcedure(sIntIteration2,0) = sStrArIProcedure(sIntIteration1,0)
+			sStrArIProcedure(sIntIteration2,1) = sStrArIProcedure(sIntIteration1,1)
+			sStrArIProcedure(sIntIteration1,0) = sVarFlag1
+			sStrArIProcedure(sIntIteration1,1) = sVarFlag2
+		end if
+	next
+next
+sStrArOProcedure=sStrCode
+for sIntIteration1 = 0  to ubound(sStrArIProcedure,1)
+	sStrArOProcedure = replace(sStrArOProcedure,sStrArIProcedure(sIntIteration1,0),"")
+next
+sStrArOProcedure = split(sStrArOProcedure,vbcrlf)
+sIntPointeurOProcedure = -1
+sIntPointeurIProcedure = -1
+sVarFlag1 = empty
+while ((sIntPointeurOProcedure <> ubound(sStrArOProcedure)) or (sIntPointeurIProcedure <>  ubound(sStrArIProcedure,1)))
+	randomize
+	if (cint(rnd * 1) = 1) then
+		if (sIntPointeurOProcedure <> ubound(sStrArOProcedure)) then
+			sIntPointeurOProcedure = sIntPointeurOProcedure +  1
+			sVarFlag1 = sVarFlag1 & sStrArOProcedure(sIntPointeurOProcedure) & vbcrlf
+		end if
+	else
+		if (sIntPointeurIProcedure <> ubound(sStrArIProcedure)) then
+			sIntPointeurIProcedure = sIntPointeurIProcedure +  1
+			sVarFlag1 = sVarFlag1 & sStrArIProcedure(sIntPointeurIProcedure,0) & vbcrlf
+		end if
+	end if
+wend
+sStrCode = sVarFlag1
+end sub
