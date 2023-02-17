@@ -1,0 +1,127 @@
+#include <linux/limits.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <limits.h>
+#include <unistd.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <stdbool.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/sendfile.h>
+#include <signal.h>
+
+#define BUF_SIZE 4096
+
+volatile sig_atomic_t sig_int_term = 0;
+
+void sig_int_term_handler(int signum) {
+  sig_int_term = 1;
+}
+
+int client_part(int client_fd, char* catalog) {
+  char buf_req[BUF_SIZE] = {};
+  char other_buf[BUF_SIZE] = {};
+  char min_request[BUF_SIZE] = "GET HTTP/1.1";
+  int res = read(client_fd, buf_req, sizeof(buf_req));
+  if (res < strnlen(min_request, 20)) {
+    return 0; 
+  }
+
+  // while (read(client_fd, other_buf, sizeof(other_buf)) != 0) {}
+  
+  // Extract file name + create path to this file
+  char filename[BUF_SIZE] = {};
+  int i;
+  for (i = 0; buf_req[i + 4] != ' '; ++i) { // 4 так как size("GET ")
+    filename[i] = buf_req[i + 4];
+  }
+  filename[i] = '\0'; // на всякий
+  int size = strnlen(catalog, PATH_MAX);
+  char filepath[BUF_SIZE + PATH_MAX + 1] = {};
+  strncpy(filepath, catalog, PATH_MAX);
+  filepath[size] = '/';
+  strncpy(filepath + size + 1, filename, BUF_SIZE);
+  
+  // Check permissions + answer
+  if (0 != access(filepath, F_OK)) { // not exists
+    dprintf(client_fd, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+    return 0;
+  } else if (0 != access(filepath, R_OK)) { // exist but we can't read it
+    dprintf(client_fd, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+    return 0;
+  }
+  // If we there, this file exists and we can read it, JUST DO IT!!!!!
+  int fd = open(filepath, O_RDONLY);
+  if (-1 == fd) {
+    perror("open");
+    return -1;
+  }
+  struct stat fstat = {};
+  if (-1 == stat(filepath, &fstat)) {
+    perror("stat");
+    return -1;
+  }
+  int file_size = fstat.st_size;
+  off_t shift = 0;
+  dprintf(client_fd, "HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n", file_size);
+  sendfile(client_fd, fd, &shift, fstat.st_size);
+
+  return 0;
+}
+
+int main(int argc, char** argv) { // 1 - номер порта, 2 - путь до каталога
+  if (argc != 3) {
+    perror("Incorrect input!");
+    exit(0);
+  }
+  // Привязка сигналов
+  struct sigaction sig_int_term_action = {};
+  sig_int_term_action.sa_handler = sig_int_term_handler;
+
+  sigaction(SIGTERM, &sig_int_term_action, NULL);
+  sigaction(SIGINT, &sig_int_term_action, NULL);
+  
+    // Локалхоста подсоединяем
+  long port = strtol(argv[1], NULL, 10);
+
+  struct sockaddr_in address = {};
+  address.sin_family = AF_INET;
+  address.sin_port = htons(port);
+  address.sin_addr.s_addr = htonl(INADDR_ANY);
+
+  int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  if (-1 == sockfd) {
+    perror("sockfd");
+    exit(1);
+  }
+  if (-1 == bind(sockfd, (const struct sockaddr*) &address, sizeof(address))) {
+    perror("bind");
+    exit(1);
+  }
+
+  listen(sockfd, SOMAXCONN);
+
+  // Работа с клиентом
+  while(sig_int_term != 1) {
+    // Подключение клиента
+    struct sockaddr_in client_addr = {};
+    socklen_t addr_len = sizeof(struct sockaddr_in);
+    int client_fd = accept(sockfd, (struct sockaddr*)&client_addr, &addr_len);
+    
+    // Обработка клиента
+    client_part(client_fd, argv[2]);
+
+    // Отключаем клиента
+    shutdown(client_fd, SHUT_RDWR);
+    close(client_fd);
+  }
+  
+  // Конец, если мы попали в эту часть, то sig_int_term = 1
+  shutdown(sockfd, SHUT_RDWR);
+  close(sockfd);
+  return 0;
+}
