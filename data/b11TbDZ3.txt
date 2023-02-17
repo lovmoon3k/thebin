@@ -1,0 +1,340 @@
+#include "Renderer.h"
+
+#include <game-activity/native_app_glue/android_native_app_glue.h>
+#include <GLES3/gl3.h>
+#include <memory>
+#include <vector>
+#include <android/imagedecoder.h>
+#include <iostream>
+#include <dirent.h>
+#include <unistd.h>
+#include <android/sensor.h>
+
+#include "AndroidOut.h"
+#include "Shader.h"
+#include "Utility.h"
+#include "TextureAsset.h"
+#include "ECS/ECS.h"
+#include "ECS/Components/RendererComponent.h"
+
+// Vertex shader, you'd typically load this from assets
+static const char *vertex = R"vertex(#version 300 es
+in vec2 inPosition;
+in vec2 inUV;
+
+out vec2 fragUV;
+
+uniform mat4 uProjection;
+uniform mat3 uModel;
+uniform float uLayer;
+uniform float uOpacity;
+
+void main() {
+    fragUV = inUV;
+    gl_Position = uProjection * vec4((uModel *vec3(inPosition.x,inPosition.y*2.0f,1.0)).xy,uLayer, uOpacity);
+}
+)vertex";
+
+// Fragment shader, you'd typically load this from assets
+static const char *fragment = R"fragment(#version 300 es
+precision mediump float;
+
+in vec2 fragUV;
+
+uniform sampler2D uTexture;
+
+out vec4 outColor;
+
+void main() {
+    outColor = texture(uTexture, vec2(fragUV.x,1.0-fragUV.y));
+}
+)fragment";
+
+
+Renderer::Renderer() {
+}
+
+Renderer::~Renderer() {
+    if (display_ != EGL_NO_DISPLAY) {
+        eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (context_ != EGL_NO_CONTEXT) {
+            eglDestroyContext(display_, context_);
+            context_ = EGL_NO_CONTEXT;
+        }
+        if (surface_ != EGL_NO_SURFACE) {
+            eglDestroySurface(display_, surface_);
+            surface_ = EGL_NO_SURFACE;
+        }
+        eglTerminate(display_);
+        display_ = EGL_NO_DISPLAY;
+    }
+}
+
+void Renderer::Update(double dt) {
+    // Check to see if the surface has changed size. This is _necessary_ to do every frame when
+    // using immersive mode as you'll get no other notification that your renderable area has
+    // changed.
+    updateRenderArea();
+
+    // When the renderable area changes, the projection matrix has to also be updated. This is true
+    // even if you change from the sample orthographic projection matrix as your aspect ratio has
+    // likely changed.
+    if (shaderNeedsNewProjectionMatrix_) {
+        // a placeholder projection matrix allocated on the stack. Column-major memory layout
+        float projectionMatrix[16] = {0};
+
+        // build an orthographic projection matrix for 2d rendering
+        Utility::buildOrthographicMatrix(projectionMatrix,-1.0f,1.0f,-1.0f,1.0f,-1.0f,1.0f);
+
+        // send the matrix to the shader
+        // Note: the shader must be active for this to work. Since we only have one shader for this
+        // demo, we can assume that it's active.
+        shader_->setProjectionMatrix(projectionMatrix);
+
+        // make sure the matrix isn't generated every frame
+        shaderNeedsNewProjectionMatrix_ = false;
+    }
+
+    // clear the color buffer
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Render all the models. There's no depth testing in this sample so they're accepted in the
+    // order provided. But the sample EGL setup requests a 24 bit depth buffer so you could
+    // configure it at the end of initRenderer
+    for(auto e : ECS->GetTrackedEntities<ECSRendererTracker>())
+    {
+        shader_->setModelMatrix(ECS->GetComponent<Transform>(e).GetMatrix());
+        shader_->setLayer(ECS->GetComponent<RendererComponent>(e).getLayer());
+        shader_->setOpacity(ECS->GetComponent<RendererComponent>(e).getOpacity());
+        shader_->drawModel(*ECS->GetComponent<RendererComponent>(e).getModel());
+    }
+
+    // Present the rendered image. This is an implicit glFlush.
+    aout<<"DONAVERN midupdate 3"<<std::endl;
+    auto swapResult = eglSwapBuffers(display_, surface_); //error here
+    aout<<"DONAVERN midupdate 4"<<std::endl;
+    assert(swapResult == EGL_TRUE);
+}
+
+void Renderer::initRenderer() {
+    // The default display is probably what you want on Android
+    auto display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if(EGL_FALSE == eglInitialize(display, nullptr, nullptr))
+    {
+        aout<<"Failed to init Display\n"<<std::endl;
+    }
+
+    // Choose your Update attributes
+    constexpr EGLint attribs[] = {
+            EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+            EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+            EGL_BLUE_SIZE, 8,
+            EGL_GREEN_SIZE, 8,
+            EGL_RED_SIZE, 8,
+            EGL_DEPTH_SIZE, 24,
+            EGL_NONE
+    };
+
+    // figure out how many configs there are
+    EGLint numConfigs;
+    EGLConfig newConfig;
+    eglChooseConfig(display, attribs, &newConfig, 1, &numConfigs);
+
+    // create the proper window surface
+    EGLSurface surface = eglCreateWindowSurface(display, newConfig, app_->window, nullptr);
+    if (surface == EGL_NO_SURFACE) {
+        aout<<"Failed to create surface "<<eglGetError()<<"\n"<<std::endl;
+    }
+
+    // Create a GLES 3 context
+    EGLint contextAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+    EGLContext context = eglCreateContext(display, newConfig, nullptr, contextAttribs);
+    if(context == EGL_NO_CONTEXT)
+    {
+        aout<<"Failed to create context\n"<<std::endl;
+    }
+
+    // get some window metrics
+    auto madeCurrent = eglMakeCurrent(display, surface, surface, context);
+    assert(madeCurrent);
+
+    display_ = display;
+    surface_ = surface;
+    context_ = context;
+
+    // make width and height invalid so it gets updated the first frame in @a updateRenderArea()
+    width_ = -1;
+    height_ = -1;
+
+    shader_ = std::unique_ptr<Shader>(
+            Shader::loadShader(vertex, fragment));
+    assert(shader_);
+
+    // Note: there's only one shader in this demo, so I'll activate it here. For a more complex game
+    // you'll want to track the active shader and activate/deactivate it as necessary
+    shader_->activate();
+
+    // setup any other gl related global states
+    glClearColor(1.0,1.0,1.0,1.0);
+
+    // enable alpha globally for now, you probably don't want to do this in a game
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    updateRenderArea();
+}
+
+void Renderer::updateRenderArea() {
+    EGLint width;
+    eglQuerySurface(display_, surface_, EGL_WIDTH, &width);
+
+    EGLint height;
+    eglQuerySurface(display_, surface_, EGL_HEIGHT, &height);
+
+    if (width != width_ || height != height_) {
+        width_ = width;
+        height_ = height;
+        glViewport(0, 0, width, height);
+
+        // make sure that we lazily recreate the projection matrix before we Update
+        shaderNeedsNewProjectionMatrix_ = true;
+    }
+}
+
+//relative to the "assets" folder, give it a name/path of the texture to load
+//Automatically converts and applied to a square model
+void Renderer::addNewModel(std::string s) {
+    /*
+     * This is a square:
+     * 3 --- 2
+     * | \   |
+     * |  \  |
+     * |   \ |
+     * 0 --- 1
+    */
+    std::vector<Vertex> vertices = {
+            Vertex(Vec2{-1, -1}, Vec2{0, 0}), // 0
+            Vertex(Vec2{1, -1}, Vec2{1, 0}), // 1
+            Vertex(Vec2{1, 1}, Vec2{1, 1}), // 2
+            Vertex(Vec2{-1, 1}, Vec2{0, 1}), // 3
+    };
+    std::vector<uint16_t> indices = {3,0,1,3,1,2};
+    // loads an image and assigns it to the square. data saved in .h file
+    // Note: there is no texture management in this sample, so if you reuse an image be careful not
+    // to load it repeatedly. Since you get a shared_ptr you can safely reuse it in many models.
+    auto assetManager = app_->activity->assetManager;
+    auto newTexture = TextureAsset::loadAsset(assetManager, s);
+    nameToModel.insert({s,Model(vertices,indices,newTexture)});
+}
+
+//Give it the same name/path that was given when adding, to retrieve a pointer
+//to the model asset
+Model *Renderer::getModelGivenName(std::string s) {
+    std::map<std::string,Model>::iterator it = nameToModel.find(s);
+
+    if(it != nameToModel.end())
+    {
+        return &it->second;
+    }
+    aout<<"Failed to retrieve model given name "<<s<<std::endl;
+    return nullptr;
+}
+
+EGLint Renderer::getSurfaceWidth() {
+    return width_;
+}
+
+EGLint Renderer::getSurfaceHeight() {
+    return height_;
+}
+
+void Renderer::manualReload() {
+    aout<<"DONAVERN RELOAD"<<std::endl;
+
+    width_ = 0;
+    height_ = 0;
+    shaderNeedsNewProjectionMatrix_=true;
+
+    if (display_ != EGL_NO_DISPLAY) {
+        eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (context_ != EGL_NO_CONTEXT) {
+            eglDestroyContext(display_, context_);
+            context_ = EGL_NO_CONTEXT;
+        }
+        if (surface_ != EGL_NO_SURFACE) {
+            eglDestroySurface(display_, surface_);
+            surface_ = EGL_NO_SURFACE;
+        }
+        eglTerminate(display_);
+        display_ = EGL_NO_DISPLAY;
+    }
+
+    // The default display is probably what you want on Android
+    auto display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if(EGL_FALSE == eglInitialize(display, nullptr, nullptr))
+    {
+        aout<<"Failed to init Display\n"<<std::endl;
+    }
+
+    // Choose your Update attributes
+    constexpr EGLint attribs[] = {
+            EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+            EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+            EGL_BLUE_SIZE, 8,
+            EGL_GREEN_SIZE, 8,
+            EGL_RED_SIZE, 8,
+            EGL_DEPTH_SIZE, 24,
+            EGL_NONE
+    };
+
+    // figure out how many configs there are
+    EGLint numConfigs;
+    EGLConfig newConfig;
+    eglChooseConfig(display, attribs, &newConfig, 1, &numConfigs);
+
+    // create the proper window surface
+    EGLSurface surface = eglCreateWindowSurface(display, newConfig, app_->window, nullptr);
+    if (surface == EGL_NO_SURFACE) {
+        aout<<"Failed to create surface "<<eglGetError()<<"\n"<<std::endl;
+    }
+
+    // Create a GLES 3 context
+    EGLint contextAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+    EGLContext context = eglCreateContext(display, newConfig, nullptr, contextAttribs);
+    if(context == EGL_NO_CONTEXT)
+    {
+        aout<<"Failed to create context\n"<<std::endl;
+    }
+
+    // get some window metrics
+    auto madeCurrent = eglMakeCurrent(display, surface, surface, context);
+    assert(madeCurrent);
+
+    display_ = display;
+    surface_ = surface;
+    context_ = context;
+
+    // make width and height invalid so it gets updated the first frame in @a updateRenderArea()
+    width_ = -1;
+    height_ = -1;
+
+    if(shader_ == nullptr)
+    {
+        shader_ = std::unique_ptr<Shader>(
+                Shader::loadShader(vertex, fragment));
+        assert(shader_);
+    }
+
+    // Note: there's only one shader in this demo, so I'll activate it here. For a more complex game
+    // you'll want to track the active shader and activate/deactivate it as necessary
+    shader_->activate();
+
+    // setup any other gl related global states
+    glClearColor(1.0,1.0,1.0,1.0);
+
+    // enable alpha globally for now, you probably don't want to do this in a game
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    updateRenderArea();
+}
