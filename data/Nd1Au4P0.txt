@@ -1,0 +1,47 @@
+using namespace std;
+#include "test_runner.h"
+struct ObjectFactory2 {
+    int count = 0;
+
+    ObjectFactory2(int count) : count(count) {
+    }
+
+    ObjectFactory2() = default;
+
+    ObjectPtr operator()(std::string id) {
+        id += "_"s + to_string(count);
+        ++count;
+        return std::make_shared<Object>(std::move(id));
+    }
+};
+
+void TestLifetime() {
+    {
+        weak_ptr<Object> bob_wp;
+        {
+            Cache<string, Object, ObjectFactory2> cache;
+
+            auto alice1 = cache.GetValue("Alice"s);
+            auto bob = cache.GetValue("Bob"s);
+
+            auto alice2 = cache.GetValue("Alice"s);
+            ASSERT_EQUAL(alice1, alice2);
+
+            weak_ptr alice_wp{ alice1 };
+            bob_wp = bob;
+            ASSERT(!alice_wp.expired());
+            ASSERT(!bob_wp.expired());
+
+            alice1.reset();
+            ASSERT(!alice_wp.expired());
+
+            alice2.reset();
+            ASSERT(alice_wp.expired());
+        }
+        ASSERT(bob_wp.expired());
+    }
+}
+int main()
+{
+    TestLifetime();
+}
