@@ -1,0 +1,108 @@
+// This source code is subject to the terms of the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)
+// © TheSocialCryptoClub
+
+//https://it.tradingview.com/script/OUrwlvNg/
+//Vedi specifiche e uso nella cartella bot utenti
+
+//@version=5
+strategy("PURE MORNING", overlay=true, pyramiding=1,
+         initial_capital=1000, default_qty_type=strategy.cash,
+         default_qty_value=1000,
+         slippage=2, commission_type=strategy.commission.percent,commission_value=0.075
+         )
+
+//------------------------------
+// Indicators
+//------------------------------
+
+rma=ta.rma(close, 60)
+mfi=ta.mfi(close, 10)
+rsi=ta.rsi(close, 14)
+atr7= ta.atr(7)
+ema60=ta.ema(close,60)
+
+plot(ema60,"EMA 60", color.new(color.aqua,0))
+
+//------------------------------
+// Doji settings 
+//------------------------------
+//-----------------------------------------------MORNING DOJI STAR CODE
+range1= high - low
+tolerance = input.float(defval=0.09, title="MDS Tolerance",group= "DOJI SETTINGS", minval=0.01, maxval=1, step=.01)/100
+
+candle1 = math.abs (close[2] - open[2]) /range1[2] > .6 and close[2] < open[2]
+candle2 = ((open[1] > close[1] and open[1] < close[1]*(1+tolerance)) or (open[1] < close[1] and open[1] > close[1]*(1-tolerance)) and close [1]<close[2]+range1[2])
+candle3 = close > open and close > (close[2]+range1[2])
+
+MDS = candle1 and candle2 and candle3
+
+plotshape(MDS and close > ema60, text="MD", textcolor=color.yellow, offset=-1, location=location.abovebar, color=color.green, style=shape.triangleup)
+plotshape(MDS and close < ema60, text="MD", textcolor=color.olive, offset=-1, location=location.belowbar, color=color.red, style=shape.triangledown)
+
+//------------------------------------------------DOJI CODE
+
+tolerance1= input.float(defval=0.05, title="DOJI Tolerance",group= "DOJI SETTINGS", minval=0.01, maxval=1, step=.01)/100
+Is_OC_Equal= (open > close and open < close*(1+tolerance1)) or (open < close and open > close*(1-tolerance1))
+
+plotshape(Is_OC_Equal and close < ema60, text="D", textcolor=color.red, location=location.belowbar, color=color.red)
+plotshape(Is_OC_Equal and close > ema60, text="D", textcolor = color.green, location=location.abovebar, color=color.green)
+
+//------------------------------
+// Entry Long
+//------------------------------
+
+el_cond= Is_OC_Equal and close > ema60 
+el_cond_02= MDS and close > ema60
+
+mess = "!buy " + syminfo.ticker // Executor command to buy automatically 
+
+if el_cond 
+    strategy.entry ("EL", strategy.long ,alert_message = mess,comment = "EL cond 1")
+
+plotshape(el_cond and strategy.position_size == 0 , "el_long", shape.circle, color=color.green)
+
+if el_cond_02       
+    strategy.entry ("EL", strategy.long ,alert_message = mess,comment = "EL cond 2" )
+
+plotshape(el_cond_02 and strategy.position_size == 0 , "el_long_02", shape.circle, color=color.green)
+
+//------------------------------
+//Exit Long TP - SL
+//------------------------------
+
+sl_len             = input.int(100, "Stop Length",group="EXIT LONG")
+sl_type_percent    = input.bool(false,"SL type percent",group="EXIT LONG")
+xl_sl_percent      = input.float (2, step=0.5, title="Stop Loss",group="EXIT LONG") 
+xl_tp_percent      = input.float(9, step=0.5, title="Take Profit",group="EXIT LONG") 
+
+xl_sl_price = strategy.position_avg_price * (1-xl_sl_percent/100)
+xl_tp_price = strategy.position_avg_price * (1+xl_tp_percent/100)
+
+if sl_type_percent == false
+    xl_sl_price := ta.lowest (low, sl_len) 
+
+//------------------------------
+//Trailing stop 
+//------------------------------
+
+xl_ts_percent      = input.float(1,step=0.5, title= "Trailing theshold",group="TRAILING STOP")
+xl_to_percent      = input.float(0.5, step=0.5, title= "Trailing offset",group="TRAILING STOP")
+
+xl_ts_tick = xl_ts_percent * close/syminfo.mintick/100
+xl_to_tick = xl_to_percent * close/syminfo.mintick/100
+
+mess_sell = "!sell " + syminfo.ticker // Executor command to sell automatically 
+
+strategy.exit("XL+SL/TP", "EL", stop=xl_sl_price, limit=xl_tp_price, trail_points=xl_ts_tick, trail_offset=xl_to_tick,comment_loss= "STOP", comment_profit = "PROFIT",comment_trailing = "TS", alert_message = mess_sell)
+
+//------------------------------
+// Conditional close on MFI
+//------------------------------
+
+xl_cond= ta.crossover(mfi, 90)
+
+if xl_cond
+    strategy.close("XL", alert_message = mess_sell)
+
+plotshape(xl_cond, "xl_cond", shape.circle, color=color.red)
+
