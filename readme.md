@@ -1,19 +1,11 @@
-[**7yKzSUyE**](/data/7yKzSUyE.txt) (19/02/23 - 03:28)- 12965 bytes
+[**Pit8Gbue**](/data/Pit8Gbue.txt) (19/02/23 - 03:34)- 13130 bytes
 
-[**ffUaiXQJ**](/data/ffUaiXQJ.txt) (19/02/23 - 03:28)- 13445 bytes
+[**FuLv0B3J**](/data/FuLv0B3J.txt) (19/02/23 - 03:34)- 12841 bytes
 
-[**h3Xg7nhN**](/data/h3Xg7nhN.txt) (19/02/23 - 03:28)- 13215 bytes
+[**Pit8Gbue**](/data/Pit8Gbue.txt) (19/02/23 - 03:34)- 13130 bytes
 
-[**h3Xg7nhN**](/data/h3Xg7nhN.txt) (19/02/23 - 03:28)- 13215 bytes
+[**FuLv0B3J**](/data/FuLv0B3J.txt) (19/02/23 - 03:34)- 12841 bytes
 
-[**7yKzSUyE**](/data/7yKzSUyE.txt) (19/02/23 - 03:28)- 12965 bytes
+**Total Datas**: 10615
 
-[**8kHT709M**](/data/8kHT709M.txt) (19/02/23 - 03:28)- 608 bytes
-
-[**ffUaiXQJ**](/data/ffUaiXQJ.txt) (19/02/23 - 03:28)- 13445 bytes
-
-[**8kHT709M**](/data/8kHT709M.txt) (19/02/23 - 03:28)- 608 bytes
-
-**Total Datas**: 10613
-
-**Total Size**: 68.32 MB / 68.3 MB
+**Total Size**: 68.34 MB / 68.3 MB
