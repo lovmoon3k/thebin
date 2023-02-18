@@ -1,0 +1,430 @@
+#!/home/m/anaconda3/bin/python3
+#https://hackaday.io/project/179946-image-to-svg-and-g-code-converter
+import pkg_resources
+import subprocess
+import sys
+import os
+
+REQUIRED = {
+  'tk', 'opencv-python', 'numpy', 'pathlib', 
+  'Pillow'
+}
+
+installed = {pkg.key for pkg in pkg_resources.working_set}
+missing = REQUIRED - installed
+
+# Automatically installing missing packages
+
+# Comment these out if want to install them manually
+
+if missing:
+    python = sys.executable
+    subprocess.check_call([python, '-m', 'pip', 'install', *missing], stdout=subprocess.DEVNULL)
+
+
+from tkinter import *    # from tkinter import Tk for Python 3.x
+from tkinter.filedialog import askopenfilename
+from tkinter import messagebox as MB
+import cv2
+from pathlib import Path
+import math
+import numpy as np
+from PIL import Image, ImageTk
+import image_process as IP
+from tkinter import ttk
+from tkinter import scrolledtext
+
+
+#------------- Main window creation ----------------
+
+root = Tk()
+root.title('SVG From Camera')
+
+tabControl = ttk.Notebook(root)
+tab1 = ttk.Frame(tabControl)
+tabControl.add(tab1, text="Image upload")
+tabControl.pack(expand=1, fill="both")
+
+root.geometry('1020x900')
+
+#-------------Contour detection variables ---------------
+
+image_path = StringVar()
+image_name = StringVar()
+##gcode_var = StringVar()
+thresh_min = IntVar()
+thresh_min.set(60)
+thresh_max = IntVar()
+thresh_max.set(255)
+inv_contour = BooleanVar()
+choosen_blur = StringVar()
+choices = ['Gaussian Blur', 'Simple Blur', 'Median Blur', 'Bilateral Filter', '2D Filter', 'Laplacian', 'No Blur']
+choosen_blur.set(choices[5])
+max_image_area = IntVar()
+min_image_area = IntVar()
+conture_threshold = BooleanVar()
+min_contour_area = IntVar()
+max_contour_area = IntVar()
+
+vertical_mirror = BooleanVar()
+vertical_mirror.set(False)
+horizontal_mirror = BooleanVar()
+horizontal_mirror.set(False)
+
+#------------- Image variables --------------------
+
+preparedImage = None
+blurred_process = None
+blurred_show = None
+contourCanvas = None
+tkImageOri = None
+tkImageGray = None
+tkImageBlurred = None
+tkImageContour = None
+tkImageContourZoom = None
+final_contours = None
+isFirstRun=True
+cv2Image = None
+filteredContourArray = None
+
+
+
+# ---------------- Functions -----------------------
+
+# Start when clicking Upload image or New Image buttons, let's you choose a file and reads it
+def uploadImage():
+    #uploadImage
+	cam = cv2.VideoCapture(0)   
+	s, img = cam.read()
+	if s:
+		cv2.imwrite("filename.jpg",img)
+	filepath=("filename.jpg")
+	path = Path(filepath)
+	##path = Path(filepath)
+	image_name.set(path.stem)
+
+	
+	# Set global variable: Filename
+	image_path.set(filepath)
+
+	print(image_name.get())
+
+	# Prepare image for edge detection
+
+	if filepath == "":
+		print("No image selected")
+		return None
+
+	
+	# Refresh label widgets
+	setImages()
+	
+# Creates the different images types from the uploaded image
+def createContoures(isInv,thresh_min):
+	global tkImageContour
+	global final_contours
+
+	if blurred_process is None:
+		return None
+	
+	#global thres_min
+	# Big image find contours	
+	thresh_min = thres_min_scale.get()
+	contours_big = IP.detectContours(blurred_process, isInv,thresh_min)
+
+	if contours_big != None:
+		gcode_gen_button.configure(state="active")
+		final_contours = contours_big
+
+	# Small image find contours and draw
+	#contours_show = IP.detectContours(blurred_process)
+	contourCanvas = np.zeros(contourCanvas.shape, np.uint8)
+	contourImage, approx = IP.drawContoursOnCanvas(contourCanvas, contours_big)
+
+	# Convert OpenCV canvas image to tKinter image 
+	tkim = Image.fromarray(resizedCanvas)
+	imgtk_contour = ImageTk.PhotoImage(image=tkim)
+	tkImageContour = imgtk_contour
+
+# Sets the global image variable to the previously created images, and show them on the UI
+def setImages():
+
+	global isFirstRun
+	try:
+		tkimage_ori, tkimage_gray, tkimage_blurred, tkimage_contour, tkimage_contour_zoom, max_area, min_area, cv2image, filteredContours = IP.createPreviewImages(image_path.get(), thresh_min.get(), thresh_max.get(), inv_contour.get(), choosen_blur.get(), min_contour_area.get(), max_contour_area.get(), conture_threshold.get(), horizontal_mirror.get(), vertical_mirror.get())
+	except Exception as e: 
+		MB.showerror(title="Error", message="Image format is not supported")
+		print(e)
+		return
+		
+	im_upload_button.place_forget()	
+	max_image_area.set(round(max_area))
+	min_image_area.set(round(min_area))
+
+	area_thresh_min_scale.configure(from_=min_area,to=max_area, variable=min_contour_area)
+	area_thresh_max_scale.configure(from_=min_area,to=max_area, variable=max_contour_area)
+
+	if isFirstRun:
+		area_thresh_max_scale.set(max_image_area.get())
+		isFirstRun = False
+
+	area_thresh_frame.grid(row=4, column=0)
+
+	global contourCanvas
+	contourCanvas = tkimage_contour
+
+	global tkImageOri
+	tkImageOri = tkimage_ori
+
+	global tkImageGray
+	tkImageGray = tkimage_gray
+
+	global tkImageBlurred
+	tkImageBlurred = tkimage_blurred
+
+	global tkImageContour
+	tkImageContour = tkimage_contour
+
+	global tkImageContourZoom
+	tkImageContourZoom = tkimage_contour_zoom
+
+	global cv2Image
+	cv2Image = cv2image
+
+	global filteredContourArray
+	filteredContourArray = filteredContours
+
+	# Update image labels with global variables
+	
+	im_ori_show_label.configure(image=tkImageOri)
+	
+	im_gray_show_label.configure(image=tkImageGray)
+	
+	im_blurred_show_label.configure(image=tkImageBlurred)
+	
+	im_contour_show_label.configure(image=tkImageContour)
+
+	im_zoom_label.configure(image=tkImageContourZoom)
+
+	all_contour_settings_frame.grid(row=0, column=1, padx=10)
+
+# When 'Contour area filter' is off, this hides the corresponding sliders
+def hideContourThreshold():
+	if conture_threshold.get():
+		area_thresh_frame.configure(height=140)
+		area_thresh_min_scale.grid(row=1, column=0)
+		area_thresh_max_scale.grid(row=2, column=0)
+		
+	else:
+		
+		area_thresh_min_scale.grid_forget()
+		area_thresh_max_scale.grid_forget()
+		area_thresh_frame.configure(height=40)
+
+# When clicking on any of the images it zooms in the contour (svg type) image
+def zoomImage(imageName):
+	
+	im_ori_show_label.grid_forget()
+	im_gray_show_label.grid_forget()
+	im_blurred_show_label.grid_forget()
+	im_contour_show_label.grid_forget()
+
+	im_zoom_label.grid(row=0, column = 0, sticky=W)
+
+# When clicking on the zoomed image, this zooms it out
+def closeZoomImage():
+	
+	im_zoom_label.grid_forget()
+	im_ori_show_label.grid(row=0, column = 0, sticky=W)
+	im_gray_show_label.grid(row=0, column = 1, sticky=W)
+	im_blurred_show_label.grid(row=1, column =0, sticky=W)
+	im_contour_show_label.grid(row=1, column = 1, sticky=W)
+
+# Starts the SVG creating process
+def getSVG():
+	success = IP.createSVG(image_name.get())
+	if success:
+		MB.showinfo(title="Success", message="SVG has been created and saved in the 'output' directory")
+	else:
+		MB.showerror(title="Error", message="An error occured during SVG creation")	
+
+
+
+#---------------------------- Image upload tab ------------------------------
+
+# Left column on the tab, holds the images
+
+image_frame = Frame(tab1, width=660, height=900, relief="flat")
+image_frame.grid(row=0, column=0)
+image_frame.rowconfigure(0, weight=1)
+image_frame.columnconfigure(0, weight=1)
+image_frame.grid_propagate(0)
+
+# This is kinda the same as the previous one
+image_preview_frame = Frame(image_frame, width=660, height=900, relief="flat")
+image_preview_frame.grid(row=0, column=0)
+
+
+	# Original image
+im_ori_show_label = Label(image_preview_frame, image = None, pady = 20)
+im_ori_show_label.grid(row=0, column = 0, sticky=W)
+im_ori_show_label.bind("<Button-1>", lambda e: zoomImage("originalImage"))
+
+	# Gray Image 
+im_gray_show_label = Label(image_preview_frame, image = None, pady = 20)
+im_gray_show_label.grid(row=0, column = 1, sticky=W)
+im_gray_show_label.bind("<Button-1>", lambda e: zoomImage("grayImage"))
+
+	# Blurred Image
+im_blurred_show_label = Label(image_preview_frame, image = None, pady = 20)
+im_blurred_show_label.grid(row=1, column =0, sticky=W)
+im_blurred_show_label.bind("<Button-1>", lambda e: zoomImage("blurredImage"))
+
+	# Contour image
+im_contour_show_label = Label(image_preview_frame, image = None, pady = 20)
+im_contour_show_label.grid(row=1, column = 1, sticky=W)
+im_contour_show_label.bind("<Button-1>", lambda e: zoomImage("contourImage"))
+
+	# Zoomed image, it's hidden by default
+im_zoom_label = Label(image_frame, image = tkImageContourZoom, pady = 20, width=660, height=800)
+im_zoom_label.bind("<Button-1>", lambda e: closeZoomImage())
+	
+
+	# Image upload button, it hides after an image is uploaded
+im_upload_button = Button(tab1, text="Upload image", command=uploadImage)
+im_upload_button.place(relx=0.5, rely=0.5,anchor=CENTER)
+
+
+# Contour detection parameter sliders and checkboxes (second column on the tab)
+
+
+	# The frame holding all the paramaters
+all_contour_settings_frame = Frame(tab1, width=340, height=800)
+all_contour_settings_frame.grid_propagate(0)
+all_contour_settings_frame.columnconfigure(0, weight=1)
+
+
+# --------------- New image and refresh button frame ------------------------------
+newimage_frame = Frame(all_contour_settings_frame, width=320, height=40, highlightbackground="black", highlightthickness=1, pady=5)
+newimage_frame.grid(column=0, row=0)
+newimage_frame.grid_propagate(0)
+#Lovejoy
+new_image_button = Button(newimage_frame,text="New image", command=uploadImage)
+new_image_button.grid(column=0, row=0, padx=40)
+
+recontour_button = Button(newimage_frame,text="Recontour image", command=setImages)
+recontour_button.grid(column=1, row=0,padx=40)
+
+
+# ----------- Spacing Frame ----------
+
+spacing_frame = Frame(all_contour_settings_frame, width=320, height=20)
+spacing_frame.grid(column=0, row=1)
+
+#------------  Detection settings frame ------------------
+detection_settings_frame = Frame(all_contour_settings_frame, width=320, height=370, highlightthickness=1, highlightbackground="black")
+detection_settings_frame.grid(row=2, column=0)
+detection_settings_frame.grid_propagate(0)
+detection_settings_frame.columnconfigure(0, weight=1)
+
+ 	# Title of the group
+detection_settings_label = Label(detection_settings_frame, text="Contour detection parameters")
+detection_settings_label.grid(row=0, column=0, pady=10)
+	
+	# Detection minimum frame # row 0,
+thresh_min_frame = Frame(detection_settings_frame, width=340, height=70)
+thresh_min_frame.grid(row=1, column=0,padx=0, pady=10)
+thresh_min_frame.grid_propagate(0)
+thresh_min_frame.columnconfigure(0, weight=1)
+
+thresh_min_label = Label(thresh_min_frame, text="Threshold minimum value")
+	
+thres_min_scale = Scale(thresh_min_frame, from_=1, to=254, orient=HORIZONTAL,length=300, variable=thresh_min, label="Detection minimum")
+thres_min_scale.grid(row=1, column=0,padx=5, pady=0)
+
+	#Detection maximum frame # row 1
+thresh_max_frame = Frame(detection_settings_frame, width=340, height=70)
+thresh_max_frame.grid(row=2, column=0, padx=0, pady=10)
+thresh_max_frame.columnconfigure(0, weight=1)
+
+thresh_max_label = Label(thresh_max_frame, text="Threshold maximum")
+
+thres_max_scale = Scale(thresh_max_frame, from_=1, to=254, orient=HORIZONTAL,length=300, variable=thresh_max, label="Detection maximum")
+thres_max_scale.grid(row=1, column=0,padx=5)
+
+	# Inverse contour checkkox # row 2
+inv_contour_checkbox = Checkbutton(detection_settings_frame, text="Inverse binary contours detection", variable=inv_contour, onvalue=True, offvalue=False)
+inv_contour_checkbox.grid(row=3, column=0, pady=10)
+
+	# Blur mode dropdrown # row 3
+blur_mode_frame = Frame(detection_settings_frame, width=340, height=50)
+blur_mode_frame.grid(row=4, column=0, padx=0, pady=10)
+blur_mode_frame.columnconfigure(0, weight=1)
+
+blur_mode_label = Label(blur_mode_frame, text="Blur type")
+blur_mode_label.grid(row=0, column=0,padx=30)
+
+blur_mode_dropdown = OptionMenu(blur_mode_frame, choosen_blur, *choices)
+blur_mode_dropdown.grid(row=1, column=0, pady=0)
+
+#----------- Spacing frame --------------
+
+spacing_frame_2 = Frame(all_contour_settings_frame, width=320, height=20)
+spacing_frame_2.grid(column=0, row=3)
+
+#----------------------------------------
+
+
+
+#----------- Contour area filters frame ----------------
+
+area_thresh_frame = Frame(all_contour_settings_frame, width=320, height=40, highlightbackground="black", highlightthickness=1, pady=5, padx=5)
+area_thresh_frame.columnconfigure(0, weight=1)
+area_thresh_frame.grid_propagate(0)
+
+	# Contour area filter ON/OFF chechbox
+area_thresh_checkbutton = Checkbutton(area_thresh_frame, text="Contour area filter", offvalue=False, onvalue=True, variable=conture_threshold, command=hideContourThreshold)
+area_thresh_checkbutton.grid(row=0, column=0,padx=5)
+
+	# Contour area filter Maximum slider
+area_thresh_min_scale = Scale(area_thresh_frame, from_=0, to=1, orient=HORIZONTAL,length=300, variable=min_contour_area, label="Min area", showvalue=False)
+area_thresh_min_scale.bind("<Right>", lambda e: area_thresh_min_scale.set(area_thresh_min_scale.get() + 9 ))
+area_thresh_min_scale.bind("<Left>", lambda e: area_thresh_min_scale.set(area_thresh_min_scale.get() - 9 ))
+	
+	# Contour area filter Minimum slider
+area_thresh_max_scale = Scale(area_thresh_frame, from_=0, to=1, orient=HORIZONTAL,length=300, variable=max_contour_area, label="Max area", showvalue=False)
+area_thresh_max_scale.bind("<Right>", lambda e: area_thresh_max_scale.set(area_thresh_max_scale.get() + 9 ))
+area_thresh_max_scale.bind("<Left>", lambda e: area_thresh_max_scale.set(area_thresh_max_scale.get() - 9 ))
+
+#----------- Spacing frame --------------
+
+spacing_frame_2 = Frame(all_contour_settings_frame, width=320, height=20)
+spacing_frame_2.grid(column=0, row=5)
+
+#----------------------------------------
+
+# --------------- Create SVG and Recontour button frame ------------------------------
+separate_window_frame = Frame(all_contour_settings_frame, width=320, height=40, highlightbackground="black", highlightthickness=1, pady=5)
+separate_window_frame.grid(column=0, row=6)
+separate_window_frame.grid_propagate(0)
+separate_window_frame.columnconfigure(0, weight=0)
+separate_window_frame.rowconfigure(0, weight=1)
+
+create_SVG_button = Button(separate_window_frame,text="Generate SVG", command=getSVG)
+create_SVG_button.grid(column=0, row=0, padx=40)
+
+recontour_button_2 = Button(separate_window_frame,text="Recontour image", command=setImages)
+recontour_button_2.grid(column=1, row=0,padx=40)
+
+
+
+
+#----Close button # don't really think is neccessary------------
+
+close_button = Button(tab1, text="Close", command=root.destroy)
+#close_button.grid(row=3, column=3)
+
+
+# Starts program
+root.mainloop()
+
