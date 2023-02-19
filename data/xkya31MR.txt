@@ -1,0 +1,78 @@
+#Цель сделать предобработку(если требуется). Решить проблему с кодировкой.
+#провести аналитику данных, сделать некие выводы-гипотезы. Желательно использовать графики
+
+import numpy
+import pandas
+from sklearn import linear_model
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score
+import matplotlib.pyplot as pyplot
+
+from datetime import datetime
+from pathlib import Path
+
+csv_file = pandas.read_csv('/Users/aleksejtitov/Desktop/test/second/data.csv')
+#определение типов
+#print(csv_file.columns)
+#print(csv_file.dtypes)
+
+#определение столбцов с пустыми значениями
+print(csv_file.columns[csv_file.isna().any()].tolist())
+
+#удаление days_employed и purpose, тк заведомо шум
+csv_file.drop(['days_employed','purpose'], axis=1,inplace=True)
+
+#КОДирование категориальных призаков (пол)
+gender=csv_file['gender']
+csv_file['gender'] = LabelEncoder().fit_transform(csv_file['gender'])
+
+#категорировать по типу занятости
+csv_file=pandas.get_dummies(csv_file,columns=['income_type'])
+
+#определение столбцов с пустыми значениями после приведения категоризации
+print(csv_file.columns[csv_file.isna().any()].tolist())
+
+#заполним пустые ячейки
+#print(csv_file['total_income'].median())
+csv_file['total_income'] = csv_file['total_income'].fillna(csv_file['total_income'].median())
+
+csv_file['total_income'].astype(numpy.int64,errors='ignore')
+csv_file['total_income']=pandas.to_numeric(csv_file['total_income'].round(), errors='coerce').astype('Int64')
+
+
+
+result_txt = open(str(Path.cwd())+'/result.txt','w')
+
+for n_neighbors in range (2,35):
+    result_txt.write('Neighbors='+str(n_neighbors))
+
+    # гипотеза №1 влияет ли количество детей и возраст на наличие задолженности 
+    hyp1=csv_file[['children','dob_years']].copy()
+    y1=csv_file[['debt']].copy()
+    train_hyp, val_hyp, train_y, val_y = train_test_split(hyp1,y1, test_size=0.25)
+    k1_neib=KNeighborsClassifier(n_neighbors)
+    k1_neib.fit(train_hyp,train_y)
+    predicted = k1_neib.predict(val_hyp)
+    result_txt.write(str(' 1:['+str(accuracy_score(predicted,val_y))+']'))
+
+    # гипотеза №2 опираясь на возраст и гендер можно угадать детей
+    hyp2=csv_file[['dob_years','gender']].copy()
+    y2=csv_file[['children']].copy()
+    train_hyp, val_hyp, train_y, val_y = train_test_split(hyp2,y2, test_size=0.25)
+    k2_neib=KNeighborsClassifier(n_neighbors)
+    k2_neib.fit(train_hyp,train_y)
+    predicted = k2_neib.predict(val_hyp)
+    result_txt.write(str(' 2:['+str(accuracy_score(predicted,val_y))+']'))
+
+    # гипотеза №5 влияет ли пол и количество детей на наличия задолженности
+    hyp5=csv_file[['gender','family_status_id']].copy()
+    y5=csv_file[['children',]].copy()
+    train_hyp, val_hyp, train_y, val_y = train_test_split(hyp5,y5, test_size=0.25)
+    k_neib5=KNeighborsClassifier(n_neighbors)
+    k_neib5.fit(train_hyp,train_y)
+    predicted = k_neib5.predict(val_hyp)
+    result_txt.write(str(' 5:['+str(accuracy_score(predicted,val_y))+']\n'))
+    print('loop',n_neighbors,'finished')
