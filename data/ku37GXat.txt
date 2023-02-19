@@ -1,0 +1,163 @@
+using System.Collections.Generic;
+using UnityEngine;
+using FishNet.Object;
+using FishNet.Object.Synchronizing;
+using FishNet.Connection;
+
+public class PlayerSpawner : NetworkBehaviour
+{
+    public static PlayerSpawner instance;
+
+    [field: SyncObject]
+    public readonly SyncList<ShipDataP> players = new SyncList<ShipDataP>();
+
+    public GameObject[] Stations;
+    public LocalShipDB LC_ShipDB;
+    public LocalPlayerData LC_PlayerData;
+    public int LC_PlayerShipID;
+    public GameObject SpawnPoint;
+    public GameObject LC_PlayerPrefab;
+    public GameObject HangarSpawnS;
+    public GameObject HangarSpawnM;
+    public GameObject HangarSpawnL;
+    public GameObject SpawnS;
+    public GameObject SpawnM;
+    public GameObject SpawnL;
+    public GameObject TargetSpawn;
+
+    [SerializeField] private int OwnerIDL;
+
+    [ServerRpc]
+    public void RPC_SetShipID(int CLientShipID)
+    {
+        SetClientShipID(CLientShipID);
+    }
+
+    [ServerRpc]
+    public void RPC_SelectplayerAndSpawn(int ShipID, int DBF_docketAtID, int DBF_inSpace, int LC_ShipSize)
+    {
+        SpawnPlayer(ShipID, DBF_docketAtID, DBF_inSpace, LC_ShipSize);
+    }
+
+    public override void OnOwnershipServer(NetworkConnection prevOwner)
+    {
+        base.OnOwnershipServer(prevOwner);
+        Debug.Log(prevOwner);
+        /* This is received when the server is giving ownership
+        * to a client. If a client is gaining
+        * ownership when the object is spawned OnOwnershipServer
+        * will be called immediately after OnStartServer. prevOwner
+        * is the connection which just lost ownership. If ownership is changed
+        * at runtime this callback also occurs. */
+       
+    }
+
+    public override void OnOwnershipClient(NetworkConnection prevOwner)
+    {
+        base.OnOwnershipClient(prevOwner);
+        /* Current owner can be found by using base.Owner. prevOwner
+        * contains the connection which lost ownership. Value will be
+        * -1 if there was no previous owner. */
+          
+
+    }
+
+    public override void OnSpawnServer(NetworkConnection connection)
+    {
+        base.OnSpawnServer(connection);
+        this.GiveOwnership(connection);
+        OwnerIDL = connection.ClientId;
+        LC_PlayerShipID = LC_PlayerData.DBF_ShipModelID;
+
+        RPC_SetShipID(LC_PlayerShipID);
+        RPC_SelectplayerAndSpawn(LC_PlayerShipID, LC_PlayerData.DBF_docketAtID, LC_PlayerData.DBF_inSpace, LC_PlayerData.LC_ShipSize);
+        /* This callback occurs after a spawn message for this
+        * object has been sent out to a client. For example: if
+        * this object will be visible to five clients, then this
+        * callback will occur five times, where the connection
+        * parameter will be for each client. 
+        * Primarily you will use this callback to send
+        * tailored communications to the client
+        * the object is being spawned for. */
+    }
+    public override void OnStartClient()
+    {
+        base.OnStartClient(); // call First Before Override
+
+       
+    }
+
+ 
+    [Server]
+    public void SpawnPlayer(int ShipID,  int DBF_docketAtID, int DBF_inSpace, int LC_ShipSize)
+    {
+        Stations = GameObject.FindGameObjectsWithTag("Station");
+
+        if (DBF_inSpace == 0 && DBF_docketAtID != 0)
+        {
+            foreach (GameObject c in Stations)
+            {
+                StationScript StationMain = c.GetComponent<StationScript>();
+
+                if (StationMain.StationID == DBF_docketAtID)
+                {
+                    for (int i = 0; i < c.transform.childCount; i++)
+                    {
+                        if (c.transform.GetChild(i).name.Contains("SpawnS"))
+                        {
+                        
+                            SpawnS = c.transform.GetChild(i).gameObject;
+                        }
+                        else if (c.transform.GetChild(i).name.Contains("SpawnM"))
+                        {
+                 
+                            SpawnM = c.transform.GetChild(i).gameObject;
+                        }
+                        else if (c.transform.GetChild(i).name.Contains("SpawnL"))
+                        {
+     
+                            SpawnL = c.transform.GetChild(i).gameObject;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (LC_ShipSize == 1)
+        {
+            TargetSpawn = SpawnS;
+        }
+        else if (LC_ShipSize == 2)
+        {
+            TargetSpawn = SpawnM;
+        }
+        else if (LC_ShipSize == 3)
+        {
+            TargetSpawn = SpawnL;
+        }
+
+        Debug.Log(ShipID);
+        LC_PlayerPrefab = LC_ShipDB.GetShip(ShipID);
+
+        GameObject go = Instantiate(LC_PlayerPrefab, TargetSpawn.transform.position, TargetSpawn.transform.rotation);
+        Spawn(go, base.Owner);
+        LC_PlayerPrefab = null;
+    }
+
+    [Server]
+    public void SetClientShipID(int ClientShipID)
+    {
+        Debug.Log("Got ID: " + ClientShipID);
+        LC_PlayerShipID = ClientShipID;
+    }
+
+    public void Start()
+    {
+        LC_ShipDB.InitData();  // Init ShipDB with ID/Prefab
+    }
+    public void Awake()
+    {
+        instance = this;
+    }
+}
+
