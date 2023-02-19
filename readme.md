@@ -1,11 +1,5 @@
-[**FB8tXnba**](/data/FB8tXnba.txt) (20/02/23 - 03:03)- 13320 bytes
+[**hweb1zvw**](/data/hweb1zvw.txt) (20/02/23 - 03:16)- 2611 bytes
 
-[**FB8tXnba**](/data/FB8tXnba.txt) (20/02/23 - 03:03)- 13320 bytes
-
-[**qD3Ed7cr**](/data/qD3Ed7cr.txt) (20/02/23 - 03:03)- 13430 bytes
-
-[**qD3Ed7cr**](/data/qD3Ed7cr.txt) (20/02/23 - 03:03)- 13430 bytes
-
-**Total Datas**: 10816
+**Total Datas**: 10817
 
 **Total Size**: 69.50 MB / 69.5 MB
