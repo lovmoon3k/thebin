@@ -1,0 +1,101 @@
+#include <dirent.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+typedef struct dirent Entry;
+typedef struct stat Stata;
+
+enum { MAX_LEN_PATH = 8192 };
+
+int smart_print(int depth, char *directory_abs, char *directory_rel, int z) {
+    if (depth == 4) {
+        return 1;
+    }
+    DIR *d = opendir(directory_abs);
+    if (!d) {
+        // printf("%s\n", directory_abs);
+        fprintf(stderr, "%s\n", "Open dir failed");
+        return 0;
+    }
+    Entry *e = NULL;
+    int length_abs = strlen(directory_abs);
+
+    int length_rel = strlen(directory_rel);
+
+    while ((e = readdir(d)) != NULL) {
+        if (!strcmp(e->d_name, ".")) {
+            continue;
+        }
+        if (!strcmp(e->d_name, "..")) {
+            continue;
+        }
+        // abs
+        snprintf(directory_abs + length_abs, MAX_LEN_PATH - length_abs, "%s",
+                 e->d_name);
+        // rel
+        snprintf(directory_rel + length_rel, MAX_LEN_PATH - length_rel, "%s",
+                 e->d_name);
+
+        if (e->d_type == DT_REG) {
+            Stata in;
+            stat(directory_abs, &in);
+            if (in.st_size <= z) {
+                printf("%s\n", directory_rel);
+            }
+            continue;
+        }
+
+        if (e->d_type == DT_DIR) {
+            int length = strlen(e->d_name);
+            // abs
+            snprintf(directory_abs + length_abs + length,
+                     MAX_LEN_PATH - length_abs - length, "/");
+            // rel
+            snprintf(directory_rel + length_rel + length,
+                     MAX_LEN_PATH - length_rel - length, "/");
+
+            if (!smart_print(depth + 1, directory_abs, directory_rel, z)) {
+                return 0;
+            }
+        }
+    }
+
+    if (closedir(d) == -1) {
+        return 0;
+    }
+    return 1;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        fprintf(stderr, "%s\n", "Error: 2 arguments expected");
+        exit(1);
+    }
+    const char *d = argv[1];
+    char *end = NULL;
+    errno = 0;
+    int z = strtol(argv[2], &end, 10);
+    if (errno) {
+        fprintf(stderr, "%s\n", "Error: Second argument must be an integer");
+        exit(1);
+    }
+
+    char directory_abs[MAX_LEN_PATH] = {0}, directory_rel[MAX_LEN_PATH] = {0};
+
+    int length = strlen(d);
+    if (d[length - 1] == '/') {
+        snprintf(directory_abs, MAX_LEN_PATH, "%s", d);
+    } else {
+        snprintf(directory_abs, MAX_LEN_PATH, "%s/", d);
+    }
+
+    if (!smart_print(0, directory_abs, directory_rel, z)) {
+        exit(1);
+    }
+    return 0;
+}
