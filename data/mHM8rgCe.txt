@@ -1,0 +1,82 @@
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.time.ZoneId;
+import java.util.*;
+
+public class Main {
+    private static final Set<String> IMAGE_EXTENSIONS;
+
+    static {
+        var exts = new HashSet<String>();
+        exts.add("jpg");
+        exts.add("jpeg");
+        exts.add("png");
+        exts.add("svg");
+        exts.add("jfif");
+        exts.add("jpg_large");
+        exts.add("webp");
+        exts.add("gif");
+        IMAGE_EXTENSIONS = exts;
+    }
+
+    public static String getName(File file) {
+        var index = file.getName().lastIndexOf('.');
+        return file.getName().substring(0, index);
+    }
+
+    public static String getExtension(File file) {
+        var index = file.getAbsolutePath().lastIndexOf('.');
+        return file.getAbsolutePath().substring(index + 1);
+    }
+
+    private record FileSortKey(int year, int month) {
+    }
+
+    public static FileSortKey getSortKey(File file) throws IOException {
+        var attrs = Files.readAttributes(file.toPath(), BasicFileAttributes.class);
+        var time = attrs.lastModifiedTime().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+        return new FileSortKey(time.getYear(), time.getMonthValue());
+    }
+
+    public static void main(String[] args) throws Throwable {
+        final var srcDir = new File("/home/sci4me/Pictures");
+        final var dstDir = new File("/home/sci4me/Pictures2");
+
+        int copied = 0;
+
+        for (var file : srcDir.listFiles()) {
+            if (file.isDirectory()) {
+                System.out.printf("Skipped directory '%s'\n", file);
+                continue;
+            }
+
+            var ext = getExtension(file);
+            if (!IMAGE_EXTENSIONS.contains(ext)) continue;
+
+            if (Files.isSymbolicLink(file.toPath())) continue;
+
+            var sort = getSortKey(file);
+            var fileDstDir = new File(dstDir, String.format("%d/%d", sort.year, sort.month));
+            if (!fileDstDir.exists()) fileDstDir.mkdirs();
+
+            var fileNameAndExt = (getName(file) + "." + getExtension(file)).replaceAll(".jpg_large", ".jpg");
+            var dstFile = new File(fileDstDir, fileNameAndExt);
+            try {
+                Files.copy(file.toPath(), dstFile.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+            } catch (Throwable t) {
+                System.out.println("Error copying " + file);
+                t.printStackTrace();
+            } finally {
+                file.delete();
+            }
+
+            System.out.println("Copied " + file + " to " + dstFile);
+
+            copied++;
+        }
+
+        System.out.println("Copied " + copied + " files");
+    }
+}
