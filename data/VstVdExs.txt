@@ -1,0 +1,49 @@
+##############################################################################
+# Automation requirements: all z-wave devices should contain 
+# enabled 'sensor.*_node_status' and 'button.*_ping' entities
+# This automation is pressing ping button up to 5 times every 15 seconds until 
+# a node becomes alive. The automation is queued to avoid zwave network traffic jam.
+alias: Z-Wave - PING dead nodes
+description: ""
+trigger:
+  - platform: state
+    entity_id:
+      - sensor.myot_node_status
+      - sensor.panel_alarmu_node_status
+      - sensor.roleta_agatka_dach_node_status
+      - sensor.termostat_zuzia_node_status
+    to: dead
+condition: []
+action:
+  - repeat:
+      while: '{{ states(trigger.entity_id) == "dead" and repeat.index <= 5 }}'
+      sequence:
+        - service: persistent_notification.create
+          data:
+            title: 'Waking up - {{ states("sensor.date_time") }}'
+            message: '{{ device_attr(device_id(trigger.entity_id), "name") }} - try no. {{ repeat.index }}'
+        #use ping buttons as the service wave_js.ping is deprecated
+        - service: button.press
+          target:
+            entity_id: '{{ trigger.entity_id | regex_replace(find="sensor.(.*)_node_status", replace="button.\\1_ping", ignorecase=False) }}'
+        - wait_template: '{{ states(trigger.entity_id) == "alive" }}'
+          timeout: 
+            seconds: 15
+mode: queued
+
+######################################################################
+# Template to collect _node_status entities for non-battery powered z-wave devices
+# Pinging battery powered devices repeatedly is not good idea as they need to be woken up.
+# The output of this temlate can be used in the trigger definition of the automation above.
+# Using the template in the trigger or in a template sensor is not recommended because
+# it will be executed on each state change of each z-wave entity causing resource loss.
+{% set all_nodes = expand(integration_entities('Z-Wave JS') ) |
+   selectattr('entity_id', 'search', 'node_status') | 
+   map(attribute='entity_id') | list %} 
+{%- set ns = namespace(entities = []) %}
+{% for n in all_nodes %}
+  {% if states(n.split('_node')[0] + '_battery_level') == 'unknown' %}
+     {% set ns.entities = ns.entities + [n] %}
+  {% endif %}
+{% endfor %}
+- {{ns.entities | join('\n- ')}}
