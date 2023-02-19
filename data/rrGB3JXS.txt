@@ -1,0 +1,61 @@
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { joinVoiceChannel, VoiceConnectionStatus, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
+const config = require("../config.json");
+const { createReadStream } = require("node:fs");
+const { join } = require("node:path");
+const ytdl = require("ytdl-core");
+const search = require("youtube-search");
+const fs = require('fs');
+
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('play')
+        .setDescription('Play a song in a voice channel')
+        .addStringOption(option => 
+            option
+                .setName('video')
+                .setDescription('name of video to search')
+                .setRequired(true)),
+    async execute(interaction) {
+        console.log("Connecting")
+        let video = interaction.options.getString('video');
+        let opts = {
+            maxResults: 1,
+            key: config.ytToken,
+        }
+
+        await search(video, opts , (err, results) => {
+            if (err) return console.error(err);
+            if (results.length == 0) {
+                interaction.editReply("No results found");
+                return; 
+            } else {
+                ytdl(results[0].link, { filter: "audioonly" }).pipe(createReadStream(join(__dirname, "../song.ogg")));
+                interaction.editReply(`Playing ${results[0].title}`); 
+            }
+        });
+        let channel = interaction.member.voice.channelId;
+        console.log(channel);
+        const connection = joinVoiceChannel({
+            channelId: channel,
+            guildId: interaction.guildId,
+            adapterCreator: interaction.guild.voiceAdapterCreator,
+        });
+        
+
+        connection.on(VoiceConnectionStatus.Ready, () => {
+            console.log("Connected to voice channel")
+            const player = createAudioPlayer();
+            const subscription = connection.subscribe(player);
+            const resource = createAudioResource(createReadStream(join(__dirname, "../song.ogg"), { inputType: StreamType.OggOpus,}));
+            player.play(resource);
+            console.log("Song Playing");
+            interaction.editReply("playing");
+            player.on(AudioPlayerStatus.Idle, () => {
+                subscription.unsubscribe();
+                player.stop();
+                connection.destroy();
+            })
+        });
+    }
+}
