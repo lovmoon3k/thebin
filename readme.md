@@ -1,17 +1,9 @@
-[**ZMwLYs4z**](/data/ZMwLYs4z.txt) (19/02/23 - 07:52)- 12693 bytes
+[**Nq8rvi9m**](/data/Nq8rvi9m.txt) (19/02/23 - 08:48)- 4429 bytes
 
-[**DpxjdAY3**](/data/DpxjdAY3.txt) (19/02/23 - 07:52)- 2604 bytes
+[**9RvbChst**](/data/9RvbChst.txt) (19/02/23 - 08:48)- 7285 bytes
 
-[**gWjLs3xC**](/data/gWjLs3xC.txt) (19/02/23 - 07:52)- 968 bytes
+[**Nq8rvi9m**](/data/Nq8rvi9m.txt) (19/02/23 - 08:48)- 4429 bytes
 
-[**ZMwLYs4z**](/data/ZMwLYs4z.txt) (19/02/23 - 07:52)- 12693 bytes
+**Total Datas**: 10646
 
-[**gWjLs3xC**](/data/gWjLs3xC.txt) (19/02/23 - 07:52)- 968 bytes
-
-[**z5tmBVK1**](/data/z5tmBVK1.txt) (19/02/23 - 07:52)- 16012 bytes
-
-[**z5tmBVK1**](/data/z5tmBVK1.txt) (19/02/23 - 07:52)- 16012 bytes
-
-**Total Datas**: 10644
-
-**Total Size**: 68.56 MB / 68.6 MB
+**Total Size**: 68.57 MB / 68.6 MB
