@@ -1,0 +1,39 @@
+version: "3"
+
+services:
+
+  app:
+    build: 
+      dockerfile: ./docker/app/Dockerfile
+      context: .
+    command: gunicorn --access-logformat  "{'host':'%({host}i)s','remote_ip':'%(h)s','response_code':'%(s)s','request_method':'%(m)s','request_path':'%(U)s','request_querystring':'%(q)s','request_timetaken':'%(D)s','response_length':'%(B)s'}" --access-logfile - --workers=2 --threads=4 --worker-class=gthread  --bind unix:/run/gunicorn.sock admin.wsgi:application
+    volumes:
+      - .:/code
+      - ./docker/app/sock:/run
+    environment:
+      - ENVIRONMENT=production
+      - DB_HOST=db
+      - DB_NAME={DB_NAME}
+      - DB_USER={DB_USER}
+      - DB_PASSWORD={DB_PASSWORD}
+      - SECRET_KEY={DB_SECRETKEY}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    volumes:
+      - ./data/prod:/var/lib/postgresql/data
+    environment:
+      - DB_USER={DB_USER}
+      - DB_PASSWORD={DB_PASSWORD}
+      - DB_NAME={DB_NAME}
+  
+  nginx:
+    build:
+      dockerfile: ./docker/nginx/Dockerfile
+      context: .
+    volumes:
+      - ./docker/app/sock:/run
+    ports:
+      - "80:80"
