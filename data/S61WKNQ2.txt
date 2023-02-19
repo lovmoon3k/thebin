@@ -1,0 +1,137 @@
+# -Либо получить список участников групп сайта ВКонтакте, чтоб в названии/описании группы 
+# фигурировала информация о крипте. 
+# Цель чтоб получить как можно лучшую информацию по клиенту(фио, др, или телефон) 
+# чтоб дальше можно было понять кто это
+
+#from bs4 import BeautifulSoup
+
+print('\nimpotring libs...\n')
+import requests as req
+import pandas
+from pathlib import Path
+from datetime import datetime
+import csv
+import math
+
+vk_api_version = '5.131'
+vk_api_method = 'groups.getMembers'
+print('Hello, and welcome to vk parcer for test task(3*).\nThis script is working on vk\'s api version=',vk_api_version)
+print('For working with this script u should make service-token.',
+'\n fyi: https://dev.vk.com/api/access-token/getting-started \n\n')
+
+group_link = input('Input link on vk-community. example: https://vk.com/free_nft\nInput link: ')
+#check for right link providing
+try:
+    main_link = req.get(group_link)
+except:
+    print('wrong link')
+    exit()
+
+#check for private settings
+try:
+    gr_id = ((main_link.text.split('owner_id=-'))[1].split('&'))[0]
+except:
+    print('it\' private group. impossible to parse')
+    exit()
+group_name = ((main_link.text.split('data-post-owner-type="group">'))[1].split('</a> </div>'))[0]
+
+#making output folder
+base_path = str(Path.cwd())+'/output_folder/'
+base_p = Path(base_path)
+base_p.mkdir(exist_ok=True)
+
+#creating csv
+csv_path = base_path+gr_id+'_'+str(datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))+'.csv'
+csv_result_ids = open(csv_path, "x")
+csv_result_ids.write('id_of_subs\n')
+csv_result_ids.close()
+
+#creating and checking for group's readme
+try:
+    readme = open(base_path+gr_id+'.txt','x')
+    readme.write('Group name: '+group_name+'\npermanent link: https://vk.com/club'+gr_id+'\nDescription:'+str(((main_link.text.split('<meta name="description" content="'))[1].split('" />'))[0]))
+except:
+    print('readme for',group_name,'already created')
+
+#run through subs
+main_link = req.get('https://vk.com/search?c[section]=people&c[group]='+gr_id)
+
+# а тут я вспомнил про три буквы - A P I
+#user's own service-token for api requests
+ur_service_token = input('input ur vk-api\'s service token.\nInput s-token:')
+
+#counts of subs 
+api_q = req.get('https://api.vk.com/method/groups.getMembers?access_token='+ur_service_token+'&v='+vk_api_version+'&group_id='+gr_id+'&count=0')
+amount_of_subs = ((str(api_q.json()).split('\'count\': '))[1].split(','))[0]
+
+#saving subs ids
+offset_help = 0
+csv_result_ids = open(csv_path,'a')#,newline='')
+for i in range(int(math.ceil(int(amount_of_subs)/1000))):
+    api_q = req.get('https://api.vk.com/method/groups.getMembers?access_token='+ur_service_token+'&v='+vk_api_version+'&group_id='+gr_id+'&offset='+str(offset_help))
+    array_of_ids=((str(api_q.json()).split('['))[1].split(']'))[0].split(',')
+    for j in array_of_ids:
+        (csv.writer(csv_result_ids)).writerow([j])
+    offset_help +=1000
+csv_result_ids.close()
+
+#adding other info: publicity of profile, id, name, city, phone | берем айдишники, идем к апи-запросу 
+#primerno zdes' nachinaetsya kasha s bol'shim kolichestvom bottle neck'ov i kostiley
+n=0
+csv_path_finale = base_path+gr_id+'-'+str(datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))+'.csv'
+csv_result = open(csv_path_finale,encoding='utf-16',mode='a')
+csv_result.write('id,is_closed,name,bday,sex,country,city,mobile_phone,home_phone\n')
+# sex: 1-female, 2-male, 0-none
+
+print('\nparcing in progress...\n')
+
+csv_result_ids=open(csv_path,'r')
+read_csv=csv.reader(csv_result_ids)
+next(read_csv)
+for i in range(int(math.ceil(int(amount_of_subs)/100))):
+    users_ids=[]
+    users_ids_no_spaces=''
+    for j in range(n,99+n):
+        try:
+            users_ids+=next(read_csv)
+        except: 
+            continue
+    for k in range(len(users_ids)):
+        users_ids_no_spaces+=users_ids[k].replace(' ','')+','
+    api_q = req.get('https://api.vk.com/method/users.get?access_token='+ur_service_token+'&v='+vk_api_version+'&user_ids='+users_ids_no_spaces+'&fields=country,city,contacts,sex,bdate')
+    users_info = (str(api_q.json()).split('['))[1].split('}, {')
+
+    for j in range(100):
+        try:
+            user = users_info[j]
+            u_id = user.split('id\':')[1].split(',')[0]+','
+            u_private =  user.split('is_closed\':')[1].replace('}]}','')+','
+            u_name=(user.split('last_name\':')[1].split(',')[0]+'_'+user.split('first_name\':')[1].split(',')[0]).replace('\'','')+','
+            u_bday=','
+            u_sex=','
+            u_country=','
+            u_city=','
+            u_mobile_phone=','
+            u_home_pnohe=''
+            
+            if 'bdate' in user:
+                u_bday = user.split('bdate\':')[1].split(',')[0].replace('\'','')+','
+            if 'sex' in user:
+                u_sex =  user.split('sex\':')[1].split(',')[0]+','
+            if 'mobile_phone' in user:
+                u_mobile_phone=(user.split('mobile_phone\':')[1].split(',')[0]).replace('\'','')+','
+            if 'home_phone' in user:
+                u_home_pnohe=user.split('home_phone\':')[1].split(',')[0].replace('\'','')
+            if 'country' in user:
+                u_country=user.split('country\': {')[1].split(',')[0].replace('\'id\': ','')+'|'+user.split('country\': {')[1].split('title\':')[1].split('}')[0].replace(' ','').replace('\'','')+','
+            if 'city' in user:
+                u_city=user.split('city\': {')[1].split(',')[0].replace('\'id\': ','')+'|'+user.split('city\': {')[1].split('title\':')[1].split('}')[0].replace(' ','').replace('\'','')+','
+
+            u_result=(u_id+u_private+u_name+u_bday+u_sex+u_country+u_city+u_mobile_phone+u_home_pnohe).replace(' ','')
+            csv_result.write(u_result+'\n')
+        except: 
+            continue
+    n+=100
+
+print('result file was created by path:',csv_path_finale)
+Path.unlink(csv_path)
