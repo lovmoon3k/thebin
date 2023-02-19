@@ -1,0 +1,140 @@
+.model small
+.stack 100h
+
+.data
+
+errwrite db "Error: can't send byte",0Dh,0Ah,'$'
+errread db "Error: can't read byte",0Dh,0Ah,'$'
+output db "Result: $"
+byte1 db 'V'
+byte2 db ?
+           
+.code
+           
+initialize proc
+    ; COM1
+    mov al,80h
+    mov dx,3FBh
+    out dx,al
+    
+    mov dx, 3F8h
+    mov al, 00h
+    out dx, al
+    mov al, 0Dh
+    mov dx, 3F9h
+    out dx, al
+
+    mov dx, 3FCh
+    mov al, 00001011b
+    out dx, al
+
+    mov al, 0000011b
+    mov dx, 3FBh
+    out dx, al
+
+    mov dx, 3F9h
+    mov al, 00001011b
+    out dx, al
+
+    ; COM2
+
+    mov al, 80h
+    mov dx, 2FBh
+    out dx,al
+    
+    mov dx, 2F8h
+    mov al, 00h
+    out dx, al
+    mov al, 0Dh
+    mov dx, 2F9h
+    out dx, al
+
+    mov dx, 2FCh
+    mov al, 00001011b
+    out dx, al
+
+    mov al, 0000011b
+    mov dx, 2FBh
+    out dx, al
+
+    mov dx, 2F9h
+    mov al, 00001011b
+    out dx, al
+
+    ret
+initialize endp
+
+checkCOM1 proc
+    xor al,al
+    mov dx,3FDh ; LSR status of com-port
+    in al,dx
+    test al,10h ; test 5th bit if not set error
+    jnz writeError
+    ret
+checkCOM1 endp
+
+writeError proc
+   mov ah,9
+   mov dx,offset errwrite
+   int 21h
+   ret 
+writeError endp
+
+checkCOM2 proc
+    xor al,al
+    mov dx,2FDh
+    in al,dx
+    test al,10b
+    jnz readError
+    ret
+checkCOM2 endp
+
+readError proc
+   mov ah,9
+   mov dx,offset errread
+   int 21h
+   ret 
+readError endp
+
+sendByte proc
+    mov dx,3F8h
+    mov al,byte1
+    out dx,al
+    mov ah, 86h
+    mov cx, 10
+    mov dx, 0
+    int 15h
+    ret
+sendByte endp
+
+readByte proc
+    mov dx,2F8h
+    in al,dx
+    mov byte2,al
+    ret
+readByte endp
+
+exit proc
+    mov ax,4C00h
+    int 21h
+    ret
+exit endp
+
+start:
+    mov ax,@data
+    mov ds,ax
+    call initialize
+    call checkCOM1
+    call sendByte
+    mov al,2 
+    call checkCOM2
+    call readByte
+    mov dx,offset output
+    mov ah,9h
+    int 21h
+    mov ah,02h
+    mov dl, byte2
+    int 21h 
+    call exit
+   
+end start

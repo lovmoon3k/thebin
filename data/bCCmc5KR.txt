@@ -1,0 +1,77 @@
+#include <windows.h>
+#include <unistd.h>
+#include <stdio.h>
+
+HANDLE COM1;
+HANDLE COM2;
+LPCTSTR port1 = "COM3";
+LPCTSTR port2 = "COM4";
+
+void readByte () {
+    DWORD size = 0;
+    char byte;
+    while (size == 0) {
+        ReadFile(COM2, &byte, 1, &size, 0);
+    }
+    printf("%c", byte);
+}
+
+void initialize () {
+
+    COM1 = CreateFile(port1, GENERIC_WRITE, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    COM2 = CreateFile(port2, GENERIC_READ, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+
+    if (COM1 == INVALID_HANDLE_VALUE) {
+        if (GetLastError() == ERROR_FILE_NOT_FOUND) {
+            fprintf(stderr, "Error: %s does not exist\n", port1);
+            exit(EXIT_FAILURE);
+        }
+        fprintf(stderr, "Error: unexpected error\n");
+        exit(EXIT_FAILURE);
+    }
+
+    DCB params;
+    params.DCBlength = sizeof(params);
+
+    if (!GetCommState(COM1, &params)) {
+        fprintf(stderr, "Error: can't get COM1 state\n");
+        exit(EXIT_FAILURE);
+    }
+
+    params.BaudRate = CBR_256000;
+    params.ByteSize = 8;
+    params.StopBits = ONESTOPBIT;
+    params.Parity = NOPARITY;
+
+    if (!SetCommState(COM2, &params)) {
+        fprintf(stderr, "Error: can't set COM2 state\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (!SetCommState(COM1, &params)) {
+        fprintf(stderr, "Error: can't set COM1 state\n");
+        exit(EXIT_FAILURE);
+    }
+
+}
+
+void sendByte (char c) {
+
+    DWORD size = sizeof(c);
+    DWORD bytes;
+
+    WriteFile(COM1, &c, size, &bytes, NULL);
+
+}
+
+int main () {
+
+    const char* data = "Hello, World!";
+    initialize();
+    for (int i = 0; i < strlen(data); i++) {
+        sendByte(data[i]);
+        readByte();
+    }
+
+    return 0;
+}
