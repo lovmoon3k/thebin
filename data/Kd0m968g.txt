@@ -1,0 +1,231 @@
+local lib = loadstring(game:GetObjects("rbxassetid://7657867786")[1].Source)()
+local GUI = lib:CreateWindow({Name = "Retail Tycoon GUI v2"})
+
+local MainTab = GUI:CreateTab({Name = "Main"})
+local statsTab = GUI:CreateTab({Name = "Info"})
+
+local lp = game.Players.LocalPlayer
+
+local tycoon = workspace.Functions.GetTycoon:InvokeServer()
+if not tycoon then
+    local Waiting_4_Tycoon = MainTab:CreateSection({Name = "Waiting For Tycoon"})
+    Waiting_4_Tycoon:AddButton({Name="Teleport to Random Tycoon", Callback = function()
+        lp.Character:MoveTo(workspace:FindFirstChild('Claim Land', true).Button.Position)
+    end})
+    
+    repeat wait() tycoon = workspace.Functions.GetTycoon:InvokeServer() until tycoon
+    Waiting_4_Tycoon:Remove()
+end
+    
+local loopsSection = MainTab:CreateSection({Name = "Automatic"})
+local tycoonSection = MainTab:CreateSection({Name = "Tycoon"})
+local suppliesSection = MainTab:CreateSection({Name = "Supplies", Side='Right'})
+
+local buysupplydropdown = suppliesSection:AddDropdown({Name = "Buy Supply for Half Price", List = {
+    'Soda','Candy','Books','Chips','Food','Frozen Food', 'Toys',
+    'Videogames','Clothing','Shoes','Car Parts', 'Hats','Pets',
+    'Smartphones','Electronics','Instruments','Tablets', 'Jewelry'
+}})
+
+local buysupplyslider = suppliesSection:AddSlider({Name = "Amount", Value = 10, Min = 0, Max = 500})
+local buysupplybutton = suppliesSection:AddButton({Name = "Buy Supplies", Callback = function()
+    for i = 1, buysupplyslider:Get() do 
+        workspace.Functions.EditSupply:FireServer(tycoon, buysupplydropdown:Get(), .5)
+    end
+end
+})
+
+local StatsSection = statsTab:CreateSection({Name = "Stats"})
+local cashPerSecLabel = StatsSection:AddLabel({Name="Cash per sec : $0"})
+local moneytreecounter = StatsSection:AddLabel({Name="Trees        : 0"})
+local totalsupplycounter = StatsSection:AddLabel({Name="Total Sold   : 0"})
+
+local InfoSection = statsTab:CreateSection({Name = "Info", Side = 'Right'})
+InfoSection:AddLabel({Name="Script made by bvthxry"})
+InfoSection:AddLabel({Name="UI Library: Pepsi UI Library"})
+InfoSection:AddLabel({Name="RShift to hide/show GUI"})
+
+StatsSection:AddLabel({Name=""})
+
+local loopsVars = {
+    restock_deb = false,
+    cashpersec_oldcash = workspace.Functions.GetCash:InvokeServer(),
+}
+
+local loops = {
+    clean = {
+        e = false,
+        f = function()
+            for i, v in pairs(tycoon.Tiles:GetChildren()) do 
+                if v:FindFirstChild("Spill") then
+                    for i = 1, v.Spill.Amount.Value do 
+                        spawn(function()
+                            workspace.Functions.CleanSpill:FireServer(v.Spill)
+                        end)
+                    end
+                end
+            end
+        end
+    },
+    collecttreemoney = {
+        e = false,
+        f = function()
+            for i, v in pairs(tycoon.Tiles:GetChildren()) do
+                local tree = v:FindFirstChild'MoneyTree'
+                if tree then
+                    for i, v in pairs(tree.FloorMoney:GetChildren()) do
+                        if v.Transparency == 0 then
+                        	firetouchinterest(game.Players.LocalPlayer.Character.HumanoidRootPart, v, 0)
+                        	firetouchinterest(game.Players.LocalPlayer.Character.HumanoidRootPart, v, 1)
+                        end
+                    end
+                end
+            end
+        end
+    },
+    arrest = {
+        e = false,
+        f = function()
+            for i,v in pairs(workspace.NPCModel:children()) do 
+                if v:FindFirstChild("HitboxPart") then
+                    workspace.Functions.CatchRobber:FireServer(tonumber(tycoon.Name:match("%d+")), v.Num.Value)
+                end
+            end
+        end
+    },
+    fivestars = {
+        e = false,
+        f = function()
+            workspace.Functions.EditTycoon:FireServer(tycoon,"Rating",5.1)
+        end
+    },
+    infstorage = {
+        e = false,
+        f = function()
+            tycoon.Storage.Max.Value = 9e18
+        end
+    },
+    restock = {
+        e = false,
+        f = function()
+            if loopsVars.restock_deb then return end
+            for _, t in pairs(tycoon.Tiles:GetChildren()) do
+                for i, displayitem in pairs(t:GetChildren()) do
+                    if displayitem:IsA("Model") and displayitem:FindFirstChild("Item") then
+                        spawn(function()
+                            workspace.Functions.Restock:InvokeServer(tycoon, displayitem)
+                        end)
+                    end
+                end
+            end
+            loopsVars.restock_deb = true
+            delay(7, function()
+                loopsVars.restock_deb = false
+            end)
+        end
+    },
+    cashpersec = {
+        e = true,
+        f = function()
+            local cashNow = workspace.Functions.GetCash:InvokeServer()
+            cashPerSecLabel:Set("Cash per sec : $" .. tostring(cashNow-loopsVars.cashpersec_oldcash))
+            loopsVars.cashpersec_oldcash = cashNow
+        end
+    },
+    treecounter = {
+        e = true,
+        f = function()
+            local trees = workspace.Functions.MoneyTrees:InvokeServer()
+            moneytreecounter:Set("Money Trees  : " .. tostring(trees))
+        end
+    },
+}
+
+loopsSection:AddToggle({Name = "Infinite Storage",Callback = function(x)loops.infstorage.e=x end})
+loopsSection:AddToggle({Name = "Restock",Callback = function(x)loops.restock.e=x end})
+loopsSection:AddToggle({Name = "Clean Spills",Callback = function(x)loops.clean.e=x end})
+loopsSection:AddToggle({Name = "Arrest",Callback = function(x)loops.arrest.e=x end})
+loopsSection:AddToggle({Name = "Collect from Money Trees",Callback = function(x)loops.collecttreemoney.e=x end})
+loopsSection:AddToggle({Name = "Always 5 Star Rating",Callback = function(x)loops.fivestars.e=x end})
+
+tycoonSection:AddButton({Name = "Teleport to Tycoon",Callback = function()lp.Character:MoveTo(tycoon.SpawnPoint.Position)end})
+
+local store_music_box = tycoonSection:AddTextbox({Name = "In-store music",Placeholder = "Audio ID",Value = ''})
+
+tycoonSection:AddButton({Name = "Play Song",Callback = function()
+    local id = tonumber(store_music_box:Get())if not id then return end 
+    workspace.Functions.EditTycoon:FireServer(tycoon,'Song','rbxassetid://' .. id)
+end})
+
+tycoonSection:AddLabel({Name=""})
+
+local iconid = tycoonSection:AddTextbox({Name = "Store Icon",Placeholder = "Image ID",Value = ''})
+
+tycoonSection:AddButton({Name = "Change Icon",Callback = function()
+workspace.Functions.EditTycoon:FireServer(tycoon,'StoreImage',iconid:Get())
+end})
+
+tycoonSection:AddLabel({Name=""})
+
+local tycooncolorpicker = tycoonSection:AddColorpicker({Name="Custom Tycoon Color", Value = tycoon.Info.Color.Value})
+tycoonSection:AddButton({Name = "Change Color",Callback = function()
+workspace.Functions.EditTycoon:FireServer(tycoon,'Color',tycooncolorpicker:Get())
+end})
+
+local supplyStatLabels = {}
+for i, v in pairs(tycoon.ItemsSold:GetChildren()) do
+    if not v.Name:match"Test" then
+        table.insert(supplyStatLabels, StatsSection:AddLabel({Name = ''}))
+    end
+end
+
+StatsSection:AddLabel({Name="* - currently selling"})
+
+loops.supplystat_and_total = {e=true,f=function()
+    local function getPlacedSupplies()
+        local DisplayItems = {'Rack', 'DisplayCase', 'ClothingRack', 'HatRack', 'DisplayTable', 'Freezer', 'GameShelves', 'Shelves'}
+        local supplies = {}
+        for i, v in pairs(tycoon.Tiles:GetChildren()) do
+            for _, DI in pairs(DisplayItems) do
+                local _item = v:FindFirstChild(DI)
+                if _item then
+                    table.insert(supplies, _item.Item.Value)
+                    break
+                end
+            end
+        end
+        
+        return supplies
+    end
+
+    local x = {}
+    local total = 0
+    
+    for i, v in pairs(tycoon.ItemsSold:children()) do
+        if not v.Name:match'Test' then
+            x[#x+1] = v
+            total = total + v.Value
+        end
+    end
+    
+    table.sort(x, function(a,b) return a.Value > b.Value end)
+    
+    local placedSupplies = getPlacedSupplies()
+    
+    for i, v in pairs(x) do
+        local isPlaced = (table.find(placedSupplies, v.Name) ~= nil)
+        local star, nr = isPlaced and '*' or '', isPlaced and 11 or 12
+        
+        supplyStatLabels[i]:Set(star .. v.Name .. string.rep(" ", nr - #v.Name) .. " : " .. v.Value)
+    end
+    
+    totalsupplycounter:Set("Total Sold   : " .. total)
+end}
+
+while wait(1) do
+    for i, loop in next, loops do 
+        if loop.e then
+            spawn(loop.f)
+        end
+    end
+end
