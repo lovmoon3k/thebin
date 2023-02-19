@@ -1,0 +1,103 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PlaceStructure = ReplicatedStorage:WaitForChild("PlaceStructure")
+local Structures = ReplicatedStorage:WaitForChild("Structures")
+
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = game.Players.LocalPlayer
+local StructureFrame = script.Parent.StructureFrame
+local Char = player.Character or player.Character:Wait()
+local HumanoidRootPart = Char:WaitForChild("HumanoidRootPart")
+
+local mouse = player:GetMouse()
+
+local yBuildingOffset = 5
+local maxPlacingDitance = 50
+local rKeyIsPressed = false
+local placingStructure = false
+
+for _, structureButton in pairs(StructureFrame:GetChildren()) do
+	if structureButton:IsA("TextButton") then
+		structureButton.MouseButton1Click:Connect(function()
+			
+			StructureFrame.Visible = false
+			
+			local yOrientation = 0
+			local goodToPlace = false
+			local placedStructure
+			
+			if placingStructure == false then
+				placingStructure = true
+				
+				local clientStructure = Structures:FindFirstChild(structureButton.Name):Clone()
+				clientStructure.BrickColor = BrickColor.new("Forest green")
+				clientStructure.Material = "Neon"
+				clientStructure.CanCollide = false
+				clientStructure.Parent = game.Workspace
+				
+				local startingCFrame = CFrame.new(0,-2,-15)
+				clientStructure.CFrame = HumanoidRootPart.CFrame:ToWorldSpace(startingCFrame)
+				
+				RunService.RenderStepped:Connect(function()
+					local mouseRay = mouse.UnitRay
+					local castRay = Ray.new(mouseRay.Origin,mouseRay.Direction * 1000)
+					local ignoreList = {clientStructure,Char}
+					local hit, position = workspace:FindPartOnRayWithIgnoreList(castRay,ignoreList)
+					
+					if hit and (hit:IsA("Terrain") or hit.Name:lower() == "terrain") and (HumanoidRootPart.Position - clientStructure.Position).Magnitude < maxPlacingDitance then
+						goodToPlace = true
+						clientStructure.BrickColor = BrickColor.new("Forest green")
+					else
+						goodToPlace = false
+						clientStructure.BrickColor = BrickColor.new("Crimson")
+						
+					end
+					
+					local newAnglesCFrame = CFrame.Angles(0,math.rad(yOrientation),0)
+					local newCFrame = CFrame.new(position.X,position.Y + yBuildingOffset,position.Z)
+					clientStructure.CFrame = newCFrame * newAnglesCFrame
+				end)
+				
+				UIS.InputBegan:Connect(function(input)
+					if input.KeyCode == Enum.KeyCode.R then
+						rKeyIsPressed = true
+						
+						local rotationSpeed = 5
+						while rKeyIsPressed do
+							wait()
+							if placingStructure == true then
+								yOrientation = yOrientation + rotationSpeed
+							end
+						end
+					end
+				end)
+				
+				UIS.InputEnded:Connect(function(input)
+					if input.KeyCode == Enum.KeyCode.R then
+						rKeyIsPressed = false
+					end
+				end)
+				
+				UIS.InputBegan:Connect(function(input)
+					if input.UserInputType == Enum.UserInputType.MouseButton1 then
+						if placingStructure == true then
+							if goodToPlace == true then
+								local StructureCFrame = clientStructure.CFrame
+								placedStructure = PlaceStructure:InvokeServer(clientStructure.Name,StructureCFrame)
+								
+								if placedStructure == true then
+									placingStructure = false
+									clientStructure:Destroy()
+									StructureFrame.Visible = true
+								end
+								
+							end
+						end
+					end
+				end)
+			end
+			
+		end)
+	end
+end
