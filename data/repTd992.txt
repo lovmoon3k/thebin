@@ -1,0 +1,68 @@
+from pyrogram import Client, filters, enums
+from pyrogram.types import (InlineKeyboardMarkup, InlineKeyboardButton)
+import yaml
+import re
+import time
+# tok = "5472955985:AAFIq0npm2ukmAVwy_RaV4mVauUcYycU_Q4"
+bot = Client("pyr_bot")
+print('started')
+keyb = InlineKeyboardMarkup([[InlineKeyboardButton('Закрити', callback_data='rm')]])
+@bot.on_callback_query()
+def cur(c, qq):
+        if qq.data == 'rm':
+                # qq.message.delete()
+                print(qq)
+                bot.delete_messages(qq.message.chat.id, [qq.message.id, qq.message.reply_to_message_id])
+@bot.on_message(filters.command(['upd', 'vp']))
+def main(c, msg):
+        if msg.command[0] == 'upd':
+                if msg.reply_to_message_id != None:
+                        print('***')
+                        usr = [i.strip() for i in re.findall(r"@[\_\-A-zА-я0-9\s].+", msg.reply_to_message.text)]
+                        if '@Адміни' in usr: del usr[0]
+                        # url = [ i.url for i in msg.reply_to_message.entities if i.url != None else if '+' in i.url else i.url.rsplit("/")[-1:]]
+                        url = []
+                        for i in msg.reply_to_message.entities:
+                                if i.type == enums.MessageEntityType.TEXT_LINK:
+                                       if '+' in i.url:
+                                       url.append(i.url)
+                                       else:
+                                       url.append('@' + i.url.rsplit("/")[-1:][0])
+                        dct = {u:t for u,t in zip(usr, url)}
+                        nn = yaml.dump(dct, sort_keys=False, allow_unicode=True).replace("'", "")
+                        with open('conf.yaml', 'wb') as f:
+                                f.write(yaml.dump(dct, encoding='utf-8', sort_keys=False, allow_unicode=True))
+                        msg.reply(f"Список:\n{nn.replace('@', '')}", disable_web_page_preview=True, quote=True, reply_markup=keyb)
+                else:
+                        msg.reply("Потрібно відповісти на повідомлення", reply_markup=keyb)
+        if msg.command[0] == 'vp':
+                flg = False
+                tt = ''
+                ttex = ''
+                if len(msg.command) == 1 and msg.reply_to_message_id == None:
+                        msg.reply('Допомога:\n\t<нік_бота> - тут можливо буде нік бота на це не звертайте уваги.\n[нік_юзера] - тут можна ввести нік юзера починаючи з @.\nАбо відповісти на повідомлення з командою /vp без параметрів.\nПриклад:\n\t/vp<нік_бота> [нік_юзера]', reply_markup=keyb)
+                elif len(msg.command) == 1 and msg.reply_to_message_id != None:
+                        flg = True
+                        tt = '@'+msg.reply_to_message.from_user.username
+                elif len(msg.command) > 1:
+                        tt = msg.command[1]
+                if tt == bot.get_me().username: bot.send_message(msg.chat.id, 'Так це ж я')
+                with open('conf.yaml', 'r') as f:
+                        mm = yaml.load(f.read(), yaml.Loader)
+                try:
+                        try:
+                                if tt.startswith('@'):
+                                       gs = bot.get_chat(mm[tt])
+                                       ttex = f"Назва: {gs.title}\nАдмін: {tt}\nК-сть сабів: {gs.members_count / 1000}K\nЛінк: {mm[tt].replace('@', 't.me/')}"
+                        except:
+                                ttex = f"Канал закритий розходимся\n{mm[tt]}"
+                        # bot.send_photo(msg.chat.id, gs.photo.small_file_id, ttex)
+                        if len(ttex) > 0:
+                                msg.reply(ttex, reply_markup=keyb)
+                                # bot.send_message(msg.chat.id, ttex)
+                        else:
+                                return
+                except:
+                        msg.reply("Походу цього каналу нема в базі", reply_markup=keyb)
+                        # bot.send_message(msg.chat.id, "Походу цього каналу нема в базі")
+bot.run()
