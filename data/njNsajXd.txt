@@ -1,0 +1,114 @@
+using System.Collections.Generic;
+using UnityEngine;
+using FishNet.Object;
+using FishNet.Object.Synchronizing;
+using FishNet.Connection;
+
+public class PlayerSpawner : NetworkBehaviour
+{
+    public static PlayerSpawner instance;
+
+    [field: SyncObject]
+    public readonly SyncList<ShipDataP> players = new SyncList<ShipDataP>();
+
+    public GameObject[] Stations;
+    public GameObject SpawnS;
+    public GameObject SpawnM;
+    public GameObject SpawnL;
+    public GameObject SpawnPoint;
+    public GameObject TargetSpawn;
+
+    public LocalShipDB LC_ShipDB;
+    public LocalPlayerData LC_PlayerData;
+    public GameObject ToSpawn;
+
+
+    [SyncVar (OnChange =nameof(OnChangeShip))]
+    public GameObject LC_PlayerPrefab;
+
+    private void OnChangeShip(GameObject oldVal, GameObject NewVal, bool isServer)
+    {
+        ToSpawn = LC_PlayerPrefab;
+    }
+
+    [ServerRpc]
+    public void RPC_SelectplayerAndSpawn(NetworkConnection owner,int ClientID,  GameObject LC_PlayerPrefab, int DBF_docketAtID, int DBF_inSpace, int LC_ShipSize)
+    {
+        Debug.Log("GOT " + ToSpawn.name + " From " + ClientID);
+        ToSpawn = LC_PlayerPrefab;
+        Stations = GameObject.FindGameObjectsWithTag("Station");
+
+        if (DBF_inSpace == 0 && DBF_docketAtID != 0)
+        {
+            foreach (GameObject c in Stations)
+            {
+                StationScript StationMain = c.GetComponent<StationScript>();
+
+                if (StationMain.StationID == DBF_docketAtID)
+                {
+                    for (int i = 0; i < c.transform.childCount; i++)
+                    {
+                        if (c.transform.GetChild(i).name.Contains("SpawnS"))
+                        {
+
+                            SpawnS = c.transform.GetChild(i).gameObject;
+                        }
+                        else if (c.transform.GetChild(i).name.Contains("SpawnM"))
+                        {
+
+                            SpawnM = c.transform.GetChild(i).gameObject;
+                        }
+                        else if (c.transform.GetChild(i).name.Contains("SpawnL"))
+                        {
+
+                            SpawnL = c.transform.GetChild(i).gameObject;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (LC_ShipSize == 1)
+        {
+            TargetSpawn = SpawnS;
+        }
+        else if (LC_ShipSize == 2)
+        {
+            TargetSpawn = SpawnM;
+        }
+        else if (LC_ShipSize == 3)
+        {
+            TargetSpawn = SpawnL;
+        }
+
+        GameObject go = Instantiate(ToSpawn, TargetSpawn.transform.position, TargetSpawn.transform.rotation);
+        Spawn(go, owner);
+    }
+
+
+
+    public override void OnStartClient()
+    {
+        base.OnStartClient(); // call First Before Override
+        this.name = "SpawnHandler PID: " + Owner.ClientId;
+
+        int LC_PlayerShipID = LC_PlayerData.DBF_ShipModelID;
+        LC_PlayerPrefab = LC_ShipDB.GetShip(LC_PlayerShipID);
+        Debug.Log(LC_PlayerPrefab +  " Selected by Client");
+        RPC_SelectplayerAndSpawn(Owner, Owner.ClientId, LC_PlayerPrefab, LC_PlayerData.DBF_docketAtID, LC_PlayerData.DBF_inSpace, LC_PlayerData.LC_ShipSize);
+    }
+
+
+
+
+    public void Start()
+    {
+        LC_ShipDB.InitData();  // Init ShipDB with ID/Prefab
+    }
+    public void Awake()
+    {
+      
+        instance = this;
+    }
+}
+
