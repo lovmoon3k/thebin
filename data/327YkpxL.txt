@@ -1,0 +1,113 @@
+/*
+I made this to be a interface for matchings (ie the online matchmaking with delays problem), but it doesn't work because Go doesn't support slices of interfaces. But you could use this if you replace the Request interface with a concrete Request type. (Or if you figure out a way to Generic-ify this)
+*/
+package matcher
+
+import (
+	"time"
+)
+
+func Abs(a int) int {
+	if a < 0 {
+		return a * -1
+	}
+	return a
+}
+
+type Request interface {
+	WaitTime(now time.Time) int
+	Location() int
+	Distance(to Request) int
+}
+
+type EuclideanRequest struct {
+	location int
+	tStart time.Time
+}
+
+func (r EuclideanRequest) Location() int {
+	return r.location
+}
+
+func (r EuclideanRequest) WaitTime(at time.Time) int {
+	d := at.Sub(r.tStart)
+	secs := d.Seconds()
+	return int(secs)
+}
+
+func (r EuclideanRequest) Distance(to EuclideanRequest) int {
+	return Abs(r.Location() - to.Location())
+}
+
+type BasicMatcher[T Request] struct {
+	StartTime time.Time
+	NowFunc func() time.Time
+	Requests []Request
+} //A Matcher struct could contain things like extra timers, constants, etc. For a basic case it isn't needed though.
+
+func DefaultBasicMatcher() BasicMatcher {
+	b := BasicMatcher{NowFunc: time.Now}
+	b.StartTime = b.NowFunc()
+	b.Requests = make([]Request, 0)
+	return b
+}
+
+//Present your algorithm with the latest data
+func (m *BasicMatcher) Present(data []Request) {
+	m.Requests = data
+}
+
+//This is where you would implement your matchmaking algorithm
+func (m BasicMatcher) ShouldMatch(a Request, b Request) bool {
+	now := m.NowFunc()
+	if (a.WaitTime(now) + b.WaitTime(now) >= a.Distance(b)) {
+		return true
+	}
+	if len(m.Requests) < 10 {
+		if a.WaitTime(now) > 30 || b.WaitTime(now) > 30 {
+			return true
+		}
+	}
+	return false
+}
+
+func (m BasicMatcher) Tick() *[]Request {
+	for i, a := range m.Requests {
+		for ii, b := range m.Requests {
+			if i == ii {
+				continue
+			}
+			if m.ShouldMatch(a, b) {
+				var match []Request
+				match[0] = a
+				match[1] = b
+				return &match
+			}
+		}
+	}
+	return nil
+}
+
+///////////////////////////////////////////////
+package main
+//.... in some func...
+w.matcher := matcher.DefaultBasicMatcher()
+
+go func() {
+ for {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			w.matcher.Present(your requests)
+			m := w.matcher.Tick()
+			if m != nil {
+				//do something with the match
+				//newMatchesChannel <- m //like send to a channel
+				go doSomething(m) //or anything else you like
+			}
+		}
+	}
+ }
+}	
