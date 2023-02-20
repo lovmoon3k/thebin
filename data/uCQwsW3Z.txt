@@ -1,0 +1,122 @@
+#!/bin/bash
+
+USERNAME='git'
+HOSTNAME=$(hostname -I | xargs | awk '{print $1;}')
+SERVER=$USERNAME'@'$HOSTNAME
+WORKDIR='repos'
+WORKDIRPATH='/home/repos'
+INDEXDIR='/var/www/html/'$WORKDIR
+INDEX_HTML=$INDEXDIR'/index.html'
+CURRENT_TIME=$(date +"%x %r %Z")
+TIME_STAMP="Generated $CURRENT_TIME"
+TITLE="Local Git Repo"
+
+function readme_listing () {
+    cd $1
+    READMEBLOB=$(su -c "git ls-tree -r HEAD 2>/dev/null | grep -i  README.md" $USERNAME)
+    if test -z "$READMEBLOB"
+    then
+        #echo "\$README is NULL"
+        CONTENT='NO README FILE'
+    else
+        #echo "\$README is NOT NULL"
+        READMEHASH=$(echo $READMEBLOB | awk '{print $3}')
+        CONTENT=$(su -c "git cat-file -p $READMEHASH 2>/dev/null | sed -n '3p'" $USERNAME)
+    fi
+    echo $CONTENT
+   return
+}
+
+function repos_listing () {
+cd $WORKDIRPATH
+for FILE in *; do
+    RML='This is not a repo'
+    if [[ -d $FILE ]]
+    then
+        RML=$(readme_listing "$FILE")
+    fi
+cat << __EOF__
+                <tr><td onclick="c2cb('$FILE')">$FILE</td>
+                <td onclick="c2cb('$SERVER:$WORKDIRPATH/$FILE')"> $WORKDIRPATH/$FILE</td>
+                <td>$RML</td></tr>
+__EOF__
+        done
+    return
+}
+
+function create_indexdir () {
+	$(sudo mkdir -p $INDEXDIR && sudo chmod 777 $INDEXDIR)
+	$(mkdir -p $INDEXDIR/css $INDEXDIR/js)
+cat <<CSS > "$INDEXDIR/css/style.css"
+@charset "utf-8";
+body{
+    margin: 0px;
+    color: #f5f0e1;
+    background-color: #1e3d59;
+    font-size: 100%;
+}
+
+table, td, th{
+        font-size: 100%;
+    border: 1px solid #12a4d9;
+        border-collapse: collapse;
+}
+
+table.center{
+        margin-left: auto;
+        margin-right: auto;
+}
+
+h1, p{
+        text-align: center;
+}
+CSS
+
+cat <<JS > "$INDEXDIR/js/script.js"
+function c2cb(ele){
+                var tempTxt=document.createElement("input");
+                tempTxt.value=ele;
+                document.body.appendChild(tempTxt);
+                tempTxt.select();
+                document.execCommand("copy");
+                document.body.removeChild(tempTxt);
+                //alert("Copied: "+tempTxt.value);
+}
+JS
+	return
+}
+
+function generate_html () {
+cd $WORKDIRPATH
+cat << __EOF__ > $INDEX_HTML
+<!DOCTYPE html>
+<html>
+        <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>$TITLE</title>
+        <link  rel="stylesheet"  href="./css/style.css">
+        </head>
+        <body>
+                <h1>$TITLE</h1>
+                <p>$TIME_STAMP</p>
+                <div>
+                <table class="center">
+                        $(repos_listing)
+                </table>
+                </div>
+        <script src="js/script.js"></script>
+        </body>
+</html>
+__EOF__
+
+    return
+}
+
+if [[ -d "$INDEXDIR" ]]; then
+    cd $WORKDIRPATH
+    $(generate_html)
+else 
+    cd $WORKDIRPATH
+	$(create_indexdir)
+    $(generate_html)
+fi
