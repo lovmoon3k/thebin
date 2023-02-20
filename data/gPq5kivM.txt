@@ -1,0 +1,111 @@
+import logging
+from multiprocessing.resource_sharer import stop
+from bs4 import BeautifulSoup
+import requests
+import re
+import psycopg2
+from psycopg2 import sql
+import time
+import requests
+import json
+import time
+from api_connection_test import open_api_connection 
+from api_connection_test import api_send_batch 
+
+
+def get_pages(doc):
+    pages = doc.find(attrs={"class":'page-numbers'})
+    end_page = pages.find(class_="next page-numbers")
+    last_page = end_page.find_previous("a").text
+
+    return int(last_page)
+
+
+def create_list(products,name,price,link,volume,stock,product_type,bottler):
+    prod_dict={"name": name,"link": link,"price": price,"currency_id": 32,"size":volume,"stock":stock,"product_type":product_type,"bottler":bottler,"auction":'False'}
+    products.append(prod_dict)
+
+
+
+
+def scrap_data(base_url,json_item_list):
+    page = 1
+    max_pages=1
+    headers = {
+    'Accept': '*/*',
+    'Accept-Encoding':'gzip,deflate',	
+    'User-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+    'referer': 'https://www.google.com/',
+    # 'DNT':'1'
+    }
+    while page <= max_pages:
+        #scrapper sleep between requests
+        #time.sleep(11)
+        
+        #set url with paging
+        url = f'{base_url}kategoria/rum/page/{page}/?currency=EUR'
+        print(f'Processing page:{page}')
+        result = requests.get(url,headers=headers)
+        if int(result.status_code) > 202: 
+            print('Shit issue with loading page')
+            print(result.status_code)
+            return
+        doc = BeautifulSoup(result.text,'html5lib')
+        #update maximum pages - check only once
+        if max_pages <= 1:
+            max_pages=get_pages(doc)
+
+        products = doc.find_all(class_=re.compile('product__info_box'))
+        print(f'Product per page:{len(products)}')
+        for product in products:
+
+            name = product.find(class_='product__name').a['title']
+            link = product.find(class_='product__name').a['href']
+            try:
+                volume = product.find(class_='product__capacity').find('span').text
+                volume = list(filter(str.isdigit, volume))
+                volume = int(''.join(volume)) * 100
+            except:
+                volume = 0
+                print("error volume")
+
+            try:
+                voltage =  product.find(class_='product__capacity').find_all('span')[1].text.replace("\n", "").replace("\t", "")
+                #voltage = list(filter(str.isdigit, volume))
+                #volume = int(''.join(volume)) * 100
+            except:
+                print("error voltage")
+
+            try:
+                price =  product.find(class_='woocommerce-Price-amount amount').text.replace(".","")
+                price = re.sub(r'[^0-9'+ ','+'.'+r']+', '', str(price).replace(",","."))
+                price = float(price)
+            except:
+                print("error price")
+
+            bottler = product.find(class_='product__excerpt').text.replace("\n", "").replace("\t", "")
+
+            product_type = product.find(class_='product__category').text.replace("\n", "").replace("\t", "")
+
+            stock = 1          #!!!!!!!!! needs to be fixed in future ... they using css to grey unaviable products
+
+ 
+
+            create_list(json_item_list,name,price,link,volume,stock,product_type,bottler)
+
+        page += 1
+         
+
+
+
+
+if __name__ == "__main__":
+   base_url='https://dunder.store/'
+   eshop_id=5
+   #open_page(url)
+   token=open_api_connection()
+   data = []
+   scrap_data(base_url,data)
+   print(data)
+   api_send_batch(token,eshop_id,data)
+   #conn.commit()

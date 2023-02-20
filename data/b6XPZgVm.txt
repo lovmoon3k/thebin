@@ -1,0 +1,101 @@
+## @package robots
+# 
+#  Defines robots parser for crawlers
+
+from Directive import Directive
+from Directive import DirectiveType
+from UserAgent import UserAgent
+from SystemLog import SystemLog
+import requests
+
+## Robots class for processing robots.txt files
+#
+#  Processes robots.txt file, storing all its rules per user-agent
+class Robots:
+    ## Constructor from user agent name
+    #  @param self The object pointer
+    #  @param url string, url with robots.txt file or domain under which it should be
+    def __init__(self, url):
+        self.agents = {}
+        self.__parserState = { 'user-agent': None }
+
+        self.url = url
+        if (not url.endswith(".txt")):
+            self.url += "/robots.txt"
+
+    ## Request and partse target url
+    #  @param self The object pointer
+    def request(self):
+        req = requests.get(self.url)
+
+        if (req.status_code == 200):
+            lines = req.text.split("\n")
+            for l in lines:
+                self.__parseLine(l)
+        else:
+            SystemLog.log({'login_name':'Zgragselus','password':'Test!234'}, 'Scrapper.Robots', 'Error opening robots.txt file at \'' + self.url + '\'', 'true')
+
+    ## Parse single line from robots.txt
+    #  @param self The object pointer
+    #  @param line string, holds single line from robots.txt to parse
+    def __parseLine(self, line):
+        # Ignore comments
+        if line.startswith("#"):
+            return
+
+        # Always work in lower case (case insensitivity of parser)
+        l = line.lower()
+
+        # Split line into tokens
+        tokens = l.split(":")
+
+        # Rule requires at least 2 tokens, otherwise it's not a rule
+        if (len(tokens) < 2):
+            return
+
+        # Handle user agent, which switches state
+        if (tokens[0].strip() == "user-agent"):
+            agentName = tokens[1].strip()
+
+            agent = UserAgent(agentName)
+
+            self.agents[agentName] = agent
+            self.__parserState = agentName
+        # Handle allow directive
+        elif (tokens[0].strip() == "allow"):
+            d = Directive(DirectiveType.ALLOW, tokens[1].strip())
+            self.agents[self.__parserState].addRule(d)
+        # Hanlde disallow directive
+        elif (tokens[0].strip() == "disallow"):
+            d = Directive(DirectiveType.DISALLOW, tokens[1].strip())
+            self.agents[self.__parserState].addRule(d)
+        # Handle sitemap directive
+        elif (tokens[0].strip() == "sitemap"):
+            tokens.pop(0)
+            url = ":".join(tokens)
+
+            d = Directive(DirectiveType.SITEMAP, url)
+            self.agents[self.__parserState].addRule(d)
+        # Handle crawl-delay directive
+        elif (tokens[0].strip() == "crawl-delay"):
+            d = Directive(DirectiveType.CRAWL_DELAY, tokens[1].strip())
+            self.agents[self.__parserState].addRule(d)
+
+    ## Return string representation of object
+    #  @param self The object pointer
+    def __repr__(self):
+        return str(self.__class__) + '\n\t' + '\n\t'.join((str(item) + ' = ' + str(self.__dict__[item]) for item in sorted(self.__dict__)))
+
+    ## Return readable representation of object
+    #  @param self The object pointer
+    def __str__(self):
+        return 'Robots { \'url\' : \'' + str(self.url) + '\', \'agents\' : \'' + str(self.agents) + '\' }'
+
+    ## @var url
+    #  Robots URL
+
+    ## @var agents
+    #  Robots URL
+
+    ## @var __parserState
+    #  Private variable for parser state

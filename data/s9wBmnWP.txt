@@ -1,0 +1,280 @@
+local sv_infinite_ammo = CreateConVar("sv_infinite_ammo", 0, {FCVAR_REPLICATED, FCVAR_NOTIFY}, "if set to 1, will give you infinite ammunition for your weapon allowing you to fire your gun continuously.", 0, 1);
+local sv_weapon_accuracy_force_nospread = CreateConVar("sv_weapon_accuracy_force_nospread", 0, {FCVAR_REPLICATED, FCVAR_NOTIFY}, "if enabled (set to 1), will disable weapon inaccuracy spread, meaing weapons will be 100% accurate at any distance. (Does not work with weapons that modify the shot's direction for to simulate inaccuracy)");
+local sv_showimpacts = CreateConVar("sv_showimpacts", 0, {FCVAR_REPLICATED, FCVAR_NOTIFY}, "Shows client (red) and server (blue) bullet impact point (1=both, 2=client-only, 3=server-only)", 0, 3);
+local sv_showimpacts_traces = CreateConVar("sv_showimpacts_traces", 0, {FCVAR_REPLICATED, FCVAR_NOTIFY}, "Shows client (red) and server (blue) bullet trace (1=both, 2=client-only, 3=server-only)", 0, 3);
+local sv_showimpacts_time = CreateConVar("sv_showimpacts_time", 4, {FCVAR_REPLICATED, FCVAR_NOTIFY}, "Shows bullet impact point for this many seconds.", 0.01, 10);
+local sv_showimpacts_hitboxes = CreateConVar("sv_showimpacts_hitboxes", 0, {FCVAR_REPLICATED, FCVAR_NOTIFY}, "Shows client (red) and server (blue) hitboxes for entity that was hit by a bullet (1=both, 2=client-only, 3=server-only)", 0, 3);
+local sv_showimpacts_spread = CreateConVar("sv_showimpacts_spread", 0, {FCVAR_REPLICATED, FCVAR_NOTIFY}, "Shows client (red) and server (blue) sperad cone for every bullet (1=both, 2=client-only, 3=server-only)", 0, 3);
+local sv_showimpacts_info = CreateConVar("sv_showimpacts_info", 0, {FCVAR_REPLICATED, FCVAR_NOTIFY}, "Shows client (red) and server (blue) bullet info for every bullet (1=both, 2=client-only, 3=server-only)", 0, 3);
+local sv_showlagcompensation_info = CreateConVar("sv_showlagcompensation_info", 0, {FCVAR_REPLICATED, FCVAR_NOTIFY}, "Shows client (red) and server (blue) lag compensation info (1=both, 2=client-only, 3=server-only)", 0, 3);
+local sv_debugoverlay_clientreplicated = CreateConVar("sv_debugoverlay_clientreplicated", 0, {FCVAR_REPLICATED, FCVAR_NOTIFY}, "If set to 1, serverside debugoverlay will be sent and visible to clients. (may show inaccurate results due to network compression.)", 0, 1);
+
+function debugoverlay.Cone(entity, pos, direction, length, spread, time, color)
+	local heading = direction:Angle()
+	local forward, right, up = heading:Forward(), heading:Right(), heading:Up()
+	local lastpos = nil
+	local traceResult = {}
+	local traceData = {}
+	traceData.start = pos
+	traceData.endpos = pos + forward * length
+	traceData.filter = entity
+	traceData.mask = MASK_SHOT
+	traceData.output = traceResult
+
+	util.TraceLine(traceData)
+	local coneCenter = traceResult.HitPos
+
+	for i = 0, 16 do
+		local sin = math.sin(math.rad((360 / 16) * i)) * spread.x
+		local cos = math.cos(math.rad((360 / 16) * i)) * spread.y
+		local dir = forward + right * sin + up * cos
+		traceData.endpos = traceData.start + dir * length
+
+		util.TraceLine(traceData)
+
+		if lastpos then
+			debugoverlay.Line(traceResult.HitPos, lastpos, time, color, true);
+		end
+
+		debugoverlay.Line(traceResult.HitPos, coneCenter, time, color, true);
+		debugoverlay.Line(traceResult.StartPos, traceResult.HitPos, time, color, true);
+		lastpos = traceResult.HitPos
+	end
+end
+
+UTIL_DamageTypeToName = {
+	[DMG_GENERIC]	= "DMG_GENERIC",
+	[DMG_CRUSH]		= "DMG_CRUSH",
+	[DMG_BULLET]	= "DMG_BULLET",
+	[DMG_SLASH]		= "DMG_SLASH",
+	[DMG_BURN]		= "DMG_BURN",
+	[DMG_VEHICLE]	= "DMG_VEHICLE",
+	[DMG_FALL]		= "DMG_FALL",
+	[DMG_BLAST]		= "DMG_BLAST",
+	[DMG_CLUB]		= "DMG_CLUB",
+	[DMG_SHOCK]		= "DMG_SHOCK",
+	[DMG_SONIC]		= "DMG_SONIC",
+	[DMG_ENERGYBEAM]			= "DMG_ENERGYBEAM",
+	[DMG_PREVENT_PHYSICS_FORCE]	= "DMG_PREVENT_PHYSICS_FORCE",
+	[DMG_NEVERGIB]	= "DMG_NEVERGIB",
+	[DMG_ALWAYSGIB]	= "DMG_ALWAYSGIB",
+	[DMG_DROWN]		= "DMG_DROWN",
+	[DMG_PARALYZE]	= "DMG_PARALYZE",
+	[DMG_NERVEGAS]	= "DMG_NERVEGAS",
+	[DMG_POISON]	= "DMG_POISON",
+	[DMG_RADIATION]	= "DMG_RADIATION",
+	[DMG_DROWNRECOVER]	= "DMG_DROWNRECOVER",
+	[DMG_ACID]		= "DMG_ACID",
+	[DMG_SLOWBURN]	= "DMG_SLOWBURN",
+	[DMG_REMOVENORAGDOLL]	= "DMG_REMOVENORAGDOLL",
+	[DMG_PHYSGUN]	= "DMG_PHYSGUN",
+	[DMG_AIRBOAT]	= "DMG_AIRBOAT",
+	[DMG_DISSOLVE]	= "DMG_DISSOLVE",
+	[DMG_BLAST_SURFACE]	= "DMG_BLAST_SURFACE",
+	[DMG_DIRECT]	= "DMG_DIRECT",
+	[DMG_BUCKSHOT]	= "DMG_BUCKSHOT",
+	[DMG_SNIPER]	= "DMG_SNIPER",
+	[DMG_MISSILEDEFENSE]	= "DMG_MISSILEDEFENSE"
+}
+
+function UTIL_DrawEntityHitboxes(entity, time, color)
+	if (!isfunction(entity.GetHitboxSetCount) or !isnumber(entity:GetHitboxSetCount())) then
+		debugoverlay.BoxAngles(entity:GetPos(), entity:OBBMins(), entity:OBBMaxs(), entity:GetAngles(), time, color);
+		return;
+	end
+
+	for i = 0, entity:GetHitboxSetCount() - 1 do
+		for j = 0, entity:GetHitBoxCount(i) - 1 do
+			local bone = entity:GetHitBoxBone(j, i);
+			local matrix = entity:GetBoneMatrix(bone);
+
+			if (!matrix) then
+				continue;
+			end
+
+			local pos, ang = matrix:GetTranslation(), matrix:GetAngles();
+			local mins, maxs = entity:GetHitBoxBounds(j, i);
+			debugoverlay.BoxAngles(pos, mins, maxs, ang, time, color);
+		end
+	end
+end
+
+-- from the valve themeselves
+function UTIL_UnitsToMeters(units)
+	return units * 0.01905
+end
+
+function UTIL_MetersToUnits(meters)
+	return meters / 0.01905
+end
+
+function UTIL_UnitsToFeet(units)
+	return units / 16
+end
+
+function UTIL_FeetToUnits(feet)
+	return feet * 16
+end
+
+
+local m_bSimulateEntityFireBullets = false;
+hook.Add("EntityFireBullets", "!!!sh_utils", function(entity, fireBulletsInfo)
+	if (m_bSimulateEntityFireBullets) then
+		return;
+	end
+
+	m_bSimulateEntityFireBullets = true;
+	hook.Run("EntityFireBullets", entity, fireBulletsInfo);
+	m_bSimulateEntityFireBullets = false;
+
+	if (sv_infinite_ammo:GetBool() and isfunction(entity.GetActiveWeapon) and IsValid(entity:GetActiveWeapon())) then
+		local weapon = entity:GetActiveWeapon();
+		weapon:SetClip1(weapon:GetMaxClip1());
+	end
+
+	if (sv_weapon_accuracy_force_nospread:GetBool() and fireBulletsInfo.Spread ~= vector_origin and fireBulletsInfo.Num == 1) then
+		fireBulletsInfo.Spread = vector_origin;
+	end
+
+	if (!IsFirstTimePredicted()) then
+		return;
+	end
+
+	local color = Either(CLIENT, Color(255, 0, 0, 127), Color(0, 0, 255, 127))
+	if (fireBulletsInfo.Spread:LengthSqr() ~= 0 and sv_showimpacts_spread:GetInt() == 1 or sv_showimpacts_spread:GetInt() == Either(CLIENT, 2, 3)) then
+		print(fireBulletsInfo.Dir, type(fireBulletsInfo.Dir))
+		debugoverlay.Cone(fireBulletsInfo.Attacker, fireBulletsInfo.Src, fireBulletsInfo.Dir, fireBulletsInfo.Distance or 56756, fireBulletsInfo.Spread, sv_showimpacts_time:GetFloat(), Either(CLIENT, Color(255, 82, 82, 127), Color(83, 83, 255, 127)))
+	end
+
+	local originalCallback = fireBulletsInfo.Callback;
+	fireBulletsInfo.Callback = function(attacker, trace, dmgInfo)
+		if (originalCallback) then
+			originalCallback(attacker, trace, dmgInfo);
+		end
+
+		local time = sv_showimpacts_time:GetFloat()
+
+		if (sv_showimpacts:GetInt() == 1 or sv_showimpacts:GetInt() == Either(CLIENT, 2, 3)) then
+			debugoverlay.Box(trace.HitPos, Vector(-2, -2, -2), Vector(2, 2, 2), time, color);
+		end
+
+		if (sv_showimpacts_traces:GetInt() == 1 or sv_showimpacts_traces:GetInt() == Either(CLIENT, 2, 3)) then
+			debugoverlay.Line(trace.StartPos, trace.HitPos, time, color, true);
+		end
+
+		if (sv_showimpacts_hitboxes:GetInt() == 1 or sv_showimpacts_hitboxes:GetInt() == Either(CLIENT, 2, 3)) then
+			local entity = trace.Entity;
+			if (IsValid(entity)) then
+				UTIL_DrawEntityHitboxes(entity, time, Either(CLIENT, Color(255, 0, 0, 0), Color(0, 0, 255, 0)));
+			end
+		end
+
+		if (sv_showimpacts_info:GetInt() == 1 or sv_showimpacts_info:GetInt() == Either(CLIENT, 2, 3)) then
+			local pos = trace.HitPos
+			local distance = (pos - trace.StartPos):Length()
+			debugoverlay.EntityTextAtPosition(pos, 0, Either(trace.Hit, "*HIT*", "*END*"), time, Color(206, 82, 78, 105))
+			debugoverlay.EntityTextAtPosition(pos, 1, string.format("DMG: %0.2f [%s]", dmgInfo:GetDamage(), UTIL_DamageTypeToName[dmgInfo:GetDamageType()]), time, Color(105, 180, 62, 105))
+			debugoverlay.EntityTextAtPosition(pos, 2, string.format("DIST: %i units (%0.1f meters) (%0.1f feet)", distance, UTIL_UnitsToMeters(distance), UTIL_UnitsToFeet(distance)), time, Color(235, 120, 60, 105))
+			debugoverlay.EntityTextAtPosition(pos, 3, string.format("ATTACKER: %s (%s)", tostring(dmgInfo:GetAttacker()), tostring(dmgInfo:GetInflictor())), time, Color(87, 177, 236, 105))
+			debugoverlay.EntityTextAtPosition(pos, 4, string.format("VICTIM: %s", tostring(trace.Entity)), time, Color(152, 204, 56, 105))
+		end
+
+		if (sv_showlagcompensation_info:GetBool() and trace.Entity:IsPlayer()) then
+			local pos = trace.Entity:GetPos();
+			print(string.format("Hit Player: %s\nm_flCycle: %0.3f\nm_vecOrigin: Vector(%0.3f, %0.3f, %0.3f)\nm_angRender: Angle(0, %0.3f, 0)",
+			tostring(trace.Entity), trace.Entity:GetCycle(), pos.x, pos.y, pos.z, trace.Entity:GetRenderAngles().y));
+		end
+	end
+
+	return true;
+end);
+
+if (SERVER and !game.SinglePlayer()) then
+	util.AddNetworkString("Host_SendDebugOverlay");
+
+	if (!__debugoverlay) then
+		__debugoverlay = {};
+	end
+
+	for funcName, funcRef in next, debugoverlay do
+		if (__debugoverlay[funcName]) then
+			return;
+		end
+
+		__debugoverlay[funcName] = debugoverlay[funcName];
+		debugoverlay[funcName] = function(...)
+			if (!sv_debugoverlay_clientreplicated:GetBool()) then
+				return __debugoverlay[funcName](...);
+			end
+
+			local args = util.TableToJSON({...});
+			local send = util.Compress(args);
+
+			net.Start("Host_SendDebugOverlay", true);
+			net.WriteString(funcName);
+			net.WriteInt(#send, 32);
+			net.WriteData(send, #send);
+			net.Broadcast();
+		end
+	end
+end
+
+if (CLIENT) then
+	net.Receive("Host_SendDebugOverlay", function(length, ply)
+		local func = net.ReadString();
+		local size = net.ReadInt(32);
+		local data = net.ReadData(size);
+		local args = util.JSONToTable(util.Decompress(data));
+
+		debugoverlay[func](unpack(args));
+	end);
+
+	local fov_gmod_debug = CreateConVar("fov_gmod_debug", 0, {FCVAR_NONE}, "debug.", 0, 180);
+
+	local m_flOriginalFoV = 0;
+	local m_bSimulateCalcView = false;
+	hook.Add("CalcView", "!!sh_utils", function(ply, origin, angles, fov, znear, zfar)
+		if (m_bSimulateCalcView or fov_gmod_debug:GetFloat() == 0) then
+			return;
+		end
+
+		local view = {};
+		view.origin = origin;
+		view.angles = angles;
+		view.fov = fov;
+
+		m_bSimulateCalcView = true;
+		hook.Run("CalcView", ply, origin, angles, fov, znear, zfar);
+		m_bSimulateCalcView = false;
+
+		m_flOriginalFoV = view.fov;
+		view.fov = fov_gmod_debug:GetFloat();
+
+		return view;
+	end);
+
+	local m_bSimulateAdjustMouseSensitivity = false;
+	hook.Add("AdjustMouseSensitivity", "!!sh_utils", function(sensitivity)
+		if (m_bSimulateAdjustMouseSensitivity or fov_gmod_debug:GetFloat() == 0) then
+			return;
+		end
+
+		m_bSimulateAdjustMouseSensitivity = true;
+		hook.Run("AdjustMouseSensitivity", sensitivity);
+		m_bSimulateAdjustMouseSensitivity = false;
+
+		return (2 * math.tan(math.rad(fov_gmod_debug:GetFloat() / 2))) / (2 * math.tan(math.rad(m_flOriginalFoV / 2)))
+	end);
+end
+
+function util.TimeToTicks(time)
+	return math.floor(0.5 + (time / engine.TickInterval()));
+end
+
+function util.TicksToTime(ticks)
+	return engine.TickInterval() * ticks;
+end
+
+function util.RoundToTicks(time)
+	return engine.TickInterval() * util.TimeToTicks(time);
+end
