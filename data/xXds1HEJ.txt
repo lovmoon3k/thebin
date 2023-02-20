@@ -1,0 +1,168 @@
+--[[ 
+    Recursively collect resources in an efficient way, while sending status
+    updates over wireless RedNet for monitoring purposes.
+--]]
+-- vim:syntax=lua
+
+-- TODO: implement the wireless thingy
+
+-- IMPORTANT NOTE! This pastebin version will not be updated, instead see:
+-- https://tilde.cafe/~winter/ccprogs/rmine.lua.txt
+
+-- CONSTANTS --
+OPTIMUM_Y = -53
+-- These use regex matching
+PLACEABLE = {"dirt", "cobblestone", "andesite", "diorite", "granite"}
+VALUABLE = {"ore"}
+
+
+-- check that enough fuel is available
+function checkFuel()
+    local fuelLevel = turtle.getFuelLevel()
+    if fuelLevel == "unlimited" or fuelLevel > 130 then
+        return true
+    else
+        for i = 1, 16 do
+            turtle.select(i)
+            if turtle.refuel(1) then
+                repeat until not turtle.refuel(1) or turtle.getFuelLevel() > 130
+            end
+            if turtle.getFuelLevel() > 130 then return true end
+        end
+        return false
+    end
+end
+
+
+-- check if string regex-matches any string from a table
+function matchAny(str, patterns)
+    for idx, pattern in ipairs(patterns) do
+        if str:find(pattern) then return true end
+    end
+    return false
+end
+
+
+-- find and select the first slot with a block in it
+function findBlockSlot()
+    for i = 1, 16 do
+        local details = turtle.getItemDetail(i)
+        if details and matchAny(details.name, PLACEABLE) then
+            turtle.select(i)
+            return true
+        end
+    end
+    return false
+end
+
+
+-- recursively check for and mine an ore vein
+function recurseVein()
+    for i = 1, 4 do
+        turtle.turnRight()
+        local hasBlock, data = turtle.inspect()
+        if hasBlock and matchAny(data.name, VALUABLE) then
+            repeat turtle.dig() until not turtle.detect()
+            turtle.forward()
+            recurseVein()
+            turtle.back()
+        end
+    end
+
+    local hasBlock, data = turtle.inspectDown()
+    if hasBlock and matchAny(data.name, VALUABLE) then
+        repeat turtle.digDown() until not turtle.detectDown()
+        turtle.down()
+        recurseVein()
+        turtle.up()
+    end
+
+    local hasBlock, data = turtle.inspectUp()
+    if hasBlock and matchAny(data.name, VALUABLE) then
+        repeat turtle.digUp() until not turtle.detectUp()
+        turtle.up()
+        recurseVein()
+        turtle.down()
+    end
+end
+
+
+-- attempt to return to surface in case of depleted fuel
+function emergencyAbort(currentY)
+    print("Unrecoverable problem! Aborting mission and ascending immediately!")
+    for y = currentY, 70 do
+        repeat until not turtle.digUp()
+        turtle.up()
+    end
+    error("Emergency abort")
+    --[[
+        TODO: if unable to return fully for any reason, constantly transmit
+              signals so it can be located by triangulation with pocket
+              computer 
+    --]]
+end
+
+
+-- dig down to the right Y level, given current Y level
+function digDown(startY)
+    for y = 1, 2 do
+        turtle.digDown()
+        turtle.down()
+    end
+    if findBlockSlot() then turtle.placeUp() end
+    for y = startY - 2, OPTIMUM_Y, -1 do
+        turtle.digDown()
+        turtle.down()
+        if not checkFuel() then emergencyAbort(y) end
+        if turtle.detectDown() then recurseVein() end
+    end
+end
+
+
+-- go along the correct number of blocks, then go back
+function digSideways(distance)
+    for x = 1, distance do
+        repeat turtle.dig() until not turtle.detect()
+        turtle.forward()
+        if not checkFuel() then emergencyAbort(OPTIMUM_Y) end
+        recurseVein()
+    end
+    for i = 1, 2 do turtle.turnLeft() end
+    for x = distance, 1, -1 do
+        repeat turtle.dig() until not turtle.detect()
+        turtle.forward()
+        if not checkFuel() then emergencyAbort(OPTIMUM_Y) end
+    end
+    for i = 1, 2 do turtle.turnLeft() end
+end
+
+
+-- return to surface normally
+function backUp(endY)
+    for y = OPTIMUM_Y, endY do
+        repeat until not turtle.digUp()
+        turtle.up()
+    end
+    if findBlockSlot() then turtle.placeDown() end
+end
+
+
+-- Main function (finally)
+function main()
+    if not checkFuel() then
+        print("Can I have some more fuel pretty please??")
+        return
+    end
+
+    print("What is my Y level please? :(")
+    originY = io.read()
+    print("Di(g)stance?")
+    distance = io.read()
+    
+    digDown(originY)
+    digSideways(distance)
+    backUp(originY)
+end
+
+
+main()
