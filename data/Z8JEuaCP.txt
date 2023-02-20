@@ -1,0 +1,53 @@
+df_arc = df_arc[df_arc['Реактивная мощность'] > 0] # избавимся от аномалий в df_arc
+df_temp = df_temp[df_temp['Температура'] > 1500] # и в df_temp
+
+# генерируем новые признаки для модели
+# Полная мощность = √ (Активная мощность2 + Реактивная мощность2)
+df_arc['Полная мощность'] = ((df_arc['Активная мощность']**2) + (df_arc['Реактивная мощность'])**2)**0.5
+# Коэффицент мощности = Активная мощность / Полная мощность
+df_arc['Коэффицент мощности'] = df_arc['Активная мощность'] / df_arc['Полная мощность'] 
+df_arc.head(10)
+
+# df_arc.iloc[:, 1:2] = df_arc.iloc[:, 1:2].apply(pd.to_datetime)
+time_heating = (pd.to_datetime(df_arc['Конец нагрева дугой']) - \
+                pd.to_datetime(df_arc['Начало нагрева дугой'])).dt.total_seconds()
+df_arc.insert(3, 'Время нагрева дуги', time_heating)
+
+df_arc = df_arc.drop(['Начало нагрева дугой', 'Конец нагрева дугой'], axis=1) # избавляемся от колонок, которые нам 
+                                                                              # не понадобятся
+
+df_arc_ = df_arc.groupby(['key']).agg({'Время нагрева дуги':'sum',
+                                       'Активная мощность':'sum',
+                                      'Реактивная мощность':'sum',
+                                      'Полная мощность':'sum',
+                                      'Коэффицент мощности':'mean'})
+df_arc_ = df_arc_.reset_index()
+
+df_temp['Время замера'] = pd.to_datetime(df_temp['Время замера'], format = '%Y-%m-%dT%H:%M:%S') # переводим в нужный формат, чтобы создать сводную таблицу
+df_temp_last = df_temp.groupby(['key']).agg('max')['Время замера'] # с последней температурой
+df_temp_last = pd.DataFrame(df_temp_last)
+df_temp_last = df_temp_last.merge(df_temp, on='Время замера', how='left')
+df_temp_last.set_axis(['Time_last','key','Temp_last'], axis = 'columns', inplace = True)
+
+df_temp_first = df_temp.groupby('key').agg('min')['Время замера'] # сводную таблицу с первой температурой
+df_temp_first = pd.DataFrame(df_temp_first)
+df_temp_first = df_temp_first.merge(df_temp, on='Время замера', how='left')
+df_temp_first.set_axis(['Time_first','key','Temp_first'], axis = 'columns', inplace = True)
+
+df_temp_ = df_temp_first.merge(df_temp_last, on='key', how='left')\
+                  .reindex(columns=['key', 'Time_first', 'Temp_first', 'Time_last', 'Temp_last']) # объединяем таблицы
+
+df_temp_.info()
+
+<class 'pandas.core.frame.DataFrame'>
+Int64Index: 3215 entries, 0 to 3214
+Data columns (total 5 columns):
+ #   Column      Non-Null Count  Dtype         
+---  ------      --------------  -----         
+ 0   key         3215 non-null   int64         
+ 1   Time_first  3215 non-null   datetime64[ns]
+ 2   Temp_first  3215 non-null   float64       
+ 3   Time_last   3215 non-null   datetime64[ns]
+ 4   Temp_last   3215 non-null   float64       
+dtypes: datetime64[ns](2), float64(2), int64(1)
+memory usage: 150.7 KB
