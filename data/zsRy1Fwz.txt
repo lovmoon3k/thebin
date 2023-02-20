@@ -1,0 +1,158 @@
+local MarketService = {}
+
+-- SERVICES
+local ServerScriptService = game:GetService("ServerScriptService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local DataStoreService = game:GetService("DataStoreService")
+local ServerStorage = game:GetService("ServerStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local PurchaseHistoryStore = DataStoreService:GetDataStore("PurchaseHistory")
+
+-- EVENTS
+local Update = ReplicatedStorage.Events:WaitForChild("Update")
+local Equip = ReplicatedStorage.Events:WaitForChild("Equip")
+local Notify = ReplicatedStorage.Events:WaitForChild("Notify")
+
+-- MODULES
+local ChatService = require(ServerScriptService.Server:WaitForChild("Chat"))
+
+-- VARIABLES
+local toolStorage = ServerStorage:WaitForChild("Tools")
+local checkpoints = game.Workspace:WaitForChild("Checkpoints")
+local toolGears = {133666473, 133666671, 133666994}
+local productFunctions = {}
+local cooldown = {}
+
+-- FUNCTIONS
+productFunctions[1372692516] = function(receipt, player)
+	local stats = player:FindFirstChild("leaderstats")
+	if player.Character and stats then
+		if not checkpoints:FindFirstChild("Checkpoint " .. stats.Stage.Value + 1) then
+			warn("[SERVER] - No next stage, why did " .. player.Name .. " bypass the system?")
+			return false
+		end
+		if stats.Stage.Value then
+			stats.Stage.Value = stats.Stage.Value + 1
+		end
+		if checkpoints["Checkpoint " .. stats.Stage.Value] then
+			player.Character:MoveTo(checkpoints["Checkpoint " .. stats.Stage.Value].Position)
+		end
+	end
+	return true
+end
+
+
+local function processReceipt(receiptInfo)
+	local playerProductKey = receiptInfo.PlayerId .. "_" .. receiptInfo.PurchaseId
+	local purchased = false
+	local success, errorMessage = pcall(function()
+		purchased = PurchaseHistoryStore:GetAsync(playerProductKey)
+	end)
+	if success and purchased then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	elseif not success then
+		error("[SERVER] - Data store error:" .. errorMessage)
+	end
+	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
+	if not player then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	local handler = productFunctions[receiptInfo.ProductId]
+	local success, result = pcall(handler, receiptInfo, player)
+	if not success or not result then
+		warn("[SERVER] - Error occurred while processing a product purchase")
+		print("\nProductId:", receiptInfo.ProductId)
+		print("\nPlayer:", player)
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	local success, errorMessage = pcall(function()
+		PurchaseHistoryStore:SetAsync(playerProductKey, true)
+	end)
+	if not success then
+		error("Cannot save purchase data: " .. errorMessage)
+	end
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+
+function MarketService:GiveOwnedPerks(player)
+	if MarketplaceService:UserOwnsGamePassAsync(player.UserId, 133694285) then
+		player.Character.Humanoid.MaxHealth = math.huge
+		player.Character.Humanoid.Health = math.huge
+	end
+	if MarketplaceService:UserOwnsGamePassAsync(player.UserId, 133666994) then
+		local tool = toolStorage:FindFirstChild("Cloud")
+		if tool then
+			local item = tool:Clone()
+			item.Parent = player.Backpack
+		end
+	end
+	if MarketplaceService:UserOwnsGamePassAsync(player.UserId, 133666473) then
+		local tool = toolStorage:FindFirstChild("Gravity Coil")
+		if tool then
+			local item = tool:Clone()
+			item.Parent = player.Backpack
+		end
+	end
+	if MarketplaceService:UserOwnsGamePassAsync(player.UserId, 133666671) then
+		local tool = toolStorage:FindFirstChild("Speed Coil")
+		if tool then
+			local item = tool:Clone()
+			item.Parent = player.Backpack
+		end
+	end
+end
+
+local function gamepassRequest(player, gamepassId, isPurchased)
+	local success, result = pcall(function()
+		return MarketplaceService:GetProductInfo(gamepassId, Enum.InfoType.GamePass)
+	end)
+	if not success then
+		return warn("[CLIENT] - Could not load product!")
+	end
+	if isPurchased then
+		if result.Name == "Infinite Health" then
+			player.Character.Humanoid.MaxHealth = math.huge
+			player.Character.Humanoid.Health = math.huge
+		end
+		
+
+		ChatService:ServerMessage("🎉 " .. player.Name .. " has purchased a gamepass!")
+		Update:FireClient(player, "Shop", result.Name, gamepassId)
+		
+		Notify:FireClient(player)
+		local tool = toolStorage:FindFirstChild(result.Name)
+		if tool then
+			local item = tool:Clone()
+			item.Parent = player.Backpack
+		end
+	end
+	end
+
+local function characterAdded(character)
+	local player = game.Players:GetPlayerFromCharacter(character)
+	MarketService:GiveOwnedPerks(player)
+end
+
+local function playerAdded(player)
+	player.CharacterAdded:Connect(characterAdded)
+end
+
+-- CONNECTIONS
+game.Players.PlayerAdded:Connect(playerAdded)
+for _, player in ipairs(Players:GetPlayers()) do
+	playerAdded(player)
+end
+
+MarketplaceService.ProcessReceipt = processReceipt
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(gamepassRequest)
+
+Equip.OnServerEvent:Connect(function(player, id)
+	if not cooldown[player] then
+		cooldown[player] = true
+		wait(0.5)
+		cooldown[player] = nil
+	end
+end)
+
+return MarketService
