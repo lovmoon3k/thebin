@@ -1,0 +1,55 @@
+update titoli 
+join polizze p on p.id = titoli.id_polizza and p.reale_mutua = 1
+join reale_contabilita_titoli t  on titoli.reale_mutua_idtitolo_contabilita = t.idTitolo
+left join produttori on produttori.codice_reale = left(if(t.`Intermediario 2` = "", "000", t.`Intermediario 2`) , 3) 
+
+SET 
+
+titoli.ssf = 1 ,
+titoli.data_titolo = t.`data effetto`  ,
+titoli.tipo_titolo = (case  sottotipocarico
+    when  "Quietanza di Frazionamento"  then 1
+    when  "Quietanza di Rinnovo"  then 1
+    when  "Sostituzione"  then 8
+    when  "Appendice"  then 3
+    when  "Nuova Polizza"  then 2
+    else 3
+end ) ,
+
+titoli.tipologia = (case sottotipocarico
+    when  "Quietanza di Frazionamento"  then "Quietanza" 
+    when  "Quietanza di Rinnovo"  then "Quietanza"
+    when  "Sostituzione"  then "Sostituzione"
+    when  "Appendice"  then "Appendice"
+    when  "Nuova Polizza"  then "Prima Emissione Polizza"
+    else "Quietanza"
+end ) ,
+ 
+titoli.id_anagrafica = p.id_anagrafica ,
+titoli.data_inc = if(t.`data effettivo incasso`>"2000-01-01" , t.`data effettivo incasso`, NULL) ,
+ 
+titoli.esito = (case t.`stato titolo`
+when "Arretrato" then 0
+when "Incassato" then 1
+when "Annullato" then 2
+when "Arretrato Abbinato" then 3
+else 2
+end ) ,
+titoli.premio = t.importo , 
+
+titoli.incassato = if(t.`stato titolo`="Incassato" and t.`modalita pagamento` not in ("Sospeso premio") , t.importo, 0) ,
+ 
+titoli.collaboratore = produttori.nominativo  ,
+titoli.forma_pagamento = if(t.`stato rid` like '%rid%', (select descrizione from tbl_forma_pagam where descrizione ="RID" limit 1 ), t.`modalita pagamento`)  ,
+titoli.provvigione = t.`importo provvigioni`  ,
+ 
+titoli.data_emissione = if(t.`data emesso` >"2000-01-01" , t.`data emesso` , NULL )  ,
+titoli.desc_mov = if(`numero appendice`="", t.sottotipocarico  , concat(t.sottotipocarico , " - App. " ,  `numero appendice` ) )
+  
+where 
+  (t.`data effettivo incasso` >=curdate()-interval @giorni_titoli_contabilita day 
+        OR  t.`data effetto` >=curdate()-interval @giorni_titoli_contabilita day 
+         OR  t.`data emesso` >=curdate()-interval @giorni_titoli_contabilita day) 
+
+;  
+  
