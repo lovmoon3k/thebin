@@ -1,0 +1,225 @@
+-- Fancy mining program for mining turtles.
+-- © AdamantPenguin, HeliosHen 2021
+
+-- options ---------
+SPLASH = "Welcome to the incredibly cool mining program :)"
+DONEMESSAGE = "Done mining! Here are the stats:"
+YPROMPT = "What is my Y coordinate?"
+DPROMPT = "How many blocks should I mine for?"
+ORES = {"minecraft:iron_ore", "minecraft:coal_ore", "minecraft:gold_ore",
+        "minecraft:lapis_lazuli_ore", "minecraft:diamond_ore",
+        "minecraft:redstone_ore", "minecraft:emerald_ore"}
+FLUIDS = {"minecraft:water", "minecraft:lava"}
+-- end of options --
+
+-- relative coordinates
+rpos = vector.new(0, 0, 0)
+rdir = 0
+-- original Y position
+opos = nil
+-- statistics
+stats = {}
+for index, ore in ipairs(ORES) do
+    stats[ore] = 0
+end
+startsecs = nil
+
+-- check if array contains value
+function contains(array, value)
+    for index, item in ipairs(array) do
+        if item == value then
+            return true
+        end
+    end
+    return false
+end
+
+-- move and update rpos
+function forwardR()
+    -- check fuel
+    if turtle.getFuelLevel() < 10 then
+        turtle.refuel(turtle.getItemDetail().count - 1)
+    end
+
+    if turtle.forward() then
+        if rdir == 0 then
+            rpos.x = rpos.x + 1
+        elseif rdir == 90 then
+            rpos.z = rpos.z + 1
+        elseif rdir == 180 then
+            rpos.x = rpos.x - 1
+        elseif rdir == 270 then
+            rpos.z = rpos.z - 1
+        end
+        return true
+    end
+    return false
+end
+function downR()
+    if turtle.down() then
+        rpos.y = rpos.y - 1
+        return true
+    end
+    return false
+end
+function upR()
+    if turtle.up() then
+        rpos.y = rpos.y + 1
+        return true
+    end
+    return false
+end
+function backR()
+    if turtle.back() then
+        if rdir == 0 then
+            rpos.x = rpos.x - 1
+        elseif rdir == 90 then
+            rpos.z = rpos.z - 1
+        elseif rdir == 180 then
+            rpos.x = rpos.x + 1
+        elseif rdir == 270 then
+            rpos.z = rpos.z + 1
+        end
+        return true
+    end
+    return false
+end
+
+-- rotate and update rpos
+function turnLeftR()
+    turtle.turnLeft()
+    if rdir == 0 then
+        rdir = 270
+    else
+        rdir = rdir + 90
+    end
+end
+function turnRightR()
+    turtle.turnRight()
+    if rdir == 270 then
+        rdir = 0
+    else
+        rdir = rdir - 90
+    end
+end
+
+-- collect goodies recursively
+function recursiveOres()
+    for i = 1,4,1 do
+        local isBlock, data = turtle.inspect()
+        if isBlock then
+            if contains(ORES, data.name) then
+                turtle.dig()
+                forwardR()
+                recursiveOres()
+                backR()
+                stats[data.name] = stats[data.name] + 1
+            end
+        end
+        turnRightR()
+    end
+    local isBlock, data = turtle.inspectUp()
+    if isBlock then
+        if contains(ORES, data.name) then
+            turtle.digUp()
+            upR()
+            recursiveOres()
+            downR()
+            stats[data.name] = stats[data.name] + 1
+        end
+    end
+    local isBlock, data = turtle.inspectDown()
+    if isBlock then
+        if contains(ORES, data.name) then
+            turtle.digDown()
+            downR()
+            recursiveOres()
+            upR()
+            stats[data.name] = stats[data.name] + 1
+        end
+    end
+end
+
+-- main function
+function main()
+    print(SPLASH)
+
+    -- initialise coords
+    print(YPROMPT)
+    rpos.y = read()    
+    opos = rpos.y
+    
+    -- ask for distance to mine
+    print(DPROMPT)
+    local miningLength = read()
+
+    -- get coal from above
+    turtle.select(1)
+    turtle.suckUp()
+    local item = turtle.getItemDetail()
+    if item == nil then
+        printError("ERROR: Fuel container is empty")
+        printError("It must contain at least one fuel item")
+        return
+    end
+    turtle.refuel(turtle.getItemDetail().count - 1)
+    
+    -- start logging stats
+    startSecs = os.clock()
+    
+    -- do the digging to Y11
+    while tonumber(rpos.y) > 11 do
+        local wasBlock = turtle.digDown()
+        downR()
+        if wasBlock then
+            recursiveOres()
+        end
+    end
+
+    -- do the digging sideways
+    for i = 1,miningLength,1 do
+        -- keep digging in case of gravity blocks
+        local wasBlock, data = turtle.inspect()
+        local isBlock = wasBlock
+        while isBlock do
+            if contains(FLUIDS, data.name) then
+                break
+            end
+            turtle.dig()
+            isBlock, data = turtle.inspect()
+        end
+        forwardR()
+        if wasBlock then
+            recursiveOres()
+        end
+    end
+
+    -- stop logging
+    endSecs = os.clock()
+    lengthSecs = endSecs - startSecs
+
+    -- return home
+    for i = 0,miningLength,1 do
+        backR()
+    end
+    while tonumber(rpos.y) < tonumber(opos) do
+        upR()
+    end
+
+    -- dump items in barrel
+    for i = 1,16,1 do
+        turtle.select(i)
+        turtle.drop()
+    end
+
+    print(DONEMESSAGE)
+    for ore, amount in pairs(stats) do
+        local namespace, id = string.match(ore, "(.*):(.*)")
+        print(string.format("%-20s %4d, avg %03d/hour", id, tonumber(amount),
+         math.floor(tonumber(amount / lengthSecs * 3600))))
+    end
+
+end
+
+
+main()
