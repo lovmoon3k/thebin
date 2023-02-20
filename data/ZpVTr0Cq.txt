@@ -1,0 +1,779 @@
+-- Require necessary libraries
+local os = require("os")
+local computer = require("computer")
+local term = require("term")
+local filesystem = require("filesystem")
+local component = require("component")
+local keyboard = require("keyboard")
+local event = require("event")
+local serialization = require("serialization")
+local gpu = component.gpu
+local modem = component.modem
+local robotNavButtons = {}
+local robotActionsButtons = {}
+
+ 
+-- Minecraft colors
+colors_white = 0xffffff
+colors_orange = 0xff6600
+colors_magenta = 0xff00ff
+colors_lightblue = 0x0099ff
+colors_yellow = 0xffff00
+colors_lime = 0x00ff00
+colors_pink = 0xff3399
+colors_gray = 0x737373
+colors_lightgray = 0xa5a5a5
+colors_silver = 0xc0c0c0
+colors_cyan = 0x169c9d
+colors_purple = 0x8932b7
+colors_blue = 0x3c44a9
+colors_brown = 0x825432
+colors_green = 0x5d7c15
+colors_red = 0xb02e26
+colors_lightred = 0xffcccb
+colors_lightorange = 0xbd8817
+colors_black = 0x000000
+
+
+-- UUIDs for OpenComputers screens
+primaryScreen = "b20d3b1e-87ed-4f8a-941e-26dc440344f8"
+secondaryScreen = "2db16f67-86c1-404d-be3d-61894134f13d"
+
+
+leahBot = "933160e0-1a85-4cb0-a91d-d786fb02462f"
+-- Initial position of the robot in Minecraft world
+robotPos = {}
+robotPos.x = 0
+robotPos.y = 0
+robotPos.z = 0
+
+-- Open the modem on channel 6 for communication
+modem.open(6)
+
+
+
+-- ╔══════════════════════════════════════════╗ --
+-- ║      ╭─────╮  IU FUNCTIONS  ╭─────╮      ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+
+-- Set the background color of the GPU
+function setBgColor (color)
+  gpu.setBackground(color)
+end
+
+-- Set the foreground color of the GPU
+function setFgColor (color)
+  gpu.setForeground(color)
+end
+
+-- Fill a specified rectangular area on the GPU with spaces
+function renderLine(posX, posY, sizeX, sizeY)
+  gpu.fill(posX, posY, sizeX, sizeY, " ")
+end
+
+-- Set the position of the terminal cursor
+function setCursorPos (posX, posY)
+  term.setCursor(posX, posY)
+end
+
+-- Write text to the terminal
+function renderText(text)
+  term.write(text)
+end
+ 
+-- Print text to the console
+function testFunction (text)
+  print(text)
+end
+
+-- Bind the GPU to a different screen
+function switchScreens(screen)
+  gpu.bind(screen, false)
+end
+
+
+
+
+-- Function that draws a progress bar on a terminal screen in OpenComputers
+function draw_ProgressBar(orientation, posX, posY, sizeX, sizeY, maxValue, value, bgColor, barColor, showValue)
+  -- Calculate the size of the bar based on the value and maxValue arguments
+  local barSize = orientation == 1 and sizeX * (value / maxValue) or sizeY * (value / maxValue)
+  -- String to display the value below the bar
+  local valueText = value .. "/" .. maxValue
+  -- Length of the valueText string
+  local valueTextLength = #valueText
+
+  -- Set the background color to bgColor
+  setBgColor(bgColor)
+  -- Render a box around the bar
+  renderLine(posX - 1, posY - 1, sizeX + 2, sizeY + 2)
+
+  if showValue then
+    -- Draw the bar inside a box
+    -- Set the background color of the box to colors_lightgray
+    setBgColor(colors_lightgray)
+    renderLine(posX, posY, sizeX, sizeY)
+    -- Set the bar color to barColor
+    setBgColor(barColor)
+    -- Render the bar based on orientation
+    if orientation == 1 then
+      renderLine(posX, posY, math.floor(barSize), sizeY)
+    else
+      renderLine(posX, posY + sizeY - math.floor(barSize), sizeX, math.floor(barSize))
+    end
+
+    -- Display the value below the bar
+    -- Set the cursor position to center the valueText
+    setCursorPos(posX + (sizeX / 2) - valueTextLength / 2, posY + sizeY + 1)
+    -- Set the background color to bgColor
+    setBgColor(bgColor)
+    -- Set the text color to colors_lime
+    setFgColor(colors_lime)
+    renderText(valueText)
+  else
+    -- Draw the bar directly on the screen
+    setBgColor(barColor)
+    if orientation == 1 then
+      renderLine(posX, posY, math.floor(barSize), sizeY)
+    else
+      renderLine(posX, posY + sizeY - math.floor(barSize), sizeX, math.floor(barSize))
+    end
+  end
+end
+
+
+-- ╔══════════════════════════════════════════╗ --
+-- ║      ╰─────╯  IU FUNCTIONS  ╰─────╯      ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+
+
+
+-- ╔══════════════════════════════════════════╗ --
+-- ║    ╭─────╮ BUTTON FUNCTIONS  ╭─────╮     ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+
+-- Check for button presses
+function buttonCheck(posX, posY, buttonTable)
+  -- t is a flag to keep track of button presses
+  local t = false
+  
+  -- Loop through all buttons in the buttonTable
+  for i = 1, #buttonTable do
+    -- Check if the touch event is within the bounds of the button
+    local buttonPosX = posX >= buttonTable[i].posX and posX <= buttonTable[i].posX + buttonTable[i].sizeX 
+    local buttonPosY = posY >= buttonTable[i].posY and posY <= buttonTable[i].posY + buttonTable[i].sizeY
+    
+    -- If the touch event is within the bounds of the button
+    if buttonPosX and buttonPosY then
+      -- If the flag t is not set
+      if not t then
+        -- Set the flag t to true
+        t = true
+        
+        -- Call the function stored in the button's `func` field and pass it the data stored in the `func_DATA` field
+        buttonTable[i].func(buttonTable[i].func_DATA)
+      end
+    else
+      -- If the touch event is not within the bounds of the button, set the flag t to false
+      t = false
+    end 
+  end
+end
+
+
+-- function to draw buttons
+-- input: buttonTable - table containing all the button objects to be drawn
+function drawButtons(buttonTable)
+  for i = 1, #buttonTable do
+   local ghg = buttonTable[i].posX+buttonTable[i].sizeX/2-string.len(buttonTable[i].label)/2
+    -- check if the sizeOverride property is set to true
+    if buttonTable[i].sizeOverride then
+      -- set the background color of the button
+      setBgColor(buttonTable[i].buttonColor)
+      -- draw the button with the specified X, Y, sizeX, and sizeY values
+      renderLine(buttonTable[i].posX, buttonTable[i].posY, buttonTable[i].sizeX, buttonTable[i].sizeY)
+      -- set the cursor position within the button
+      if buttonTable[i].sizeY ==  1 then
+        setCursorPos(ghg, buttonTable[i].posY)
+      else
+        setCursorPos(ghg, buttonTable[i].posY+1)
+      end
+      
+      -- set the text color of the button label
+      setFgColor(buttonTable[i].textColor)
+      -- render the button label
+      renderText(buttonTable[i].label)
+    else
+      -- set the background color of the button
+      setBgColor(buttonTable[i].buttonColor)
+      -- draw the button with the specified X, Y, and length of the label + 2
+      renderLine(buttonTable[i].posX, buttonTable[i].posY, string.len(buttonTable[i].label)+2, 3)
+      -- set the cursor position within the button
+      setCursorPos(ghg, buttonTable[i].posY+1)
+      -- set the text color of the button label
+      setFgColor(buttonTable[i].textColor)
+      -- render the button label
+      renderText(buttonTable[i].label)
+    end
+  end 
+end
+
+-- This function creates a new button object with the specified properties and adds it to the specified button table. 
+-- The button object will contain the label, position, size, color information, and functions that will be triggered 
+-- when the button is clicked.
+
+function newButton(label, posX, posY, sizeX, sizeY, SizeOverride, textColor, buttonColor, func, func_DATA, buttonTable)
+  -- Create a new button object
+  local button = {}
+   button.label = label -- Label to display on the button
+   button.posX = posX -- X position of the button on the screen
+   button.posY = posY -- Y position of the button on the screen
+   button.sizeX = sizeX -- Width of the button
+   button.sizeY = sizeY -- Height of the button
+   button.sizeOverride = SizeOverride -- Boolean to indicate whether the size of the button should be overridden 
+                                      -- (if set to true, the size will be determined by the sizeX and sizeY properties)
+   button.textColor = textColor -- Color of the label text
+   button.buttonColor = buttonColor -- Color of the button background
+   button.func = func -- Function to call when the button is clicked
+   button.func_DATA = func_DATA -- Data to pass to the function when the button is clicked
+   button.clicked = false -- Boolean to track whether the button has been clicked
+   
+   -- Add the button to the specified button table
+   table.insert(buttonTable, button)
+end
+
+
+-- ╔══════════════════════════════════════════╗ --
+-- ║    ╰─────╯ BUTTON FUNCTIONS  ╰─────╯     ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+
+
+-- Send a message to the robot in Minecraft
+function sendMsgToRobot (msg)
+  -- Open channel 5 on the modem and set the strength to 255
+  modem.open(5)
+  modem.setStrength(255)
+  
+  -- Broadcast the message on channel 5
+  
+  modem.send(leahBot, 5, msg)
+  
+  -- Close channel 5 on the modem and update the console
+  modem.close(5)
+  updateConsole_01("sending command:"..msg)
+end
+
+
+-- Check for various events and handle them accordingly
+function checkForEvents()
+  -- Open channel 5 on the modem
+  modem.open(5)
+  
+  -- Wait for the next event to occur and store the event information in eventData
+  local eventData = {event.pull(0.1)}
+  
+  -- Check the type of event
+  if eventData[1] == "key_down" then
+    -- Handle keyboard events
+    -- eventData[2] will contain the ASCII value of the key that was pressed
+
+  elseif eventData[1] == "touch" then
+    -- Handle touch events
+    -- eventData[3] and eventData[4] will contain the X and Y coordinates of the touch event, respectively
+
+    if eventData[2] == primaryScreen then
+      
+      buttonCheck(eventData[3], eventData[4], robotNavButtons)
+       buttonCheck(eventData[3], eventData[4], robotActionsButtons)
+        buttonCheck(eventData[3], eventData[4], console_01_Buttons)
+         buttonCheck(eventData[3], eventData[4], console_02_Buttons)
+          buttonCheck(eventData[3], eventData[4], robotInventoryButtons)
+    end
+
+  elseif eventData[1] == "modem_message" then
+    -- Handle modem message events
+    -- eventData[6] will contain the message sent over the modem
+    local message = serialization.unserialize(eventData[6])
+    if type(message) == "table" and inventoryToggle then
+      for iii = 1 , 16 do
+          --updateConsole_02("slot "..iii..": "..tostring(message[iii]))
+        table.insert(robotInventory, iii, message[iii])
+        
+      end
+  
+        
+    else
+      updateConsole_02(message)
+    end
+    --updateConsole_02(serialization.unserialize(eventData[6]))
+    -- Wait for 0.3 seconds
+    os.sleep(0.3)
+  end
+  
+  -- Close channel 5 on the modem
+  modem.close(5)
+  
+  -- Return true to continue checking for events
+  return true
+end
+
+
+
+-- ╔══════════════════════════════════════════╗ --
+-- ║      ╭─────╮   CONSOLE_01   ╭─────╮      ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+
+
+-- Initialize the first console panel
+function init_Consol_01 ()
+  console_01_posX = 5
+  console_01_posY = 32
+  console_01_sizeX = 40
+  console_01_sizeY = 15
+  console_01_Buttons = {}
+  console_01_contents = {}
+
+end
+
+
+-- Function to draw the first console UI
+function drawConsole_01()
+  -- Set the background color to gray
+  setBgColor(colors_gray)
+  -- Draw a line for the console using the specified position, size and color
+  renderLine(console_01_posX, console_01_posY, console_01_sizeX, console_01_sizeY)
+  -- Set the background color to black
+  setBgColor(colors_black)
+  -- Draw a line for the contents of the console using the specified position, size and color
+  renderLine(console_01_posX+1, console_01_posY+1, console_01_sizeX-2, console_01_sizeY-2)
+  -- Set the text color to white
+  setFgColor(colors_white)
+  -- Set the background color to gray
+  setBgColor(colors_gray)
+  -- Set the cursor position to the center of the top of the console
+  setCursorPos(console_01_posX+console_01_sizeX/2-string.len("console 01")/2, console_01_posY)
+  -- Write the label "console 01"
+  renderText("console 01")
+  -- Create a "clear" button for the console
+  newButton("clear", console_01_posX, console_01_posY+console_01_sizeY, string.len("clear")+2, 3, true, colors_white, colors_lightblue, clearConsole_01, _, console_01_Buttons)
+  -- Draw all buttons for the console
+  drawButtons(console_01_Buttons)
+end
+
+
+function updateConsole_01(text)
+  -- Check if the number of lines in the console is less than the maximum number of lines that can be displayed
+  if #console_01_contents < console_01_sizeY-4 then
+    -- If there are fewer lines than the maximum number of lines, add the new text to the console_01_contents table
+    table.insert(console_01_contents, text)
+    -- Clear the background of the console
+    setBgColor(colors_black)
+    renderLine(console_01_posX+1, console_01_posY+1, console_01_sizeX-2, console_01_sizeY-2)
+    -- Loop through the console_01_contents table and display each line of text
+    for i = 1, #console_01_contents do
+      setCursorPos(console_01_posX+1, console_01_posY+1+i)
+      renderText(console_01_contents[i])
+    end
+  elseif #console_01_contents >= console_01_sizeY-4 then
+    -- If there are more lines than the maximum number of lines, add the new text to the console_01_contents table
+    table.insert(console_01_contents, text)
+    -- Remove the first line in the table
+    table.remove(console_01_contents, 1)
+    -- Clear the background of the console
+    setBgColor(colors_black)
+    renderLine(console_01_posX+1, console_01_posY+1, console_01_sizeX-2, console_01_sizeY-2)
+    -- Loop through the console_01_contents table and display each line of text
+    for i = 1, #console_01_contents do
+      setCursorPos(console_01_posX+1, console_01_posY+1+i)
+      renderText(console_01_contents[i])
+    end
+  end
+end
+
+
+
+
+-- Function to clear the contents of console 01
+function clearConsole_01 ()
+  -- Reset the contents of the console
+  console_01_contents = {}
+  
+  -- Set the background color to black and draw a line to clear the console
+  setBgColor(colors_black)
+  renderLine(console_01_posX+1, console_01_posY+1, console_01_sizeX-2, console_01_sizeY-2)
+end
+
+
+-- ╔══════════════════════════════════════════╗ --
+-- ║      ╰─────╯   CONSOLE_01   ╰─────╯      ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+
+-- ╔══════════════════════════════════════════╗ --
+-- ║      ╭─────╮   CONSOLE_02   ╭─────╮      ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+
+
+-- Initialize the properties for the second console
+function init_Consol_02 ()
+  console_02_posX = 5
+  console_02_posY = 5
+  console_02_sizeX = 40
+  console_02_sizeY = 15
+  console_02_Buttons = {}
+  console_02_contents = {}
+end
+
+
+-- Function to draw the second console UI
+function drawConsole_02()
+  -- Set the background color to gray
+  setBgColor(colors_gray)
+  -- Draw a line for the console using the specified position, size and color
+  renderLine(console_02_posX, console_02_posY, console_02_sizeX, console_02_sizeY)
+  -- Set the background color to black
+  setBgColor(colors_black)
+  -- Draw a line for the contents of the console using the specified position, size and color
+  renderLine(console_02_posX+1, console_02_posY+1, console_02_sizeX-2, console_02_sizeY-2)
+  -- Set the text color to white
+  setFgColor(colors_white)
+  -- Set the background color to gray
+  setBgColor(colors_gray)
+  -- Set the cursor position to the center of the top of the console
+  setCursorPos(console_02_posX+console_02_sizeX/2-string.len("console 02")/2, console_02_posY)
+  -- Write the label "console 02"
+  renderText("console 02")
+  -- Create a "clear" button for the console
+  newButton("clear", console_02_posX, console_02_posY+console_02_sizeY, string.len("clear")+2, 3, true, colors_white, colors_lightblue, clearConsole_02, _, console_02_Buttons)
+  -- Draw all buttons for the console
+  drawButtons(console_02_Buttons)
+end
+
+
+-- Function to update the contents of the second console
+function updateConsole_02(text)
+  -- If the number of contents in the console is less than the size of the console minus 4
+  if #console_02_contents < console_02_sizeY-4 then
+    -- Add the new text to the contents of the console
+    table.insert(console_02_contents, text)
+    -- Set the background color to black
+    setBgColor(colors_black)
+    -- Draw a line for the contents of the console using the specified position, size and color
+    renderLine(console_02_posX+1, console_02_posY+1, console_02_sizeX-2, console_02_sizeY-2)
+    -- Loop through all the contents of the console
+    for i = 1, #console_02_contents do
+      -- Set the cursor position to the specified position
+      setCursorPos(console_02_posX+1, console_02_posY+1+i)
+      -- Write the contents of the console
+      renderText(console_02_contents[i])
+    end
+  -- If the number of contents in the console is equal to or greater than the size of the console minus 4
+  elseif #console_02_contents >= console_02_sizeY-4 then
+    -- Add the new text to the contents of the console
+    table.insert(console_02_contents, text)
+    -- Remove the first content from the console
+    table.remove(console_02_contents, 1)
+    -- Set the background color to black
+    setBgColor(colors_black)
+    -- Draw a line for the contents of the console using the specified position, size and color
+    renderLine(console_02_posX+1, console_02_posY+1, console_02_sizeX-2, console_02_sizeY-2)
+    -- Loop through all the contents of the console
+    for i = 1, #console_02_contents do
+      -- Set the cursor position to the specified position
+      setCursorPos(console_02_posX+1, console_02_posY+1+i)
+      -- Write the contents of the console
+      renderText(console_02_contents[i])
+    end
+  end
+end
+
+-- Function to clear the contents of the second console
+function clearConsole_02 ()
+  -- Reset the contents of the console to an empty table
+  console_02_contents = {}
+  -- Set the background color to black
+  setBgColor(colors_black)
+  -- Draw a line for the contents of the console using the specified position, size and color
+  renderLine(console_02_posX+1, console_02_posY+1, console_02_sizeX-2, console_02_sizeY-2)
+end
+
+-- ╔══════════════════════════════════════════╗ --
+-- ║      ╰─────╯   CONSOLE_02   ╰─────╯      ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+-- ╔══════════════════════════════════════════╗ --
+-- ║   ╭─────╮   NAVIGATION_PANEL   ╭─────╮   ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+-- Draw the navigation panel for the robot in Minecraft
+function drawRobotNavPanel()
+  -- Variables for the panel's position, size, and background color
+  local panelX = 123
+  local panelY = 40
+  local panelSizeX = 31
+  local panelSizeY = 9
+  local panel_BGColor = colors_gray
+  
+  -- Set the background color of the panel and render a rectangular area on the GPU
+  setBgColor(panel_BGColor)
+  renderLine(panelX, panelY, panelSizeX, panelSizeY)
+  
+  -- Set the cursor position, background color, and foreground color and render text
+  setCursorPos(panelX + panelSizeX / 2 - string.len("navigation controls")/2, panelY - 1)
+  setBgColor(colors_black)
+  setFgColor(colors_orange)
+  renderText("navigation controls")
+  
+  -- Create several navigation buttons and add them to the robotNavButtons table
+  newButton("NAV_FWD", panelX + 11, panelY + 1, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "FWD", robotNavButtons)
+  newButton("NAV_LFT", panelX + 1, panelY + 1, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "LFT", robotNavButtons)
+  newButton("NAV_RHT", panelX + 21, panelY + 1, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "RHT", robotNavButtons)
+  newButton("NAV_UPW", panelX + 1, panelY + 5, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "UP", robotNavButtons)
+  newButton("NAV_DWN", panelX + 21, panelY + 5, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "DWN", robotNavButtons)
+  newButton("NAV_BWD", panelX + 11, panelY + 5, 9, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "BWD", robotNavButtons)
+  
+  -- Render the navigation buttons on the GPU
+  drawButtons(robotNavButtons)
+end
+ 
+-- ╔══════════════════════════════════════════╗ --
+-- ║   ╰─────╯   NAVIGATION_PANEL   ╰─────╯   ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+-- ╔══════════════════════════════════════════╗ --
+-- ║     ╭─────╮   ACTIONS_PANEL   ╭─────╮    ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+
+
+-- Draw the actions panel for the robot in Minecraft
+function drawRobotActionsPanel()
+  -- Variables for the panel's position, size, and background color
+  local panelX = 123
+  local panelY = 25
+  local panelSizeX = 22
+  local panelSizeY = 13
+  local panel_BGColor = colors_gray
+  
+  -- Set the background color of the panel and render a rectangular area on the GPU
+  setBgColor(panel_BGColor)
+  renderLine(panelX, panelY, panelSizeX, panelSizeY)
+  
+  -- Set the cursor position, background color, and foreground color and render text
+  setCursorPos(panelX + panelSizeX / 2 - string.len("action controls")/2, panelY - 1)
+  setBgColor(colors_black)
+  setFgColor(colors_orange)
+  renderText("action controls")
+
+  -- Create several action buttons and add them to the robotActionsButtons table
+  newButton("DCT_UPW", panelX + 1, panelY + 1, string.len("DCT_UPW")+2, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "DCT_UPW", robotActionsButtons)
+  newButton("DCT_FWD", panelX + 1, panelY + 5, string.len("DCT_FWD")+2, 3, true, colors_lightblue, colors_white, sendMsgToRobot, "DCT_FWD", robotActionsButtons)
+  newButton("DCT_DWD", panelX + 1, panelY + 5 + 4, (string.len("DCT_FWD")+2), 3, true, colors_lightblue, colors_white, sendMsgToRobot, "DCT_DWD", robotActionsButtons)
+  newButton("USE_FWD", panelX + 11, panelY + 5, (string.len("DCT_FWD")+2), 3, true, colors_lightblue, colors_white, sendMsgToRobot, "USE_FWD", robotActionsButtons)
+  
+  -- Render the action buttons on the GPU
+  drawButtons(robotActionsButtons)
+end
+
+-- ╔══════════════════════════════════════════╗ --
+-- ║     ╰─────╯   ACTIONS_PANEL   ╰─────╯    ║ --
+-- ╚══════════════════════════════════════════╝ --
+
+
+
+function drawInventoryPanel()
+  local panelX = 128
+  local panelY = 13
+  local panelSizeX = 17
+  local panelSizeY = 11
+  local panel_BGColor = colors_gray
+  robotInventoryButtons = {}
+  robotInventory = {}
+  inventoryToggle = false
+  robotInventorySlot = nil
+
+
+  setBgColor(panel_BGColor)
+  renderLine(panelX, panelY, panelSizeX, panelSizeY)
+
+
+
+  setCursorPos(panelX + panelSizeX / 2 - string.len("inventory controls")/2, panelY - 1)
+  setBgColor(colors_black)
+  setFgColor(colors_orange)
+  renderText("inventory controls")
+
+
+  newButton("GET_INV", panelX + 1, panelY + 9, panelSizeX-2, 1, true, colors_lightblue, colors_white, getInventory, _, robotInventoryButtons)
+  newButton("1", panelX + 1, panelY + 1, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 1, robotInventoryButtons)
+  newButton("2", panelX + 5, panelY + 1, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 2, robotInventoryButtons)
+  newButton("3", panelX + 9, panelY + 1, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 3, robotInventoryButtons)
+  newButton("4", panelX + 13, panelY + 1, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 4, robotInventoryButtons)
+
+  newButton("5", panelX + 1, panelY + 3, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 5, robotInventoryButtons)
+  newButton("6", panelX + 5, panelY + 3, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 6, robotInventoryButtons)
+  newButton("7", panelX + 9, panelY + 3, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 7, robotInventoryButtons)
+  newButton("8", panelX + 13, panelY + 3, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 8, robotInventoryButtons)
+
+  newButton("9", panelX + 1, panelY + 5, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 9, robotInventoryButtons)
+  newButton("10", panelX + 5, panelY + 5, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 10, robotInventoryButtons)
+  newButton("11", panelX + 9, panelY + 5, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 11, robotInventoryButtons)
+  newButton("12", panelX + 13, panelY + 5, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 12, robotInventoryButtons)
+
+  newButton("13", panelX + 1, panelY + 7, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 13, robotInventoryButtons)
+  newButton("14", panelX + 5, panelY + 7, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 14, robotInventoryButtons)
+  newButton("15", panelX + 9, panelY + 7, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 15, robotInventoryButtons)
+  newButton("16", panelX + 13, panelY + 7, 3, 1, true, colors_lightblue, colors_white, showInventorySlotInfo, 16, robotInventoryButtons)
+
+  drawButtons(robotInventoryButtons)
+end
+
+
+function getInventory()
+  inventoryToggle = true
+  sendMsgToRobot("GET_INV")
+
+end
+
+function showInventorySlotInfo(slot)
+  local panelX = 117
+  local panelY = 3
+  local panelSizeX = 43
+  local panelSizeY = 9
+  local panel_BGColor = colors_silver
+  checkInventory(slot)
+
+  setBgColor(panel_BGColor)
+  renderLine(panelX, panelY, panelSizeX, panelSizeY)
+    setCursorPos(1, 1)
+    renderText(tostring(type(robotInventorySlot)))
+    if type(robotInventorySlot) == "table" then
+        ia = 0
+      for k , v in pairs(robotInventorySlot) do
+        ia = ia +1
+        setCursorPos(panelX+1, panelY+ia)
+        renderText(k..": "..tostring(v))
+      end
+    else 
+      setCursorPos(panelX+1, panelY+1)
+      renderText(robotInventorySlot)
+    end
+      
+end
+
+function checkInventory(slot)
+
+  
+  robotInventorySlot = robotInventory[slot]
+  
+end
+
+
+function displayAspects()
+  local x = 2
+  local y = 2
+  local primalAspects = {
+    ["Aer"] = {aspect = "air", color = 0x87CEFA},
+    ["Terra"] = {aspect = "earth", color = 0x228B22},
+    ["Ignis"] = {aspect = "fire", color = 0xFF4500},
+    ["Aqua"] = {aspect = "water", color = 0x1E90FF},
+    ["Ordo"] = {aspect = "order", color = 0xF5DEB3},
+    ["Perditio"] = {aspect = "entropy", color = 0xA9A9A9}
+  }
+  
+  local compoundAspects = {
+    ["Alienis"] = {aspect = "strange", color = 0xFF00FF},
+    ["Arbor"] = {aspect = "tree", color = 0x228B22},
+    ["Bestia"] = {aspect = "beast", color = 0xA0522D},
+    ["Cognitio"] = {aspect = "knowledge", color = 0xFFD700},
+    ["Corpus"] = {aspect = "body", color = 0x8B008B},
+    ["Exanimis"] = {aspect = "dead", color = 0x696969},
+    ["Herba"] = {aspect = "plant", color = 0x228B22},
+    ["Humanus"] = {aspect = "man", color = 0xFF69B4},
+    ["Instrumentum"] = {aspect = "tool", color = 0xA9A9A9},
+    ["Lucrum"] = {aspect = "profit", color = 0xFFD700},
+    ["Machina"] = {aspect = "machine", color = 0xA9A9A9},
+    ["Metallum"] = {aspect = "Metal", color = 0xA9A9A9},
+    ["Mortuus"] = {aspect = "dead", color = 0x696969},
+    ["Praecantatio"] = {aspect = "magic", color = 0xFF00FF},
+    ["Sensus"] = {aspect = "sense", color = 0x00FF00},
+    ["Spiritus"] = {aspect = "spirit", color = 0x0000FF},
+    ["Vacuos"] = {aspect = "void", color = 0xA9A9A9},
+    ["Vitium"] = {aspect = "vice", color = 0x8B008B}
+  }
+    setBgColor(colors_lightgray)
+     renderLine(x, y, 158, 48)
+
+    setBgColor(colors_black)
+     renderLine(x+1, y+1, 17, 6)
+
+    setFgColor(colors_white)
+     setCursorPos(x+3, y)
+      renderText("Primal Aspects")
+
+  for _, aspectData in pairs(primalAspects) do  
+    setFgColor(aspectData.color)
+     setCursorPos(x+3, y+1)
+      y = y + 1
+       renderText(aspectData.aspect)
+  end
+y = 10
+   setBgColor(colors_black)
+    renderLine(x+1, y, 19, 20)
+
+ setFgColor(colors_white)
+  setCursorPos(x+3, y)
+   renderText("Compound Aspects")
+  for _, aspectData in pairs(compoundAspects) do
+    y = y+1
+      setFgColor(aspectData.color)
+       setCursorPos(x+3, y)
+        renderText(aspectData.aspect)
+   
+  end
+end
+
+
+
+
+switchScreens(primaryScreen)
+term.clear()
+-- Initialize the first console UI
+init_Consol_01 ()
+-- Initialize the second console UI
+init_Consol_02 ()
+
+-- Draw the first console UI
+drawConsole_01()
+-- Draw the second console UI
+drawConsole_02()
+
+-- Draw the navigation panel for the robot
+drawRobotNavPanel()
+
+-- Draw the actions panel for the robot
+drawRobotActionsPanel()
+
+drawInventoryPanel()
+
+switchScreens(secondaryScreen)
+term.clear()
+displayAspects()
+
+switchScreens(primaryScreen)
+
+
+
+
+
+-- Continuously check for events
+while true do
+  -- Call the checkForEvents function to handle any incoming events
+  checkForEvents()
+end
