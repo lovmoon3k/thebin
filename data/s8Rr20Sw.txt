@@ -1,0 +1,415 @@
+local xPos, yPos = 0, 0
+local altCode = ""
+local xSize, ySize = term.getSize()
+local xScroll, yScroll = 0, 0
+local xChar, yChar = math.min(17, xSize-11), math.min(17, ySize-1)
+local tCol, bCol = 2^0, 2^15
+local isPressed = {}
+
+local getColorName = function(color)
+    local colorList = {
+        ["0"] = "white",
+        ["1"] = "orange",
+        ["2"] = "magenta",
+        ["3"] = "lightBlue",
+        ["4"] = "yellow",
+        ["5"] = "lime",
+        ["6"] = "pink",
+        ["7"] = "gray",
+        ["8"] = "lightGray",
+        ["9"] = "cyan",
+        ["a"] = "purple",
+        ["b"] = "blue",
+        ["c"] = "brown",
+        ["d"] = "green",
+        ["e"] = "red",
+        ["f"] = "black"
+    }
+    if type(color) == "number" then return colorList[colors.toBlit(color)]
+    else error("bad argument #1 to 'name' (expected number, got " .. type(color) .. ")", 2)
+    end
+end
+
+local getColourName = function(colour)
+    local name = getColorName(colour)
+    if name == "gray" or name == "lightGray" then name = name:gsub("ray", "rey") end
+    return name
+end
+
+local revExp = function(product, base) -- Reverse exponents.
+    -- 2^4 -> 16
+    -- revExp(16, 2) -> 4
+    if not tonumber(product) then
+        error("bad argument #1 to 'revExp' (expected number, got " .. type(product) .. ")", 2)
+    end
+    if not tonumber(base) then
+        error("bad argument #2 to 'revExp' (expected number, got " .. type(base) .. ")", 2)
+    end
+    return math.log(product) / math.log(base)
+end
+
+local tohex = function(n)
+    local code = "0123456789ABCDEF"
+    local v = ""
+    n = tonumber(n)
+    if not tonumber(n) then error("bad argument #1 (expected number, got " .. type(n) .. ")") end
+    if n < 0 then return end
+    repeat
+        v = code:sub(n%16+1, n%16+1) .. v
+        n = math.floor(n/16)
+    until n == 0
+    return v
+end
+
+local printChars = function()
+    for y = 1, yChar do
+        local ydec = y-2+yScroll
+        local yhex = tohex(ydec)
+        for x = 1, xChar do
+            local xdec = x-2+xScroll
+            local xhex = tohex(xdec)
+            term.setCursorPos(x, y+1)
+            term.setBackgroundColor(colors.black)
+            term.setTextColor(colors.yellow)
+            if y == 1 and x > 1 and x < 18 and xdec < 16 then term.write(xhex)
+            elseif x == 1 and y > 1 and y < 18 and ydec < 16 then term.write(yhex)
+            elseif x > 1 and x < 18 and y > 1 and y < 18 and xdec < 16 and ydec < 16 then
+                term.setBackgroundColor(bCol)
+                term.setTextColor(tCol)
+                term.write(string.char(tonumber(yhex .. xhex, 16)))
+            else write(" ") end
+        end
+    end
+end
+
+local printCharData = function()
+    local char = yPos*16+xPos
+    local x = xChar+8
+    term.setCursorPos(x, 1)
+    term.setCursorPos(x+3, 1)
+    term.setTextColor(tCol)
+    term.setBackgroundColor(bCol)
+    term.write(string.char(char))
+    term.setBackgroundColor(colors.black)
+    term.setCursorPos(x+2, 2)
+    term.setTextColor(colors.yellow)
+    term.write(tohex(yPos) .. tohex(xPos))
+    term.setCursorPos(x+1, 3)
+    term.setTextColor(colors.blue)
+    term.write(string.rep(" ", 3-string.len(char)) .. char)
+end
+
+local printCols = function()
+    for c = 0, 15 do
+        term.setBackgroundColor(2^c)
+        if c < 7 or c == 8 then term.setTextColor(colors.black)
+        else term.setTextColor(colors.white) end
+        term.setCursorPos(xChar+2+c%4, 1+math.floor(c/4))
+        if 2^c == tCol and 2^c == bCol then term.write(string.char(7))
+        elseif 2^c == tCol then term.write("T")
+        elseif 2^c == bCol then term.write("B")
+        else term.write(" ") end
+    end
+end
+
+local printColData = function(col, y, label)
+    local x = xChar + 2
+    term.setCursorPos(x, y)
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    term.write(getColorName(col) .. string.rep(" ", 9-getColorName(col):len()))
+    term.setCursorPos(x, y+1)
+    term.setTextColor(colors.lightGray)
+    term.write(getColourName(col) .. string.rep(" ", 9-getColourName(col):len()))
+    term.setCursorPos(x, y+2)
+    term.setTextColor(colors.blue)
+    term.write(string.rep(" ", 5-string.len(col)) .. col .. " ")
+    term.setTextColor(colors.green)
+    term.write("2^" .. revExp(col, 2) .. string.rep(" ", 2-string.len(revExp(col, 2))))
+    term.setCursorPos(x, y+3)
+    term.setTextColor(colors.red)
+    term.write('"' .. colors.toBlit(col) .. '" ')
+    term.setTextColor(colors.yellow)
+    term.write("0x" .. tohex(col) .. string.rep(" ", 4-tohex(col):len()))
+end
+local tColData = function()
+    printColData(tCol, 5, "Text")
+end
+local bColData = function()
+    printColData(bCol, 9, "Back")
+end
+
+local printAll = function()
+    term.setCursorPos(1, 1)
+    term.setTextColor(colors.gray)
+    term.setBackgroundColor(colors.black)
+    term.write("Press 'H': Help")
+    printChars()
+    printCols()
+    printCharData()
+    tColData()
+    bColData()
+end
+
+local howto = function()
+    local pages = {
+        [1] = {
+            title = "Character Chart:",
+            text = {
+                [1] = "Click or use Arrow Keys to",
+                [2] = "select a character.",
+                [3] = "Alt + Numpad to select a",
+                [4] = "character with alt codes.",
+                [5] = "Scroll Wheel to scroll " .. string.char(18) .. ".",
+                [6] = "Shift + Scroll Wheel to",
+                [7] = "scroll " .. string.char(27) .. string.char(26) .. ".",
+                [8] = "Shift + Arrow Keys to",
+                [9] = "scroll any direction."
+            },
+            color = {
+                [1] = "88888000000008888888888000",
+                [2] = "0000000000000000000",
+                [3] = "888888888888000000000000",
+                [4] = "0000000000000000000000000",
+                [5] = "8888888888880000000000000",
+                [6] = "88888888888888888888000",
+                [7] = "0000000000",
+                [8] = "888888888888888888000",
+                [9] = "000000000000000000000"
+            }
+        },
+        [2] = {
+            title = "Color Chart:",
+            text = {
+                [1] = "L.Click or Ctrl + Arrow",
+                [2] = "Keys to select text color.",
+                [3] = "R.Click or Alt + Arrow",
+                [4] = "Keys to select background",
+                [5] = "color.",
+                [6] = "'T' means text color.",
+                [7] = "'B' means background",
+                [8] = "color.",
+                [9] = "'" .. string.char(7) .. "' means both colors are",
+                [10] = "the same."
+            },
+            color = {
+                [1] = "88888880000888808088888",
+                [2] = "88880000000000000000000000",
+                [3] = "8888888000088808088888",
+                [4] = "8888000000000000000000000",
+                [5] = "000000",
+                [6] = "888000000000000000000",
+                [7] = "88800000000000000000",
+                [8] = "000000",
+                [9] = "8880000000000000000000000",
+                [10] = "000000000"
+            }
+        },
+        [3] = {
+            title = "Other:",
+            text = {
+                [1] = "Ctrl + E to exit the",
+                [2] = "program.",
+                [3] = "",
+                [4] = "Character Data:",
+                [5] = "Text with selected colors",
+                [6] = "is the selected character.",
+                [7] = "Yellow text is hex code.",
+                [8] = "Blue text is the character",
+                [9] = "code (used in string.char,",
+                [10] = "etc.)"
+            },
+            color = {
+                [1] = "88888888000000000000",
+                [2] = "00000000",
+                [3] = "",
+                [4] = "444444444444444",
+                [5] = "0000000000000000000000000",
+                [6] = "00000000000000000000000000",
+                [7] = "444444000000000000000000",
+                [8] = "bbbb0000000000000000000000",
+                [9] = "00000000000000000000000000",
+                [10] = "00000"
+            }
+        },
+        [4] = {
+            title = "Color Data:",
+            text = {
+                [1] = "First group is the",
+                [2] = "selected text color.",
+                [3] = "Second group is the",
+                [4] = "selected background color.",
+                [5] = "",
+                [6] = "White text is the name",
+                [7] = "used in colors API.",
+                [8] = "Light Grey text is the",
+                [9] = "name used in colours API."
+            },
+            color = {
+                [1] = "888880000000000000",
+                [2] = "00000000000000000000",
+                [3] = "8888880000000000000",
+                [4] = "00000000000000000000000000",
+                [5] = "",
+                [6] = "0000000000000000000000",
+                [7] = "0000000000000000000",
+                [8] = "8888888888000000000000",
+                [9] = "0000000000000000000000000"
+            }
+        },
+        [5] = {
+            title = "Color Data:",
+            text = {
+                [1] = "Blue text is the selected",
+                [2] = "color code.",
+                [3] = "Green text is math used to",
+                [4] = "get the color code.",
+                [5] = "Red text is the blit code",
+                [6] = "(used in term.blit, etc.)",
+                [7] = "Yellow text is the byte",
+                [8] = "code."
+            },
+            color = {
+                [1] = "bbbb000000000000000000000",
+                [2] = "00000000000",
+                [3] = "ddddd000000000000000000000",
+                [4] = "0000000000000000000",
+                [5] = "eee0000000000000000000000",
+                [6] = "0000000000000000000000000",
+                [7] = "44444400000000000000000",
+                [8] = "00000"
+            }
+        }
+    }
+    local page = 1
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.yellow)
+    term.clear()
+    term.setCursorPos(1, 12)
+    write("Enter: Return   " .. string.char(24) .. string.char(25) ..string.char(27) .. string.char(26) .. ": Page")
+    local function printPage()
+        term.setCursorPos(1, 1)
+        term.clearLine()
+        print(pages[page].title)
+        for a = 1, 10 do
+            term.clearLine()
+            if a <= #pages[page].text then term.blit(pages[page].text[a], pages[page].color[a], string.rep("f", pages[page].text[a]:len())) end
+            print()
+        end
+    end
+    printPage()
+    while true do
+        local event = {os.pullEvent("key")}
+        if event[2] == keys.right or event[2] == keys.down then
+            page = page + 1
+            if page > #pages then page = 1 end
+            printPage()
+        elseif event[2] == keys.left or event[2] == keys.up then
+            page = page - 1
+            if page < 1 then page = #pages end
+            printPage()
+        elseif event[2] == keys.enter or event[2] == keys.numPadEnter then
+            break
+        end
+    end
+end
+
+term.clear()
+printAll()
+while true do
+    local xCursor, yCursor = xPos-xScroll+2, yPos-yScroll+3
+    if xCursor > 1 and xCursor <= xChar and yCursor > 2 and yCursor <= yChar+1 then
+        if bCol < colors.gray or bCol == colors.lightGray then
+            if tCol == colors.gray then term.setTextColor(colors.black)
+            else term.setTextColor(colors.gray) end
+        else
+            if tCol == colors.lightGray then term.setTextColor(colors.white)
+            else term.setTextColor(colors.lightGray) end
+        end
+        term.setCursorPos(xCursor, yCursor)
+        term.setCursorBlink(true)
+    end
+    local event = {os.pullEvent()}
+    term.setCursorBlink(false)
+    if event[1] == "mouse_click" then
+        if event[3] > 1 and event[3] <= xChar and event[4] > 2 and event[4] <= yChar+1 then
+            xPos, yPos = event[3] + xScroll - 2, event[4] + yScroll - 3
+            printCharData()
+        elseif event[3] > xChar+1 and event[3] < xChar+6 and event[4] > 0 and event[4] < 5 then
+            if event[2] == 1 then tCol = 2 ^ (event[3] - xChar - 2 + (event[4]-1) * 4)
+            elseif event[2] == 2 then bCol = 2 ^ (event[3] - xChar - 2 + (event[4]-1) * 4) end
+            printAll()
+        end
+    elseif event[1] == "key" then
+        isPressed[event[2] ] = true
+        if isPressed[keys.leftShift] or isPressed[keys.rightShift] then
+            if event[2] == keys.up and yScroll > 0 then yScroll = yScroll - 1
+            elseif event[2] == keys.down and yScroll+yChar-1 < 16 then yScroll = yScroll + 1
+            elseif event[2] == keys.left and xScroll > 0 then xScroll = xScroll - 1
+            elseif event[2] == keys.right and xScroll+xChar-1 < 16 then xScroll = xScroll + 1
+            end
+            if event[2] == keys.up or event[2] == keys.down or event[2] == keys.left or event[2] == keys.right then printChars() end
+        elseif isPressed[keys.leftCtrl] or isPressed[keys.rightCtrl] then
+            if event[2] == keys.up then tCol = 2 ^ (revExp(tCol, 2) - 4)
+            elseif event[2] == keys.down then tCol = 2 ^ (revExp(tCol, 2) + 4)
+            elseif event[2] == keys.left then tCol = 2 ^ (revExp(tCol, 2) - 1)
+            elseif event[2] == keys.right then tCol = 2 ^ (revExp(tCol, 2) + 1)
+            elseif event[2] == keys.e then
+                term.setBackgroundColor(colors.black)
+                term.clear()
+                term.setCursorPos(1, 1)
+                error()
+            end
+            if revExp(tCol, 2) < 0 then tCol = 2 ^ (revExp(tCol, 2) + 16) end
+            if revExp(tCol, 2) > 15 then tCol = 2 ^ (revExp(tCol, 2) - 16) end
+            if event[2] == keys.up or event[2] == keys.down or event[2] == keys.left or event[2] == keys.right then printAll() end
+        elseif isPressed[keys.leftAlt] or isPressed[keys.rightAlt] then
+            if event[2] == keys.up then bCol = 2 ^ (revExp(bCol, 2) - 4)
+            elseif event[2] == keys.down then bCol = 2 ^ (revExp(bCol, 2) + 4)
+            elseif event[2] == keys.left then bCol = 2 ^ (revExp(bCol, 2) - 1)
+            elseif event[2] == keys.right then bCol = 2 ^ (revExp(bCol, 2) + 1)
+            end
+            if revExp(bCol, 2) < 0 then bCol = 2 ^ (revExp(bCol, 2) + 16) end
+            if revExp(bCol, 2) > 15 then bCol = 2 ^ (revExp(bCol, 2) - 16) end
+            if event[2] == keys.up or event[2] == keys.down or event[2] == keys.left or event[2] == keys.right then printAll() end
+        else
+            if event[2] == keys.up then yPos = yPos - 1
+            elseif event[2] == keys.down then yPos = yPos + 1
+            elseif event[2] == keys.left then xPos = xPos - 1
+            elseif event[2] == keys.right then xPos = xPos + 1
+            elseif event[2] == keys.h then
+                howto()
+                term.clear()
+                printAll()
+            end
+            if xPos < 0 then xPos, yPos = xPos + 16, yPos - 1 end
+            if xPos > 15 then xPos, yPos = xPos - 16, yPos + 1 end
+            if yPos < 0 then yPos = yPos + 16 end
+            if yPos > 15 then yPos = yPos - 16 end
+        end
+        if event[2] == keys.up or event[2] == keys.down or event[2] == keys.left or event[2] == keys.right then printCharData() end
+        local altKeys = {[keys.numPad0] = "0", [keys.numPad1] = "1", [keys.numPad2] = "2", [keys.numPad3] = "3", [keys.numPad4] = "4",
+        [keys.numPad5] = "5", [keys.numPad6] = "6", [keys.numPad7] = "7", [keys.numPad8] = "8", [keys.numPad9] = "9"}
+        if (isPressed[keys.leftAlt] or isPressed[keys.rightAlt]) and altKeys[event[2] ] then
+            altCode = altCode .. altKeys[event[2] ]
+        end
+    elseif event[1] == "key_up" then
+        isPressed[event[2] ] = false
+        if event[2] == keys.leftAlt or event[2] == keys.rightAlt then
+            if  tonumber(altCode) then
+                altCode = tonumber(altCode) % 256
+                xPos = altCode%16
+                yPos = math.floor(altCode/16)
+                printCharData()
+            end
+            altCode = ""
+        end
+    elseif event[1] == "mouse_scroll" then
+        if (isPressed[keys.leftShift] or isPressed[keys.rightShift]) and ((event[2] == -1 and xScroll > 0) or (event[2] == 1 and xScroll+xChar-1 < 16)) then
+            xScroll = xScroll + event[2]
+        elseif not(isPressed[keys.leftShift] or isPressed[keys.rightShift]) and ((event[2] == -1 and yScroll > 0) or (event[2] == 1 and yScroll+yChar-1 < 16)) then
+            yScroll = yScroll + event[2]
+        end
+        printChars()
+    end
+end
