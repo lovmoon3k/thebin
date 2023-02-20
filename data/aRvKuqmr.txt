@@ -1,0 +1,158 @@
+enum WavetableType
+{
+    IterationTwo = 0,
+    IterationThree = 1,
+    Both = 2
+}
+
+export class WavetableGenerator
+{
+    constructor(){}
+
+    public generateWavetable(potPos1:number, potPos2:number, potPos3:number, type: WavetableType) : number[]
+    {
+        let outputWT : number[] = new Array<number>(256)
+        // FRACTAL CODE STARTS HERE
+        let maxVal : number = 0
+        let maxVal2 : number = 0
+        let seed : number[] = new Array<number>(3)
+        let tempWT : number[] = new Array<number>(256)
+        let WTiteration2 :number[] = new Array<number>(256)
+        let WTiteration3 : number[] = new Array<number>(256)
+
+        let skipCounter : number = 0      // for selecting every second array entry
+    
+    
+        let convPot1 : number = potPos1;
+        let convPot2 : number = potPos2;
+        let convPot3 : number = potPos3;
+
+        for (let i: number =0; i<256; i++) {
+            tempWT[i]=0;
+            WTiteration2[256]=0;
+            WTiteration3[i]=0;
+        }
+
+        // convert pot positions to [0.0 - 2.0]
+        seed[0]=(convPot1/256)*2;
+        seed[1]=(convPot2/256)*2;
+        seed[2]=(convPot3/256)*2;
+        
+        
+        // first iteration
+        tempWT[0]=seed[0]*seed[0];
+        tempWT[1]=seed[1]*seed[0];
+        tempWT[2]=seed[2]*seed[0];
+
+        // second iteration
+        WTiteration2[0]=tempWT[0];
+        WTiteration2[1]=tempWT[1];
+        WTiteration2[2]=tempWT[2];
+        for (let i:number=3; i<256;i++) {
+            WTiteration2[i]=WTiteration2[i-3]*WTiteration2[1];
+        }
+        
+        // third iteration
+        WTiteration3[0]=WTiteration2[0];
+        WTiteration3[1]=WTiteration2[1];
+        WTiteration3[2]=WTiteration2[2];
+        WTiteration3[3]=WTiteration2[3];
+        WTiteration3[4]=WTiteration2[4];
+        WTiteration3[5]=WTiteration2[5];
+        WTiteration3[6]=WTiteration2[6];
+        WTiteration3[7]=WTiteration2[7];
+        WTiteration3[8]=WTiteration2[8];
+        for (let i : number =9; i<256; i++) {
+            WTiteration3[i]=WTiteration3[i-9]*WTiteration3[2];
+        }
+
+        // using WT type 1 or 2 (iteration 1 or 2)
+        if (type !== WavetableType.Both) {
+            
+            // generate output wavetable
+            for (let i:number=0; i<256; i++) {
+                
+                switch (type) {
+                        
+                    // use iteration 2
+                    case(WavetableType.IterationThree):
+                        tempWT[i]=WTiteration2[i];
+                        break;
+                        
+                    // use iteration 3
+                    case(WavetableType.IterationThree):
+                        tempWT[i]=WTiteration3[i];
+                        break;
+                }
+                // find the maximum value
+                if (tempWT[i]>maxVal) {
+                    maxVal=tempWT[i];
+                }
+            }
+        } else {
+            // using WT type 2 (both iterations A<>B)  
+            if (type === WavetableType.Both) {
+                for (let j:number=0; j<256; j++) {
+                    if (j<128) {
+                        tempWT[j]=WTiteration3[skipCounter];
+                        if (tempWT[j]>maxVal) {
+                            maxVal=tempWT[j];
+                        }
+                    } else {
+                        tempWT[j]=WTiteration2[skipCounter-256];
+                        if (tempWT[j]>maxVal2) {
+                            maxVal2=tempWT[j];
+                        }
+                    }
+                    skipCounter++;
+                    skipCounter++;
+                }      
+            } else {
+                // using WT type 3 (both iterations  B><A)
+                for (let j:number=0; j<256; j++) {  
+                    if (j<128) {
+                        tempWT[j]=WTiteration2[skipCounter];
+                        if (tempWT[j]>maxVal) {
+                            maxVal=tempWT[j];
+                        }
+                    } else {
+                        tempWT[j]=WTiteration3[skipCounter-256];
+                        if (tempWT[j]>maxVal2) {
+                            maxVal2=tempWT[j];
+                        }
+                    }
+                    
+                    skipCounter++;
+                    skipCounter++;
+                }
+            }    
+        }
+        // rescale output to maximum value and write to pot array  
+        // for WT mode 0/1
+        if (type !== WavetableType.Both) {
+            for (let i : number =0; i<256; i++) {
+                outputWT[i]= (tempWT[i]/maxVal)*256;
+            }
+        }
+        
+        if (type === WavetableType.IterationTwo) {                                              // for WT mode 2 amplify A<>B
+            for (let i : number=0; i<128; i++) {
+                outputWT[i]= (tempWT[i]/maxVal)*256;
+            }
+            for (let i : number=128; i<256; i++) {
+                outputWT[i]= (tempWT[i]/maxVal2)*256;
+            }
+        }
+        
+        if (type === WavetableType.IterationThree)  {                                             // for WT mode 2 amplify B><A
+            for (let i : number=0; i<128; i++) {
+                outputWT[i]= (tempWT[i]/maxVal)*256;
+            }
+            for (let i : number=128; i<256; i++) {
+                outputWT[i]= (tempWT[i]/maxVal2)*256;
+            }
+        }
+
+        return outputWT;
+    }
+}
