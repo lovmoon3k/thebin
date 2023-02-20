@@ -1,0 +1,129 @@
+import pybullet as p
+import pybullet_data
+import numpy as np
+import time
+import math
+
+# Connect to the simulation environment
+physicsClient = p.connect(p.GUI)
+p.resetSimulation()
+p.setAdditionalSearchPath(pybullet_data.getDataPath())
+p.setGravity(0, 0, -9.81)
+p.setRealTimeSimulation(0)
+
+# Load plane on which the objects will be placed
+planeId = p.loadURDF("plane.urdf")
+
+# Load the Franka Panda robot arm and its end-effector
+robotStartPos = [0, 0, 0]
+robotStartOrientation = p.getQuaternionFromEuler([0, 0, 0])
+robotId = p.loadURDF("franka_panda/panda.urdf", robotStartPos, robotStartOrientation, useFixedBase=True,
+                     flags=p.URDF_USE_INERTIA_FROM_FILE)
+num_joints = p.getNumJoints(robotId)
+
+pandaNumDofs = 7
+
+jointPositions = [0.98, 0.458, 0.31, -2.24, -0.30, 2.66, 2.32, 0.02, 0.02]
+rp = jointPositions
+orn = p.getQuaternionFromEuler([math.pi / 2., 0., 0.])
+
+gripper_height = 0.2
+
+# Load the objects to be picked up
+# It will improve loading performance for files with similar graphics assets
+flags = p.URDF_ENABLE_CACHED_GRAPHICS_SHAPES
+
+object1 = p.loadURDF("lego/lego.urdf", [0, 0.4, 0.02], flags=flags)
+object2 = p.loadURDF("lego/lego.urdf", [0, 0.5, 0.02], flags=flags)  # object centered with the box
+object3 = p.loadURDF("sphere_small.urdf", [-0.2, 0.5, 0.02], flags=flags)
+object4 = p.loadURDF("sphere_small.urdf", [0.1, 0.5, 0.02], flags=flags)
+object5 = p.loadURDF("sphere_small.urdf", [0.1, 0.6, 0.02], flags=flags)
+object_list = [object1, object2, object3, object4, object5]
+
+# Load the box where the objects are initially placed and where they should be moved to
+box1 = p.loadURDF("tray/traybox.urdf", [0, 0.5, 0], flags=flags)
+box2 = p.loadURDF("tray/traybox.urdf", [-0.5, -0.5, 0], flags=flags)
+
+# Create constrains such that the 2 fingers of the gripper are always centered
+c = p.createConstraint(robotId, 9, robotId, 10, jointType=p.JOINT_GEAR,
+                       jointAxis=[1, 0, 0],
+                       parentFramePosition=[0, 0, 0],
+                       childFramePosition=[0, 0, 0])
+p.changeConstraint(c, gearRatio=-1, erp=0.1, maxForce=50)
+
+# Get the joint indice for the gripper joint
+gripper_joint_index = num_joints - 1  # 'panda_grasptarget'
+# info = p.getNumJoints(robotId)
+# print(info)
+# for i in range(info):
+#    print(p.getJointInfo(robotId, i))
+
+# Fix the camera in space
+# Set camera position and orientation
+camera_pos = [0, 1, 2]
+viewMatrix = p.computeViewMatrix(
+    cameraEyePosition=camera_pos,
+    cameraTargetPosition=[0, 1, 0],
+    cameraUpVector=[0, 1, 0])
+
+projectionMatrix = p.computeProjectionMatrixFOV(
+    fov=45.0,
+    aspect=1.0,
+    nearVal=0.1,
+    farVal=3.1)
+
+# set the starting configuration of the robot arm
+for i in range(len(jointPositions)):
+    p.resetJointState(robotId, i, jointPositions[i])
+for i in [9, 10]:
+    p.setJointMotorControl2(robotId, i, p.POSITION_CONTROL, 1, force=10)
+
+count = 0
+while True:
+    width, height, rgbImg, depthImg, segImg = p.getCameraImage(
+        width=224,
+        height=224,
+        viewMatrix=viewMatrix,
+        projectionMatrix=projectionMatrix,
+        flags=p.ER_SEGMENTATION_MASK_OBJECT_AND_LINKINDEX)
+
+    # print(rgbImg)
+    # print(depthImg)
+    # print(segImg)
+
+    # define the target end-effector position
+    #target_position = [0.5, 0.3, 1]
+    if count < len(object_list):
+        orn = p.getQuaternionFromEuler([math.pi, 0., 0.])
+        print(count)
+        target_position = np.array(p.getBasePositionAndOrientation(object_list[count])[0]) + [0, 0, 0.2]
+        print(target_position)
+        # calculate the inverse kinematics for the target end-effector position
+        joint_angles = p.calculateInverseKinematics(robotId, gripper_joint_index, target_position, orn,
+                                                    maxNumIterations=20)
+
+        # set the joint angles of the robot arm
+        for i in range(pandaNumDofs):
+            p.setJointMotorControl2(robotId, i, p.POSITION_CONTROL, joint_angles[i], force=5 * 240.)
+        print("Position has been updated")
+        p.stepSimulation()
+        time.sleep(3)
+    #    p.setJointMotorControlArray(robotId, list(range(0, pandaNumDofs + 2)), p.POSITION_CONTROL, joint_angles,
+    #                                forces=[5 * 240. for i in range(pandaNumDofs + 2)])
+
+    # Set grip, here grip is closed -> should change targetPosition to close and open grip
+#        print(p.getLinkState(robotId, gripper_joint_index)[0])
+#        error_diff = 0.01
+#        print(p.getLinkState(robotId, gripper_joint_index)[0][0] - target_position[0])
+#        print(p.getLinkState(robotId, gripper_joint_index)[0][1] - target_position[1])
+#        print(p.getLinkState(robotId, gripper_joint_index)[0][2] - target_position[2])
+#        if ((p.getLinkState(robotId, gripper_joint_index)[0][0] - target_position[0])  # !!! does not work
+#            and (p.getLinkState(robotId, gripper_joint_index)[0][1] - target_position[1])
+#            and (p.getLinkState(robotId, gripper_joint_index)[0][2] - target_position[2])) < error_diff:
+#            for i in [9, 10]:
+#                p.setJointMotorControl2(robotId, i, p.POSITION_CONTROL, 0, force=10)
+        # p.setJointMotorControlArray(robotId, [9, 10], p.POSITION_CONTROL, [0 for i in range(2)],
+        #                            force=[10 for i in range(2)])
+    count += 1
+    p.stepSimulation()
+    time.sleep(1. / 240.)
