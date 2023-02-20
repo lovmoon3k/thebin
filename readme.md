@@ -1,15 +1,7 @@
-[**De2qfCQi**](/data/De2qfCQi.txt) (20/02/23 - 16:20)- 13204 bytes
+[**J1SzdMz7**](/data/J1SzdMz7.txt) (20/02/23 - 16:36)- 837 bytes
 
-[**YbvDxBbH**](/data/YbvDxBbH.txt) (20/02/23 - 16:20)- 1071 bytes
+[**J1SzdMz7**](/data/J1SzdMz7.txt) (20/02/23 - 16:36)- 837 bytes
 
-[**De2qfCQi**](/data/De2qfCQi.txt) (20/02/23 - 16:20)- 13204 bytes
-
-[**YbvDxBbH**](/data/YbvDxBbH.txt) (20/02/23 - 16:20)- 1071 bytes
-
-[**3AqeTZsF**](/data/3AqeTZsF.txt) (20/02/23 - 16:20)- 1716 bytes
-
-[**3AqeTZsF**](/data/3AqeTZsF.txt) (20/02/23 - 16:20)- 1716 bytes
-
-**Total Datas**: 10930
+**Total Datas**: 10931
 
 **Total Size**: 70.66 MB / 70.7 MB
