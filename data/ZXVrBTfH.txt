@@ -1,0 +1,181 @@
+## 要達成能夠簡易對答請先完成以下事前準備:
+## 1. 申請line bot 並在webhook選項加上webhook_id
+## 2. 申請line notify功能
+## 3. 把你與line bot, line notify加進群組
+## 4. 為這個群組申請一組line notify token，並在HA新增notify服務
+## 5. 將本篇所有"notify.simon_home_notify"換成自己的line notify實體ID
+## 6. 將第46行webhook_id改為你在line bot設定的webhook_id
+## 7. 所有內容存在/config/packages/line_webhook_cmd.yaml內
+## 8. YAML檢查錯誤沒問題後，重新載入腳本、自動化、輸入文字
+## 9. 測試沒問題後，即可自由新增關鍵字與動作，新增存檔完記得要再做一次步驟8
+###########################################################
+##
+##       Automation
+##
+###########################################################
+automation:
+  - id: line_webhook_cmd_timer
+    alias: line_webhook_cmd_timer
+    description: "Line指令太久沒反應取消指令"
+    mode: restart    
+    trigger:
+      - platform: state
+        entity_id: input_text.line_lastcmd
+        from: " "
+        not_to: " "
+    condition: []
+    action:
+      - delay: "00:00:30"
+      - if:
+          - condition: template
+            value_template: "{{ states('input_text.line_lastcmd') != ' ' }}"       
+        then:
+          - service: notify.simon_home_notify
+            data:
+              message: "未收到回答，取消執行"        
+          - service: input_text.set_value
+            target:
+              entity_id: input_text.line_lastcmd
+            data:
+              value: " "              
+
+  - id: line_webhook_cmd
+    alias: line_webhook_cmd
+    description: "Line下指令"
+    mode: single
+    trigger:
+      - platform: webhook
+        webhook_id: !secret my_WHID #記得更換成自己的webhook_id
+        
+    condition: []
+    action:
+      - choose:
+          - alias: "當回答'是'就執行該腳本"
+            conditions: 
+              - condition: template
+                value_template: "{{ trigger.json.events.0.message.text == '是' }}"
+            sequence:
+              - service: script.execute_line_cmd   
+  
+          - alias: "當回答'否'就執行該腳本"
+            conditions: 
+              - condition: template
+                value_template: "{{ trigger.json.events.0.message.text == '否' }}"
+            sequence:
+              - service: script.cancel_line_cmd
+                       
+          - alias: "把需要再次確認的動作關鍵字貼在此處"
+            conditions: 
+              - or:
+                  - condition: template
+                    value_template: "{{ trigger.json.events.0.message.text == '開除濕機' }}"
+                  - condition: template
+                    value_template: "{{ trigger.json.events.0.message.text == '關除濕機' }}"                    
+            sequence:
+              - alias: "確認是否執行指令"
+                service: script.confirm_line_cmd  
+                data:                     
+                  cmd: "{{ trigger.json.events.0.message.text }}"
+                  
+          - alias: "不需要再確認的就直接在sequence填入動作"
+            conditions: 
+              - condition: template
+                value_template: "{{ trigger.json.events.0.message.text == '開客廳燈' }}"
+            sequence:                  
+              - service: notify.simon_home_notify
+                data:
+                  message: "好，客廳燈已開"                              
+                              
+###########################################################
+##
+##       Script
+##
+###########################################################        
+script:
+  confirm_line_cmd:
+    alias: "確認是否執行指令"
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.line_lastcmd
+        data:
+          value: "{{ cmd }}"            
+      - service: notify.simon_home_notify
+        data:
+          message: "確認要{{ states('input_text.line_lastcmd')  }}嗎? (是/否)" 
+
+
+  cancel_line_cmd:
+    alias: "取消指令"
+    sequence:
+      - if:
+          - condition: template
+            value_template: "{{ states('input_text.line_lastcmd') != ' ' }}"
+        then:
+          - service: notify.simon_home_notify
+            data:
+              message: "了解，{{ states('input_text.line_lastcmd') }}已取消執行"
+          - service: input_text.set_value
+            target:
+              entity_id: input_text.line_lastcmd
+            data:
+              value: " "         
+        #如果沒遇到關鍵字就說否，會要求先下指令，如不提示可將else以後刪除或註解
+        else:
+          - service: notify.simon_home_notify
+            data:
+              message: "請先下指令!"
+                                      
+  execute_line_cmd:
+    alias: "確實執行指令"
+    sequence:  
+      #為避免執行指令時間超過時限，先將指令以變數儲存並清除
+      - variables:
+          key_word: "{{ states('input_text.line_lastcmd') }}"    
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.line_lastcmd
+        data:
+          value: " "
+      - if:
+          - condition: template
+            value_template: "{{ key_word != '' }}"
+        then:
+          - choose:
+          ## 在此增加實際需要執行的內容與關鍵字   
+              - conditions: 
+                  - condition: template
+                    value_template: "{{ key_word ==  '開除濕機' }}"
+                sequence:
+                  - service: notify.simon_home_notify
+                    data:
+                      message: "除濕機已打開並持續除濕" 
+                      
+              - conditions: 
+                  - condition: template
+                    value_template: "{{ key_word ==  '關除濕機' }}"
+                sequence:
+                  - service: notify.simon_home_notify
+                    data:
+                      message: "除濕機已關閉"  
+       
+       
+        #如果沒遇到關鍵字就說是，會要求先下指令，如不提示可將else以後刪除或註解 
+        else: 
+          - service: notify.simon_home_notify
+            data:
+              message: "請先下指令!"                 
+                        
+              
+
+        
+        
+###########################################################
+##
+##       Input Select
+##
+###########################################################
+input_text:
+  line_lastcmd:
+    name: Line LastCmd
+    initial: " "        
