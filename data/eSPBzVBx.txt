@@ -1,0 +1,24 @@
+with base_data as (select PdTrfDay.date_day,PdTrfDay.person_id,PdTrfDay.work_code_id, NVL(PdTrfDay.trf_dhr,0) trf_dhr, WorkCode.WORK_CODE_NAME
+from pd_trf_day PdTrfDay, work_code WorkCode
+where PdTrfDay.work_code_id = WorkCode.work_code_id
+and WorkCode.work_code_std_category_id = 2
+--and PdTrfDay.person_id = 471152 and date_day between to_date('13/01/2023 00:00:00', 'DD/MM/YYYY HH24:MI:SS') and to_date('15/01/2023 00:00:00', 'DD/MM/YYYY HH24:MI:SS')
+)
+select "PERSON_ID","FIRST_DATE","LAST_DATE","SICK_DAYS_IN_A_ROW","SUMMED_HRS","MATCHES", "WORK_CODE_ID","WORK_CODE_NAME", "CL" from base_data
+match_recognize(
+partition by person_id, work_code_id
+order by date_day
+measures
+nvl(first(date_day),date_day) as first_date,
+nvl(last(date_day),date_day) as last_date,
+decode(count(*),0,1,count(*)) as sick_days_in_a_row,
+nvl(sum(trf_dhr),trf_dhr) as summed_hrs,
+match_number() as matches,
+work_code_id as wc_id,
+work_code_name as work_code_name,
+classifier() as CL
+pattern (strt consecutive*)
+define
+consecutive as date_day = (prev(date_day)+1) and work_code_id = consecutive.work_code_id
+)
+order by person_id,first_date,last_date;
