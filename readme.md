@@ -1,11 +1,5 @@
-[**sSz1LVKC**](/data/sSz1LVKC.txt) (20/02/23 - 11:37)- 13401 bytes
+[**nBp95q90**](/data/nBp95q90.txt) (20/02/23 - 11:43)- 13250 bytes
 
-[**mrsfTKZU**](/data/mrsfTKZU.txt) (20/02/23 - 11:37)- 13218 bytes
+**Total Datas**: 10886
 
-[**sSz1LVKC**](/data/sSz1LVKC.txt) (20/02/23 - 11:37)- 13401 bytes
-
-[**mrsfTKZU**](/data/mrsfTKZU.txt) (20/02/23 - 11:37)- 13218 bytes
-
-**Total Datas**: 10885
-
-**Total Size**: 70.27 MB / 70.3 MB
+**Total Size**: 70.28 MB / 70.3 MB
