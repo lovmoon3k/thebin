@@ -1,0 +1,84 @@
+#!/bin/sh
+########################################################################
+#
+# mamehist
+# $Id: mamehist,v 1.6 2023/02/20 14:37:06 elias Exp $
+#
+########################################################################
+
+# Paranoia!
+PATH=/bin:/usr/bin
+
+# Full path for the history.dat file in the old format
+HISTFILE=/usr/local/share/games/mame/history.dat
+
+# Option parsing (not POSIX-conform)
+case $1 in
+    -h) shift
+	echo "Usage: `basename $0` <ROM name>"
+	echo "Extract information from history.dat"
+	echo
+	echo "Options"
+	echo "  -h             Show this help"
+	echo "  -l [<pattern>] List ROM names in history.dat"
+	echo "  -f <filename>  Use specified history.dat file"
+	echo
+	echo "Used history.dat file: $HISTFILE"
+	exit
+	;;
+    -l) shift
+	if test -n "$1"; then filter="grep $1"; else filter="cat"; fi
+	sed -n '/^\$info/p' "$HISTFILE" |
+	    sed -e 's/^.*=//' -e 's/,/\n/g' |
+	    sed -e '/^\s*$/d' |
+	    $filter
+	exit
+	;;
+    -f) shift
+	if test -z "$1"
+	then
+	    echo 1>&2 "Missing filename of the history.dat file"
+	    exit 1
+	fi
+	HISTFILE=$1
+	shift
+	;;
+esac
+
+# Fail if the history.dat file does not exist
+if test ! -f "$HISTFILE"
+then
+    echo 1>&2 History file "$HISTFILE" does not exist
+    exit 1
+fi
+
+# Only use less in terminals, allowing output redirection
+if test -t 1; then pager="less"; else pager="cat"; fi
+
+# Check for required ROM name
+if test -z "$1"
+then
+    echo 1>&2 No ROM name given
+    exit 1
+fi
+
+# Extract information from mameinfo.dat
+for romname in $*
+do
+    sed -e '/^#/d' -e '/published.*years ago/d' "$HISTFILE" |
+	awk "BEGIN { status = 0; }
+    	     /^\\\$info*[=,]$romname,/ { status = 2; }
+    	     status == 1 && /^\\\$end/ { exit; }
+    	     status == 1 { print; }
+	     status == 3 && /\S/ { status = 1; print; }
+    	     status == 2 && /^\\\$bio/ { status = 3; }
+    	    " |
+	fold -s 
+    # That awk program looks rather awkward, I know.
+    # status == 0: scan for ROMs name
+    # status == 1: print lines until the $end is reached
+    # status == 2: wait for $bio
+    # status == 3: consume empty lines at the top of the entry
+done | $pager
+
+# Code is prosa, not poetry.
