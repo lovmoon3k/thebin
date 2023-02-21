@@ -1,0 +1,232 @@
+/*   INFO
+   File Search Engine
+   Written by: Najeeb Shah Khan (najeebshahkhan@gmail.com)
+   Last Modified: 2-22-2023
+*/
+#NoEnv
+#SingleInstance, Force
+SetBatchLines, -1
+;#NoTrayIcon 
+SetWorkingDir %A_ScriptDir%  
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+Gui -Caption +ToolWindow +Border +LastFound +AlwaysOnTop -Border +hWndhGUI
+CustomColor = 884488
+Gui, Color, %CustomColor%
+Gui,Font,S14 CGreen Bold,Verdana ;Calibri
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+Hotkey, ^Esc, Quit
+GetFile()
+{
+   Global FileName ;Allows the program to use the variable (FileName) outside this loop
+   Global FileDir
+   RowNumber = 0  ;Loop starts search at top of ListView control.
+   Loop
+   {
+      RowNumber := LV_GetNext(RowNumber)  ;Resume search at next row.
+      if not RowNumber  ;Above is zero, so no more selected rows.
+         break
+      LV_GetText(FileName, RowNumber,1)
+      LV_GetText(FileDir, RowNumber,2)
+   }
+}
+
+;Adding Menu Item Section
+Menu, ListMenu, add,Run,RunProgram
+Menu, ListMenu, add,Edit With Notepad,EditProgram
+Menu, ListMenu, add,Open containing folder,OpenFolder
+Menu, ListMenu, add,Properties,GetProperties
+Menu, ListMenu, add,Delete this file,DeleteFile
+Menu, ListMenu, add,Re-Start Search,Re-Start
+Gui, Add, Button, hWndhButton2 x5 y5 w0 h0 gGuiMove,
+Gui, add, text,x10 y14,Search Where?:
+Gui, Add, DropDownList,x190 y10 w80 vLocation, DIR||C|D|E|F|G|H|I|J|K|L|Y|Z
+Gui, add, text,x280 y14,Search File Name:
+Gui, add, edit,x485 y10 w120 vName
+Gui, add, text,x610 y14,File Extension:
+Gui, Add, DropDownList,x780 y10 w80 vExtension gUnPause, EXT||mp4||mp3|aac|flac|aif|aiff|m4a|flv|mpg|vob|mvk|wmv|avi|m3u|m3u8|xml|jpg|jpge|bmp|png|gif|ico|txt|bat|vbs|ahk|au3|sh|ini|ls|doc|cmd|js|pdf|fm|exe|ink|cpl|dll|rar|zip|7z|iso|daa|bin|cue|img|
+Gui, Show, x0 y30 w900 h60 Center, Search
+WinSet, Region, 0-0 W900 H60 R20-20,
+WinMove, 0, 0
+OnMessage( 0x200, "WM_MOUSEMOVE")
+Pause
+Gui, destroy
+
+Gui, Add, ListView, r20 w700 vFileList gListViewAct sort, Name|File Path
+;GuiControl, FileList
+Gui, add, Text,vText1 w200
+Gui, add, Button, vBreakSearch gBreakSearch,Break Search
+Gui, show,,Search Found: 0 files.
+Name = *%Name%* ;Finds files with a name containing those characters (and others surrounding it)
+Loop, %Location%:\%Name%%Extension%,1,1
+{
+   GuiControl,,Text1,%a_loopfilename% ;Tells name of current found file
+   WinSetTitle,Search Found:,,Search Found: %a_index% files. ;Title tells # of files found
+   NumberFound = %a_index%
+   LV_Add("", A_LoopFileName, A_LoopFileDir)
+   LV_ModifyCol()
+   If Brk=1   ;Check if it user presses break button
+   {
+      Break
+   }
+}
+Gui, +Resize
+GuiControl, hide,Text1
+GuiControl, hide,BreakSearch
+GResize=1
+Gui, show, AutoSize,Search Found: %NumberFound% files.
+
+ListViewAct:
+if A_GuiEvent = DoubleClick
+{
+   GetFile()
+   Run %FileDir%\%FileName%
+}
+return
+
+GuiContextMenu:
+If A_GuiControl <>FileList ;If cursor is inside 'FileList' (ListView control)
+   return
+Menu, ListMenu,Show,%A_GuiX%,%A_GuiY%
+return
+
+;Here are the right-click menu actions
+RunProgram:
+   GetFile()
+   Run, %FileDir%\%FileName%
+return
+
+EditProgram:
+   GetFile()
+   Run, Notepad.exe "%FileDir%\%FileName%"
+return
+
+OpenFolder:
+   GetFile()
+   Run %FileDir%
+return
+
+GetProperties:
+   GetFile()
+   Run properties %FileDir%\%FileName%
+return
+
+DeleteFile:
+   If LV_GetCount("Selected") > 1 ;Checks if more than one row is selected
+      {
+         MsgBox,,OOPS!,You cannot have more than one row selected.`nPlease select only one row, then try again.
+      return
+      }
+   else
+      {
+         GetFile()    
+         MsgBox, 262196, Alert!, Do you really want to delete "%FileName%"?
+         IfMsgBox Yes
+            {
+               FileDelete %FileDir%\%FileName%
+               MsgBox,262144,Delete,The file: "%FileName%" has been deleted!
+               LV_Delete(LV_GetNext()) ;This one goes to my dad. It deletes the row returned by the 'Get Next' check.
+            }
+      }
+   return
+
+Re-Start:
+F5::      ;F5 key also re-starts
+   IfWinActive,Search
+   Reload
+return
+;End of the right-click actions
+
+~Enter::
+~NumpadEnter::
+UnPause:
+IfWinActive,Search,Search Where?
+{
+   GuiControlGet,Location
+   GuiControlGet,Name
+   GuiControlGet,Extension
+   If %Location%
+   {
+      If %Extension%
+      {
+         Pause, Off
+         return
+      }
+      Else   ;Extension field isn't filled in
+      {
+         Pause, Off
+         Extension = *   ;Wildcard for extensions
+         return
+      }
+   }
+   Else   ;Location field isn't filled in
+   {
+      MsgBox,48,Error,Please fill in 'Search Where'
+   }
+   return
+}
+IfWinActive,Search Found:,Break Search
+{
+   GetFile()
+   Run, %FileDir%\%FileName%
+}
+return
+
+;;;;;Help Section;;;;;
+~F1::
+IfWinActive,Search
+{
+   Gui, 2:+owner1
+   Gui, 2:Add, Edit,+ReadOnly w250 r20,This search engine was created by:`nNajeeb Shah Khan (najeebshahkhan@gmail.com).`n---(Yes, I did rely heavily on the help file for ListView commands.)`n`nDirections:`n---------------`nType the LETTER of the drive to search.`nExample: type "C" (without quotes) to search C:\`n`nKeys:`n---------------`nF1:      Help`n`nF5:      Restart Script`n`nPause Key:   Pause/UnPause the script`n`nCtrl+Esc:   Emergency Exit`n`nHints:`n---------------`nIn the ListView, you can right-click for file options.
+   Gui, 2:Add, Button, Default g2GuiClose, Go Back
+   Gui, 2:Show,, File Search Help
+   ControlFocus, Go Back, File Search Help   ;Put focus on the 'Go Back' button
+   Pause, on   ;Pause the search
+}
+return
+;;;;;End of Help Section;;;;;
+
+
+
+
+GuiSize:
+If GResize=1   ;Check if I allowed resizing for the active Gui
+{
+   GuiControl, Move, FileList, % "W" . (A_GuiWidth-20) . "H" . (A_GuiHeight-20)   ;Modify the ListView
+}
+return
+
+Pause:: ;User pressed pause/break key, toggle pause
+Pause,Toggle
+IfWinActive,Search   ;Check if search window is active
+   return         ;It is active, so continue
+Else
+   Pause, on      ;Search window isn't active, so re-pause the script
+return
+
+BreakSearch:
+Brk=1   ;Ready to break
+return
+
+;Gui 2 (Help Window) Exit Section
+2GuiClose:
+2GuiEscape:
+Gui, destroy
+Pause, off
+return
+
+;Primary Gui Exit Section
+GuiClose:
+GuiEscape:
+Quit:
+ExitApp
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+GuiMove: 
+ PostMessage, 0xA1, 2,,, NAJEEB SCRIPT BOOK 
+Return
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+WM_MOUSEMOVE(wparam, lparam, msg, hwnd)
+{
+    if wparam = 1 ; LButton
+        PostMessage, 0xA1, 2,,, A ; WM_NCLBUTTONDOWN
+}
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-END-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
