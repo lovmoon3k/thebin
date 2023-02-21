@@ -1,0 +1,185 @@
+// Algorithms and Data Structures - Homework Week 2, Part 1
+// file   : recognizeEq.c
+//
+// J. L. Grabowski         s3135098
+// M. N. Colombon          s4119576
+
+
+#include <stdio.h>  /* getchar, printf */
+#include <stdlib.h> /* NULL, malloc, free */
+#include <string.h> /* strcpy */
+#include <ctype.h>  /* isspace, isdigit, isalpha, isalnum */
+#include "scanner.h"
+#include "scannerStructs.h"
+#include "recognizeEq.h"
+
+int acceptExpression(List **list);
+int acceptTerm(List **list);
+int acceptNumber(List **list);
+int acceptIdentifier(List **list);
+int acceptSymbol(char symbol, List **list);
+
+//checks whether a given symbol is given
+int acceptSymbol(char symbol, List **list) {
+    if (*list != NULL && (*list)->type == SYMBOL && ((*list)->token).symbol == symbol) {
+        *list = (*list)->next;
+        return 1;
+    }
+    return 0;
+}
+//check whether an identifier is present
+int acceptIdentifier(List **list) {
+    if (*list != NULL && (*list)->type == IDENTIFIER) {
+        *list = (*list)->next;
+        return 1;
+    }
+    return 0;
+}
+//check whether a number is present
+int acceptNumber(List **list) {
+    if (*list != NULL && (*list)->type == NUMBER) {
+        *list = (*list)->next;
+        return 1;
+    }
+    return 0;
+}
+
+//CHANGE
+int acceptTerm(List **list) {
+    if (acceptNumber(list)) {
+        if (acceptIdentifier(list)) {
+            if (acceptSymbol('^', list)) {
+                if (acceptNumber(list)) {
+                    return 1;
+                } else {
+                    return 0;
+                }
+            }
+            return 1;
+        }
+        return 1;
+        // can also start with identifier
+    } else if (acceptIdentifier(list)) {
+        //what if there is an exponent
+        if (acceptSymbol('^', list)) {
+            //it needs a number!!
+            if (acceptNumber(list)) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+        return 1;
+    } else {
+        return 0;
+    }
+
+}
+//CHANGE
+int acceptExpression(List **list) {
+    if ((*list)->type == SYMBOL && !acceptSymbol('-', list)){
+        return 0;
+    }
+    if (!acceptTerm(list)) {
+        return 0;
+    }
+    while (acceptSymbol('+', list) || acceptSymbol('-', list)) {
+        // If we encounter a + or -,
+        // it must be followed by another term
+        if (!acceptTerm(list)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+
+//Checks for validity of equation
+int isValidEquation(List *list){
+    //Variables to check on the equal sign!
+    //Invalid start. List either empty or starts with a symbol that's not '-'.
+    if (list == NULL || (list->type == SYMBOL && list->token.symbol != '-')){
+
+        return 0;
+    }
+
+    if (!acceptExpression(&list)){
+        return 0;
+    }
+    if (!acceptSymbol('=', &list)){
+        return 0;
+    }
+    if (list == NULL){
+        return 0;
+    }
+    if (!acceptExpression(&list)){
+        return 0;
+    }
+    if (list != NULL){
+        return 0;
+    } else {
+        return 1;
+    }
+
+}
+
+
+//
+int isSingleVariableEquation(List *list){
+    int numberVariables = 0;
+    char *singleVariableName;
+    //iterate through list.
+    while (list != NULL){
+        //if its an identifier
+        if (list->type == IDENTIFIER){
+            //and the first time. Make a note
+            if (numberVariables == 0){
+                numberVariables = 1;
+                singleVariableName = (list->token).identifier;
+                //If not the first time.
+            } else {
+                //and it's not the same identifier
+                if (strcmp((list->token).identifier, singleVariableName) != 0) {
+                    //return false
+                    return 0;
+                }
+            }
+        }
+        list = list->next;
+    }
+    return numberVariables;//1 if there is one identifier and 0 if there is NO identifier
+}
+//what we have to write
+int getDegree(List *list){
+    int maxDegree = 0;
+    int foundIdentifier = 0;
+    int foundSymbol = 0;
+    //iterate through list
+    while (list != NULL){
+        //if it's an identifier (variable)
+        if (list->type == IDENTIFIER){
+            //mark as new maxdegree and reminder that we found an identifier
+            if (maxDegree == 0){
+                maxDegree = 1;
+                foundIdentifier = 1;
+            } else {
+                foundIdentifier = 1;
+            }
+            //if it's a symbol, the one we want, and an identifer was coming before. mark as fitting symbol found!
+        } else if (list->type == SYMBOL && (list->token).symbol == '^' && foundIdentifier == 1){
+            foundSymbol = 1;
+            //if a number is found, its bigger than the current maximum Degree and previously a symbol has been found, then update maxdegree
+        } else if (list->type == NUMBER && (list->token).number >= maxDegree && foundSymbol == 1){
+            maxDegree = (list->token).number;
+            foundIdentifier = 0;
+            foundSymbol = 0;
+        } else {
+            foundIdentifier = 0;
+            foundSymbol = 0;
+        }
+        list = list->next;
+    }
+
+    return maxDegree;
+}
+
