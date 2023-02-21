@@ -1,13 +1,11 @@
-[**KwsVSG8w**](/data/KwsVSG8w.txt) (21/02/23 - 07:57)- 13482 bytes
+[**Qr26YwMH**](/data/Qr26YwMH.txt) (21/02/23 - 08:52)- 13268 bytes
 
-[**qPaZL9X9**](/data/qPaZL9X9.txt) (21/02/23 - 07:57)- 13317 bytes
+[**F4dRmUKm**](/data/F4dRmUKm.txt) (21/02/23 - 08:52)- 13416 bytes
 
-[**KwsVSG8w**](/data/KwsVSG8w.txt) (21/02/23 - 07:57)- 13482 bytes
+[**4ARvnS7k**](/data/4ARvnS7k.txt) (21/02/23 - 08:52)- 13226 bytes
 
-[**PAKrL8rj**](/data/PAKrL8rj.txt) (21/02/23 - 07:57)- 12675 bytes
+[**F4dRmUKm**](/data/F4dRmUKm.txt) (21/02/23 - 08:52)- 13416 bytes
 
-[**JMkMqu9K**](/data/JMkMqu9K.txt) (21/02/23 - 07:57)- 13636 bytes
+**Total Datas**: 11122
 
-**Total Datas**: 11119
-
-**Total Size**: 71.76 MB / 71.8 MB
+**Total Size**: 71.80 MB / 71.8 MB
