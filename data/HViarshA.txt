@@ -1,0 +1,63 @@
+using System;
+using System.Data.SQLite;
+using System.IO;
+using System.Security.Cryptography;
+
+namespace ExportChromePasswords
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // SQLite file
+            string fileName = @"C:\Users\username\AppData\Local\Google\Chrome\User Data\Default\Login Data";
+            string connectionString = @"Data Source=" + fileName + ";Version=3;";
+            string queryString = "SELECT action_url, username_value, password_value FROM logins";
+
+            // Get the data from the SQLite file using SQLite
+            using (SQLiteConnection connection = new SQLiteConnection(connectionString))
+            {
+                connection.Open();
+                SQLiteCommand command = new SQLiteCommand(queryString, connection);
+                SQLiteDataReader reader = command.ExecuteReader();
+
+                // Text file to save the data
+                string filePath = @"C:\Users\username\Desktop\passwords.txt";
+                using (StreamWriter sw = new StreamWriter(filePath))
+                {
+                    while (reader.Read())
+                    {
+                        string url = reader.GetString(0);
+                        string userName = reader.GetString(1);
+                        byte[] encryptedPassword = (byte[])reader.GetValue(2);
+
+                        // Decrypt the password
+                        byte[] decryptedPassword = Decrypt(encryptedPassword);
+                        string password = System.Text.Encoding.Unicode.GetString(decryptedPassword);
+
+                        // Write the data to the text file
+                        sw.WriteLine(url);
+                        sw.WriteLine(userName);
+                        sw.WriteLine(password);
+                        sw.WriteLine();
+                    }
+                }
+            }
+        }
+
+        // Decrypt the password using the dpapi
+        public static byte[] Decrypt(byte[] encryptedBytes)
+        {
+            try
+            {
+                // Decrypt the bytes using the dpapi.
+                return ProtectedData.Unprotect(encryptedBytes, null, DataProtectionScope.CurrentUser);
+            }
+            catch (CryptographicException e)
+            {
+                Console.WriteLine("Data couldn't be decrypted: {0}", e.ToString());
+                return null;
+            }
+        }
+    }
+}
