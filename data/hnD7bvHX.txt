@@ -1,0 +1,234 @@
+/* file   : recognizeEq.c */
+/* author : ??? */
+
+/* Description:
+ * Implementation of recognition of simple
+ * calculation expressions.
+ *
+ * Note that this implementation explicitly depends
+ * on the implementation of the scanner, and therefore
+ * includes "scannerStructs.h" in addition to "scanner.h".
+ */
+#include <stdio.h>  /* getchar, printf */
+#include <stdlib.h> /* NULL, malloc, free */
+#include <string.h> /* strcpy */
+#include <ctype.h>  /* isspace, isdigit, isalpha, isalnum */
+#include "scanner.h"
+#include "scannerStructs.h"
+#include "recognizeEq.h"
+
+
+// The grammar:
+//〈equation〉 ::= 〈expression〉 ‘=’ 〈expression〉 .
+//〈expression〉 ::= [ ‘–’ ] 〈term〉 { ‘+’ 〈term〉 | ‘–’ 〈term〉 } .
+//〈term〉 ::= 〈nat〉 | [ 〈nat〉 ] 〈identifier〉 [ ‘^’ 〈nat〉 ] .
+int acceptSymbol(char symbol, List **list);
+int acceptNumber(List **list);
+int acceptIdentifier(List **list);
+
+int acceptTerm(List **list);
+int acceptExpression(List **list);
+
+//not done!
+int isValidEquation(List *list){
+    //〈equation〉 ::= 〈expression〉 ‘=’ 〈expression〉
+    // first the left part of the equation
+    if (acceptExpression(&list) == 0){
+        return 0;
+    }
+    //then the equal sign
+    if (acceptSymbol('=', &list) == 0){
+        return 0;
+    }
+    //then the right part of the equation
+    if (acceptExpression(&list) == 0){
+        return 0;
+    }
+
+    return 1;
+
+
+}
+//
+int isSingleVariableEquation(List *list){
+    int numberVariables = 0;
+    char *singleVariableName;
+    //iterate through list.
+    while (list != NULL){
+        //if its an identifier
+        if (list->type == IDENTIFIER){
+            //and the first time. Make a note
+            if (numberVariables == 0){
+                numberVariables = 1;
+                singleVariableName = (list->token).identifier;
+            //If not the first time.
+            } else {
+                //and it's not the same identifier
+                if (strcmp((list->token).identifier, singleVariableName) != 0) {
+                    //return false
+                    return 0;
+                }
+            }
+        }
+        list = list->next;
+    }
+    return numberVariables;//1 if there is one identifier and 0 if there is NO identifier
+}
+//what we have to write
+int getDegree(List *list){
+    int maxDegree = 0;
+    int foundIdentifier = 0;
+    int foundSymbol = 0;
+    //iterate through list
+    while (list != NULL){
+        //if it's an identifier (variable)
+        if (list->type == IDENTIFIER){
+            //mark as new maxdegree and reminder that we found an identifier
+            if (maxDegree == 0){
+                maxDegree = 1;
+                foundIdentifier = 1;
+            } else {
+                foundIdentifier = 1;
+            }
+        //if it's a symbol, the one we want, and an identifer was coming before. mark as fitting symbol found!
+        } else if (list->type == SYMBOL && (list->token).symbol == '^' && foundIdentifier == 1){
+            foundSymbol = 1;
+        //if a number is found, its bigger than the current maximum Degree and previously a symbol has been found, then update maxdegree
+        } else if (list->type == NUMBER && (list->token).number >= maxDegree && foundSymbol == 1){
+            maxDegree = (list->token).number;
+            foundIdentifier = 0;
+            foundSymbol = 0;
+        } else {
+            foundIdentifier = 0;
+            foundSymbol = 0;
+        }
+        list = list->next;
+    }
+
+    return maxDegree;
+}
+
+
+
+
+//Change?
+int acceptSymbol(char symbol, List **list) {
+    if (*list != NULL && (*list)->type == SYMBOL && ((*list)->token).symbol == symbol) {
+        *list = (*list)->next;
+        return 1;
+    }
+    return 0;
+}
+
+
+
+//DONT CHANGE!!
+int acceptNumber(List **list) {
+    if (*list != NULL && (*list)->type == NUMBER) {
+        *list = (*list)->next;
+        return 1;
+    }
+    return 0;
+}
+//DONT CHANGE!
+int acceptIdentifier(List **list) {
+    if (*list != NULL && (*list)->type == IDENTIFIER) {
+        *list = (*list)->next;
+        return 1;
+    }
+    return 0;
+}
+//Change? Not needed I think
+//int acceptFactor(List **list) {
+//    if (acceptNumber(list)) {
+//        return 1;
+//    }
+//    if (acceptIdentifier(list)) {
+//        return 1;
+//    }
+//    if (acceptSymbol('(', list)) {
+//        return acceptExpression(list) && acceptSymbol(')', list);
+//    }
+//    return 0;
+//}
+
+//CHANGE!
+int acceptTerm(List **list) {
+    // according to grammar: 〈nat〉 | [ 〈nat〉 ] 〈identifier〉 [ ‘^’ 〈nat〉 ]
+
+    if (acceptNumber(list)) {
+        if (acceptIdentifier(list)) {
+            if (acceptSymbol('^', list)) {
+                if (acceptNumber(list)) {
+                    return 1;
+                }
+                return 0;
+            }
+            return 1;
+        }
+        return 1;
+    }
+    // can also start with identifier
+    else if (acceptIdentifier(list)) {
+        if (acceptSymbol('^', list)) {
+            if (acceptNumber(list)) {
+                return 1;
+            }
+            return 0;
+        }
+        return 1;
+    }
+
+}
+
+
+//CHANGE!
+int acceptExpression(List **list) {
+    // expression can start with a '-' sign
+    acceptSymbol('-', list);
+    // then a term
+    if (!acceptTerm(list)) {
+        return 0;
+    }
+    // then a '+' or '-' sign and another term
+    while (acceptSymbol('+', list) || acceptSymbol('-', list)) {
+        // If we encounter a + or -,
+        // it must be followed by another term
+        if (!acceptTerm(list)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+
+
+// new acceptExpression
+//int acceptExpression(List **list) {
+//    if (acceptTerm(list)) {
+//        while (acceptSymbol('+', list) || acceptSymbol('-', list)) {
+//            if (!acceptTerm(list)) {
+//                return 0;
+//            }
+//        }
+//        return 1;
+//    } else if (acceptSymbol('-', list)) {
+//        // If the expression starts with a minus sign,
+//        // it must be followed by a term
+//        if (!acceptTerm(list)) {
+//            return 0;
+//        }
+//        while (acceptSymbol('+', list) || acceptSymbol('-', list)) {
+//            if (!acceptTerm(list)) {
+//                return 0;
+//            }
+//        }
+//        return 1;
+//    } else {
+//        return 0;
+//    }
+//}
+//
+
+
+
