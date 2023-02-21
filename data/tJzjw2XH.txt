@@ -1,0 +1,118 @@
+package ru.bump.util.media;
+
+import org.codehaus.jackson.annotate.JsonProperty;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import ru.bump.core.util.ArgumentAssertUtil;
+import ru.bump.core.util.JsonUtils;
+import ru.bump.util.FileUtils;
+import ru.bump.util.files.FileUtil;
+import ru.bump.util.process.ProcessRunException;
+import ru.bump.util.process.ProcessRunner;
+import ru.bump.util.string.StringUtil;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.TimeoutException;
+
+
+public final class WaveFormUtil {
+
+    private static final Logger LOG = LoggerFactory.getLogger(WaveFormUtil.class);
+
+    private static final String MP3_TO_WAV_UTILITY_NAME = "ffmpeg";
+
+    private static final String WAV2JSON_UTILITY_NAME = "wav2json";
+
+    private static final long SAMPLES_COUNT = 680;
+
+    // -------------------------------------------------------
+    // -                        LOGIC                        -
+    // -------------------------------------------------------
+
+    private WaveFormUtil() {
+    }
+
+    public static String getWaveformJson(String filePath) {
+        ArgumentAssertUtil.emptyStringCheck("filePath", filePath);
+        java.io.File tempFile = FileUtil.getNewTempFile("wav");
+        String tempFilePath = tempFile.getAbsolutePath();
+        Boolean succeed = false;
+
+        try {
+            new ProcessRunner(MP3_TO_WAV_UTILITY_NAME)
+                    .addParameter("-i", filePath)
+                    .addParameter("-acodec", "pcm_s16le")
+                    .addParameter("-ac", "1")
+                    .addParameter("-ar", "8000")
+                    .addParameter("-f", "wav")
+                    .addParameter(tempFilePath)
+                    .run();
+            succeed = true;
+        } catch (IOException e) {
+            LOG.error("Error decoding mp3. I/O problem. Parameter = `{}`.", e, filePath);
+        } catch (InterruptedException e) {
+            LOG.error("Error decoding mp3. Process is interrupted. Parameter = `{}`.", e, filePath);
+        } catch (ProcessRunException e) {
+            LOG.error("Error decoding mp3. Parameter = `{}`.", e, filePath);
+        } catch (TimeoutException e) {
+            LOG.error("Error decoding mp3. Timeout is expired. Parameter = `{}`.", e, filePath);
+        }
+
+        if (succeed) {
+            java.io.File resultFile = FileUtil.getNewTempFile();
+            try {
+                new ProcessRunner(WAV2JSON_UTILITY_NAME)
+                        .addParameter(tempFilePath)
+                        .addParameter("--channels", "left")
+                        .addParameter("-p", "2")
+                        .addParameter("-n")
+                        .addParameter("-s", String.valueOf(SAMPLES_COUNT))
+                        .addParameter("-o", resultFile.getAbsolutePath())
+                        .run();
+
+                String samplesJson = FileUtils.readFile(resultFile);
+
+                if (!StringUtil.isEmpty(samplesJson)) {
+                    Wav2jsonPresenter samples = JsonUtils.deserializeFromJson(samplesJson, Wav2jsonPresenter.class);
+                    return JsonUtils.serializeToJson(samples.left);
+                }
+            } catch (IOException e) {
+                LOG.error("Error processing wav to json. I/O problem. Parameter = `{}`.", e, tempFilePath);
+            } catch (InterruptedException e) {
+                LOG.error("Error processing wav to json. Process is interrupted. Parameter = `{}`.", e, tempFilePath);
+            } catch (ProcessRunException e) {
+                LOG.error("Error processing wav to json. Parameter = `{}`.", e, tempFilePath);
+            } catch (TimeoutException e) {
+                LOG.error("Error processing wav to json. Timeout is expired. Parameter = `{}`.", e, tempFilePath);
+            } finally {
+                if (tempFile.exists()) {
+                    tempFile.delete();
+                }
+                if (resultFile.exists()) {
+                    resultFile.delete();
+                }
+            }
+        } else {
+            if (tempFile.exists()) {
+                tempFile.delete();
+            }
+        }
+
+        return null;
+    }
+
+    private static class Wav2jsonPresenter {
+
+        @JsonProperty
+        private List<Double> left;
+
+        // -------------------------------------------------------
+        // -                      GET & SET                      -
+        // -------------------------------------------------------
+
+        public List<Double> getLeft() {
+            return left;
+        }
+    }
+}
