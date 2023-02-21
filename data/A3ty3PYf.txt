@@ -1,0 +1,79 @@
+/**
+Here you can write scripts for complex server processing of the context during process execution.
+To write scripts, use TypeScript (https://www.typescriptlang.org).
+ELMA365 SDK documentation available on https://tssdk.elma365.com.
+**/
+
+async function docflowFillRespondents(): Promise<void> {
+    // Получаем все листы согласования.
+    const lists = await Context.data.docapp?.docflow().getApprovalLists();
+    if (lists?.length) {
+        // Берем самый последний лист.
+        const currentList = lists[0];
+
+        // Заполняем массив данных по участникам процесса.
+        const respondentData = await Promise.all(currentList.respondents
+            .map(r => getRespondentNamePromise(r)
+                .then(name => ({
+                    name: name,
+                    status: getStatusString(r, currentList.customStatusSettings),
+                    comment: r.comment,
+                }))));
+
+        // Записываем данные по участникам процесса в таблицу.
+        respondentData.forEach(line => {
+            const row = Context.data.respondents!.insert();
+            row.name = line.name;
+            row.status = line.status;
+            row.comment = row.comment;
+        })
+    }
+}
+
+async function getRespondentNamePromise(respondent: Respondent): Promise<string> {
+    // Находим неудаленного пользователя с заданным id, берем его имя.
+    return System.users.search()
+        .where((f, g) => g.and(
+            f.__id.eq(respondent.id),
+            f.__deletedAt.eq(null)),
+        )
+        .first()
+        .then(user => getUserFullName(user));
+}
+
+function getUserFullName(user?: UserItem): string {
+    const fullName = user?.data.fullname;
+    // Соединяем ФИО (при наличии) в одну строку.
+    return [fullName?.lastname, fullName?.firstname, fullName?.middlename]
+        .filter(Boolean)
+        .join(' ');
+}
+
+function getStatusString(respondent: Respondent, settings?: DocflowCustomStatusSettings): string {
+    if (respondent.customStatusUsed) {
+        // Находим в настройках кастомных статусов статус,
+        // соответствующий статусу участника, проверяем, что он разрешен.
+        const customStatusString = settings
+            ?.customStatuses
+            ?.find(s => s.enabled && s.status === respondent.status)
+            ?.statusText;
+        if (customStatusString) {
+            return customStatusString;
+        }
+    }
+
+    // Кастомный статус не использовался или не найден в настройках,
+    // используем стандартные.
+    switch (respondent.status) {
+        case DocflowListStatus.Approved:
+            return 'Согласовано';
+        case DocflowListStatus.InProgress:
+            return 'На согласовании';
+        case DocflowListStatus.Rejected:
+            return 'Отказано';
+        case DocflowListStatus.Terminated:
+            return 'Отменено';
+        default:
+            return 'Неизвестный статус';
+    }
+}
