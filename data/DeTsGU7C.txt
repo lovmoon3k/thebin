@@ -1,0 +1,353 @@
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
+from datetime import datetime
+import time
+import undetected_chromedriver as uc
+from googletrans import Translator
+
+import os
+import csv
+
+
+def is_eof(f):
+    cur = f.tell()  # save current position
+    f.seek(0, os.SEEK_END)
+    end = f.tell()  # find the size of file
+    f.seek(cur, os.SEEK_SET)
+    return cur == end
+
+
+def parse_iki():
+    os.system('cls')
+    print(datetime.now())
+    dt = datetime.now()
+
+    driver = uc.Chrome()
+    index = 0
+    driver.get("https://eparduotuve.iki.lt/ru")
+    driver.execute_script('return navigator.webdriver')
+    time.sleep(8) if index == 0 else time.sleep(0)
+
+
+def parse_lit():
+    def lit_parse_chapters(chapter_url):
+        time.sleep(1)
+        driver.get(chapter_url)
+        cu = driver.find_elements(By.XPATH, '//a[contains(text(),"Chapter")]')
+        chapters_urls = []
+        for ii in cu:
+            chapters_urls.append(ii.get_property('href'))
+        return chapters_urls
+
+    def lit_parse_sub_chapters(chapter_url):
+        time.sleep(1)
+        driver.get(chapter_url)
+        cu2 = driver.find_elements(By.XPATH, '//a[contains(@href,"checkfinal=y")and not(contains(text(), "Chapter"))]')
+        sub_chapters_urls = []
+        for ii in cu2:
+            sub_chapters_urls.append(ii.get_property('href'))
+        return sub_chapters_urls
+
+    def lit_parse_sub_fucking_chapters(chapter_url):
+        time.sleep(1)
+        driver.get(chapter_url)
+        try:
+            is_ready = driver.find_element(By.XPATH, '//h2[contains(text(),"Duty rates")]')
+        except NoSuchElementException:
+            print("exception")
+        else:
+            lit_parse_data(is_ready)
+
+    def lit_parse_data(is_ready):
+        print(is_ready.text)
+        return
+
+        # //a[contains(@href,'checkfinal=y')and not(contains(text(), "Chapter"))] - для ссылки
+        # //a[contains(@href,'checkfinal=y')and not(contains(text(), "Chapter"))]/../../td[2]/p - для названия - почти
+
+    os.system('cls')
+    print(datetime.now())
+    dt = datetime.now()
+
+    csv_name = "lit_data " + dt.strftime("%d-%m-%Y  %H.%M.%S.csv")
+    header = ['Ключ', 'id', 'Наименование', 'Цена', 'СтараяЦена', 'Статус',
+              'Раздел', 'Время', 'Конкурент']
+    csvfile = open(csv_name, 'w', newline="", errors='ignore')
+    csv_writer = csv.writer(csvfile, delimiter=';', quotechar='|')
+    csv_writer.writerow(header)
+
+    driver = uc.Chrome()
+    index = 0
+    sections_url = "https://litarweb.lrmuitine.lt/taric/web/browsetariffi2_EN?expandelem=&Year=2023&Month=01&Day=05&Country=----------&issection=y&impexp=2#POS"
+    driver.get(sections_url)
+    driver.execute_script('return navigator.webdriver')
+
+    sections_names = driver.find_elements(By.XPATH, '//a[contains(text(),"Section")]/../../td[2]')
+    su = driver.find_elements(By.XPATH, '//a[contains(text(),"Section")]')
+    sections_urls = []
+    for i in su:
+        sections_urls.append(i.get_property('href'))
+
+    # Секция с обходом
+    for cu in sections_urls:
+        chapters_urls = lit_parse_chapters(cu)
+        for cu2 in chapters_urls:
+            sub_chapters_urls = lit_parse_sub_chapters(cu2)
+            for cu3 in sub_chapters_urls:
+                sub_fucking_chapters_urls = lit_parse_sub_fucking_chapters(cu3)
+
+    print(chapters_urls[0])
+    print(len(chapters_urls))
+    print(sub_chapters_urls[0])
+    print(len(sub_chapters_urls))
+    print(len(sub_fucking_chapters_urls))
+
+    # //a[contains(text(),"Section")]/../../td[2]
+
+    time.sleep(60)
+    exit(0)
+
+
+def parse_pigu():
+    os.system('cls')
+    print(datetime.now())
+    dt = datetime.now()
+
+    csv_name = "pigu_data " + dt.strftime("%d-%m-%Y  %H.%M.%S.csv")
+    header = ['КодЕД', 'КодВек', 'Ключ', 'id', 'Наименование', 'Цена', 'СтараяЦена', 'Статус',
+              'Раздел', 'Время', 'Конкурент']
+    csvfile = open(csv_name, 'w', newline="", errors='ignore')
+    csv_writer = csv.writer(csvfile, delimiter=';', quotechar='|')
+    csv_writer.writerow(header)
+
+    driver = uc.Chrome()
+    index = 0
+    f = open("pigu.txt", 'r')
+
+    translator = Translator()
+    while not is_eof(f):
+        url = (f.readline().replace('\n', ''))
+        driver.get(url)
+        driver.execute_script('return navigator.webdriver')
+        time.sleep(8) if index == 0 else time.sleep(0)
+        name = driver.find_element(By.XPATH, '//h1').text
+        # name = translator.translate(name, src='lt', dest='ru').text
+        name = name.replace("\xe4", "A")
+        name = name.encode('ascii', 'ignore')
+        try:
+            price = driver.find_element(By.XPATH, '(//meta[@itemprop="price"])[1]').get_property("content")
+            price = price.replace(".", ",").replace(" €", "")
+        except NoSuchElementException:
+            price = ""
+
+        try:
+            old_price = driver.find_element(By.XPATH,
+                                            '//span[@class="product-page-old-price product-price old-sprice notranslate"]').text
+            if old_price != "":
+                old_price = old_price.replace(".", ",").replace(" €", "")
+                old_price = str(int(old_price) / 100).replace(".", ",")
+        except NoSuchElementException:
+            old_price = ""
+
+            # //a[@class="c-breadcrumbs__link"]/span
+
+        section = ""
+        sections = driver.find_elements(By.XPATH, '//a[@class="c-breadcrumbs__link"]/span')
+        for i in sections:
+            section += i.text + "/"
+        # section = translator.translate(section, src='lt', dest='ru').text
+        section = section.replace("\xe4", "A")
+
+        try:
+            sku = driver.find_element(By.XPATH, '//span[@class="product-id"]').text.replace("ID товара: ", "")
+        except NoSuchElementException:
+            sku = ""
+
+        status = ""
+        # try:
+        #    driver.find_element(By.XPATH, '//a[@class="primary-button full-width add-to-cart "]/span[2]')
+        # except NoSuchElementException:
+        #    status = "В наличии"
+        # if status == "":
+        #    status, price, old_price = "Нет в наличии", "", ""
+
+        current_time = datetime.now().strftime("%d-%m-%Y  %H.%M.%S")
+
+        header = ["", "", url, sku, name, price, old_price, status, section, current_time, "pigu"]
+        csv_writer.writerow(header)
+
+        index += 1
+        print("Позиция #" + str(index))
+
+    driver.close()
+    csvfile.close()
+    exit(0)
+
+
+def parse_varle():
+    os.system('cls')
+    print(datetime.now())
+    dt = datetime.now()
+
+    csv_name = "varle_data " + dt.strftime("%d-%m-%Y  %H.%M.%S.csv")
+    header = ['КодЕД', 'КодВек', 'Ключ', 'id', 'Наименование', 'Цена', 'СтараяЦена', 'Статус',
+              'Раздел', 'Время', 'Конкурент']
+    csvfile = open(csv_name, 'w', newline="", errors="ignore")
+    csv_writer = csv.writer(csvfile, delimiter=';', quotechar='|')
+    csv_writer.writerow(header)
+
+    driver = uc.Chrome()
+    index = 0
+    f = open("varle.txt", 'r')
+
+    translator = Translator()
+    while not is_eof(f):
+        url = (f.readline().replace('\n', ''))
+        if url == "":
+            continue
+        driver.get(url)
+        driver.execute_script('return navigator.webdriver')
+        time.sleep(8) if index == 0 else time.sleep(0)
+
+        try:
+            name = driver.find_element(By.XPATH, '//h1').text
+        except NoSuchElementException:
+            name = ""
+        # name = translator.translate(name, src='lt', dest='ru').text
+        name = name.replace("\xe4", "A")
+        name = name.encode('ascii', 'ignore')
+
+        try:
+            price = driver.find_element(By.XPATH, '//span[@class="price-value"]').text
+            price = price.replace(".", ",").replace(" €", "")
+        except NoSuchElementException:
+            price = ""
+
+        try:
+            old_price = driver.find_element(By.XPATH, '//span[@class="previous-price"]').text
+            old_price = old_price.replace(".", ",").replace(" €", "")
+        except NoSuchElementException:
+            old_price = ""
+
+        section = ""
+        try:
+            sections = driver.find_elements(By.XPATH, '//li[@itemprop="itemListElement"]/a/span')
+        except NoSuchElementException:
+            sections = ""
+        for idx, i in enumerate(sections):
+            if idx % 2 == 1:
+                section += i.text + "/"
+        # section = translator.translate(section, src='lt', dest='ru').text
+        section = section.replace("\xe4", "A")
+        # section = ""
+
+        try:
+            sku = driver.find_element(By.XPATH, '//span[@itemprop="sku"]').text
+        except NoSuchElementException:
+            sku = ""
+
+        status = ""
+        try:
+            driver.find_element(By.XPATH, '//a[@class="primary-button full-width add-to-cart "]/span[2]')
+        except NoSuchElementException:
+            status = "В наличии"
+        if status == "":
+            status, price, old_price = "Нет в наличии", "", ""
+
+        current_time = datetime.now().strftime("%d-%m-%Y  %H.%M.%S")
+
+        header = ["", "", url, sku, name, price, old_price, status, section, current_time, "varle"]
+        csv_writer.writerow(header)
+
+        index += 1
+        print("Позиция #" + str(index))
+
+    driver.close()
+    csvfile.close()
+    exit(0)
+
+
+def parse_senukai():
+    os.system('cls')
+    print(datetime.now())
+    dt = datetime.now()
+
+    csv_name = "senukai_data " + dt.strftime("%d-%m-%Y  %H.%M.%S.csv")
+    header = ['КодЕД', 'КодВек', 'Ключ', 'id', 'Наименование', 'Цена', 'СтараяЦена', 'Статус',
+              'Раздел', 'Время', 'Конкурент']
+    csvfile = open(csv_name, 'w', newline="", errors="ignore")
+    csv_writer = csv.writer(csvfile, delimiter=';', quotechar='"')
+    csv_writer.writerow(header)
+
+    driver = uc.Chrome()
+    index = 0
+    with open('senukai.txt') as f:
+        urls = f.readlines()
+
+    translator = Translator()
+    for url in urls:
+        driver.get(url)
+        driver.execute_script('return navigator.webdriver')
+        time.sleep(3) if index == 0 else time.sleep(0)
+
+        name = driver.find_element(By.XPATH, '//h1').text
+        name = translator.translate(name, src='lt', dest='ru').text
+        name = name.encode('ascii', 'ignore')
+        try:
+            price = driver.find_element(By.XPATH, '//span[@class="product-price-details__price-number"]').text
+            price = price.replace(" €", "")
+        except NoSuchElementException:
+            price = ""
+
+        try:
+            old_price = driver.find_element(By.XPATH,
+                                            '//div[@class="product-price-details__block"]/span[@class="price"]/span[1]').text
+            old_price = old_price.replace(" €", "")
+        except NoSuchElementException:
+            old_price = ""
+
+        if price == "":
+            price = old_price
+            old_price = ""
+
+        section = ""
+        sections = driver.find_elements(By.XPATH, '//li[@itemprop="itemListElement"]/a/span')
+        for i in range(1, len(sections)):
+            if i % 2 == 1:
+                section += sections[i].text + "/"
+        section = translator.translate(section, src='lt', dest='ru').text
+        section = section.encode('ascii', 'ignore')
+
+        try:
+            sku = driver.find_element(By.XPATH, '//p[@class="product-id"]')
+        except NoSuchElementException:
+            sku = ""
+        else:
+            sku = sku.text.replace("Prekės kodas: ", "")
+
+        status = ""
+        try:
+            driver.find_element(By.XPATH, '//div[contains(@class, "product-not-sellable-online__controls clearfix")]')
+        except NoSuchElementException:
+            status = "В наличии"
+        if status == "":
+            status, price, old_price = "Нет в наличии", "", ""
+
+        current_time = datetime.now().strftime("%d-%m-%Y  %H.%M.%S")
+
+        header = ["", "", url, sku, name, price, old_price, status, section, current_time, "senukai"]
+        csv_writer.writerow(header)
+
+        index += 1
+        print("Позиция #" + str(index))
+
+    driver.close()
+    csvfile.close()
+    exit(0)
+
+
+if __name__ == '__main__':
+    # parse_pigu()
+    parse_varle()
+    # parse_senukai()
+    # parse_lit()

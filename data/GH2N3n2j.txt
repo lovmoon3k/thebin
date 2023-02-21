@@ -1,0 +1,195 @@
+Index: java/org/l2jmobius/gameserver/model/variables/PlayerVariables.java
+===================================================================
+--- java/org/l2jmobius/gameserver/model/variables/PlayerVariables.java	(revision 11625)
++++ java/org/l2jmobius/gameserver/model/variables/PlayerVariables.java	(working copy)
+@@ -49,6 +49,7 @@
+ 	public static final String ATTENDANCE_DATE = "ATTENDANCE_DATE";
+ 	public static final String ATTENDANCE_INDEX = "ATTENDANCE_INDEX";
+ 	public static final String DAILY_MISSION_COUNT = "DAILY_MISSION_COUNT";
++	public static final String DAILY_MISSION_ONE_TIME = "DAILY_MISSION_ONE_TIME";
+ 	public static final String CEREMONY_OF_CHAOS_SCORE = "CEREMONY_OF_CHAOS_SCORE";
+ 	public static final String CEREMONY_OF_CHAOS_MARKS = "CEREMONY_OF_CHAOS_MARKS";
+ 	public static final String ABILITY_POINTS_MAIN_CLASS = "ABILITY_POINTS";
+Index: java/org/l2jmobius/gameserver/model/DailyMissionDataHolder.java
+===================================================================
+--- java/org/l2jmobius/gameserver/model/DailyMissionDataHolder.java	(revision 11625)
++++ java/org/l2jmobius/gameserver/model/DailyMissionDataHolder.java	(working copy)
+@@ -16,13 +16,11 @@
+  */
+ package org.l2jmobius.gameserver.model;
+ 
+-import java.util.Calendar;
+ import java.util.List;
+ import java.util.function.Function;
+ 
+ import org.l2jmobius.gameserver.enums.ClassId;
+ import org.l2jmobius.gameserver.enums.DailyMissionStatus;
+-import org.l2jmobius.gameserver.enums.MissionResetType;
+ import org.l2jmobius.gameserver.handler.AbstractDailyMissionHandler;
+ import org.l2jmobius.gameserver.handler.DailyMissionHandler;
+ import org.l2jmobius.gameserver.model.actor.Player;
+@@ -45,7 +43,6 @@
+ 	private final boolean _isDualClassOnly;
+ 	private final boolean _isDisplayedWhenNotAvailable;
+ 	private final AbstractDailyMissionHandler _handler;
+-	private final MissionResetType _missionResetSlot;
+ 	
+ 	public DailyMissionDataHolder(StatSet set)
+ 	{
+@@ -62,7 +59,6 @@
+ 		_isDualClassOnly = set.getBoolean("isDualClassOnly", false);
+ 		_isDisplayedWhenNotAvailable = set.getBoolean("isDisplayedWhenNotAvailable", true);
+ 		_handler = handler != null ? handler.apply(this) : null;
+-		_missionResetSlot = set.getObject("duration", MissionResetType.class, MissionResetType.DAY);
+ 	}
+ 	
+ 	public int getId()
+@@ -177,27 +173,4 @@
+ 	{
+ 		return (_handler != null) && _handler.isLevelUpMission();
+ 	}
+-	
+-	public void reset()
+-	{
+-		if (_handler != null)
+-		{
+-			if ((_missionResetSlot == MissionResetType.WEEK) && (Calendar.getInstance().get(Calendar.DAY_OF_WEEK) == Calendar.MONDAY))
+-			{
+-				_handler.reset();
+-			}
+-			else if ((_missionResetSlot == MissionResetType.MONTH) && (Calendar.getInstance().get(Calendar.DAY_OF_MONTH) == 1))
+-			{
+-				_handler.reset();
+-			}
+-			else if ((_missionResetSlot == MissionResetType.WEEKEND) && (Calendar.getInstance().get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY))
+-			{
+-				_handler.reset();
+-			}
+-			else if (_dailyReset)
+-			{
+-				_handler.reset();
+-			}
+-		}
+-	}
+ }
+Index: java/org/l2jmobius/gameserver/handler/AbstractDailyMissionHandler.java
+===================================================================
+--- java/org/l2jmobius/gameserver/handler/AbstractDailyMissionHandler.java	(revision 11625)
++++ java/org/l2jmobius/gameserver/handler/AbstractDailyMissionHandler.java	(working copy)
+@@ -19,7 +19,7 @@
+ import java.sql.Connection;
+ import java.sql.PreparedStatement;
+ import java.sql.ResultSet;
+-import java.sql.SQLException;
++import java.util.List;
+ import java.util.Map;
+ import java.util.concurrent.ConcurrentHashMap;
+ import java.util.logging.Level;
+@@ -85,30 +85,6 @@
+ 		return (entry != null) && entry.isRecentlyCompleted();
+ 	}
+ 	
+-	public synchronized void reset()
+-	{
+-		if (!_holder.dailyReset())
+-		{
+-			return;
+-		}
+-		
+-		try (Connection con = DatabaseFactory.getConnection();
+-			PreparedStatement ps = con.prepareStatement("DELETE FROM character_daily_rewards WHERE rewardId = ? AND status = ?"))
+-		{
+-			ps.setInt(1, _holder.getId());
+-			ps.setInt(2, DailyMissionStatus.COMPLETED.getClientId());
+-			ps.execute();
+-		}
+-		catch (SQLException e)
+-		{
+-			LOGGER.log(Level.WARNING, "Error while clearing data for: " + getClass().getSimpleName(), e);
+-		}
+-		finally
+-		{
+-			_entries.clear();
+-		}
+-	}
+-	
+ 	public boolean requestReward(Player player)
+ 	{
+ 		if (isAvailable(player) || isLevelUpMission())
+@@ -126,6 +102,9 @@
+ 			else
+ 			{
+ 				entry.setStatus(DailyMissionStatus.COMPLETED);
++				final List<Integer> missions = player.getVariables().getIntegerList(PlayerVariables.DAILY_MISSION_ONE_TIME);
++				missions.add(_holder.getId());
++				player.getVariables().setIntegerList(PlayerVariables.DAILY_MISSION_ONE_TIME, missions);
+ 			}
+ 			entry.setLastCompleted(System.currentTimeMillis());
+ 			entry.setRecentlyCompleted(true);
+Index: dist/game/data/scripts/handlers/dailymissionhandlers/LevelDailyMissionHandler.java
+===================================================================
+--- dist/game/data/scripts/handlers/dailymissionhandlers/LevelDailyMissionHandler.java	(revision 11625)
++++ dist/game/data/scripts/handlers/dailymissionhandlers/LevelDailyMissionHandler.java	(working copy)
+@@ -82,12 +82,6 @@
+ 	}
+ 	
+ 	@Override
+-	public void reset()
+-	{
+-		// Level rewards doesn't reset daily
+-	}
+-	
+-	@Override
+ 	public int getProgress(Player player)
+ 	{
+ 		return _level;
+Index: java/org/l2jmobius/gameserver/network/serverpackets/pledgeV2/ExPledgeMissionInfo.java
+===================================================================
+--- java/org/l2jmobius/gameserver/network/serverpackets/pledgeV2/ExPledgeMissionInfo.java	(revision 11625)
++++ java/org/l2jmobius/gameserver/network/serverpackets/pledgeV2/ExPledgeMissionInfo.java	(working copy)
+@@ -18,10 +18,12 @@
+ 
+ import java.util.Collection;
+ import java.util.Collections;
++import java.util.List;
+ 
+ import org.l2jmobius.gameserver.data.xml.DailyMissionData;
+ import org.l2jmobius.gameserver.model.DailyMissionDataHolder;
+ import org.l2jmobius.gameserver.model.actor.Player;
++import org.l2jmobius.gameserver.model.variables.PlayerVariables;
+ import org.l2jmobius.gameserver.network.ServerPackets;
+ import org.l2jmobius.gameserver.network.serverpackets.ServerPacket;
+ 
+@@ -55,6 +57,7 @@
+ 		
+ 		ServerPackets.EX_PLEDGE_MISSION_INFO.writeId(this);
+ 		writeInt(_rewards.size());
++		final List<Integer> missions = _player.getVariables().getIntegerList(PlayerVariables.DAILY_MISSION_ONE_TIME);
+ 		for (DailyMissionDataHolder reward : _rewards)
+ 		{
+ 			int progress = reward.getProgress(_player);
+@@ -62,19 +65,19 @@
+ 			// TODO: Figure out this.
+ 			if (reward.isLevelUpMission())
+ 			{
++				progress = 1;
+ 				if (status == 2)
+ 				{
+ 					status = reward.getRequiredCompletions() > _player.getLevel() ? 1 : 3;
+ 				}
+-				else if ((status == 3) && (progress == 3))
++				else if (status != 3)
+ 				{
+-					status = 0;
++					status = reward.isRecentlyCompleted(_player) ? 0 : 3;
+ 				}
+-				else
++				else if ((status == 3) && !missions.isEmpty() && missions.contains(reward.getId()))
+ 				{
+-					status = reward.isRecentlyCompleted(_player) ? 0 : 3;
++					status = 0;
+ 				}
+-				progress = 1;
+ 			}
+ 			else if (status == 1)
+ 			{
