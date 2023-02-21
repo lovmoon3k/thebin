@@ -1,0 +1,305 @@
+import itertools
+from itertools import combinations_with_replacement, product
+import pandas as pd
+import numpy as np
+from binance.client import Client
+from ta.momentum import RSIIndicator, StochasticOscillator, WilliamsRIndicator
+from ta.trend import MACD, ADXIndicator
+from talib import SMA, EMA
+from ta.volatility import BollingerBands
+from ta.utils import dropna
+from sklearn.metrics import accuracy_score
+
+# Define Binance API keys and create client
+api_key = 'key'
+api_secret = 'secret'
+client = Client(api_key, api_secret,tld='us')
+
+# Define function to retrieve historical data
+def get_historical_data(symbol, interval, start_str, end_str):
+    bars = client.futures_klines(symbol=symbol, interval=interval, 
+                                 startTime=start_str, endTime=end_str)
+    df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 
+                                     'volume', 'close_time', 'quote_asset_volume', 
+                                     'trades', 'taker_buy_base_asset_volume', 
+                                     'taker_buy_quote_asset_volume', 'ignore'])
+    df.drop(['close_time', 'ignore'], axis=1, inplace=True)
+    for col in df.columns:
+        df[col] = df[col].astype(float)
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    df.set_index('timestamp', inplace=True)
+    return df
+
+# Define function to calculate indicator values
+def calculate_indicators(df, indicators):
+    for indicator in indicators:
+        if indicator['name'] == 'macd':
+            indicator['instance'] = MACD(df['close'], window_slow=indicator['params']['slow'], 
+                                          window_fast=indicator['params']['fast'], 
+                                          window_sign=indicator['params']['signal'])
+            df[indicator['name']] = indicator['instance'].macd()
+            df[indicator['name'] + '_signal'] = indicator['instance'].macd_signal()
+            df[indicator['name'] + '_hist'] = indicator['instance'].macd_diff()
+        elif indicator['name'] == 'rsi':
+            indicator['instance'] = RSIIndicator(df['close'], window=indicator['params']['window'])
+            df[indicator['name']] = indicator['instance'].rsi()
+        elif indicator['name'] == 'wpr':
+            indicator['instance'] = WilliamsRIndicator(df['high'], df['low'], df['close'], 
+                                                        window=indicator['params']['window'])
+            df[indicator['name']] = indicator['instance'].williams_r()
+        elif indicator['name'] == 'adx':
+            indicator['instance'] = ADXIndicator(df['high'], df['low'], df['close'], 
+                                                 window=indicator['params']['window'])
+            df[indicator['name']] = indicator['instance'].adx()
+            df[indicator['name'] + '_pos'] = indicator['instance'].adx_pos()
+            df[indicator['name'] + '_neg'] = indicator['instance'].adx_neg()
+        elif indicator['name'] == 'stoch':
+            indicator['instance'] = StochasticOscillator(df['high'], df['low'], df['close'], 
+                                                         window=indicator['params']['window'], 
+                                                         smooth_window=indicator['params']['smooth'])
+            df[indicator['name']] = indicator['instance'].stoch()
+            df[indicator['name'] + '_signal'] = indicator['instance'].stoch_signal()
+        elif indicator['name'] == 'sma':
+            df[indicator['name']] = df['close'].rolling(indicator['params']['window']).mean()
+        elif indicator['name'] == 'ema':
+            df[indicator['name']] = df['close'].ewm(span=indicator['params']['window']).mean()
+        elif indicator['name'] == 'bb':
+            indicator['instance'] = BollingerBands(df['close'], window=indicator['params']['window'], 
+                                                   window_dev=indicator['params']['dev'])
+            df[indicator['name'] + '_mid'] = indicator['instance'].bollinger_mavg()
+            df[indicator['name'] + '_upper'] = indicator['instance'].bollinger_hband()
+            df[indicator['name'] + '_lower'] = indicator['instance'].bollinger_lband()
+    return dropna(df)
+
+# Define function to determine buy/sell/hold signals based on indicators
+def calculate_signals(df, indicators):
+    signals = pd.DataFrame(index=df.index)
+    for indicator in indicators:
+        if indicator['name'] == 'macd':
+            signals['macd'] = np.where(df['macd'] > df['macd_signal'], 1, -1)
+        elif indicator['name'] == 'rsi':
+            signals['rsi'] = np.where(df['rsi'] > indicator['params']['overbought'], -1, 
+                                       np.where(df['rsi'] < indicator['params']['oversold'], 1, 0))
+        elif indicator['name'] == 'wpr':
+            signals['wpr'] = np.where(df['wpr'] > indicator['params']['overbought'], -1, 
+                                       np.where(df['wpr'] < indicator['params']['oversold'], 1, 0))
+        elif indicator['name'] == 'adx':
+            signals['adx'] = np.where((df['adx_pos'] > df['adx_neg']) & (df['adx_pos'] > indicator['params']['threshold']), 1, 
+                                       np.where((df['adx_pos'] < df['adx_neg']) & (df['adx_neg'] > indicator['params']['threshold']), -1, 0))
+        elif indicator['name'] == 'stoch':
+            signals['stoch'] = np.where((df['stoch'] > df['stoch_signal']) & (df['stoch'] > indicator['params']['overbought']), -1, 
+                                         np.where((df['stoch'] < df['stoch_signal']) & (df['stoch'] < indicator['params']['oversold']), 1, 0))
+        elif indicator['name'] == 'sma':
+            signals['sma'] = np.where(df['close'] > df['sma'], 1, -1)
+        elif indicator['name'] == 'ema':
+            signals['ema'] = np.where(df['close'] > df['ema'], 1, -1)
+        elif indicator['name'] == 'bb':
+            signals['bb'] = np.where(df['close'] < df['bb_lower'], 1, 
+                                      np.where(df['close'] > df['bb_upper'], -1, 0))
+    return signals
+
+# Define function to backtest signals and calculate accuracy
+def backtest_signals(df, signals):
+    trades = signals.diff()
+    trades.iloc[0] = signals.iloc[0]
+    trades['price'] = df['close']
+    trades['returns'] = trades['price'].pct_change() * trades.shift(-1)['price']
+    accuracy = {}
+    for signal in ['macd', 'rsi', 'wpr', 'adx', 'stoch', 'sma', 'ema', 'bb']:
+        accuracy[signal] = trades[signal][trades[signal] != 0].eq(-1 * trades['returns'][trades[signal] != 0].lt(0)).mean()
+    accuracy['average'] = np.mean(list(accuracy.values()))
+    return accuracy
+
+# Define function to iterate through all combinations of indicators and parameters and backtest signals
+def iterate_signals(df, indicators):
+    # Define the range of parameter values to test for each indicator
+    param_ranges = {
+        'macd': {
+            'fast': range(5, 30),
+            'slow': range(20, 60),
+            'signal': range(5, 20)
+        },
+        'rsi': {
+            'window': range(5, 30),
+            'overbought': range(60, 90, 5),
+            'oversold': range(10, 40, 5)
+        },
+        'wpr': {
+            'window': range(5, 30),
+            'overbought': range(-10, -50, -10),
+            'oversold': range(-90, -50, 10)
+        },
+        'adx': {
+            'window': range(5, 30),
+            'threshold': range(10, 40, 5)
+        },
+        'stoch': {
+            'window': range(5, 30),
+            'overbought': range(70, 100, 5),
+            'oversold': range(0, 30, 5)
+        },
+        'sma': {
+            'window': range(10, 100, 10)
+        },
+        'ema': {
+            'window': range(10, 100, 10)
+        },
+        'bb': {
+            'window': range(10, 100, 10),
+            'dev': range(1, 4)
+        }
+    }
+
+    # Create a list of all possible combinations of indicator instances and parameters
+    combinations = []
+    for i in range(1, len(indicators) + 1):
+        for c in combinations_with_replacement(indicators, i):
+            if len(set([x['name'] for x in c])) == i:
+                param_combinations = []
+                for ind in c:
+                    params = ind['params']
+                    param_names = params.keys()
+                    param_values = [param_ranges[ind['name']][p] for p in param_names]
+                    for combo in product(*param_values):
+                        param_combinations.append(dict(zip(param_names, combo)))
+                for pc in product(param_combinations):
+                    combination = [(c[i]['instance'](df, **pc[i]), c[i]['name']) for i in range(len(c))]
+                    combinations.append(combination)
+
+    # Backtest each combination of indicators and parameters
+    accuracy = {'buy': {}, 'sell': {}, 'average': {}}
+    for i, combination in enumerate(combinations):
+        signals = []
+        for signal in zip(*[c[0].get() for c in combination]):
+            signal = [1 if s == 'buy' else -1 if s == 'sell' else 0 for s in signal]
+            if sum(signal) == 1:
+                signals.append(signal)
+        if signals:
+            accuracy['buy'][i] = testing(combination, signals, 'buy')
+            accuracy['sell'][i] = testing(combination, signals, 'sell')
+            accuracy['average'][i] = (accuracy['buy'][i] + accuracy['sell'][i]) / 2
+        if (i + 1) % 1000 == 0:
+            best_accuracy = max(accuracy['average'], key=accuracy['average'].get)
+            print(f"Best accuracy after {i + 1} iterations: {best_accuracy} ({accuracy['average'][best_accuracy] * 100}%)")
+    best_accuracy = max(accuracy['average'], key=accuracy['average'].get)
+    print(f"Best accuracy after {i + 1} iterations: {best_accuracy} ({accuracy['average'][best_accuracy] * 100}%)")
+    # Print the best accuracy and combination of indicators and parameters
+    best_combination = combinations[best_accuracy]
+    print(f"Best combination of indicators and parameters:\n{best_combination}\nAccuracy:\nBuy: {accuracy['buy'][best_accuracy] * 100}%\nSell: {accuracy['sell'][best_accuracy] * 100}%\nAverage: {accuracy['average'][best_accuracy] * 100}%")
+
+def testing(combination, signals, direction):
+    """Backtest a combination of indicators and parameters using historical signals."""
+    df_signals = pd.DataFrame(signals, columns=[c[1] for c in combination])
+    positions = pd.Series([0] * len(signals))
+    buy_signals = df_signals.sum(axis=1) == 1
+    sell_signals = df_signals.sum(axis=1) == -1
+    if direction == 'buy':
+        for i in range(1, len(positions)):
+            if buy_signals[i] and positions[i - 1] == 0:
+                positions[i] = 1
+            elif sell_signals[i] and positions[i - 1] == 1:
+                positions[i] = 0
+            else:
+                positions[i] = positions[i - 1]
+        returns = (df['close'].pct_change() * positions.shift(1)).cumsum().fillna(0)
+    elif direction == 'sell':
+        for i in range(1, len(positions)):
+            if sell_signals[i] and positions[i - 1] == 0:
+                positions[i] = -1
+            elif buy_signals[i] and positions[i - 1] == -1:
+                positions[i] = 0
+            else:
+                positions[i] = positions[i - 1]
+        returns = (-1 * df['close'].pct_change() * positions.shift(1)).cumsum().fillna(0)
+    accuracy = (positions.diff() * (returns.shift(-1) - returns) > 0).sum() / (positions.diff().abs().sum() / 2)
+    return accuracy
+
+# Define the BTCUSDT symbol and time interval
+symbol = 'BTCUSDT'
+interval = Client.KLINE_INTERVAL_1HOUR
+
+# Retrieve the historical klines data
+klines = client.get_historical_klines(symbol, interval, "6 month ago UTC")
+df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume', 'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'])
+
+# Convert columns to float and set the timestamp as the index
+df = df.drop(columns=['close_time', 'ignore'])
+df = df.astype(float)
+df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+df = df.set_index('timestamp')
+
+# Define the list of indicators and their default parameters
+indicators = [
+    {'name': 'macd', 'instance': MACD, 'params': {'fastperiod': 12, 'slowperiod': 26, 'signalperiod': 9}},
+    {'name': 'rsi', 'instance': RSIIndicator, 'params': {'window': 14, 'overbought': 70, 'oversold': 30}},
+    {'name': 'wpr', 'instance': WilliamsRIndicator, 'params': {'window': 14, 'overbought': -20, 'oversold': -80}},
+    {'name': 'adx', 'instance': ADXIndicator, 'params': {'window': 5,'threshold': 10}},
+    {'name': 'stoch', 'instance': StochasticOscillator, 'params': {'k': 5, 'd': 3, 'smooth': 3}},
+    {'name': 'sma', 'instance': SMA, 'params': {'window': 14}},
+    {'name': 'ema', 'instance': EMA, 'params': {'window': 14}}
+]
+
+# Define the parameter ranges for each indicator
+param_ranges = {
+    'macd': {'fastperiod': range(5, 21), 'slowperiod': range(10, 51), 'signalperiod': range(5, 21)},
+    'rsi': {'window': range(5, 31), 'overbought': range(60, 101), 'oversold': range(0, 41)},
+    'wpr': {'window': range(5, 31), 'overbought': range(-10, 11), 'oversold': range(-90, -69)},
+    'adx': {'window': range(5, 31), 'overbought': range(25, 51), 'oversold': range(0, 26)},
+    'stoch': {'k': range(5, 21), 'd': range(3, 11), 'smooth': range(3, 11)},
+    'sma': {'window': range(5, 31)},
+    'ema': {'window': range(5, 31)}
+}
+
+# Loop through every possible combination of indicators and their parameters
+combinations = []
+for i in range(1, len(indicators) + 1):
+    for c in combinations_with_replacement(indicators, i):
+        # Loop through every possible parameter combination for the indicators
+        param_combinations = product(*[[(k, v) for v in param_ranges[ind['name']][k]] for c, k in product(combinations_with_replacement(indicators, len(indicators)), indicators[0]['params'].keys()) for ind in c])
+        for params in param_combinations:
+            # Calculate the buy and sell signals for the given combination of indicators and parameters
+            signals = []
+            for j in range(len(df)):
+                signal = []
+                for ind, p in zip(c, params):
+                    instance = ind['instance'](df[ind['name']].iloc[:j+1], **{k: v for k, v in p if k in ind['params']})
+                    if ind['name'] == 'macd':
+                        signal += [1 if instance.macd()[-1] > instance.signal()[-1] else -1 if instance.macd()[-1] < instance.signal()[-1] else 0]
+                    elif ind['name'] == 'rsi':
+                        signal += [1 if instance.rsi()[-1] > instance.oversold()[-1] else -1 if instance.rsi()[-1] < instance.overbought()[-1] else 0]
+                    elif ind['name'] == 'wpr':
+                        signal += [1 if instance.wpr()[-1] < instance.oversold()[-1] else -1 if instance.wpr()[-1] > instance.overbought()[-1] else 0]
+                    elif ind['name'] == 'adx':
+                        signal += [1 if instance.adx()[-1] > instance.oversold()[-1] else -1 if instance.adx()[-1] < instance.overbought()[-1] else 0]
+                    elif ind['name'] == 'stoch':
+                        signal += [1 if instance.fast()[-1] > instance.slow()[-1] else -1 if instance.fast()[-1] < instance.slow()[-1] else 0]
+                    elif ind['name'] == 'sma':
+                        signal += [1 if instance.sma()[-1] > df['close'].iloc[j] else -1 if instance.sma()[-1] < df['close'].iloc[j] else 0]
+                    elif ind['name'] == 'ema':
+                        signal += [1 if instance.ema()[-1] > df['close'].iloc[j] else -1 if instance.ema()[-1] < df['close'].iloc[j] else 0]
+                signals.append(signal)
+
+            # Calculate the accuracy of the signals
+            buys, sells, total = 0, 0, 0
+            for j in range(len(signals) - 1):
+                if 1 in signals[j] and df['close'].iloc[j+1] > df['close'].iloc[j]:
+                    buys += 1
+                    total += 1
+                elif -1 in signals[j] and df['close'].iloc[j+1] < df['close'].iloc[j]:
+                    sells += 1
+                    total += 1
+            if total > 0:
+                accuracy_buy = buys / total
+                accuracy_sell = sells / total
+                accuracy = (accuracy_buy + accuracy_sell) / 2
+                combinations.append({'indicators': c, 'params': dict(params), 'accuracy_buy': accuracy_buy, 'accuracy_sell': accuracy_sell, 'accuracy': accuracy})
+
+            # Print the highest combination accuracy every 1000 iterations
+            if len(combinations) % 1000 == 0:
+                combinations.sort(key=lambda x: x['accuracy'], reverse=True)
+                print(f'Iteration {len(combinations)}: Highest accuracy {combinations[0]["accuracy"]:.2%} with indicators {combinations[0]["indicators"]} and parameters {combinations[0]["params"]}')
+
+# Sort the combinations by accuracy and print the top 10
+combinations.sort(key=lambda x: x['accuracy'], reverse=True)
+for i in range(10):
+    print(f'{i+1}. Indicators: {combinations[i]["indicators"]}, Parameters: {combinations[i]["params"]}, Accuracy (buy): {combinations[i]["accuracy_buy"]:.2%}, Accuracy (sell): {combinations[i]["accuracy_sell"]:.2%}, Average Accuracy: {combinations[i]["accuracy"]:.2%}')
