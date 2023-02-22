@@ -1,0 +1,68 @@
+# Создадим переменные для выявления лучших параметров
+best_train_f1 = 0
+best_test_f1 = 0
+best_valid_f1 = 0
+best_estimator = 0
+best_depth = 0
+# Создадим словарь для сохранения результатов экспериментов
+graph_data_rf = {'train_f1': [],
+                 'test_f1': [],
+                 'valid_f1': [],
+                 'estimator': [],
+                 'depth': [],
+                }
+# Запускаем цикл экспериментов
+for estimator in range(1, 30): 
+    for depth in range(1, 20):
+
+        # Создаем модель, задаем параметры
+        model_rf = RandomForestClassifier(n_estimators=estimator, random_state=12345, max_depth=depth, class_weight='balanced')
+
+        # Тренируем модель
+        model_rf.fit(features_train, target_train)
+
+        # Проверяем предсказания на тренировочной выборке
+        train_prediction = model_rf.predict(features_train)
+        train_f1 = f1_score(target_train, train_prediction)
+
+        # Проверяем предсказания на тестовой выборке
+        test_prediction = model_rf.predict(features_test)
+        test_f1 = f1_score(target_test, test_prediction)
+
+
+        # Проверяем предсказания на валидационной выборке
+        valid_prediction = model_rf.predict(features_valid)
+        valid_f1 = f1_score(target_valid, valid_prediction)
+        
+        # Определяем лучшую конфигурацию
+        if valid_f1 > best_valid_f1:
+            best_train_f1 = round(train_f1, 4)
+            best_test_f1 = round(test_f1, 4)
+            best_valid_f1 = round(valid_f1, 4)
+            best_depth = depth
+            best_estimator = estimator
+
+        # Записываем данные в протокол
+        graph_data_rf['train_f1'].append(round(train_f1, 4))
+        graph_data_rf['test_f1'].append(round(test_f1, 4))
+        graph_data_rf['valid_f1'].append(round(valid_f1, 4))
+        graph_data_rf['depth'].append(depth)
+        graph_data_rf['estimator'].append(estimator)
+# Создаем датафрейм на основе протокола
+graph_data_rf = pd.DataFrame(graph_data_rf)
+# Рисуем графики результатов испытаний
+fig, axs = plt.subplots(1, 2, figsize=(15, 5))
+
+graph_data_rf.pivot_table(index='estimator', values=['train_f1', 'valid_f1', 'test_f1'], aggfunc='max'). \
+    plot(kind='line', xlabel='Деревья', ylabel='F1-score', \
+        title='F1-score при разном количестве деревьев', ax=axs[0])
+
+graph_data_rf[graph_data_rf['estimator'] == best_estimator].plot(kind='line', x='depth', y=['train_f1', 'test_f1','valid_f1'], \
+    xlabel='Глубина', ylabel='F1-score', \
+        title=f'F1-score с {best_estimator} деревьями при разной глубине',  ax=axs[1])
+#  Выводим результаты эксперимента
+print(f'Лучший показатель F1-score на валидационной выборке: {best_valid_f1}')
+print(f'при показателе F1-score на тестовой выборке: {best_test_f1}')
+print(f'при показателе F1-score на тренировочной выборке: {best_train_f1}')
+print(f'при количестве деревьев: {best_estimator}')
+print(f'при глубине дерева: {best_depth}')
