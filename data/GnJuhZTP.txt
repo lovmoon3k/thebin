@@ -1,0 +1,111 @@
+                const coins = options.getString('amount')
+                const partners = await client.rclient.hGetAll(`partdeals${guild.id}`)
+                let i = 0
+                await interaction.deferReply()
+                let e=0
+
+                //vars
+                const nochannel = []
+                const cooldown = []
+                const noperms = []
+                const success = []
+                const failbyamt = []
+
+                let totalpartners = await rclient.HLEN(`partdeals${guild.id}`)
+                let mm = await interaction.editReply({fetchReply: true, embeds: [buildEmbed(`please wait while details are being fetched. Processed: 0/${totalpartners}`)] })
+
+                for (const partner in partners) {
+                    e++
+                    i += 1
+                    if (!await rclient.EXISTS(`guild${partner}`)) return
+
+                    let data = await rclient.hGet(`partdeals${guild.id}`, partner)
+                    let ch = data.split('/')[0]
+                    let pguild = await client.guilds.fetch(partner)       
+                    let channel = await pguild.channels.fetch(ch)
+                    if(!channel) return nochannel.push(`• ${pguild.name} (Id: ${pguild.id})`)
+
+                    if(await client.rclient.EXISTS(`heistadcd${guild.id}${partner}`)) {
+                        let ss = await client.rclient.TTL(`heistadcd${guild.id}${partner}`)
+                        ss = ss*1000 + Date.now()
+                        ss = Math.floor(Math.round(ss/1000))
+                        cooldown.push(`• ${pguild.name} (Id: ${pguild.id}) expires <t:${ss}:R>`)
+                    }
+
+                    if(coins) {
+                        let amount = 0
+                        const conditions = ['k', 'm', 'b'];
+                        if (conditions.some((el) => coins.includes(el))) {
+                            let object = {
+                                k: 'e3',
+                                m: 'e6',
+                                b: 'e9',
+                            }
+                            amount = coins.replace(/k|m|b/g, function (m) {
+                                return object[m];
+                            })
+                        } else amount = Number(coins)
+                        amount = Number(amount)
+
+                        const pdata = await client.rclient.hGetAll(partner)
+                        const minamt = pdata.minheistamount || 0
+                        if(minamt > amount) return failbyamt.push(`• ${pguild.name} (Id: ${pguild.id})`)
+                    }
+
+                    //no perms to post
+                    if(channel.permissionsFor(client.user.id).has(PermissionFlagsBits.ViewChannel) && channel.permissionsFor(client.user.id).has(PermissionFlagsBits.SendMessages) && channel.permissionsFor(client.user.id).has(PermissionFlagsBits.MentionEveryone)) {
+                        success.push(`• ${pguild.name} (Id: ${pguild.id})`)
+                    }
+
+                    else {
+                        noperms.push(`• ${pguild.name} (Id: ${pguild.id})`)
+                    }
+                    await mm.edit({embeds: [buildEmbed(`please wait while details are being fetched. Processed: ${e}/${totalpartners}`)]})
+                }
+                console.log(`total: ${totalpartners} | success: ${success.length} | failbyamt: ${failbyamt.length} | noperms: ${noperms.length} | nochannel: ${nochannel.length} | cooldown: ${cooldown.length}`)
+                console.log(stripIndent`
+                    success: ${success}
+                    failbyamt:  ${failbyamt}
+                    noperms: ${noperms}
+                    nochannel: ${nochannel}
+                    cooldown: ${cooldown}
+                    `)
+
+                    let all = []
+               const cdembed = new EmbedBuilder()
+               .setColor(client.config.embedHex)
+               .setTimestamp()
+               .setDescription(`${cooldown.join('\n')}` || 'You are not on cooldown.')
+               .setTitle(`Cooldowns - ${cooldown.length} servers`)  
+               
+               const nopembed = new EmbedBuilder()
+               .setColor(client.config.embedHex)
+               .setTimestamp()
+               .setTitle(`Missing permissions - ${noperms.length} servers` || "client has permissions across all partners")
+               .setDescription(`${noperms.join('\n')}` || "client has all perms to post across all your partner servers")
+
+               const nochl = new EmbedBuilder()
+               .setColor(client.config.embedHex)
+               .setTimestamp()
+               .setTitle(`Missing channel - ${nochannel.length} servers`)
+               .setDescription(`${nochannel.join('\n')}` || 'all partner channels are found.')
+
+               const minamt = new EmbedBuilder()
+               .setColor(client.config.embedHex)
+               .setTimestamp()
+               .setDescription(`${failbyamt.join('\n')}` || "Your heist amount is good to post across all servers.")
+               .setTitle(`Less heist amount - ${failbyamt.length} servers`)
+
+               const sucEmbed = new EmbedBuilder()
+               .setColor(client.config.embedHex)
+               .setTimestamp()
+               .setDescription(`${success.join('\n')}`)
+               .setTitle(`Will be posted - ${success.length} servers` || "Your ad will be posted across all your partner servers")
+
+               if(nochannel.length) all.push(nochl)
+               if(failbyamt.length) all.push(minamt)
+               if(success.length) all.push(sucEmbed)
+               if(noperms.length) all.push(nopembed)
+               if(cooldown.length) all.push(cdembed)
+
+               await interaction.editReply({embeds: all})
