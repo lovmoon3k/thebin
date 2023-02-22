@@ -1,0 +1,65 @@
+// MP4Box -dash 4000 -rap -bs-switching no -profile live -out gpac_range/video video.mp4#video video.mp4#audio video_640p.mp4#video
+// ffmpeg -i video.mp4 -vf scale=640:360 video_640p.mp4
+
+var video = $("#media-source-video")[0];
+var videoMIMECodec = 'video/mp4; codecs="avc1.64002A'; 
+var audioMIMECodec = 'audio/mp4; codecs="mp4a.40.2"'
+
+if ("MediaSource" in window && MediaSource.isTypeSupported(videoMIMECodec)) {
+    var mediaSource = new MediaSource;
+    video.src = URL.createObjectURL(mediaSource);
+    mediaSource.addEventListener('sourceopen', sourceOpen);
+} else {
+    console.error(`Unsupported MIME type or codec: ${videoMIMECodec}`);
+}
+
+$("#media-source-video").click(() => {
+    video.muted = !video.muted;
+    video.volume = 1;
+})
+
+function sourceOpen() {
+    var videoSourceBuffer = mediaSource.addSourceBuffer(videoMIMECodec);
+
+    fetch("/video/video_640p_dashinit.mp4", {
+        method: "GET"
+    }).then(response => {
+        return response.arrayBuffer();
+    }).then(buffer => {
+        videoSourceBuffer.appendBuffer(buffer);
+    });
+
+    var audioSourceBuffer = mediaSource.addSourceBuffer(audioMIMECodec);
+
+    fetch("/video/video_dash_track2_init.mp4", {
+        method: "GET"
+    }).then(response => {
+        return response.arrayBuffer();
+    }).then(buffer => {
+        audioSourceBuffer.appendBuffer(buffer);
+    });
+
+    video.play();
+
+    var i = 1;
+
+    setInterval(() => {
+        fetch("/video/video_640p_dash" + i.toString() + ".m4s", {
+            method: "GET"
+        }).then(response => {
+            return response.arrayBuffer();
+        }).then(buffer => {
+            videoSourceBuffer.appendBuffer(buffer);
+        });
+
+        fetch("/video/video_dash_track2_" + i.toString() + ".m4s", {
+            method: "GET"
+        }).then(response => {
+            return response.arrayBuffer();
+        }).then(buffer => {
+            audioSourceBuffer.appendBuffer(buffer);
+        });
+
+        i++
+    }, 3000);
+}
