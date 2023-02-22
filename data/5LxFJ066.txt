@@ -1,0 +1,135 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using SimpleDb;
+using System;
+
+namespace Algorithms {
+    
+    public abstract class Algorithm {
+        protected Profile Profile;
+
+        protected List<Box> Boxes;
+        protected Dimensions ContainerDimensions;
+        protected string? ExtraPreferences;
+        protected int ProblemId;
+
+        protected Solution Solution;
+
+        public Algorithm(Profile profile) {
+            Boxes = null;
+            ContainerDimensions = null;
+            ExtraPreferences = null;
+            Solution = null;
+            Profile = profile;
+        }
+
+        public abstract Solution Solve(Problem problem);
+
+        protected List<Dimensions> GetRotations(Dimensions dimensions) {
+            List<Dimensions> rotations = new List<Dimensions>();
+            rotations.Add(dimensions);
+            rotations.Add(new Dimensions(dimensions.Height, dimensions.Width, dimensions.Length));
+            rotations.Add(new Dimensions(dimensions.Length, dimensions.Height, dimensions.Width));
+            return rotations;
+        }
+
+        public Solution GetSolution(Problem problem) {
+            if (Boxes == null || ContainerDimensions == null) {
+                throw new Exception("Boxes or ContainerDimensions not set");
+            } else {
+                if (Solution == null) {
+                    Solution = Solve(problem);
+                }
+                return Solution;
+            }
+        }
+    }
+
+    public class UniformAlgorithm : Algorithm {
+        public UniformAlgorithm(Profile profile) : base(profile) { }
+
+
+        public override Solution Solve(Problem Problem) {
+            Boxes = Problem.Boxes;
+            ContainerDimensions = Problem.ContainerDimensions;
+            ExtraPreferences = Problem.ExtraPreferences;
+            ProblemId = Problem.Id;
+            if (!CheckUniform()) {
+                throw new Exception("Boxes are not uniform");
+            }
+            // try fit boxes in container without rotation
+            Dimensions firstBoxDimensions = Boxes[0].Dimensions;
+            List<Dimensions> rotations = GetRotations(firstBoxDimensions);
+            foreach (Dimensions rotation in rotations) {
+                if(Fits(rotation)) {
+                    return ArrangeBoxes(rotation); 
+                }
+            }
+            throw new Exception("Boxes do not fit in container");
+        }
+
+        private Solution ArrangeBoxes(Dimensions boxDimensions) {
+            int x = Convert.ToInt32(ContainerDimensions.Width / boxDimensions.Width);
+            int y = Convert.ToInt32(ContainerDimensions.Height / boxDimensions.Height);
+            int z = Convert.ToInt32(ContainerDimensions.Length / boxDimensions.Length);
+            int boxCount = Boxes.Count;
+            List<BoxPlacement> boxPlacements = new List<BoxPlacement>();
+            for (int i = 0; i < boxCount; i++) {
+                int xIndex = i % x;
+                int yIndex = (i / x) % y;
+                int zIndex = i / (x * y);
+                Position position = new Position();
+                position.x = xIndex * boxDimensions.Width;
+                position.y = yIndex * boxDimensions.Height;
+                position.z = zIndex * boxDimensions.Length;
+                BoxPlacement boxPlacement = new BoxPlacement();
+                Box box = Boxes[i];
+                box.Dimensions = boxDimensions;
+                boxPlacement.Box = box;
+                boxPlacement.Position = position;
+                boxPlacements.Add(boxPlacement);
+            }
+            Solution solution = new Solution();
+            solution.Placements = boxPlacements;
+            solution.ProblemId = ProblemId;
+            solution.ProfileId = Profile.Id;
+            return solution;
+        }
+        private bool Fits(Dimensions boxDimensions) {
+            int x = Convert.ToInt32(ContainerDimensions.Width / boxDimensions.Width);
+            int y = Convert.ToInt32(ContainerDimensions.Height / boxDimensions.Height);
+            int z = Convert.ToInt32(ContainerDimensions.Length / boxDimensions.Length);
+            int maxBoxes = x * y * z;
+            int boxCount = Boxes.Count;
+            return maxBoxes >= boxCount;
+        }
+
+        // checks all the boxes are the same size
+        private bool CheckUniform() {
+            if (Boxes.Count == 0) {
+                return false;
+            }
+            Dimensions firstBoxDimensions = Boxes[0].Dimensions;
+            foreach (Box box in Boxes) {
+                if (box.Dimensions.Height != firstBoxDimensions.Height || box.Dimensions.Width != firstBoxDimensions.Width || box.Dimensions.Length != firstBoxDimensions.Length) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+    public class UniformOrderedAlgorithm : Algorithm {
+        public UniformOrderedAlgorithm(Profile profile) : base(profile) { }
+
+        public override Solution Solve(Problem problem) {
+            Algorithm algorithm = new UniformAlgorithm(Profile);
+            // reverse the order
+            // order boxes based on ORderInList, where the biggest numbers will be first
+            problem.Boxes.Sort((x, y) => y.OrderInList.CompareTo(x.OrderInList));
+            Solution solution = algorithm.Solve(problem);
+            return solution;
+        }
+    }
+
+}
