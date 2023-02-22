@@ -1,0 +1,74 @@
+@subscriptions_api.route("/overview")
+class SubscriptionsOverview(Resource):
+
+    @subscriptions_api.doc("Overview data for graph and total")
+    @subscriptions_api.marshal_with(SubscriptionModel.subscriptions_overview_model)
+    @authorize_employee
+    def get(self):
+        """Overview data for graph and total"""
+        company_id = request.employee.company_id
+
+        try:
+            if request.employee.role == UserRolesEnum.ADMIN.value:
+                active_record = SubscriptionCompanyAggregationActive.get(company_id=company_id)
+
+            else:
+                active_record = SubscriptionUserAggregationActive.get(
+                    company_id=company_id, employee_email=request.employee.email
+                )
+
+        except db_exceptions.DbSelectException:
+            active_record = {}
+
+        current_date = datetime.now()
+        last_month_date = datetime.now() - relativedelta(months=1)
+
+        current_mtg = active_record.get("ytg", {}).get(str(current_date.year), {}).get(str(current_date.month), {})
+        last_mtg = active_record.get("ytg", {}).get(str(last_month_date.year), {}).get(str(last_month_date.month), {})
+
+        spend_this_month = sum(current_mtg.values()) or Decimal(0)
+        expected_this_month = spend_this_month
+
+        for day, value in list(last_mtg.items()):
+            if day >= str(current_date.day):
+                expected_this_month += value
+
+        max_days = max([
+            monthrange(last_month_date.year, last_month_date.month)[1],
+            monthrange(current_date.year, current_date.month)[1],
+        ])
+
+        data = []
+        for day in range(1, max_days + 1):
+            data.append({
+                "current": current_mtg.get(str(day), 0),
+                "expected": last_mtg.get(str(day), 0),
+                "index": str(day)
+            })
+
+        kwargs = dict(company_id=company_id, last_payment=0, status=SubscriptionStatusEnum.ACTIVE.value)
+        if request.employee.role == UserRolesEnum.USER.value:
+            kwargs["employee_email"] = request.employee.email
+
+        for subscription in paginate_through_all_subscriptions(**kwargs):
+            date = subscription.get("expected_first_payment", subscription.get("created_at", None))
+            budget_limit = subscription.get("budget_limit", None)
+
+            if date is not None and budget_limit is not None:
+                date = datetime.fromtimestamp(date)
+
+                if date.year == current_date.year and date.month == current_date.month:
+                    for item in data:
+                        if item.get("index") == str(date.day):
+                            item["expected"] += budget_limit
+
+                    if date.day >= current_date.day:
+                        expected_this_month += budget_limit
+
+        return {
+            "trend": calculate_trend(current_month=spend_this_month, previous_month=expected_this_month),
+            "active": active_record.get("active", 0),
+            "expected": expected_this_month,
+            "spend": spend_this_month,
+            "data": data
+        }
