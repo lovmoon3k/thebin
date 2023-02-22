@@ -1,0 +1,69 @@
+from kaggle_secrets import UserSecretsClient
+user_secrets = UserSecretsClient()
+user_credential = user_secrets.get_gcloud_credential()
+user_secrets.set_tensorflow_credential(user_credential)
+
+
+
+from kaggle_datasets import KaggleDatasets
+
+GCS_PATH = KaggleDatasets().get_gcs_path('gan-getting-started')
+
+MONET_FILENAMES = tf.io.gfile.glob(str(GCS_PATH + '/monet_jpg/*.jpg'))
+# Selecting first 30 
+MONET_FILENAMES = MONET_FILENAMES[0:30]
+PHOTO_FILENAMES = tf.io.gfile.glob(str(GCS_PATH + '/photo_jpg/*.jpg'))
+
+
+
+import io
+def decode_image(image_path):
+    image_bytes = tf.io.read_file(image_path)
+    image = Image.open(io.BytesIO(image_bytes.numpy()))
+    image_array = np.array(image)
+    return image_array
+
+if len(tf.config.experimental.list_physical_devices('GPU')) > 0:
+    config=tf.compat.v1.ConfigProto(log_device_placement=True, device_count={'GPU': 1})
+    tf.compat.v1.Session()
+    print("Using GPU for TensorFlow")
+    config.gpu_options.allow_growth = True
+    session = tf.compat.v1.Session(config=config)
+    K.set_session(session)
+else:
+    print("Using CPU for TensorFlow")
+
+print("Using tf ", tf.__version__)
+print("Executing eagerly: ",tf.executing_eagerly())
+
+gc.enable()
+
+
+
+
+def image_loader(file_paths):
+    random.shuffle(file_paths)
+    while True:
+        for file in file_paths:
+            yield decode_image(file)
+
+
+def augmented_image_loader(file_paths):
+    while True:
+        random_image = random.choice(file_paths)
+        random_image = decode_image(random_image)
+        yield augment_element(random_image)
+
+
+
+
+monet_dataset = tf.data.Dataset.from_generator(
+        lambda: augmented_image_loader(MONET_FILENAMES),
+        output_types=tf.float32,
+        output_shapes=(tf.TensorShape([None, None, 3])),
+    )
+photos_dataset = tf.data.Dataset.from_generator(
+        lambda: image_loader(PHOTO_FILENAMES),
+        output_types=tf.float32,
+        output_shapes=(tf.TensorShape([None, None, 3])),
+    )
