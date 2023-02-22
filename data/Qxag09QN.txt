@@ -1,0 +1,53 @@
+# Kaniko repo: https://github.com/GoogleContainerTools/kaniko
+# Docs:
+# - https://github.com/GoogleContainerTools/kaniko/blob/master/docs/tutorial.md
+#
+# Examples:
+## Build iamge from using Dockerfile from 'subdir' in project
+# build_image:
+#   extends: .build_docker_image
+#   variables:
+#     KANIKO_CONTEXT: subdir
+#     KANIKO_DESTINATION: >
+#       $CI_REGISTRY_IMAGE/foo:bar
+#       $CI_REGISTRY_IMAGE/foo:latest
+#     KANIKO_AUTHS: >
+#       /$CI_REGISTRY/$REGISTRY_PUSHER_LOGIN/$REGISTRY_PUSHER_PASSWORD/
+#       /$CI_CACHE_REGISTRY/$REGISTRY_PUSHER_LOGIN/$REGISTRY_PUSHER_PASSWORD/
+## Build iamge from using Dockerfile from root project dir
+# build_another_image:
+#   extends: .build_docker_image
+#
+
+.build_docker_image:
+  stage: build
+  image:
+    name: $KANIKO_IMAGE_NAME:$KANIKO_IMAGE_TAG
+    entrypoint: [""]
+  variables:
+    KANIKO_IMAGE_NAME: gcr.io/kaniko-project/executor
+    KANIKO_IMAGE_TAG: v1.8.1-debug
+    KANIKO_AUTHS: >-
+      /$CI_REGISTRY/$CI_REGISTRY_USER/$CI_REGISTRY_PASSWORD/
+    KANIKO_DESTINATION: >-
+      $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG
+  script:
+    - |
+      cat > /kaniko/.docker/config.json <<-EOF
+      {
+        "auths": {$(for i in $KANIKO_AUTHS; do
+          printf '%s\n    "%s": {"username": "%s", "password": "%s"}' "${q:+$q}" ${i//\// };q=,
+          done)
+        }
+      }
+      EOF
+
+    # See kaniko docs for more info about the arguments passed
+    - set -x
+    - executor
+      ${KANIKO_NOPUSH:+--no-push}
+      $(test -n "$KANIKO_NOPUSH" || echo --cache=${KANIKO_CACHE:-true} ${KANIKO_CACHE_REGISTRY:+--cache-repo=$KANIKO_CACHE_REGISTRY})
+      --context ${KANIKO_CONTEXT:-.}
+      --dockerfile ${KANIKO_DOCKERFILE:-Dockerfile}
+      $(printf '--destination %s ' $KANIKO_DESTINATION)
+      $KANIKO_EXTRA
