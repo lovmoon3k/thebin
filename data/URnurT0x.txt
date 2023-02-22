@@ -1,0 +1,70 @@
+select *
+from
+(
+    select * from crosstab
+    ('
+        select
+            i.id ,
+            i.code as item_code ,
+            i.name as item_name ,
+            extract(month from to_timestamp(coalesce(j1.posting_date,journal_date))) as month, 
+            case when sum(jd.quantity)=0 then 0 else sum(jd.quantity * jd.unit_price) / sum(jd.quantity) end as unit_price
+        from journals j1
+            join journal_details jd on j1.id = jd.journal_id
+            join journal_types jt on j1.type_id = jt.id and jt.id = 18
+            join items i on jd.item_id = i.id 
+            where j1.posted = 1 and j1.charge = 0 and journal_date between " . $start . " and " . $finish . "
+        group by 
+            i.id ,
+            i.code ,
+            i.name ,
+            extract(month from to_timestamp(coalesce(j1.posting_date,journal_date)))
+    ', 'select m from generate_series(1,12) m') as (
+            id int ,
+            item_code varchar ,
+            item_name varchar ,
+            price_january decimal(18,2) ,
+            price_february decimal(18,2) ,
+            price_march decimal(18,2) ,
+            price_april decimal(18,2) ,
+            price_may decimal(18,2) ,
+            price_june decimal(18,2) ,
+            price_july decimal(18,2) ,
+            price_august decimal(18,2) ,
+            price_september decimal(18,2) ,
+            price_october decimal(18,2) ,
+            price_november decimal(18,2) ,
+            price_december decimal(18,2)
+    )
+) as up
+left join (
+    select * from crosstab ('
+        select
+            i.id ,
+            extract(month from to_timestamp(coalesce(j1.posting_date,journal_date))) as month, 
+            sum (jd.quantity) as qty
+        from journals j1
+            join journal_details jd on j1.id = jd.journal_id
+            join journal_types jt on j1.type_id = jt.id and jt.id = 18
+            join items i on jd.item_id = i.id 
+            where j1.posted = 1 and j1.charge = 0
+        group by 
+            i.id ,
+            extract(month from to_timestamp(coalesce(j1.posting_date,journal_date)))
+    ', 'select m from generate_series(1,12) m') as (
+            id int,
+            quantity_january decimal(18,2),
+            quantity_february decimal(18,2),
+            quantity_march decimal(18,2),
+            quantity_april decimal(18,2),
+            quantity_may decimal(18,2),
+            quantity_june decimal(18,2),
+            quantity_july decimal(18,2),
+            quantity_august decimal(18,2),
+            quantity_september decimal(18,2),
+            quantity_october decimal(18,2),
+            quantity_november decimal(18,2),
+            quantity_december decimal(18,2)
+        )
+) as qty on up.id = qty.id
+order by item_code
