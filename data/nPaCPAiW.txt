@@ -1,0 +1,175 @@
+$ErrorActionPreference = "SilentlyContinue"
+
+function ConvertTo-HexString {
+    [CmdletBinding()]
+    param (
+        # Value to convert
+        [Parameter(Mandatory=$true, Position = 0, ValueFromPipeline=$true)]
+        [object] $InputObjects,
+        # Delimiter between Hex pairs
+        [Parameter (Mandatory=$false)]
+        [string] $Delimiter = ' ',
+        # Encoding to use for text strings
+        [Parameter (Mandatory=$false)]
+        [ValidateSet('Ascii', 'UTF32', 'UTF7', 'UTF8', 'BigEndianUnicode', 'Unicode')]
+        [string] $Encoding = 'Default'
+    )
+
+    begin {
+        function Transform ([byte[]]$InputBytes) {
+            [string[]] $outHexString = New-Object string[] $InputBytes.Count
+            for ($iByte = 0; $iByte -lt $InputBytes.Count; $iByte++) {
+                $outHexString[$iByte] = $InputBytes[$iByte].ToString('X2')
+            }
+            return $outHexString -join $Delimiter
+        }
+
+        ## Create list to capture byte stream from piped input.
+        [System.Collections.Generic.List[byte]] $listBytes = New-Object System.Collections.Generic.List[byte]
+    }
+
+    process
+    {
+        if ($InputObjects -is [byte[]])
+        {
+            Write-Output (Transform $InputObjects)
+        }
+        else {
+            foreach ($InputObject in $InputObjects) {
+                [byte[]] $InputBytes = $null
+                if ($InputObject -is [byte]) {
+                    ## Populate list with byte stream from piped input.
+                    if ($listBytes.Count -eq 0) {
+                        Write-Verbose 'Creating byte array from byte stream.'
+                        Write-Warning ('For better performance when piping a single byte array, use "Write-Output $byteArray -NoEnumerate | {0}".' -f $MyInvocation.MyCommand)
+                    }
+                    $listBytes.Add($InputObject)
+                }
+                elseif ($InputObject -is [byte[]])
+                {
+                    $InputBytes = $InputObject
+                }
+                elseif ($InputObject -is [string])
+                {
+                    $InputBytes = [Text.Encoding]::$Encoding.GetBytes($InputObject)
+                }
+                elseif ($InputObject -is [bool] -or $InputObject -is [char] -or $InputObject -is [single] -or $InputObject -is [double] -or $InputObject -is [int16] -or $InputObject -is [int32] -or $InputObject -is [int64] -or $InputObject -is [uint16] -or $InputObject -is [uint32] -or $InputObject -is [uint64])
+                {
+                    $InputBytes = [System.BitConverter]::GetBytes($InputObject)
+                }
+                elseif ($InputObject -is [guid])
+                {
+                    $InputBytes = $InputObject.ToByteArray()
+                }
+                elseif ($InputObject -is [System.IO.FileSystemInfo])
+                {
+                    if ($PSVersionTable.PSVersion -ge [version]'6.0') {
+                        $InputBytes = Get-Content $InputObject.FullName -Raw -AsByteStream
+                    }
+                    else {
+                        $InputBytes = Get-Content $InputObject.FullName -Raw -Encoding Byte
+                    }
+                }
+                else
+                {
+                    ## Non-Terminating Error
+                    $Exception = New-Object ArgumentException -ArgumentList ('Cannot convert input of type {0} to Hex string.' -f $InputObject.GetType())
+                    Write-Error -Exception $Exception -Category ([System.Management.Automation.ErrorCategory]::ParserError) -CategoryActivity $MyInvocation.MyCommand -ErrorId 'ConvertHexFailureTypeNotSupported' -TargetObject $InputObject
+                }
+
+                if ($null -ne $InputBytes -and $InputBytes.Count -gt 0) {
+                    Write-Output (Transform $InputBytes)
+                }
+            }
+        }
+    }
+
+    end {
+        ## Output captured byte stream from piped input.
+        if ($listBytes.Count -gt 0) {
+            Write-Output (Transform $listBytes.ToArray())
+        }
+    }
+}
+
+#=====[ Load dynamic variables
+
+#   Gather Computername
+    $ComputerName = $env:COMPUTERNAME
+
+#   Gather Username
+    $LoggedOnUser = (qwinsta /SERVER:$ComputerName) -replace '\s{2,22}', ',' | ConvertFrom-Csv | Where-Object {$_ -like "*Acti*"} | Select-Object -ExpandProperty USERNAME
+    if (!($LoggedOnUser) ) { Write-Host "No user is logged on to $ComputerName" -ForegroundColor Red ; break }
+
+#   Gather the Team Members Full Name, instead of First.Last this will read as 'First Last'
+    $dom = $env:userdomain
+    $usr = $env:username
+    $Fullname = ([adsi]"WinNT://$dom/$usr,user").fullname
+
+#   Logged in team members document path
+    $LoggedPath = "C:\Users\$LoggedOnUser\Documents"
+    $OnePath = (Get-ChildItem $LoggedPath -recurse | Where-Object {$_.PSIsContainer -eq $true -and $_.Name -match "OneDrive"}).FullName
+	
+	$ODPathTest = $1DPath -eq "" -or $1DPath -eq $null
+	if($ODPathTest -eq $False){ $1DPath = $OnePath }
+	if($ODPathTest -eq  $True){ $1DPath = (Get-ChildItem "C:\Users\$LoggedOnUser" -recurse | Where-Object {$_.PSIsContainer -eq $true -and $_.Name -match "OneDrive - "}).FullName }
+
+# OneDrive Service
+##  Get the dynamic service name that we need to check, store as variable.
+    $OD_DSync = (Get-Service -Name "OneSyncSvc*" -Exclude "OneSyncSvc").Name
+##  Check the status if the dynamically created service, store as variable.
+    $OneDriveService = (get-service $OD_DSync | select Status,Can*).Status
+##  Check with boolean logic to see if the service is running, if it isn't running then we will start the service.
+    $ODS_Check = $OneDriveService -eq "Stopped"
+    if($ODS_Check -eq $True){ Write-Host("OneDrive is $OneDriveService... Starting Service...") ; Start-Service -Name $OD_DSync }
+    if($ODS_Check -eq $False){  Write-Host("OneDrive is $OneDriveService") }
+
+#   Using the janked method of encryption, set dynamic team memember specific variable
+#   First.Last is store as a variable
+    $CryptCode = $env:username
+
+#   Store the first.last variable as an array
+    $strArray = $CryptCode.ToCharArray()
+
+#   Gather only odd variables from the array
+    $strOdd = New-Object System.Collections.ArrayList
+    $f=0; $strArray | % { if($f = !$f) { $strOdd.Add("$_") > $null } }
+
+#   Gather only even variables from the array
+    $strEvn = New-Object System.Collections.ArrayList
+    $f=1; $strArray | % { if($f = !$f) { $strEvn.Add("$_") > $null } }
+
+#   Split Odd variables from name array to its own array
+    $strOdd = $strOdd -replace '(^\s+|\s+$)','' -replace '\s+',' '
+    $strOdd = [string]::join("",($strOdd.Split("`n")))
+
+#   Split even variables from name array to its own array 
+    $strEvn = $strEvn -replace '(^\s+|\s+$)','' -replace '\s+',' '
+    $strEvn = [string]::join("",($strEvn.Split("`n")))
+
+#   Combine Odd and Even variables together to set the first stage of this cipher
+    $e_ehx = $strOdd + $strEvn
+
+#   Setting the second stage of this cipher, convert the first stage into a hexadecimal. 
+    $hexconv = ConvertTo-HexString $e_ehx
+
+#   Set the final stage of this cipher from hexadecimal to a secure string
+##  Each character in an individuals name will increase the length by 16 characters.
+##  Example. There are 436 characters for a 13 character name
+##  Example. There are 468 characters for a 15 character name
+    $pfxEncrypt_Key = $hexconv | ConvertTo-SecureString -AsPlainText -Force
+
+#   Create variable for the location of the OneDrive PKI.
+    $SaveState = $1DPath + "\" + $env:username + "_PKI.pfx"
+#   Test to see if the PKI exists, if it does not it will warn the technician.
+    $Leaf_SaveState = [bool]( Test-Path -Path $SaveState -PathType Leaf )
+    if($Leaf_SaveState -eq  $True){ Import-PfxCertificate -Exportable -FilePath $SaveState -CertStoreLocation Cert:\CurrentUser\My -Password $pfxEncrypt_Key }
+    if($Leaf_SaveState -eq $False){ Add-Type -AssemblyName System.Speech
+        $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer
+        $speak.SelectVoice('Microsoft Zira Desktop')
+        $speak.Speak('Warning. PKI is missing.') 
+        $speak.Speak('Please perform the steps required to obtain a new PKI') 
+        New-Item "$env:USERPROFILE\Desktop\Warning. PKI is missing.log" }
+
+
+exit
