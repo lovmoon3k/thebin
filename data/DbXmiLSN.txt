@@ -1,0 +1,126 @@
+alias: Освещение на балконе
+description: ""
+trigger:
+  - platform: state
+    entity_id: binary_sensor.0x158d0003f1b1ad_contact
+    from: "off"
+    to: "on"
+    id: enable
+  - platform: state
+    entity_id: binary_sensor.0x158d0003f1b1ad_contact
+    from: "on"
+    to: "off"
+    id: disable
+  - platform: state
+    entity_id: switch.chuangmi_hmi206_585d_switch
+    to: "on"
+    id: update_timer
+  - platform: state
+    entity_id: switch.chuangmi_hmi206_585d_switch
+    to: "off"
+    id: cancel_timer
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.balcony_timer
+    id: finish_timer
+  - platform: state
+    entity_id: sensor.0x158d00027c08d3_action
+    to: single
+    id: button_single
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: enable
+          - condition: numeric_state
+            entity_id: sensor.0x4cf8cdf3c82cf19_illuminance
+            below: "30"
+        sequence:
+          - service: switch.turn_on
+            data: {}
+            target:
+              entity_id: switch.chuangmi_hmi206_585d_switch
+          - service: timer.start
+            data:
+              duration: "0"
+            target:
+              entity_id: timer.balcony_timer
+      - conditions:
+          - condition: trigger
+            id: disable
+          - condition: state
+            entity_id: switch.chuangmi_hmi206_585d_switch
+            state: "on"
+        sequence:
+          - service: switch.turn_off
+            data: {}
+            target:
+              entity_id: switch.chuangmi_hmi206_585d_switch
+          - service: timer.cancel
+            data: {}
+            target:
+              entity_id: timer.balcony_timer
+      - conditions:
+          - condition: trigger
+            id: update_timer
+          - condition: state
+            entity_id: timer.balcony_timer
+            state: idle
+        sequence:
+          - service: timer.start
+            data:
+              duration: "0"
+            target:
+              entity_id: timer.balcony_timer
+      - conditions:
+          - condition: trigger
+            id: cancel_timer
+          - condition: state
+            entity_id: timer.balcony_timer
+            state: active
+        sequence:
+          - service: timer.cancel
+            data: {}
+            target:
+              entity_id: timer.balcony_timer
+      - conditions:
+          - condition: trigger
+            id: finish_timer
+          - condition: state
+            entity_id: switch.chuangmi_hmi206_585d_switch
+            state: "on"
+        sequence:
+          - service: switch.turn_off
+            data: {}
+            target:
+              entity_id: switch.chuangmi_hmi206_585d_switch
+          - condition: state
+            entity_id: input_boolean.silent_mode
+            state: "off"
+          - service: telegram_bot.send_message
+            data:
+              title: "*ВНИМАНИЕ:*"
+              message: Свет на балконе не был выключен продолжительное время!
+      - conditions:
+          - condition: trigger
+            id: button_single
+        sequence:
+          - service: switch.toggle
+            data: {}
+            target:
+              entity_id: switch.chuangmi_hmi206_585d_switch
+          - service: input_boolean.turn_on
+            data: {}
+            target:
+              entity_id: input_boolean.balcony_manual_mode
+          - delay:
+              hours: "1"
+              minutes: "0"
+              seconds: "0"
+              milliseconds: "0"
+          - service: input_boolean.turn_off
+            data: {}
+            target:
+              entity_id: input_boolean.balcony_manual_mode
+mode: restart
