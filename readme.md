@@ -1,7 +1,5 @@
-[**0eaAahfR**](/data/0eaAahfR.txt) (22/02/23 - 13:01)- 14874 bytes
+[**10YrHQ7t**](/data/10YrHQ7t.txt) (22/02/23 - 13:17)- 13498 bytes
 
-[**0eaAahfR**](/data/0eaAahfR.txt) (22/02/23 - 13:01)- 14874 bytes
+**Total Datas**: 11309
 
-**Total Datas**: 11308
-
-**Total Size**: 73.71 MB / 73.7 MB
+**Total Size**: 73.73 MB / 73.7 MB
