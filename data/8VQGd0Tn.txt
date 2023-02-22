@@ -1,0 +1,63 @@
+using Sirenix.OdinInspector;
+using UnityEngine;
+
+public class HomingBehavior : BulletBehavior
+{
+    public string targetTag = "Player";
+
+    private Rigidbody _rb;
+    private Transform _target;
+    [SerializeField] private float range = 15;
+
+    [SerializeField] private float redirectSpeed = 5; // How much rotation is allowed to occur within one second
+    private Vector3 _storedVelocity;
+    private Vector3 _storedNewVelocity;
+    // The angle where the projectile starts to tracking between 0-1
+    private readonly Vector2 _lockOnFOV = new Vector2(45, 15);
+
+    private void FixedUpdate()
+    {
+        // Verify target is in front of the projectile velocity.
+        
+        // Track Target
+        TrackTarget(Vector3.Distance(_rb.position, _target.position));
+    }
+
+    private float ValidTargetDirection(Transform target)
+    {
+        Transform transformProjectile;
+        var rigidBody = (transformProjectile = transform).GetComponent<Rigidbody>();
+        var targetDirection = target.position - transformProjectile.position;
+        var angle = Vector3.Angle(rigidBody.velocity.normalized, targetDirection);
+        var normalizedLockOnRatio = Mathf.InverseLerp(_lockOnFOV.x, _lockOnFOV.y, angle);
+        return normalizedLockOnRatio;
+    }
+    
+    private void TrackTarget(float distance)
+    {
+        if (distance >= range) return;
+        var position = _target.position;
+        _storedVelocity = _rb.velocity;
+        _storedNewVelocity = (position - _rb.position).normalized * _rb.velocity.magnitude;
+        _rb.velocity = Vector3.Lerp(_storedVelocity, _storedNewVelocity, Time.deltaTime * redirectSpeed * ValidTargetDirection(_target));
+        
+        // Rotate the bullet towards the target's anticipated position
+        var targetVelocity = _target.GetComponent<Rigidbody>().velocity;
+        var targetFuturePosition = position + targetVelocity;
+        var rotation = Quaternion.LookRotation(targetFuturePosition - _rb.position);
+        _rb.MoveRotation(rotation);
+    }
+
+    private void OnEnable()
+    {
+        _rb = GetComponent<Rigidbody>();
+        _target = GameObject.FindWithTag(targetTag).transform;
+    }
+
+    private void OnDrawGizmos()
+    {
+        if (!Application.isPlaying) return;
+        Gizmos.color = Color.green;
+        Gizmos.DrawRay(_rb.position, _rb.velocity);
+    }
+}
