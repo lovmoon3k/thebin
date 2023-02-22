@@ -1,0 +1,191 @@
+AddCar.php
+<?php
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    $name = $_POST['Name'];
+    $number = $_POST['Number'];
+    $connection = mysqli_connect('localhost', 'root', 'root', 'parking');
+    $pyk = mysqli_query($connection, "INSERT INTO cars (`carName`, `carNumber`) VALUES ('$name', '$number')");
+    mysqli_close($connection);
+
+    echo "<h1>Машина добавлена!</h1><br>
+        <a href = 'index.php'>Главное меню</a>" . $number;
+} else {
+
+    echo '
+        <form action="/addCar.php" method="POST">
+            <label for="Name">Название:</label><br>
+            <input type="text" id="Name" name="Name"><br>
+            <label for="Number">Номер машины:</label><br>
+            <input type="text" id="Number" name="Number"><br><br>
+            <input type="submit" value="Submit">
+        </form>
+        ';
+}
+Form.php
+<meta charset="utf-8">
+<?php
+    $sql_server = 'localhost';
+    $sql_user = 'root';
+    $sql_pwd = 'root';
+    $sql_db = 'parking';
+    $connect = mysqli_connect($sql_server, $sql_user, $sql_pwd, $sql_db);
+    if (!$connect) {
+        exit("Ошибка " . mysqli_connect_error());
+    }
+    $res = mysqli_query($connect, "SELECT * FROM places WHERE Reserved = 0;");
+    $parkingArr = mysqli_fetch_array($res);
+    if(sizeof($parkingArr) == 0)
+    {
+        echo "Свободных мест нет";
+    }
+    else
+    {
+        echo '<h1>Парковка</h1>
+              <form action="index.php" method = "GET">
+              <p>Номер места
+              <select>';
+        foreach ($res as $row) 
+        {
+            echo "<option value='" . $row['ID'] . "'>" . $row['ID'] . "</option>";
+        }
+        echo '</select></p>
+        <p>Название машины <input type="text" name = "CarName"></p>
+        <p>Номер машины <input type="text" name = "CarNum"></p>
+        <p><input type="submit" value = "Занять место"></p>
+        </form>';
+    }
+?>
+Index.php
+<?php
+
+include 'show.php';
+
+echo '
+  <a href="\addCar.php"><button>Добавить машину</button></a>
+  <a href="\takePlace.php"><button>Занять парковочное место</button></a>
+  <a href="\removePlace.php"><button>Освободить парковочное место</button></a><br><br>
+
+  <form action="index.php" mothod="GET">
+  <button name="button" value="1">Показать парковочные места</button>
+  <button name="button" value="2">Показать машины</button>
+  ';
+
+if ($_GET['button'] == 1)
+    show_park();
+elseif ($_GET['button'] == 2)
+    show_cars();
+removePlace.php
+<meta charset="utf-8">
+<?php
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $placeID = $_POST['placeID'];
+
+    $connect = mysqli_connect('localhost', 'root', 'root', 'parking');
+
+    $stmt1 = mysqli_query($connect, "UPDATE places SET `Reserved`=0 WHERE ID = '$placeID'");
+    $stmt1 = mysqli_query($connect, "DELETE FROM `parking` WHERE PlaceID = '$placeID'");
+
+    mysqli_close($connect);
+    echo "<h1>Место свободно!</h1><br>
+    <a href = 'index.php'>Главное меню</a>";
+} else {
+    $connect = mysqli_connect('localhost', 'root', 'root', 'parking');
+
+    $resPlaces = mysqli_query($connect, "SELECT * FROM places WHERE Reserved = 1;");
+
+    $parkingArr = mysqli_fetch_array($resPlaces);
+    if (sizeof($parkingArr) == 0) {
+        echo "Все места свободны";
+    } else {
+        echo "<h1>Парковка</h1>
+              <form action='removePlace.php' method = 'POST'>
+              <p>Номер места
+              <select name='placeID'>";
+        foreach ($resPlaces as $row) {
+            echo "<option value= " . $row['ID'] . " >" . $row['ID'] . "</option>";
+        }
+        echo "</select>
+        <p><input type='submit' value = 'Освободить место'></p>
+        </form>";
+    }
+    mysqli_close($connect);
+}
+?>
+show.php
+<?php
+
+function show_park()
+{
+    $connect = mysqli_connect('localhost', 'root', 'root', 'parking');
+    $resPlaces = mysqli_query($connect, "SELECT * FROM parking");
+    echo '<table><tr><th>ID</th><th>Парковочное место</th><th>Машина</th></tr>';
+        while($row = mysqli_fetch_array($resPlaces)) 
+        {
+            echo '<tr><td>'.$row['ID'].'</td><td>'.$row['PlaceID']."</td><td>".$row['CarID'].'</td></tr>';
+        }
+        echo '</table>';
+}
+
+function show_cars()
+{
+    $connect = mysqli_connect('localhost', 'root', 'root', 'parking');
+    $resCars = mysqli_query($connect, "SELECT * FROM cars");
+    echo '<table><tr><th>ID</th><th>Название машины</th><th>Номер</th></tr>';
+        while($row = mysqli_fetch_array($resCars)) 
+        {
+            echo '<tr><td>'.$row['ID'].'</td><td>'.$row['carName']."</td><td>".$row['carNumber'].'</td></tr>';
+        }
+        echo '</table>';
+}
+takePlace.php
+<meta charset="utf-8">
+<?php
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $placeID = $_POST['placeID'];
+    $carID = $_POST['carID'];
+
+    $connect = mysqli_connect('localhost', 'root', 'root', 'parking');
+
+    $stmt = mysqli_prepare($connect, "INSERT INTO parking (`PlaceID`, `CarID`) VALUES (?, ?)");
+    $stmt->bind_param("si", $placeID, $carID);
+    $stmt->execute();
+    mysqli_stmt_close($stmt);
+    
+    $stmt1 = mysqli_query($connect, "UPDATE places SET `Reserved`=1 WHERE ID = '$placeID'");
+
+    mysqli_close($connect);
+    echo "<h1>Место ваше!</h1><br>
+    <a href = 'index.php'>Главное меню</a>";
+} else {
+    $connect = mysqli_connect('localhost', 'root', 'root', 'parking');
+
+    $resPlaces = mysqli_query($connect, "SELECT * FROM places WHERE Reserved = 0;");
+    $resCars = mysqli_query($connect, "SELECT * FROM cars");
+
+    $parkingArr = mysqli_fetch_array($resPlaces);
+    if (sizeof($parkingArr) == 0) {
+        echo "Свободных мест нет";
+    } else {
+        echo "<h1>Парковка</h1>
+              <form action='takePlace.php' method = 'POST'>
+              <p>Номер места
+              <select name='placeID'>";
+        foreach ($resPlaces as $row) {
+            echo "<option value= ". $row['ID'] ." >" . $row['ID'] . "</option>";
+        }
+        echo "</select>
+              <select name='carID'>";
+        foreach ($resCars as $row) {
+            echo "<option value= ". $row['ID'] ." >" . $row['carName'] . ' | ' . $row['carNumber'] . "</option>";
+        }
+        echo '</select></p>
+        
+        <p><input type="submit" value = "Занять место"></p>
+        </form>';
+    }
+    mysqli_close($connect);
+}
+?>
