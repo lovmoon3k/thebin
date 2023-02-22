@@ -1,0 +1,88 @@
+class SubscriptionCompanyAggregationActive:
+
+    @staticmethod
+    def prepare_keys(company_id: str) -> Dict[str, str]:
+        return {"sk": f"total_active#{db_const.SK_SUBSCRIPTION_KEY}", "pk": f"{db_const.PK_COMPANY_KEY}{company_id}"}
+
+    @classmethod
+    def create(cls, company_id: str, active: int = 0) -> Dict[str, Any]:
+        item = {
+            **cls.prepare_keys(company_id=company_id),
+            "company_id": company_id,
+            "active": active,
+            "ytg": {}
+        }
+
+        try:
+            db.MAIN_TABLE_OBJECT.put_item(Item=item)
+        except ClientError:
+            raise db_exceptions.DbInsertException
+
+        return item
+
+    @classmethod
+    def increment(cls, company_id: str) -> Dict[str, Any]:
+        try:
+            response = db.MAIN_TABLE_OBJECT.update_item(
+                UpdateExpression="SET active = active + :num",
+                Key=cls.prepare_keys(company_id=company_id),
+                ExpressionAttributeValues={":num": 1},
+                ReturnValues="ALL_NEW",
+            )
+
+        except ClientError as e:
+            print(e)
+            raise db_exceptions.DbUpdateException
+
+        return response.get("Attributes", {})
+
+    @classmethod
+    def decrement(cls, company_id: str) -> Dict[str, Any]:
+        try:
+            response = db.MAIN_TABLE_OBJECT.update_item(
+                UpdateExpression="SET active = active - :num",
+                Key=cls.prepare_keys(company_id=company_id),
+                ExpressionAttributeValues={":num": 1},
+                ReturnValues="ALL_NEW",
+            )
+
+        except ClientError as e:
+            print(e)
+            raise db_exceptions.DbUpdateException
+
+        return response.get("Attributes", {})
+
+    @classmethod
+    def get(cls, company_id: str) -> Dict[str, Any]:
+        try:
+            return db.MAIN_TABLE_OBJECT.get_item(Key=cls.prepare_keys(company_id=company_id))["Item"]
+
+        except (ClientError, KeyError):
+            raise db_exceptions.DbSelectException
+
+    @classmethod
+    def increment_ytg(
+        cls,
+        company_id: str,
+        price: Decimal,
+        time: datetime,
+        day_exist: bool = False,
+        year_exist: bool = False,
+        month_exist: bool = False
+    ) -> None:
+        kwargs = {
+            "Key": cls.prepare_keys(company_id=company_id),
+            **create_year_to_go_update_expression(
+                time=time, price=price, day_exist=day_exist, year_exist=year_exist, month_exist=month_exist
+            ),
+            "ReturnValues": "ALL_NEW",
+        }
+
+        try:
+            response = db.MAIN_TABLE_OBJECT.update_item(**kwargs)
+
+        except ClientError as e:
+            print(e)
+            raise db_exceptions.DbUpdateException
+
+        return response.get("Attributes", {})
