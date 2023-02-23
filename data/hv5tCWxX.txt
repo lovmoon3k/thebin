@@ -1,0 +1,73 @@
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local webhookUrl = "https://discord.com/api/webhooks/1073295317291778109/CkqQNztIx5tSgZf3le_lPgKJn0NM8jmvpmoj_jjqiBSKhSlxe-7SacatFkvml9aPW4J8" -- Your DiscordWebhook Link
+local playersInServer = {}
+
+function formatDuration(duration)
+	local seconds = duration % 60
+	local minutes = math.floor(duration / 60) % 60
+	local hours = math.floor(duration / 3600)
+	return string.format("%02d:%02d:%02d", hours, minutes, seconds)
+end
+
+function sendJoinMessage(player)
+	playersInServer[player.Name] = os.time()
+
+	local embed = {
+		["title"] = "👋 Player Joined:",
+		["description"] = string.format("👤 **Player Name:** [%s](https://www.roblox.com/users/%d/profile)\n🆔 **Player ID:** %d\n🕰️ **Join Time:** %s", player.Name, player.UserId, player.UserId, os.date("%c", os.time())),
+		["color"] = 65280, -- Green color
+		["fields"] = {
+			{
+				["name"] = "📅 Account Age",
+				["value"] = player.AccountAge .. " Days old",
+				["inline"] = true
+			}
+		}
+	}
+	local message = HttpService:JSONEncode({["embeds"] = {embed}})
+	HttpService:PostAsync(webhookUrl, message, Enum.HttpContentType.ApplicationJson)
+
+	player.CharacterAdded:Connect(function()
+		-- code for handling player character added event
+	end)
+end
+
+function sendLeaveMessage(player)
+	local joinTime = playersInServer[player.Name]
+	if not joinTime then return end
+
+	local leaveTime = os.time()
+	local duration = leaveTime - joinTime
+	local durationStr = formatDuration(duration)
+
+	local embed = {
+		["title"] = "👋 Player Left:",
+		["description"] = string.format("👤 **Player Name:** [%s](https://www.roblox.com/users/%d/profile)\n🆔 **Player ID:** %d\n🕰️ **Join Time:** %s\n🕖 **Leave Time:** %s\n⏱️ **Duration:** %s", player.Name, player.UserId, player.UserId, os.date("%c", joinTime), os.date("%c", leaveTime), durationStr),
+		["color"] = 16711680, -- Red color
+		["fields"] = {
+			{
+				["name"] = "📅 Account Age",
+				["value"] = player.AccountAge .. " Days old",
+				["inline"] = true
+			}
+		}
+	}
+	local message = HttpService:JSONEncode({["embeds"] = {embed}})
+	HttpService:PostAsync(webhookUrl, message, Enum.HttpContentType.ApplicationJson)
+
+	playersInServer[player.Name] = nil
+end
+
+Players.PlayerAdded:Connect(function(player)
+	sendJoinMessage(player)
+	player.CharacterAdded:Connect(function()
+		-- code for handling player character added event
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	sendLeaveMessage(player)
+end)
+
+--Made By Drasto#6916
