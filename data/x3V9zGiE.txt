@@ -1,0 +1,178 @@
+echo "Enter your Username :"
+read username
+echo "Enter your password :"
+read password
+
+isValidUsername() {
+  local re='^[[:upper:]_][[:lower:][:digit:]_-]{2,15}$'
+  (( ${#1} > 16 )) && return 1
+  [[ $1 =~ $re ]] # return value of this comparison is used for the function
+}
+menu_choice='g'
+set_menu_choice(){
+echo '**********Welcome **********'
+printf '\n'
+printf '\ta) Issue Book\n'
+printf '\tb) Return Book\n'
+printf '\tc) Check Pending Return\n'
+printf '\td) Check Book Availability\n'
+printf '\te) Add New Member\n'
+printf '\tf) Delete Book\n'
+printf '\tg) Exit\n'
+printf 'Please Enter your choice : \n'
+read menu_choice
+return
+}
+
+
+issue_book(){
+    printf 'Enter Membership Number : '
+    read mem_number
+    printf 'Enter the Book ISBN : '
+    read book_isbn  
+    temp1=`grep "$mem_number" Members.txt | wc -l`
+    if [[ "$temp1" -eq 0 ]]; then
+        printf 'Member not available\n'
+    fi
+    temp2=`grep "$book_isbn" Book_Details.txt | wc -l`
+    if [ $temp2 -eq 0 ]; then
+        printf 'Book not available\n'
+    fi
+    if [[ $temp1 -ge 1 && $temp2 -ge 1 ]]; then
+        total_issued=`grep "$mem_number" Issue_Logs.txt | wc -l`
+        last_record=`tail -1 Issue_Logs.txt | cut -d'#' -f1`
+        issue_no=$(($last_record + 1))
+        issued_date=`date +"%d/%m/%Y"`
+        total_not_returned=`grep "$mem_number" Issue_Logs.txt | grep "Issued" | wc -l`
+        if [ $total_not_returned -ge 3 ]; then
+            printf 'More than 3 books cannot be issued\n'
+        else
+            record="$issue_no#$mem_number#$book_isbn#$issued_date#Issued"
+            `echo $record >> Issue_Logs.txt`
+            echo -e "Book Issued with issue number : $issue_no\n"
+        fi
+    fi
+}
+
+return_book(){
+    printf 'Enter Issue No : '
+    read issue_no
+    is_there=`grep -w "$issue_no" Issue_Logs.txt |wc -l`
+    issue_no=$(($issue_no + 1))
+    if [ $is_there -eq 1 ]; then
+        `sed -i "${issue_no}s/Issued/Returned/" Issue_Logs.txt`
+        printf 'Book Returned Successfully\n'
+    else
+        printf 'No issue record available for the given issue number\n'
+    fi
+
+}
+
+chech_pending_return(){
+    echo 'Enter Membership Number : '
+    read mem_number
+    grep "$mem_number" Issue_Logs.txt | grep "Issued" > Record_file
+    record_count=`grep "$mem_number" Issue_Logs.txt | grep "Issued" | wc -l`
+    if [ $record_count -eq 0 ]; then
+        printf 'No pending returns\n'
+    else
+    echo "*******************"
+        cat Record_file
+        rm Record_file
+    echo "*******************"
+    fi
+}
+
+check_book_avail(){
+    printf 'Enter Book Name '
+    read book_name
+    rec_count=`grep "$book_name" Book_Details.txt | wc -l`
+
+    if [ $rec_count -eq 1 ]; then
+        grep "$book_name" Book_Details.txt
+        printf '\n'
+    else
+        print 'No book available\n'
+    fi
+
+}
+
+add_new_member(){
+    printf 'Enter Name : '
+    read name
+    printf 'Enter Phone Number : '
+    read phnumber
+    printf 'Enter Email Id : '
+    read email
+    emailValid=0
+    phValid=0
+    nameValid=0
+    if [[ "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}$ ]]; then
+        emailValid=1
+    fi
+    if [[ "$phnumber" =~ ^[1-9]{10}$ ]]; then
+        phValid=1
+    fi
+    
+    if [[ $phValid -eq 1 && $emailValid -eq 1 ]]; then
+        count=`grep "$name" Members.txt | grep "$phnumber" Members.txt | wc -l`
+        if [ $count -ge 1 ]; then
+            mem_num=`grep "$name" Members.txt | grep "$phnumber" Members.txt| tr '::' ':' | cut -d':' -f1 `
+            echo "Member already available with the Id:$mem_num"
+        else
+            count_record=`cat Members.txt | wc -l`
+            number=$(( $count_record + 1000 - 1 ))
+            record="M$number::$name::$phnumber::$email"
+            `echo $record >> Members.txt`
+            echo "Member Added with Membership Number:M$number"
+        fi
+    else
+        echo "Please enter valid Details"
+    fi
+
+}
+
+delete_book(){
+    echo 'Enter the Book ISBN number : '
+    read book_isbn
+    count=`grep "$book_isbn" Book_Details.txt | wc -l`
+
+    if [ $count -eq 1 ]; then
+        echo "Please confirm, do you want to delete this book? Y/N"
+        read choice
+        if [[ $choice -eq 'Y' || $choice -eq 'y' ]]; then
+            record=`grep "$book_isbn" Book_Details.txt`
+            `sed -i "/${book_isbn}/d" Book_Details.txt`
+            echo "Book with ISBN $book_isbn is Deleted."
+        else
+            echo 'please enter valid key'
+        fi
+    else
+        echo "Book Not Found with ISBN : $book_isbn"
+    fi
+}
+
+if isValidUsername "$username" -a [[ "$password" =~ ^[[:alpha:][:digit:]_-]{3,15}$ ]]; then
+    valid=`grep $username Employee.txt | grep $password |wc -l`
+    if [[ $valid -eq 1 ]]; then
+        quit="n"
+        while [ "$quit" != "y" ];
+        do
+        set_menu_choice
+        case "$menu_choice" in
+        'a') issue_book;;
+        'b') return_book;;
+        'c') chech_pending_return;;
+        'd') check_book_avail;;
+        'e') add_new_member;;
+        'f') delete_book;;
+        'g') quit="y";;
+        '*') prinf "Enter Correct Choice";;
+        esac
+        done
+    else
+        printf 'Password or Username Invalid\n'
+    fi
+else
+    echo "Invalid Username"
+fi
