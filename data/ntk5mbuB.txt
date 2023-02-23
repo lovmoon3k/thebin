@@ -1,0 +1,94 @@
+/*
+For Libretranslate:
+docker pull libretranslate/libretranslate:v1.3.8
+
+docker run -ti --rm -p 5000:5000 libretranslate/libretranslate:v1.3.8
+
+
+*/
+
+using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
+using ElementTranslator;
+
+Console.OutputEncoding = Encoding.UTF8;
+var httpClient = new HttpClient { BaseAddress = new Uri("http://localhost:5000") };
+const string baseUrl = "http://localhost:5000";
+const string sourceFile = @"F:\Source\Seamcor\Seamcor-AngularApp\src\assets\i18n\en.json";
+
+var file = await File.ReadAllTextAsync(sourceFile);
+
+var dict = JsonSerializer.Deserialize<Root>(file);
+
+var paralelOptions = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
+async Task IterateStringProperties(object dict, object destDict, string languageCode)
+{
+    await Parallel.ForEachAsync(dict.GetType().GetProperties(), paralelOptions, async (info, token) =>
+    {
+        if (info.PropertyType == typeof(string))
+        {
+            var stringVal = info.GetValue(dict).ToString();
+
+            var translated = await TranslateAsync(httpClient, stringVal, "en", languageCode);
+            Console.WriteLine(languageCode +  "::" +  stringVal + " :: " + translated);
+            info.SetValue(destDict, translated);
+        }
+        else
+        {
+            await IterateStringProperties(info.GetValue(dict), info.GetValue(destDict), languageCode);
+        }
+    });
+}
+
+
+var langs = await httpClient.GetFromJsonAsync<Languages[]>("/languages");
+
+
+var langList = langs.ToList();
+
+
+await Parallel.ForEachAsync(langList, paralelOptions, async (line, t) =>
+    {
+        var path = Path.GetDirectoryName(sourceFile);
+
+        var filePath = Path.Combine(path, line.code + ".json");
+
+        if (File.Exists(filePath)) return;
+        var transDict = JsonSerializer.Deserialize<Root>(file);
+        await IterateStringProperties(dict, transDict, line.code);
+
+        var outStr = JsonSerializer.Serialize(transDict);
+        await File.WriteAllTextAsync(filePath, outStr, Encoding.UTF8);
+    }
+);
+
+Console.WriteLine("FINISHED");
+Console.ReadLine();
+
+
+async Task<string> TranslateAsync(HttpClient client, string test, string sourceLanguage, string targetLanguage)
+{
+    var urlEncodedContent = new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        {
+            "q",
+            test
+        },
+        {
+            "source",
+            sourceLanguage
+        },
+        {
+            "target",
+            targetLanguage
+        }
+    });
+
+    var content = (HttpContent)urlEncodedContent;
+    var res =
+        await httpClient.PostAsync("/translate", content);
+    var stringResp = await res.Content.ReadAsStringAsync();
+    var ret = JsonSerializer.Deserialize<JsonElement>(stringResp);
+    return ret.GetProperty("translatedText").GetString();
+}

@@ -1,0 +1,75 @@
+        case 'reach' : {
+            const tp = await rclient.HLEN(`partdeals${guild.id}`)
+            const partners = await client.rclient.hGetAll(`partdeals${guild.id}`)
+            let totalmembers=0
+            let totalreached=0
+            for(const partner in partners) {
+                try {
+                    const pguild = await client.guilds.fetch(partner)
+                    if(!await rclient.HEXISTS(`partdeals${guild.id}`, `${pguild.id}`)) return
+                    const deal = await rclient.hGet(`partdeals${guild.id}`, `${pguild.id}`)
+                    const chid = deal.split('/')[0]
+                    const channel = await pguild.channels.fetch(chid)
+                    const pings = deal.split('/')[1]
+                    if(!channel) return
+
+                    let map = new Map()
+                    let pp = []
+                    if (pings.toString().match(/\d{18,19}/g)) {
+                        pings.toString().match(/\d{18,19}/g).forEach(p => {
+                            pp.push(p)
+                        })
+                    }
+
+                    for(const ping of pp) {
+                        let role = pguild.roles.cache.get(ping)
+                        if(!role) return
+                        pguild.members.cache.forEach((pmember) => {
+                            if (pmember.roles.cache.has(role.id)) {
+                                if (!map.has(pmember.id)) {
+                                    totalmembers++
+                                    map.set(pmember.id, 1)
+                                    if (pguild.channels.cache.get(channel.id).permissionsFor(pmember.id).has(PermissionFlagsBits.ViewChannel)) {
+                                        totalreached++
+                                    }
+                                }
+                            }
+                        })
+                    }
+
+                    //for everyone reach check
+                    if(/everyone/g.test(pings)) {
+                        pguild.members.cache.forEach(pmember => {
+                            if(pguild.channels.cache.get(channel.id).permissionsFor(pmember.id).has(PermissionFlagsBits.ViewChannel)) {
+                                if(!map.has(pmember.id)) {
+                                    totalmembers++
+                                    totalreached++
+                                    map.set(pmember, 1)
+                                }
+                            }
+                        })
+                    }
+
+                    //for here reach check
+                    if(/here/g.test(pings)) {
+                        pguild.members.cache.forEach(pmember => {
+                            if(pmember.presence && pmember.presence.status != 'offline') {
+                                if(pguild.channels.cache.get(channel.id).permissionsFor(pmember.id).has(PermissionFlagsBits.ViewChannel)) {
+                                    if(!map.has(pmember.id)) {
+                                        totalmembers++
+                                        totalreached++
+                                        map.set(pmember, 1)
+                                    }
+                                }
+                            }
+                        })
+                    }
+                    console.log('total members is ' + totalmembers)
+                    console.log('total reached members is ' + totalreached)
+                }
+                catch(e) {
+                    console.log(e)
+                    return interaction.reply({embeds: [buildEmbed('There\'s something wrong while executing that command.')]})
+                }
+            }
+        }
