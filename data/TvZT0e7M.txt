@@ -1,0 +1,54 @@
+add_action( 'wpcf7_before_send_mail', 'drag_and_drop_cf7', 9, 2 );
+
+function drag_and_drop_cf7( $form, $results ){
+    $posted_data = WPCF7_Submission::get_instance()->get_posted_data();
+    if ( !empty( $posted_data['cf7msm_options'] ) ) {
+        $options = json_decode( stripslashes( $posted_data['cf7msm_options'] ), true );
+        if ( ! isset( $options['last_step'] ) ) {
+            remove_action('wpcf7_before_send_mail','dnd_cf7_before_send_mail', 30, 1);
+        }else{
+            add_action('wpcf7_before_send_mail', 'drag_and_drop_cf7_files', 30, 1 );
+        }
+    }
+}
+
+function drag_and_drop_cf7_files( $wpcf7 ){
+
+    $posted_data =  WPCF7_Submission::get_instance()->get_posted_data();
+    $uploader_name = 'upload-file-887';
+
+    $mail = $wpcf7->prop('mail');
+    $mail_2 = $wpcf7->prop('mail_2');
+
+    if( isset( $posted_data[ $uploader_name ] ) ){
+        if( strpos( $posted_data[ $uploader_name ], ',' ) !== false ){
+            
+            $files_array = explode(',', $posted_data[ $uploader_name ] );
+            $uploads_dir = dnd_get_upload_dir();
+            $files = array();
+
+            foreach( $files_array as $file ){
+                $files[] = trailingslashit( $uploads_dir['upload_url'] ) . wp_basename( $file );
+            }
+            
+            // Links - 1
+            $mail_links = dnd_cf7_links( $files, $mail['use_html'] );
+            $mail['body'] = str_replace( "[$uploader_name]", "\n" . implode( "\n", $mail_links ), $mail['body'] );
+
+            // Links - 2
+            if( $mail_2['active'] ) {
+                $mail_links_2 = dnd_cf7_links( $files, $mail_2['use_html'] );
+                $mail_2['body'] = str_replace( "[$uploader_name]", "\n" . implode( "\n", $mail_links_2 ), $mail_2['body'] );
+            }
+
+        }
+    }
+
+    $wpcf7->set_properties( array("mail" => $mail) );
+
+    if( $mail_2['active'] ) {
+        $wpcf7->set_properties( array("mail_2" => $mail_2) );
+    }
+
+    return $wpcf7;
+}
