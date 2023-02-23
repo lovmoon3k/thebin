@@ -1,9 +1,11 @@
-[**dTpz6XxW**](/data/dTpz6XxW.txt) (24/02/23 - 06:26)- 13411 bytes
+[**kuSGMkWh**](/data/kuSGMkWh.txt) (24/02/23 - 06:35)- 13508 bytes
 
-[**qBRiVpC1**](/data/qBRiVpC1.txt) (24/02/23 - 06:26)- 13472 bytes
+[**byYivt7A**](/data/byYivt7A.txt) (24/02/23 - 06:35)- 1125 bytes
 
-[**qBRiVpC1**](/data/qBRiVpC1.txt) (24/02/23 - 06:26)- 13472 bytes
+[**byYivt7A**](/data/byYivt7A.txt) (24/02/23 - 06:35)- 1125 bytes
 
-**Total Datas**: 11618
+[**kuSGMkWh**](/data/kuSGMkWh.txt) (24/02/23 - 06:35)- 13508 bytes
 
-**Total Size**: 76.19 MB / 76.2 MB
+**Total Datas**: 11620
+
+**Total Size**: 76.20 MB / 76.2 MB
