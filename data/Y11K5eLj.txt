@@ -1,0 +1,97 @@
+/*
+To run libretranslate: docker run -ti --rm -p 5000:5000 libretranslate/libretranslate:v1.3.8
+*/
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
+using ElementTranslator;
+using FastDeepCloner;
+using SubtitlesParser.Classes;
+
+Console.OutputEncoding = Encoding.UTF8;
+var httpClient = new HttpClient (new HttpRetryMessageHandler(new HttpClientHandler())) { BaseAddress = new Uri("http://localhost:5000"), Timeout = TimeSpan.FromSeconds(30) };
+const string sourceFile = @"F:\Scott,Hassaan,JJ_Feb_23_2023-11_36-AM.srt";
+
+Dictionary<int, string[]> dict = new();
+
+var parser = new SubtitlesParser.Classes.Parsers.SrtParser();
+await using var fileStream = File.OpenRead(sourceFile);
+    var items = parser.ParseStream(fileStream, Encoding.UTF8);
+    
+
+var langs = await httpClient.GetFromJsonAsync<Languages[]>("/languages");
+
+
+var langList = langs.ToList();
+Console.WriteLine("Languages: " + langList.Count);
+var paralelOptions2 = new ParallelOptions { MaxDegreeOfParallelism = langList.Count > 6 ? Environment.ProcessorCount : langList.Count };
+
+await Parallel.ForEachAsync(langList, paralelOptions2, async (line, t) =>
+    {
+        var outItems = new ConcurrentBag<SubtitleItem?>();
+        foreach (var item in items)
+        {
+            var newItem = item.Clone();
+            for (var index = 0; index < item.PlaintextLines.Count; index++)
+            {
+                var plainLine = item.PlaintextLines[index];
+                var translated = await TranslateAsync(httpClient, plainLine, "en", line.code);
+                newItem.PlaintextLines[index] = translated;
+                newItem.Lines[index] = translated;
+                Console.WriteLine(line.name + " :: " + plainLine + " :: " + translated);
+            }
+            outItems.Add(newItem);
+        }
+        
+        Console.WriteLine("Starting on language" + langList.IndexOf(line));
+        var path = Path.GetDirectoryName(sourceFile);
+
+        var filePath = Path.Combine(path, Path.GetFileNameWithoutExtension(sourceFile) + "." + line.code + ".srt");
+
+        if (File.Exists(filePath)) return; ;
+
+        
+        Console.WriteLine("Writing file at " + filePath + " for language" + langList.IndexOf(line));
+        var writer = new SubtitlesParser.Classes.Writers.SrtWriter();
+        var outList = outItems.OrderBy(x => x.StartTime).ToList();
+        using (var fileStream = File.OpenWrite(filePath)) {
+            writer.WriteStream(fileStream, outList);
+        }
+        
+    }
+);
+
+
+
+Console.WriteLine("FINISHED");
+Console.ReadLine();
+
+
+async Task<string> TranslateAsync(HttpClient client, string test, string sourceLanguage, string targetLanguage)
+{
+    var urlEncodedContent = new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        {
+            "q",
+            test
+        },
+        {
+            "source",
+            sourceLanguage
+        },
+        {
+            "target",
+            targetLanguage
+        }
+    });
+
+    var content = (HttpContent)urlEncodedContent;
+    var res =
+        await httpClient.PostAsync("/translate", content);
+    var stringResp = await res.Content.ReadAsStringAsync();
+    var rest = new { translatedText = "" };
+    var ret = JsonSerializer.Deserialize<dynamic>(stringResp);
+    return ret.GetProperty("translatedText").GetString();
+}
