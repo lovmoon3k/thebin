@@ -1,0 +1,70 @@
+local http = require("socket.http")
+local ltn12 = require("ltn12")
+local lfs = require("lfs")
+local lx = require("lxp.lom")
+
+function sendHttpRequest(url)
+    local response_body = {}
+    local res, code, response_headers = http.request{
+        url = url,
+        method = "GET",
+        headers = {
+            ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+        },
+        sink = ltn12.sink.table(response_body)
+    }
+    local response = table.concat(response_body)
+    return response
+end
+
+function parseVideoPage(videoPage)
+    local tree = lx.parse(videoPage)
+    local videoId = nil
+    for _, elem in ipairs(tree) do
+        if elem.tag == "div" and elem.attr.class == "watch-main-col" then
+            for _, child in ipairs(elem) do
+                if child.tag == "div" and child.attr.id == "watch7-content" then
+                    for _, grandchild in ipairs(child) do
+                        if grandchild.tag == "div" and grandchild.attr.id == "watch7-player" then
+                            videoId = grandchild.attr["data-video-id"]
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local videoUrl = "https://www.youtube.com/watch?v=" .. videoId
+    return videoId, videoUrl
+end
+
+function downloadVideo(videoUrl)
+    local response_body = {}
+    local res, code, response_headers = http.request{
+        url = videoUrl,
+        method = "GET",
+        headers = {
+            ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+        },
+        sink = ltn12.sink.table(response_body)
+    }
+    local response = table.concat(response_body)
+    return response
+end
+
+function saveVideoToFile(videoData, filename)
+    local file, err = io.open(filename, "wb")
+    if not file then
+        print("Error opening file:", err)
+        return
+    end
+    file:write(videoData)
+    file:close()
+end
+
+-- main program
+print("Enter the URL of the YouTube video you want to download:")
+local videoPageUrl = io.read("*line")
+local videoPage = sendHttpRequest(videoPageUrl)
+local videoId, videoUrl = parseVideoPage(videoPage)
+local videoData = downloadVideo(videoUrl)
+saveVideoToFile(videoData, "video.mp4")
