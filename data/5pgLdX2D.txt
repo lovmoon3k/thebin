@@ -1,0 +1,107 @@
+-- This program was made while following this video about programming in Apple II BASIC:
+-- https://www.youtube.com/watch?v=PHfKCxjsmos
+-- This program renders a 3D cube being rotating along x, y, and Z axes at 60fps.
+-- This code will only work in ComputerCraft.
+local xSize, ySize = term.getSize()
+local timer = 0
+local startTime = os.clock()
+
+local round = function(n)
+    if n%1 < 0.5 then return math.floor(n)
+    else return math.ceil(n) end
+end
+
+local slp = function(n)
+    local fps = timer/(os.clock()-startTime)
+    n = n or 20
+    timer = timer + 1
+    if n > 9 and timer%(n/10) == 0 then
+        sleep(0.05)
+    elseif n < 10 then
+        sleep(1/n)
+        fps = fps*2
+    end
+    return fps
+end
+
+local winBuffer = {
+    [1] = window.create(term.current(), 1, 1, xSize, ySize),
+    [2] = window.create(term.current(), 1, 1, xSize, ySize)
+}
+local cubeSize = ySize*1.4
+local xCenter, yCenter = round(xSize/2), round(ySize/2)
+local win = 1
+local angle = 0
+local points = {}
+
+for n = 1, 8 do
+    local x, y, z = 0, 0, 0
+    if n%4 < 2 then x = -1 else x = 1 end
+    if (n-1)%4 < 2 then y = -1 else y = 1 end
+    if n < 5 then z = -1 else z = 1 end
+    points[n] = {
+        position = vector.new(x, y, z),
+        rotation = {
+            x = vector.new(0, 0, 0),
+            y = vector.new(0, 0, 0),
+            z = vector.new(0, 0, 0)
+        },
+        projection = vector.new(0, 0, 0)
+    }
+end
+
+local drawLine = function(a, b)
+    local x1 = points[a].projection.x * cubeSize + xCenter
+    local y1 = points[a].projection.y * cubeSize + yCenter
+    local x2 = points[b].projection.x * cubeSize + xCenter
+    local y2 = points[b].projection.y * cubeSize + yCenter
+    paintutils.drawLine(x1, y1, x2, y2, colors.lime)
+end
+
+local bufferSwap = function()
+    winBuffer[win].setVisible(true)
+    if win == 1 then win = 2 else win = 1 end
+    winBuffer[win].setVisible(false)
+    term.redirect(winBuffer[win])
+end
+
+local setRotation = function()
+    local cs = math.cos(angle)
+    local sn = math.sin(angle)
+    for n = 1, 8 do
+        points[n].rotation.z.x = -cs*points[n].position.x + sn*points[n].position.y
+        points[n].rotation.z.y = sn*points[n].position.x + cs*points[n].position.y
+        points[n].rotation.z.z = points[n].position.z
+
+        points[n].rotation.y.x = cs*points[n].rotation.z.x + sn*points[n].rotation.z.z
+        points[n].rotation.y.y = points[n].rotation.z.y
+        points[n].rotation.y.z = -sn*points[n].rotation.z.x + cs*points[n].rotation.z.z
+
+        points[n].rotation.x.x = points[n].rotation.y.x
+        points[n].rotation.x.y = cs*points[n].rotation.y.y - sn*points[n].rotation.y.z
+        points[n].rotation.x.z = sn*points[n].rotation.y.y + cs*points[n].rotation.y.z
+
+        local z = 1 / (5 - points[n].rotation.x.z)
+        points[n].projection.x = points[n].rotation.x.x * z
+        points[n].projection.y = points[n].rotation.x.y * z
+    end
+end
+
+local drawCube = function()
+    for n = 1, 8 do
+        if n%4 > 0 then drawLine(n, n+1)
+        else drawLine(n, n-3) end
+        if n < 5 then drawLine(n, n+4) end
+    end
+end
+
+while true do
+    term.setBackgroundColor(colors.black)
+    term.clear()
+    term.setCursorPos(1, 1)
+    print(round(slp(60)/2) .. "FPS")
+    setRotation()
+    drawCube()
+    angle = angle + 0.005
+    bufferSwap()
+end
