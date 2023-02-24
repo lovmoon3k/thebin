@@ -1,0 +1,65 @@
+// Copy from kernel to user.
+// Copy len bytes from src to virtual address dstva in a given page table.
+// Return 0 on success, -1 on error.
+int
+copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
+{
+  // printf("inside copyout\n");
+  uint64 n, va0, pa0;
+
+  while(len > 0){
+    va0 = PGROUNDDOWN(dstva);
+    // printf("virtual addr: %d\n", va0);
+
+    pte_t *pte;
+    if(va0 >= MAXVA){
+      printf("virtual addr overflow\n");
+      return -1;
+    }
+    pte = walk(pagetable, va0, 0);
+
+    if(pte == 0)  return -1;
+    if (*pte & PTE_RSW){
+      // meaning its COW
+      uint flags = PTE_FLAGS(*pte);
+      // give write permission and remove COW flag
+      flags |= PTE_W;
+      flags &= (~PTE_RSW);
+
+      // trying to replicate the copy process from original uvmcopy
+      char *mem;
+      if((mem = kalloc()) == 0) {
+        printf("error in: void usertrap(void)\n");
+        return -1;
+      }
+
+      pa0 = PTE2PA(*pte);
+      memmove(mem, (char*)pa0, PGSIZE); // naki (void*)pa0 hobe?
+      uvmunmap(pagetable, va0, 1, 0);
+      dec_ref((void*)pa0);
+      if (mappages(pagetable, va0, PGSIZE, (uint64)mem, flags) != 0) {
+        printf("error in copyout.\n");
+      }
+
+    } else {
+      // this was the original code
+      if(va0 >= MAXVA){
+        printf("virtual addr overflow\n");
+        return -1;
+      }
+      pa0 = walkaddr(pagetable, va0);
+      if(pa0 == 0)
+        return -1;
+      n = PGSIZE - (dstva - va0);
+      if(n > len)
+        n = len;
+      memmove((void *)(pa0 + (dstva - va0)), src, n);
+
+      len -= n;
+      src += n;
+      dstva = va0 + PGSIZE;
+    }
+
+  }
+  return 0;
+}
